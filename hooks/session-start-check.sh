@@ -28,8 +28,11 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/n
 SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
 [[ "$SS_SOURCE" == "resume" ]] || rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
 
-# Resolve spec version from the installed core spec, if present.
-VER="v1.4.3"
+# Resolve spec version from the installed core spec, if present. The fallback is a
+# non-version placeholder on purpose: a hardcoded vX.Y.Z here silently goes stale
+# every release (drift.test.js guards against reintroducing one). If we cannot read
+# the spec, we honestly do not know its version.
+VER="unknown"
 for spec in "${CODEX_HOME:-$HOME/.codex}/AGENTS.override.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"; do
   if [[ -r "$spec" ]]; then
     v="$(grep -m1 -oE 'CODEX-CODING-SPEC v[0-9]+\.[0-9]+\.[0-9]+' "$spec" 2>/dev/null | grep -oE 'v[0-9.]+')"

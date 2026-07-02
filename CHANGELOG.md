@@ -3,6 +3,50 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.0.1 — 2026-07-03 — post-release audit fixes (no rule-text changes)
+
+A full-project audit surfaced a telemetry-loss gap on upgrade plus six spec↔implementation
+drifts. No spec RULE text changed; `hard-rules.json` reclassifies one rule's enforcement to
+match reality.
+
+### Fixed
+- **Telemetry survives the codexmd→agentsmd upgrade.** `install` now migrates a prior
+  `~/.codex/logs/codexmd.jsonl` into `logs/agentsmd.jsonl` (append, one-shot) so the
+  promote/demote window is not reset to zero on upgrade (`scripts/lib/migrate.js`
+  `migrateLegacyTelemetry`). Previously the rename orphaned all prior rule-hit data.
+- **`memory-read-check` no longer self-satisfies.** Its block message named "MEMORY.md";
+  if Codex echoed that into the transcript, the next retry's own detection matched it and
+  let the ship through. The message now names the containing directory instead.
+- **`memory-prompt-hint` matches 中文 prompts.** Keyword extraction was English-only, so a
+  Chinese prompt never matched a Chinese index trigger word. Added locale-independent CJK
+  matching (forced C byte-mode + `grep -a`; a `[一-龥]` class silently matches nothing in
+  the hook's non-interactive shell, which does not inherit an interactive UTF-8 locale).
+- **Both memory hooks resolve the git root**, not just `$CWD`, so a ship command run from a
+  subdirectory still finds the project `MEMORY.md`.
+- **`ship-baseline` branch parsing** tolerates `=`-bearing push flags (`--force-with-lease=…`).
+- **`banned-vocab.patterns`** now covers the §6 bugfix-anchor phrasings `看上去 ok` / `跑过了`
+  / `没问题了` (hard-rules `§6-bugfix-anchor` already declared this pattern set as its surface).
+  The English "it runs" is intentionally left to the self-enforced / advisory layer — a bare
+  blocking regex false-blocks legitimate text like "when it runs out of memory".
+- **`hard-rules.json`**: `§E3-ship-checklist` was mislabeled `enforcement: both` pointing at
+  an orphan section (`§7-ship-baseline`) no hook emits — a perpetual `hook-planned` false
+  signal. It is now `self` (the hook-enforced green+fresh gate is the sibling
+  `§E3-ship-baseline`).
+- **`rules.js`** reports `no-data` instead of `demote-candidate` for a live hook rule when
+  the telemetry window is empty — an empty window is not evidence of dilution.
+- **`install`** wipes its install dir before copying, so a hook removed since the last
+  version cannot linger unregistered.
+- Accuracy: `agentsmd-status` skill hook count 7 → 10; `session-start` version fallback
+  `v1.4.3` → `unknown` (a hardcoded version silently goes stale); spec task-file example
+  version neutralized; Discovery byte-budget note `~2/3` → `~3/4`; `ARCHITECTURE.md` phase
+  table marked complete; `_doc` "future CI drift test" → present-tense.
+
+### Testing
+- 100 → 109 automated checks (install/independence 43→47, closed-loop 9→10, drift 6→8, hook
+  smoke 42→44). New drift guards: no hook hardcodes a spec version, and the status skill's
+  stated hook count matches the wiring. New coverage: telemetry migration, `rules.js`
+  no-data signal, CJK prompt hint.
+
 ## v2.0.0 — 2026-07-03 — renamed codexmd → agentsmd
 
 **Breaking: the project, package, and plugin are renamed `codexmd` → `agentsmd`** to

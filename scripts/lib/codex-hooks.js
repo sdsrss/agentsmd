@@ -8,8 +8,6 @@
 
 const fs = require('fs');
 
-const MANAGED_EVENTS = ['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'];
-
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -130,6 +128,6 @@ function countAgentsmdHooks(content) {
 }
 
 module.exports = {
-  MANAGED_EVENTS, isAgentsmdCommand, buildManagedConfig, parseHooksConfig,
+  isAgentsmdCommand, buildManagedConfig, parseHooksConfig,
   mergeAgentsmdHooks, removeAgentsmdHooks, removeMarkedHooks, countAgentsmdHooks, serialize,
 };

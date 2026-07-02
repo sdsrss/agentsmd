@@ -27,11 +27,11 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
   const rows = readRows(logPath);
   const cutoff = now - days * 86400000;
   const bySection = {}, byHook = {}, byEvent = {};
-  let total = 0, enforcement = 0, parsedTs = 0;
+  let total = 0, enforcement = 0;
 
   for (const r of rows) {
     const ts = Date.parse(r && r.ts);
-    if (!Number.isNaN(ts)) { parsedTs++; if (ts < cutoff) continue; }
+    if (!Number.isNaN(ts) && ts < cutoff) continue; // unparseable ts → keep (can't window it out)
     total++;
     const sec = (r && r.spec_section) || '(none)';
     const ev = (r && r.event) || 'unknown';

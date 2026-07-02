@@ -2,6 +2,19 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.0.1 (2026-07-03) — audit fixes (no rule-text changes)
+
+Spec rule text is unchanged. Two spec-file edits are wording/accuracy only: the §7 task-file
+example version was neutralized (`v1.4.3` → `<version>`, a stale literal that drifted every
+release) and the Discovery byte-budget note corrected (`~2/3` → `~3/4`; core is ~74% of the
+32 KiB cap). `hard-rules.json` reclassifies `§E3-ship-checklist` from `both` + an orphan
+`rule_hits_section` (`§7-ship-baseline`, which no hook emits) to `self` — the 8-item gate is
+agent-walked; only its item-2 green+fresh gate is hook-enforced, and that is the sibling
+`§E3-ship-baseline` rule. `spec_version` → v2.0.1. Hook/script fixes: repo `CHANGELOG.md`.
+
+Sizing: core 24,118 → 24,121 B (+3; the version placeholder + `~3/4` phrase; 73.6% of the
+32,768 B cap, unchanged). Extended zero-budget (load-triggered).
+
 ## v2.0.0 (2026-07-03) — project rename (no rule changes)
 
 Rule text unchanged. The shared version moves to v2.0.0 in lockstep with the plugin's

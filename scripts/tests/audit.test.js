@@ -44,6 +44,17 @@ try {
   t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });
   t('rules: self-enforced Iron Law #2 labeled self-enforced (never a demote-candidate)', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-2'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
   t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
+
+  // Empty window: a 0-hit live rule must read as 'no-data', never 'demote-candidate'
+  // (an empty window is not evidence of dilution).
+  const empty = path.join(tmp, 'empty.jsonl');
+  fs.writeFileSync(empty, '');
+  const raEmpty = rulesAudit({ days: 30, now: NOW, logPath: empty });
+  t('rules: zero telemetry → live hook rules are no-data, not demote-candidate', () => {
+    assert.strictEqual(raEmpty.demoteCandidates.length, 0, 'demote off an empty window');
+    const r = raEmpty.rules.find((x) => x.id === '§8-rm-rf-var');
+    assert(r && r.signal === 'no-data', 'got ' + (r && r.signal));
+  });
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

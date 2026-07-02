@@ -15,6 +15,11 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
   const liveSections = new Set(hr.live_sections || []);
   const a = audit({ days, now, logPath });
+  // With zero telemetry in the window, a 0-hit live rule is NOT dilution — there is
+  // simply no data to judge it. Distinguish 'no-data' from 'demote-candidate' so the
+  // governance surface never recommends demotion off an empty window (e.g. a fresh
+  // or never-run install).
+  const noData = a.inWindow === 0;
 
   const rows = hr.rules.map((r) => {
     const enforced = r.enforcement === 'hook' || r.enforcement === 'both';
@@ -23,7 +28,7 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     const hits = bucket ? bucket.enforcement : 0;
     const live = section ? liveSections.has(section) : false;
     let signal;
-    if (enforced && section && live) signal = hits > 0 ? 'active' : 'demote-candidate';
+    if (enforced && section && live) signal = hits > 0 ? 'active' : (noData ? 'no-data' : 'demote-candidate');
     else if (enforced && section && !live) signal = 'hook-planned'; // hook not built yet → 0 hits is expected, not dilution
     else if (r.enforcement === 'external') signal = 'external-audit';
     else signal = 'self-enforced';

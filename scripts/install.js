@@ -37,9 +37,16 @@ function install(nowIso) {
   //     block, skills, and dirs so an upgrader gets a clean replacement, not
   //     duplicates. Marker-scoped (never touches OMX); a no-op when none exists.
   const migratedFromCodexmd = M.removeLegacyCodexmd();
+  //     …and carry that user's rule-hit telemetry across the rename so the
+  //     promote/demote window survives the upgrade (no-op on a fresh install).
+  const migratedTelemetry = M.migrateLegacyTelemetry();
 
   // 1. Copy hooks/ + spec/ + scripts/ into the self-contained install dir (the
-  //    `/agentsmd/` path segment is what the hooks.json marker matches).
+  //    `/agentsmd/` path segment is what the hooks.json marker matches). Wipe the
+  //    dir first so a file removed since the last version cannot linger: the
+  //    install dir is 100% agentsmd's (manifest/state/log live elsewhere), so it
+  //    must mirror the repo exactly, not accumulate stale copies across upgrades.
+  fs.rmSync(installDir, { recursive: true, force: true });
   fs.mkdirSync(installDir, { recursive: true });
   fs.cpSync(path.join(repo, 'hooks'), hooksDir, { recursive: true });
   fs.cpSync(path.join(repo, 'spec'), P.installSpecDir(), { recursive: true });
@@ -88,6 +95,7 @@ function install(nowIso) {
     configFlagAddedByUs: cfg.changed,
     agentsBlockUpdated: am.updated === true,
     migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
+    migratedTelemetryRows: migratedTelemetry.migrated,
   };
   writeFile(P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;

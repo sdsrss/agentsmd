@@ -13,6 +13,15 @@ const assert = require('assert');
 let PASS = 0, FAIL = 0;
 const t = (name, fn) => { try { fn(); PASS++; console.log('  ok   ' + name); } catch (e) { FAIL++; console.log('  FAIL ' + name + '\n     ' + e.message); } };
 
+// Exact expected hook count, derived from the wiring template — a dropped or added
+// registration then turns this test red instead of passing a loose `>= 7`.
+const EXPECTED_HOOKS = (() => {
+  const tpl = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'hooks', 'hooks.json'), 'utf8'));
+  let n = 0;
+  for (const groups of Object.values(tpl.hooks)) for (const g of groups || []) n += (g.hooks || []).length;
+  return n;
+})();
+
 // Fresh module state per sandbox: clear the require cache so paths.js re-reads
 // CODEX_HOME. (paths.js reads process.env at call time, but be safe.)
 function loadModules() {
@@ -57,7 +66,7 @@ withSandbox((dir) => {
   const { install, H } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
-  t('install adds agentsmd hook entries', () => assert(H.countAgentsmdHooks(after) >= 7, 'expected ≥7 agentsmd hooks, got ' + H.countAgentsmdHooks(after)));
+  t('install adds agentsmd hook entries', () => assert.strictEqual(H.countAgentsmdHooks(after), EXPECTED_HOOKS));
   t('install preserves the OMX entries (3 events)', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 3));
   t('agentsmd entries land in SessionStart/PreToolUse/Stop', () => {
     const p = JSON.parse(after);
@@ -86,7 +95,7 @@ withSandbox((dir) => {
   const res = uninstall();
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   t('uninstall removes all agentsmd entries', () => assert.strictEqual(H.countAgentsmdHooks(after), 0));
-  t('uninstall reports the removed count (≥7)', () => assert(res.hooksRemoved >= 7, 'removed=' + res.hooksRemoved));
+  t('uninstall reports the removed count', () => assert.strictEqual(res.hooksRemoved, EXPECTED_HOOKS));
   t('uninstall preserves OMX entries', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 3));
   t('round-trip is byte-identical to the OMX seed', () => assert.strictEqual(after, seed));
   t('uninstall leaves config.toml codex_hooks flag (§5)', () => assert.strictEqual(res.flagLeftEnabled, true));
@@ -100,13 +109,13 @@ withSandbox((dir) => {
   const cfg = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('standalone install creates a valid hooks.json (agentsmd-only)', () => {
-    assert(H.countAgentsmdHooks(hooks) >= 7);
+    assert.strictEqual(H.countAgentsmdHooks(hooks), EXPECTED_HOOKS);
     assert.strictEqual(countCmd(hooks, (c) => !H.isAgentsmdCommand(c)), 0);
   });
   t('standalone install sets hooks=true', () => assert(/^\s*hooks\s*=\s*true/m.test(cfg)));
   t('standalone install injects the spec sentinel block', () => assert(agents.includes('# >>> agentsmd >>>') && agents.includes('CODEX-CODING-SPEC')));
   const st = status();
-  t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert(st.agentsmdHooksRegistered >= 7); });
+  t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert.strictEqual(st.agentsmdHooksRegistered, EXPECTED_HOOKS); });
   uninstall();
   t('standalone uninstall removes hooks.json (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'hooks.json'))));
   t('standalone uninstall removes AGENTS.md (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'AGENTS.md'))));
@@ -218,7 +227,7 @@ withSandbox((dir) => {
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('migrate: legacy /codexmd/ hooks stripped', () => assert.strictEqual(countCmd(hooks, isCodexmd), 0));
   t('migrate: OMX entry preserved through migration', () => assert.strictEqual(countCmd(hooks, (c) => c === OMX_CMD), 1));
-  t('migrate: agentsmd hooks installed', () => assert(H.countAgentsmdHooks(hooks) >= 7));
+  t('migrate: agentsmd hooks installed', () => assert.strictEqual(H.countAgentsmdHooks(hooks), EXPECTED_HOOKS));
   t('migrate: legacy AGENTS.md block gone; agentsmd block + user content kept', () => {
     assert(!agents.includes('# >>> codexmd >>>'), 'legacy block still present');
     assert(agents.includes('# >>> agentsmd >>>') && agents.includes('Always write tests.'));
@@ -262,6 +271,26 @@ withSandbox((dir) => {
     assert(res.legacyCodexmdRemoved && res.legacyCodexmdRemoved.installDirRemoved === true);
     assert(!fs.existsSync(path.join(dir, 'codexmd')));
   });
+});
+
+// 9d. install migrates prior codexmd telemetry into agentsmd's log (upgraders keep
+//     their promote/demote window instead of restarting it at zero).
+withSandbox((dir) => {
+  const legacyLog = path.join(dir, 'logs', 'codexmd.jsonl');
+  fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+  fs.writeFileSync(legacyLog, '{"ts":"2026-07-01T00:00:00Z","hook":"pre-bash-safety","event":"block"}\n{"ts":"2026-07-01T01:00:00Z","hook":"banned-vocab","event":"block"}\n');
+  const { install } = loadModules();
+  const manifest = install('2026-07-03T00:00:00.000Z');
+  const newLog = path.join(dir, 'logs', 'agentsmd.jsonl');
+  t('migrate: legacy telemetry appended to agentsmd log', () => {
+    assert(fs.existsSync(newLog), 'agentsmd.jsonl not created');
+    assert.strictEqual(fs.readFileSync(newLog, 'utf8').split('\n').filter(Boolean).length, 2);
+  });
+  t('migrate: legacy telemetry file consumed (one-shot)', () => assert(!fs.existsSync(legacyLog)));
+  t('migrate: manifest records migrated telemetry row count', () => assert.strictEqual(manifest.migratedTelemetryRows, 2));
+  // idempotent: a second install must not double-append (legacy file already gone).
+  install('2026-07-03T00:00:00.000Z');
+  t('migrate: re-install does not duplicate migrated rows', () => assert.strictEqual(fs.readFileSync(newLog, 'utf8').split('\n').filter(Boolean).length, 2));
 });
 
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);

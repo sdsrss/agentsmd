@@ -138,6 +138,11 @@ mk_ph() { jq -cn --arg p "$1" --arg cwd "$2" '{prompt:$p,cwd:$cwd,session_id:"sm
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$PROJ")")"; is_context "$OUT" && ok "prompt matches MEMORY index → hint" || bad "prompt matches MEMORY index → hint" "$OUT"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'bump the version number' "$PROJ")")"; is_empty "$OUT" && ok "prompt no match → silent" || bad "prompt no match → silent" "$OUT"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$SANDBOX/noproj")")"; is_empty "$OUT" && ok "no MEMORY.md → silent" || bad "no MEMORY.md → silent" "$OUT"
+# C4: 中文 index trigger words match a 中文 prompt (UTF-8 locale; on LC_ALL=C the
+# CJK class won't match and the hint fails safe rather than firing wrongly).
+printf '%s\n' '- [认证登录](memory/auth.md) — 认证 登录 会话 处理' > "$PROJ/MEMORY.md"
+OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph '修复认证登录的并发问题' "$PROJ")")"; is_context "$OUT" && ok "中文 prompt matches 中文 index → hint" || bad "中文 prompt matches 中文 index → hint" "$OUT"
+OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph '更新版本号' "$PROJ")")"; is_empty "$OUT" && ok "中文 prompt no match → silent" || bad "中文 prompt no match → silent" "$OUT"
 
 echo "== telemetry =="
 LOG="$SANDBOX/.codex/logs/agentsmd.jsonl"

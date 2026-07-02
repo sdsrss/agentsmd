@@ -22,7 +22,8 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
 MEM=""
-for cand in "$CWD/MEMORY.md" "${CODEX_HOME:-$HOME/.codex}/MEMORY.md"; do
+GITROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)"
+for cand in "$CWD/MEMORY.md" ${GITROOT:+"$GITROOT/MEMORY.md"} "${CODEX_HOME:-$HOME/.codex}/MEMORY.md"; do
   [[ -r "$cand" ]] && { MEM="$cand"; break; }
 done
 [[ -n "$MEM" ]] || exit 0
@@ -39,6 +40,18 @@ while IFS= read -r line; do
     [[ "$STOP" == *" $kw "* ]] && continue
     if [[ "$PROMPT_LC" == *"$kw"* ]]; then hit=1; break; fi
   done
+  # CJK trigger words: index bodies keep 中文 trigger words (spec §1) and prompts are
+  # 中文 by default. Extract non-ASCII byte runs ≥6 bytes (≈2+ CJK chars; excludes lone
+  # punctuation like —) under a FORCED C byte-locale: a UTF-8 character class such as
+  # [一-龥] silently matches nothing in the hook's non-interactive shell, which does
+  # not reliably inherit an interactive UTF-8 locale. `-a` stops grep -o from treating
+  # the high bytes as binary. UTF-8 is self-synchronizing, so a byte-substring match
+  # on ASCII-delimited runs is a character-substring match — no false boundary hits.
+  if (( ! hit )); then
+    for kw in $(printf '%s' "$line" | LC_ALL=C grep -aoE '[^ -~]{6,}' 2>/dev/null | sort -u); do
+      if [[ "$PROMPT" == *"$kw"* ]]; then hit=1; break; fi
+    done
+  fi
   if (( hit )); then
     # keep the index line's title + link, trim trailing desc for brevity
     MATCHES="${MATCHES}  ${line}"$'\n'

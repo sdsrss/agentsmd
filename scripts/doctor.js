@@ -1,5 +1,5 @@
 'use strict';
-// doctor.js — health checks for a agentsmd install + spec integrity.
+// doctor.js — health checks for an agentsmd install + spec integrity.
 
 const fs = require('fs');
 const path = require('path');

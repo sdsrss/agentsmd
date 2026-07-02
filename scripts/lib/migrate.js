@@ -79,4 +79,28 @@ function removeLegacyCodexmd() {
   return report;
 }
 
-module.exports = { removeLegacyCodexmd, isLegacyCommand, LEGACY_BEGIN, LEGACY_END };
+// Preserve a prior codexmd user's telemetry across the rename: append the legacy
+// ~/.codex/logs/codexmd.jsonl onto agentsmd's log, then remove the legacy file so
+// the promote/demote window (the whole point of the closed loop, ARCHITECTURE.md §4)
+// survives the upgrade instead of restarting from zero. NOT folded into
+// removeLegacyCodexmd(): that runs on uninstall too, where preserving telemetry is
+// wrong. Append (never overwrite — agentsmd.jsonl may already exist) and one-shot
+// (the legacy file is consumed, so a re-install is a no-op). Best-effort: a failure
+// here must never break install. Returns { migrated: <row count> }.
+function migrateLegacyTelemetry() {
+  const legacy = path.join(P.codexHome(), 'logs', 'codexmd.jsonl');
+  const current = P.logPath(); // logs/agentsmd.jsonl — the single file audit.js reads
+  try {
+    if (!fs.existsSync(legacy)) return { migrated: 0 };
+    let data = fs.readFileSync(legacy, 'utf8');
+    const migrated = data.split('\n').filter(Boolean).length;
+    if (migrated === 0) { try { fs.unlinkSync(legacy); } catch {} return { migrated: 0 }; }
+    if (!data.endsWith('\n')) data += '\n';
+    fs.mkdirSync(path.dirname(current), { recursive: true });
+    fs.appendFileSync(current, data);
+    fs.unlinkSync(legacy); // consumed → idempotent
+    return { migrated };
+  } catch { return { migrated: 0 }; }
+}
+
+module.exports = { removeLegacyCodexmd, migrateLegacyTelemetry, isLegacyCommand, LEGACY_BEGIN, LEGACY_END };

@@ -1,12 +1,12 @@
 # agentsmd — Architecture & Build Plan
 
-Codex 版编程全局规范**系统**（不只是一份规范文本）的架构设计与分阶段实施计划。参照 `/mnt/data_ssd/dev/projects/claudemd` 的成熟三层形态，适配 Codex CLI 的真实能力面。本文件是设计正典；实施进度见 `tasks/agentsmd-build.md`。
+Codex 版编程全局规范**系统**（不只是一份规范文本）的架构设计与分阶段实施计划。参照 `/mnt/data_ssd/dev/projects/claudemd` 的成熟三层形态，适配 Codex CLI 的真实能力面。本文件是设计正典；实施已完成（Phase 0-5 全绿，见 §8 阶段表）。
 
 ---
 
 ## 1. 为什么需要「系统」而不只是「一份 AGENTS.md」
 
-`spec/AGENTS.md v1.4.0` 已是一份优质 core 规范：六大功能轴（§3 链式思维 / §4 skills+工具路由 / §7 记忆与进度 / §9 文件卫生 / §11 自动化）齐备，Iron Laws、§8 SAFETY、Codex 机制映射都准确。它缺的**不是文字**。
+`spec/AGENTS.md` 的 core 规范文本本身已经完备：六大功能轴（§3 链式思维 / §4 skills+工具路由 / §7 记忆与进度 / §9 文件卫生 / §11 自动化）齐备，Iron Laws、§8 SAFETY、Codex 机制映射都准确。它缺的**不是文字**。
 
 真实成本是**注意力稀释**（`docs/agentsmd.txt`）：规则条数越多，长会话中间段每条的遵从强度越低，且这个成本 token 数字测不出来。claudemd 最终演化出**三层加载 + hook 强制 + 命中率升降级**，其目的**不是省 token，是保持每条规则的执行力**。一条无人强制、又从不命中的 always-on 规则，是纯稀释源。
 
@@ -143,11 +143,11 @@ agentsmd/
 | Phase | 交付 | 触及 live ~/.codex? | 状态 |
 |---|---|---|---|
 | **0** | 研究 + 结构 + 设计：本文件 · `hard-rules.json` · `spec/` 就位 · 任务文件 | 否 | ✅ 本会话 |
-| **1** | hook 地基：实测 2 协议细节 → `hooks/lib/*.sh` Codex 适配 → 首批 3 hook（pre-bash-safety 阻断 / banned-vocab / session-start） | 否（仓库内 + 沙箱测试） | 待办 |
-| **2** | 其余 hooks 移植（ship-baseline/memory-read/residue/sandbox-disposal/transcript-structure-scan/mem-audit/memory-prompt-hint） | 否 | 待办 |
-| **3** | L2 脚本（install/status/audit/doctor/toggle）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | 待办 |
-| **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | 待办 |
-| **5** | 打包成标准 codex plugin（`.codex-plugin/plugin.json`：skills + 携带 hooks.json）+ marketplace 清单 + CI drift 测试（hard-rules ↔ spec 一致性）；独立于 OMX 可单独安装 | 部署时 | 待办 |
+| **1** | hook 地基：实测 2 协议细节 → `hooks/lib/*.sh` Codex 适配 → 首批 3 hook（pre-bash-safety 阻断 / banned-vocab / session-start） | 否（仓库内 + 沙箱测试） | ✅ 已完成 |
+| **2** | 其余 hooks 移植（ship-baseline/memory-read/residue/sandbox-disposal/transcript-structure-scan/mem-audit/memory-prompt-hint） | 否 | ✅ 已完成 |
+| **3** | L2 脚本（install/status/audit/doctor/toggle）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | ✅ 已完成 |
+| **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | ✅ 已完成 |
+| **5** | 打包成标准 codex plugin（`.codex-plugin/plugin.json`：skills + 携带 hooks.json）+ marketplace 清单 + CI drift 测试（hard-rules ↔ spec 一致性）；独立于 OMX 可单独安装 | 部署时 | ✅ 已完成 |
 
 每个 hook 移植遵循 `spec/AGENTS.md §6` 证据规则：先对 temp fixture 灌样例 stdin 冒烟（§8.V3 destructive-smoke），再接 live。
 
@@ -160,6 +160,6 @@ agentsmd/
 - ✅ **#2 stdin payload 形状**：snake_case，与 Claude Code **逐字段一致**（`tool_name`/`tool_input.command`/`session_id`/`transcript_path`/`cwd`/`hook_event_name`/`prompt`/`stop_hook_active`/`tool_response`）。读字段的 hook 零改动移植。
 - ✅ **#3 SessionEnd**：Codex 恰好 5 事件，**无 SessionEnd**（`MANAGED_HOOK_EVENTS` 类型确认）。session-end 逻辑折进 Stop。
 
-仍开放：
-- **[Phase 3/5]** `codex plugin` 是否自动 merge 插件 hooks，还是靠 installer 手动并入 `~/.codex/hooks.json`——决定打包与安装机制。
-- **[Phase 3]** agentsmd 规范部署形态：`AGENTS.override.md` vs 独立 include vs 与 OMX AGENTS.md 协商——不覆盖前提下的最优挂载点。
+已解决（实现落地）：
+- ✅ **[Phase 3/5]** 打包/安装机制 = **双路径**：plugin 携带的顶层 `hooks.json`（相对路径）由 Codex plugin 系统自动装配 + `scripts/install.js` 标记式 merge 手动并入 `~/.codex/hooks.json`；两份布线由 `drift.test.js` gate #4 保持一致。
+- ✅ **[Phase 3]** 规范部署形态 = `~/.codex/AGENTS.md` 的 sentinel 托管块（`# >>> agentsmd >>> … # <<< agentsmd <<<`），块外内容（OMX/用户的）逐字保留；卸载只删块。

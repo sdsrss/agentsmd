@@ -25,3 +25,13 @@
 已完善
 大幅提升
 完美(解决|支持|兼容)
+
+# ── §6 bugfix-anchor banned phrasings (missing-evidence tokens) ────────────
+# spec/AGENTS.md §6 lists these as "= missing evidence"; hard-rules §6-bugfix-anchor
+# declares this pattern set as its enforcement surface. Bypass any non-evaluative
+# use with [allow-vocab]. (The English "it runs" is deliberately NOT a blocking
+# pattern here — a bare regex false-blocks legitimate commit text like "when it runs
+# out of memory"; it stays covered by self-enforced Iron Law #2 + the Stop advisory.)
+看上去\s*ok
+跑过了
+没问题了

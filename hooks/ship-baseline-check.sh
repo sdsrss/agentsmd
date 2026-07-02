@@ -35,7 +35,7 @@ printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+push\b' || e
 command -v gh >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "gh-missing"; exit 0; }
 
 # Resolve the target branch: `git push <remote> <branch>` wins, else HEAD.
-BRANCH="$(printf '%s' "$CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[a-z-]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*' | awk '{print $NF}' | head -1)"
+BRANCH="$(printf '%s' "$CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*' | awk '{print $NF}' | head -1)"
 if [[ -z "$BRANCH" ]]; then
   BRANCH="$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 fi
