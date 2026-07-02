@@ -85,11 +85,11 @@ Uninstall strips only agentsmd's own entries (hooks, skills, the `AGENTS.md` blo
 
 ### Upgrading from codexmd
 
-If you previously installed **codexmd** (v1.4.0–v1.4.3), you don't need to do anything special: **running the agentsmd installer migrates you automatically.** It strips the legacy `/codexmd/` hooks, the `# >>> codexmd >>>` `AGENTS.md` block, the `codexmd-*` skills, and `~/.codex/{codexmd, .codexmd-state}` — marker-scoped, so oh-my-codex and every other tenant are left untouched. The migration is a no-op if no codexmd install is present, and `uninstall` sweeps any codexmd remnant too.
+If you previously installed **codexmd** (v1.4.0–v1.4.3), you don't need to do anything special: **running the agentsmd installer migrates you automatically.** It strips hooks under the old `CODEX_HOME/codexmd` install dir, the `# >>> codexmd >>>` `AGENTS.md` block, the `codexmd-*` skills, and `~/.codex/{codexmd, .codexmd-state}` — marker-scoped, so oh-my-codex and every other tenant are left untouched. The migration is a no-op if no codexmd install is present, and `uninstall` sweeps any codexmd remnant too.
 
 ## How is it independent of oh-my-codex?
 
-agentsmd manages **only its own entries** in the shared `~/.codex/hooks.json`, `config.toml`, and `AGENTS.md`, identified by a `/agentsmd/` command-path marker and `# >>> agentsmd >>>` sentinels. It never reads, modifies, reorders, or depends on oh-my-codex (OMX) or any other tenant, and it installs cleanly whether or not OMX is present. If the shared `hooks.json` is ever unparseable, the installer **aborts rather than clobber** it — it may hold other tenants' hooks it cannot see. This is proven by `scripts/tests/install.test.js`, which asserts a byte-identical round-trip alongside a seeded OMX config.
+agentsmd manages **only its own entries** in the shared `~/.codex/hooks.json`, `config.toml`, and `AGENTS.md`, identified by the active `CODEX_HOME/agentsmd` install-dir marker in hook commands and `# >>> agentsmd >>>` sentinels. It never reads, modifies, reorders, or depends on oh-my-codex (OMX) or any other tenant, and it installs cleanly whether or not OMX is present. If the shared `hooks.json` is ever unparseable, the installer **aborts rather than clobber** it — it may hold other tenants' hooks it cannot see. This is proven by `scripts/tests/install.test.js`, which asserts a byte-identical round-trip alongside a seeded OMX config.
 
 OMX (if present) is an orchestration framework; agentsmd is the discipline/enforcement layer. They are complementary — and agentsmd does not depend on OMX.
 

@@ -85,11 +85,11 @@ node scripts/uninstall.js   # 移除 agentsmd;逐字节保留其他每个租户
 
 ### 从 codexmd 升级
 
-如果你之前装过 **codexmd**(v1.4.0–v1.4.3),无需任何特殊操作:**运行 agentsmd 安装器会自动迁移你。** 它会 strip 掉旧的 `/codexmd/` hook、`# >>> codexmd >>>` 的 `AGENTS.md` 块、`codexmd-*` skills,以及 `~/.codex/{codexmd, .codexmd-state}`——按标记作用域(marker-scoped),因此 oh-my-codex 和其他每个租户都不受影响。若不存在 codexmd 安装,迁移是 no-op;`uninstall` 也会顺带清扫任何 codexmd 残留。
+如果你之前装过 **codexmd**(v1.4.0–v1.4.3),无需任何特殊操作:**运行 agentsmd 安装器会自动迁移你。** 它会 strip 掉旧 `CODEX_HOME/codexmd` 安装目录下的 hook、`# >>> codexmd >>>` 的 `AGENTS.md` 块、`codexmd-*` skills,以及 `~/.codex/{codexmd, .codexmd-state}`——按标记作用域(marker-scoped),因此 oh-my-codex 和其他每个租户都不受影响。若不存在 codexmd 安装,迁移是 no-op;`uninstall` 也会顺带清扫任何 codexmd 残留。
 
 ## 它如何独立于 oh-my-codex?
 
-agentsmd 在共享的 `~/.codex/hooks.json`、`config.toml`、`AGENTS.md` 里**只管自己的条目**,靠命令路径标记 `/agentsmd/` 和 `# >>> agentsmd >>>` sentinel 唯一识别。它绝不读取、修改、重排或依赖 oh-my-codex(OMX)或任何其他租户,且无论 OMX 是否存在都能干净安装。若共享的 `hooks.json` 不可解析,安装器会**宁可中止也不覆盖**——因为它可能藏着看不见的其他租户 hook。这一点由 `scripts/tests/install.test.js` 证明:在种入的 OMX 配置旁做到逐字节往返一致。
+agentsmd 在共享的 `~/.codex/hooks.json`、`config.toml`、`AGENTS.md` 里**只管自己的条目**,靠当前 `CODEX_HOME/agentsmd` 安装目录标记和 `# >>> agentsmd >>>` sentinel 唯一识别 hook 命令。它绝不读取、修改、重排或依赖 oh-my-codex(OMX)或任何其他租户,且无论 OMX 是否存在都能干净安装。若共享的 `hooks.json` 不可解析,安装器会**宁可中止也不覆盖**——因为它可能藏着看不见的其他租户 hook。这一点由 `scripts/tests/install.test.js` 证明:在种入的 OMX 配置旁做到逐字节往返一致。
 
 OMX(若在)是编排框架,agentsmd 是纪律/执行力层。二者互补——且 agentsmd **不依赖** OMX。
 

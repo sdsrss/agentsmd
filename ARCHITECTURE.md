@@ -75,11 +75,11 @@ spec/AGENTS*.md 的 (HARD) 规则
 
 **agentsmd 是一个独立的 Codex 插件，与 oh-my-codex(OMX) 完全解耦。** 用户可能**根本没装 OMX**，agentsmd 必须能独立安装运行；装了 OMX 时，两者的**安装/更新/卸载互不冲突、互不影响**。这是 HARD 不变式，不是「尽量」。
 
-**agentsmd 绝不**：假设 OMX 存在 · 读取/依赖/修改 OMX（或任何其他租户）的任何条目 · 在共享文件里重排或触碰非自己的内容。**agentsmd 只管自己的条目**，靠命令路径标记 `/agentsmd/` 唯一识别（绝不会撞上 OMX 的 `codex-native-hook.js` 或其他插件）。
+**agentsmd 绝不**：假设 OMX 存在 · 读取/依赖/修改 OMX（或任何其他租户）的任何条目 · 在共享文件里重排或触碰非自己的内容。**agentsmd 只管自己的条目**，靠当前 `CODEX_HOME/agentsmd` 安装目录标记唯一识别 hook 命令（绝不会撞上 OMX 的 `codex-native-hook.js`、其他插件，或恰好名为 `agentsmd` 的项目目录）。
 
 **装卸语义**（照搬 OMX `codex-hooks.js` 生产验证的 merge/remove 模式，用 agentsmd 自己的标记）：
 - **安装/更新 = merge**：逐事件 → strip 掉自己的旧条目 + **其余条目逐字保留** + 追加自己的新条目。**幂等**，重装不重复。
-- **卸载 = remove**：只 strip `/agentsmd/` 标记的条目 + 其余逐字保留；事件数组空→删事件键，hooks 空→删 hooks，root 空→删文件。
+- **卸载 = remove**：只 strip 当前 `CODEX_HOME/agentsmd` 安装目录下的条目 + 其余逐字保留；事件数组空→删事件键，hooks 空→删 hooks，root 空→删文件。
 - 天然处理两种边界：目标文件**不存在**（从 `{}` 起，创建自己的）· **有没有 OMX**（OMX 条目只是「其他条目」，原样保留）。
 - 安装器把「装了什么」（自己的 hook 条目、是否由自己设了 hook flag、AGENTS.md 注入块）记入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`，使卸载精确可逆。
 

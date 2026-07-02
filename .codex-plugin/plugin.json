@@ -1,6 +1,6 @@
 {
   "name": "agentsmd",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "CODEX-CODING-SPEC — a global coding-discipline spec enforced by native Codex hooks: SPINE workflow, level classification, Iron Laws (no done without fresh evidence), §8 SAFETY (blocks rm -rf $VAR / remote-exec), four-section reports, banned-vocab on commits, and a base-branch CI ship gate — plus a rule-hit telemetry closed loop that lets data decide which rules stay always-on. Installs standalone and is fully independent of oh-my-codex.",
   "author": {
     "name": "agentsmd"

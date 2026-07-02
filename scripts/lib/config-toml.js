@@ -19,7 +19,7 @@ function scanFeatures(content) {
   let oldTrueIdx = -1, falseIdx = -1, hasFeatures = false, featuresHeaderIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const th = line.match(/^\s*\[\[?([^\]]+)\]\]?\s*$/);
+    const th = line.match(/^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/);
     if (th) { cur = th[1].trim(); if (cur === 'features') { hasFeatures = true; if (featuresHeaderIdx < 0) featuresHeaderIdx = i; } continue; }
     let m = cur === '' ? line.match(/^[ \t]*features\.(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/) : null;
     if (!m && cur === 'features') m = line.match(/^[ \t]*(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/);

@@ -1,7 +1,7 @@
 'use strict';
 // migrate.js — one-time migration of a prior **codexmd** install (agentsmd's
 // former name, published as v1.4.0–v1.4.3) to agentsmd. Anyone who installed
-// codexmd carries a `/codexmd/` hook marker in ~/.codex/hooks.json, a
+// codexmd carries hooks under the old CODEX_HOME/codexmd install dir, a
 // `# >>> codexmd >>>` block in AGENTS.md, `codexmd-*` skills, and
 // ~/.codex/{codexmd, .codexmd-state}. This removes exactly those — by the SAME
 // marker-scoped discipline agentsmd uses for itself (ARCHITECTURE.md §5): never
@@ -22,9 +22,12 @@ const LEGACY_INSTALL_DIRNAME = 'codexmd';
 const LEGACY_STATE_DIRNAME = '.codexmd-state';
 
 // A command hook belongs to the legacy codexmd install iff its path carries a
-// `/codexmd/` segment (the old marker; mirrors isAgentsmdCommand for the new one).
-const isLegacyCommand = (command) =>
-  typeof command === 'string' && /[\\/]codexmd[\\/]/.test(command);
+// path under the old codexmd install dir in the active CODEX_HOME.
+const isLegacyCommand = (command) => {
+  if (typeof command !== 'string') return false;
+  const legacyInstallDir = path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME).replace(/\\/g, '/').replace(/\/+$/, '');
+  return command.replace(/\\/g, '/').includes(`${legacyInstallDir}/`);
+};
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const rmrf = (p) => { try { if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); return true; } } catch {} return false; };
@@ -37,8 +40,9 @@ function removeLegacyCodexmd() {
     skillsRemoved: 0, installDirRemoved: false, stateDirRemoved: false,
   };
 
-  // 1. hooks.json — strip only `/codexmd/`-marked entries; preserve all others
-  //    (OMX, the user's own, any tenant) exactly as agentsmd's own remove does.
+  // 1. hooks.json — strip only old CODEX_HOME/codexmd install-dir entries;
+  //    preserve all others (OMX, the user's own, any tenant) exactly as
+  //    agentsmd's own remove does.
   const hooksPath = P.hooksJsonPath();
   const hooksContent = readOrNull(hooksPath);
   if (hooksContent !== null) {

@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.0.2 (2026-07-03) — install/update hardening (no rule-text changes)
+
+Spec rule text unchanged. The shared version moves to v2.0.2 in lockstep with management
+layer fixes: stricter `doctor` health checks, exact install-dir hook markers, stale hook
+cleanup on update, commented `[features]` table handling, and shell-special `CODEX_HOME`
+support. `spec_version` → v2.0.2. Hook/script/docs fixes: repo `CHANGELOG.md`.
+
 ## v2.0.1 (2026-07-03) — audit fixes (no rule-text changes)
 
 Spec rule text is unchanged. Two spec-file edits are wording/accuracy only: the §7 task-file

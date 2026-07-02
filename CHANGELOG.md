@@ -3,6 +3,40 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.0.2 — 2026-07-03 — install/update hardening (no rule-text changes)
+
+QA cycling across realistic install, update, migration, doctor, and hook-execution paths
+surfaced several edge cases in the management layer. No spec RULE text changed.
+
+### Fixed
+- **`doctor` now fails on broken or removed installs.** It verifies the registered
+  agentsmd hook count against the current wiring and treats a missing installed hook dir as
+  unhealthy, instead of reporting "all checks passed" after uninstall or after `hooks.json`
+  lost agentsmd entries.
+- **`config.toml` parsing recognizes `[features]` table headers with inline comments.**
+  The installer no longer appends a duplicate `[features]` table when a user has
+  `[features] # comment`; it inserts or updates `hooks = true` in place.
+- **Updates remove stale agentsmd hooks from retired events.** Re-running the installer now
+  strips agentsmd-owned entries across every event before appending the current wiring, so
+  hooks removed since an older release cannot remain registered.
+- **Hook ownership markers are exact.** agentsmd-owned hooks are identified by the active
+  `CODEX_HOME/agentsmd` install dir, and legacy codexmd hooks by the old
+  `CODEX_HOME/codexmd` install dir. This prevents removing unrelated hooks whose commands
+  happen to live in a project directory named `agentsmd` or `codexmd`.
+- **Manual install supports shell-special `CODEX_HOME` paths.** The hook template is parsed
+  before placeholder replacement, and generated shell command paths are escaped for the
+  double-quoted command context, so paths containing spaces, quotes, or `$` still install and
+  execute correctly.
+- Docs and hook-manifest descriptions now state the exact install-dir marker behavior.
+
+### Testing
+- 109 → 122 automated checks. New coverage exercises `doctor` broken-install reporting,
+  commented `[features]` tables, stale hook cleanup, unrelated same-name project hooks,
+  legacy codexmd migration precision, and shell-special `CODEX_HOME` execution.
+- Manual E2E covered install/status/doctor, dangerous Bash hook blocking, audit/rules,
+  uninstall, stale agentsmd/codexmd cleanup, same-name unrelated hook preservation, and
+  shell-special `CODEX_HOME` paths.
+
 ## v2.0.1 — 2026-07-03 — post-release audit fixes (no rule-text changes)
 
 A full-project audit surfaced a telemetry-loss gap on upgrade plus six spec↔implementation

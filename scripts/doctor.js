@@ -6,6 +6,7 @@ const path = require('path');
 const cp = require('child_process');
 const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
+const H = require('./lib/codex-hooks');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const has = (bin) => { try { cp.execSync(`command -v ${bin}`, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -20,6 +21,18 @@ function doctor() {
   const cfg = read(P.configTomlPath()) || '';
   add('config.toml features.hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)');
 
+  let expectedHooks = 0;
+  try {
+    const tpl = JSON.parse(read(path.join(P.repoRoot(), 'hooks', 'hooks.json')));
+    for (const groups of Object.values(tpl.hooks || {})) for (const g of groups || []) expectedHooks += (g.hooks || []).length;
+  } catch {}
+  const registeredHooks = H.countAgentsmdHooks(read(P.hooksJsonPath()) || '');
+  add(
+    'agentsmd hooks registered',
+    expectedHooks > 0 && registeredHooks === expectedHooks,
+    expectedHooks > 0 ? `${registeredHooks}/${expectedHooks}` : 'cannot read hook template'
+  );
+
   const hooksDir = P.installHooksDir();
   if (fs.existsSync(hooksDir)) {
     let execOk = true, bad = '';
@@ -28,7 +41,7 @@ function doctor() {
     }
     add('installed hooks executable', execOk, execOk ? 'ok' : `not executable: ${bad}`);
   } else {
-    add('installed hooks executable', true, 'not installed (skipped)');
+    add('installed hooks executable', false, 'not installed');
   }
 
   // hard-rules anchors resolve against the spec (drift guard).

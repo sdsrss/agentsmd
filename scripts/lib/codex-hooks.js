@@ -1,29 +1,44 @@
 'use strict';
 // codex-hooks.js — marker-scoped merge/remove of agentsmd's own entries in the
 // shared ~/.codex/hooks.json. Mirrors oh-my-codex's dist/config/codex-hooks.js
-// (production-proven) but identifies OUR entries by the '/agentsmd/' path marker
-// instead of OMX's codex-native-hook.js. Invariant (ARCHITECTURE.md §5): touch
-// ONLY agentsmd's entries — never read, modify, reorder, or depend on OMX or any
-// other tenant; work whether or not the file pre-exists or OMX is installed.
+// (production-proven) but identifies OUR entries by the active CODEX_HOME
+// install-dir marker instead of OMX's codex-native-hook.js. Invariant
+// (ARCHITECTURE.md §5): touch ONLY agentsmd's entries — never read, modify,
+// reorder, or depend on OMX or any other tenant; work whether or not the file
+// pre-exists or OMX is installed.
 
 const fs = require('fs');
+const P = require('./paths');
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const shellDoubleQuoteEscape = (s) => String(s).replace(/(["\\$`])/g, '\\$1');
+const replacePlaceholder = (v, replacement) => {
+  if (typeof v === 'string') return v.replace(/__AGENTSMD_HOOKS_DIR__/g, replacement);
+  if (Array.isArray(v)) return v.map((x) => replacePlaceholder(x, replacement));
+  if (!isObj(v)) return v;
+  const out = {};
+  for (const [k, val] of Object.entries(v)) out[k] = replacePlaceholder(val, replacement);
+  return out;
+};
 
-// A command hook is agentsmd's iff its command path contains a `/agentsmd/`
-// segment. The installer guarantees the install dir carries that segment, so
-// this can never match OMX (`codex-native-hook.js`) or any other tenant.
+// A command hook is agentsmd's iff its command path resolves under agentsmd's
+// own install dir in the active CODEX_HOME. Matching the exact install dir avoids
+// deleting an unrelated tenant whose command happens to live in a project
+// directory named `agentsmd`.
 function isAgentsmdCommand(command) {
-  return typeof command === 'string' && /[\\/]agentsmd[\\/]/.test(command);
+  if (typeof command !== 'string') return false;
+  const installDir = P.installDir();
+  const normalizedCommand = command.replace(/\\(["\\$`])/g, '$1').replace(/\\/g, '/');
+  const normalizedInstallDir = installDir.replace(/\\/g, '/').replace(/\/+$/, '');
+  return normalizedCommand.includes(`${normalizedInstallDir}/`);
 }
 
 // Build agentsmd's managed hook config from the repo template, substituting the
 // __AGENTSMD_HOOKS_DIR__ placeholder with the absolute install path. The template
 // (hooks/hooks.json) is the single source of truth — no duplicated wiring here.
 function buildManagedConfig(hooksDir, templatePath) {
-  const raw = fs.readFileSync(templatePath, 'utf8').replace(/__AGENTSMD_HOOKS_DIR__/g, hooksDir);
-  const parsed = JSON.parse(raw);
+  const parsed = replacePlaceholder(JSON.parse(fs.readFileSync(templatePath, 'utf8')), shellDoubleQuoteEscape(hooksDir));
   if (!isObj(parsed) || !isObj(parsed.hooks)) throw new Error('invalid agentsmd hooks template');
   return { hooks: parsed.hooks };
 }
@@ -70,14 +85,20 @@ function mergeAgentsmdHooks(existingContent, managed) {
   }
   const root = parsed ? clone(parsed.root) : {};
   const hooks = parsed ? clone(parsed.hooks) : {};
-  for (const event of Object.keys(managed.hooks)) {
-    const existing = Array.isArray(hooks[event]) ? hooks[event] : [];
+
+  for (const [event, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
     const preserved = [];
-    for (const group of existing) {
+    for (const group of groups) {
       const s = stripAgentsmdFromGroup(group);
       if (s.group !== null) preserved.push(s.group);
     }
-    hooks[event] = [...preserved, ...managed.hooks[event].map(clone)];
+    if (preserved.length > 0) hooks[event] = preserved; else delete hooks[event];
+  }
+
+  for (const event of Object.keys(managed.hooks)) {
+    const existing = Array.isArray(hooks[event]) ? hooks[event] : [];
+    hooks[event] = [...existing, ...managed.hooks[event].map(clone)];
   }
   if (Object.keys(hooks).length > 0) root.hooks = hooks; else delete root.hooks;
   return serialize(root);
