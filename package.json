@@ -20,7 +20,8 @@
     "hooks.json",
     ".codex-plugin",
     "ARCHITECTURE.md",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=18"
