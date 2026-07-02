@@ -1,7 +1,7 @@
 'use strict';
 // uninstall.js — remove codexmd from ~/.codex, touching ONLY codexmd's own
 // footprint. OMX (or any other tenant) entries in hooks.json / AGENTS.md are
-// left byte-for-byte. Per §5 the config.toml codex_hooks flag is LEFT enabled
+// left byte-for-byte. Per §5 the config.toml hooks flag is LEFT enabled
 // (removing it could break OMX's or the user's own hooks).
 
 const fs = require('fs');
@@ -38,7 +38,7 @@ function uninstall() {
     }
   }
 
-  // 3. config.toml codex_hooks flag: intentionally LEFT (see header).
+  // 3. config.toml hooks flag: intentionally LEFT (see header).
 
   // 3b. Remove ONLY codexmd-* skill dirs from the shared Codex skills dir;
   //     every other tenant's skill is left untouched.

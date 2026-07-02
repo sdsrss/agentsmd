@@ -3,6 +3,20 @@
 Release history for **codexmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v1.4.2 — 2026-07-03 — Codex 0.142 hook-flag rename (codex_hooks → hooks)
+
+### Changed
+- Codex 0.142 renamed the hook feature flag `[features].codex_hooks` → `[features].hooks`
+  (`codex_hooks` is deprecated). codexmd now recognizes **both** names, sets the canonical
+  `hooks` on install, and **migrates** a legacy `codex_hooks = true` to `hooks = true` in
+  place (all other config byte-preserved). `doctor` / `status` accept either name.
+
+### Note (unrelated to codexmd, for anyone upgrading Codex)
+- Codex 0.142 also dropped the legacy `profile = "..."` selector and `[profiles.*]` tables
+  (each profile now lives in its own `~/.codex/<name>.config.toml`, selected with
+  `--profile <name>`), and deprecated `[features].use_legacy_landlock`. Fix those in your
+  own `~/.codex/config.toml` if Codex fails to start after upgrading.
+
 ## v1.4.1 — 2026-07-03 — Stop-advisory delivery fix
 
 ### Changed

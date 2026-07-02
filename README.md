@@ -25,7 +25,7 @@ Stop-hook advisories are queued and surfaced at the next turn's `UserPromptSubmi
 
 ## Requirements
 
-Codex CLI with native hooks (`config.toml → [features] codex_hooks = true`; the installer sets it) + `jq` + `node`.
+Codex CLI with native hooks (`config.toml → [features] hooks = true`; the installer sets it and migrates the legacy `codex_hooks` name used before Codex 0.142) + `jq` + `node`.
 
 ## Install
 
@@ -34,7 +34,7 @@ Codex CLI with native hooks (`config.toml → [features] codex_hooks = true`; th
 **Manual** (works standalone, no marketplace):
 
 ```bash
-node scripts/install.js     # merge into ~/.codex, set codex_hooks, inject the spec block
+node scripts/install.js     # merge into ~/.codex, set the [features] hooks flag, inject the spec block
 node scripts/status.js      # confirm: codexmd hooks registered, other tenants preserved
 node scripts/doctor.js      # health checks
 node scripts/uninstall.js   # clean removal — leaves every other tenant byte-for-byte

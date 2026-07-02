@@ -26,7 +26,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/n
 rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
 
 # Resolve spec version from the installed core spec, if present.
-VER="v1.4.1"
+VER="v1.4.2"
 for spec in "${CODEX_HOME:-$HOME/.codex}/AGENTS.override.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"; do
   if [[ -r "$spec" ]]; then
     v="$(grep -m1 -oE 'CODEX-CODING-SPEC v[0-9]+\.[0-9]+\.[0-9]+' "$spec" 2>/dev/null | grep -oE 'v[0-9.]+')"

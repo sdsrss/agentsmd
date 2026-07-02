@@ -18,7 +18,7 @@ function doctor() {
   add('node present', has('node'), 'transcript scan + scripts require node');
 
   const cfg = read(P.configTomlPath()) || '';
-  add('config.toml features.codex_hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled (must be under [features])');
+  add('config.toml features.hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)');
 
   const hooksDir = P.installHooksDir();
   if (fs.existsSync(hooksDir)) {

@@ -37,7 +37,7 @@ L1  强制层    hooks/*.sh（bash，fail-open，<3s）：由 Codex harness 在 
 
 | 维度 | Claude Code | Codex v0.130 | 移植增量 |
 |---|---|---|---|
-| 启用 | 插件装即生效 | `config.toml` 需 `codex_hooks = true`（本机已启用） | doctor 检查该 flag |
+| 启用 | 插件装即生效 | `config.toml [features]` 需 `hooks = true`（Codex 0.142+；旧名 `codex_hooks` 装时自动迁移） | doctor 检查该 flag |
 | 注册 | 每插件 `hooks.json`，marketplace 合并 | 单一全局 `~/.codex/hooks.json`（**当前 OMX 独占**） | 安装器 **append-only 合并** |
 | 事件 | SessionStart/PreToolUse/PostToolUse/UserPromptSubmit/Stop/**SessionEnd** | ✅ 确认恰好 5 个，**无 SessionEnd** | session-end 逻辑折进 Stop |
 | 条目形状 | `{"type":"command","command":"...","timeout":N}` | **同构** | 逐条对应 |
@@ -81,14 +81,14 @@ spec/AGENTS*.md 的 (HARD) 规则
 - **安装/更新 = merge**：逐事件 → strip 掉自己的旧条目 + **其余条目逐字保留** + 追加自己的新条目。**幂等**，重装不重复。
 - **卸载 = remove**：只 strip `/codexmd/` 标记的条目 + 其余逐字保留；事件数组空→删事件键，hooks 空→删 hooks，root 空→删文件。
 - 天然处理两种边界：目标文件**不存在**（从 `{}` 起，创建自己的）· **有没有 OMX**（OMX 条目只是「其他条目」，原样保留）。
-- 安装器把「装了什么」（自己的 hook 条目、是否由自己设了 `codex_hooks`、AGENTS.md 注入块）记入 codexmd **自有** manifest `~/.codex/.codexmd-state/manifest.json`，使卸载精确可逆。
+- 安装器把「装了什么」（自己的 hook 条目、是否由自己设了 hook flag、AGENTS.md 注入块）记入 codexmd **自有** manifest `~/.codex/.codexmd-state/manifest.json`，使卸载精确可逆。
 
 **每个共享面的隔离策略**：
 
 | 共享面 | codexmd 隔离方式 | 无 OMX 时 |
 |---|---|---|
 | `~/.codex/hooks.json` | 标记式 merge/remove（上）；只增删自己 | 不存在则创建，只含自己的条目 |
-| `config.toml [features] codex_hooks` | 缺失则 append `true`（保留其余配置）；**卸载不删**（留着无害；删了可能断 OMX/用户的 hook） | 自己设 `true`，卸载留存 |
+| `config.toml [features] hooks` | 缺失则 append `true`（0.142+；旧 `codex_hooks` 迁移为新名；保留其余配置）；**卸载不删**（留着无害；删了可能断 OMX/用户的 hook） | 自己设 `true`，卸载留存 |
 | `~/.codex/AGENTS.md`（规范部署） | sentinel 托管块 `# >>> codexmd >>> … # <<< codexmd <<<`，块外内容（OMX/用户的）逐字保留；卸载只删块 | 不存在则创建，只含自己的块 |
 | MCP servers | 强制层不加 MCP（遥测是本地 jsonl）；未来若加，用 `codexmd_*` 键 | 无影响 |
 | skills（命令层） | codexmd 自有目录 + `codexmd-` 前缀技能名 | 无影响 |

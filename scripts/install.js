@@ -60,7 +60,8 @@ function install(nowIso) {
   const mergedHooks = H.mergeCodexmdHooks(readOrNull(P.hooksJsonPath()), managed);
   writeFile(P.hooksJsonPath(), mergedHooks);
 
-  // 3. Ensure config.toml [features] codex_hooks = true (append-only).
+  // 3. Ensure config.toml [features] hooks = true (Codex 0.142+; migrates a
+  //    legacy codex_hooks flag to the canonical name).
   const cfg = CT.ensureCodexHooksFlag(readOrNull(P.configTomlPath()));
   if (cfg.changed) writeFile(P.configTomlPath(), cfg.content);
 

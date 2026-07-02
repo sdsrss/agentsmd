@@ -102,7 +102,7 @@ withSandbox((dir) => {
     assert(H.countCodexmdHooks(hooks) >= 7);
     assert.strictEqual(countCmd(hooks, (c) => !H.isCodexmdCommand(c)), 0);
   });
-  t('standalone install sets codex_hooks=true', () => assert(/codex_hooks\s*=\s*true/.test(cfg)));
+  t('standalone install sets hooks=true', () => assert(/^\s*hooks\s*=\s*true/m.test(cfg)));
   t('standalone install injects the spec sentinel block', () => assert(agents.includes('# >>> codexmd >>>') && agents.includes('CODEX-CODING-SPEC')));
   const st = status();
   t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert(st.codexmdHooksRegistered >= 7); });
@@ -121,7 +121,7 @@ withSandbox((dir) => {
   install('2026-07-02T00:00:00.000Z');
   const cfg = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
-  t('config.toml keeps the user model + multi_agent keys', () => { assert(cfg.includes('model = "gpt-5.5"')); assert(cfg.includes('multi_agent = true')); assert(/codex_hooks\s*=\s*true/.test(cfg)); });
+  t('config.toml keeps the user model + multi_agent keys', () => { assert(cfg.includes('model = "gpt-5.5"')); assert(cfg.includes('multi_agent = true')); assert(/^\s*hooks\s*=\s*true/m.test(cfg)); });
   t('AGENTS.md keeps the user instructions + adds the block', () => { assert(agents.includes('Always write tests.')); assert(agents.includes('# >>> codexmd >>>')); });
   uninstall();
   const agents2 = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
@@ -159,19 +159,29 @@ withSandbox((dir) => {
   });
 }
 
-// ── 8. I2: config.toml codex_hooks detection is [features]-scoped ────────────
+// ── 8. config.toml [features] flag detection + codex_hooks→hooks migration ───
 {
   const CT = require('../lib/config-toml');
-  t('config: codex_hooks under a NON-features table is not "enabled"', () => {
+  t('config: canonical [features] hooks=true → no-op', () => assert.strictEqual(CT.ensureCodexHooksFlag('[features]\nhooks = true\n').changed, false));
+  t('config: deprecated codex_hooks=true migrated to hooks=true (Codex 0.142)', () => {
+    const r = CT.ensureCodexHooksFlag('[features]\ncodex_hooks = true\n');
+    assert.strictEqual(r.reason, 'migrated-codex_hooks-to-hooks');
+    assert(/^\s*hooks = true/m.test(r.content) && !/codex_hooks/.test(r.content), 'renamed in place: ' + r.content);
+  });
+  t('config: either-name flag under a NON-features table is not "enabled"', () => {
     const r = CT.ensureCodexHooksFlag('[experimental]\ncodex_hooks = true\n');
-    assert.strictEqual(r.changed, true, 'should still add features.codex_hooks');
-    assert(CT.isCodexHooksEnabled(r.content), 'result must be truly enabled');
+    assert.strictEqual(r.changed, true);
+    assert(CT.isCodexHooksEnabled(r.content) && /^\s*hooks = true/m.test(r.content));
     assert(r.content.includes('[experimental]'), 'stray key preserved');
   });
-  t('config: features.codex_hooks=true recognized (no-op)', () => assert.strictEqual(CT.ensureCodexHooksFlag('[features]\ncodex_hooks = true\n').changed, false));
-  t('config: features codex_hooks=false flipped in place (no duplicate key)', () => {
-    const r = CT.ensureCodexHooksFlag('[features]\ncodex_hooks = false\n');
-    assert(/codex_hooks = true/.test(r.content) && !/=\s*false/.test(r.content));
+  t('config: features hooks=false → set true (no duplicate key)', () => {
+    const r = CT.ensureCodexHooksFlag('[features]\nhooks = false\n');
+    assert(/hooks = true/.test(r.content) && !/=\s*false/.test(r.content));
+  });
+  t('config: isCodexHooksEnabled recognizes BOTH names', () => {
+    assert(CT.isCodexHooksEnabled('[features]\nhooks = true\n'));
+    assert(CT.isCodexHooksEnabled('[features]\ncodex_hooks = true\n'));
+    assert(!CT.isCodexHooksEnabled('[features]\nmulti_agent = true\n'));
   });
 }
 

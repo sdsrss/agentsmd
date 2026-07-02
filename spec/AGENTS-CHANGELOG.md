@@ -2,6 +2,12 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v1.4.2 (2026-07-03) — version-sync (no rule changes)
+
+Rule text unchanged; the shared version moves in lockstep with the codexmd plugin's
+v1.4.2 fix for the Codex 0.142 hook-flag rename (`[features].codex_hooks` → `hooks`).
+See the repo `CHANGELOG.md`. `hard-rules.json` `added_version` fields stay at v1.4.0.
+
 ## v1.4.1 (2026-07-03) — version-sync (no rule changes)
 
 Core + extended rule text is unchanged from v1.4.0; the shared version moves to

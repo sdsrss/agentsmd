@@ -1,61 +1,73 @@
 'use strict';
-// config-toml.js — ensure `[features] codex_hooks = true` in ~/.codex/config.toml
-// without disturbing any other content. Text-targeted (not a full TOML rewrite)
-// so every unrelated key/comment/table is preserved byte-for-byte. Per §5,
-// uninstall LEAVES the flag (removing it could break OMX or the user's own
-// hooks) — so only an idempotent `ensure` is provided.
+// config-toml.js — ensure Codex's hook feature flag is enabled under [features]
+// in ~/.codex/config.toml, without disturbing other content. Codex 0.142+ renamed
+// the flag `codex_hooks` → `hooks` (`codex_hooks` is deprecated). This module
+// recognizes BOTH names, prefers the canonical `hooks`, and migrates a deprecated
+// `codex_hooks = true` to `hooks = true` on install. Text-targeted (not a full
+// TOML rewrite) so every unrelated key/comment/table is byte-preserved. Per §5,
+// uninstall LEAVES the flag (removing it could break OMX or the user's hooks).
 //
-// TOML-table-aware: Codex only honors `features.codex_hooks`. A `codex_hooks`
-// key under some OTHER table (e.g. [experimental]) or a subtable ([features.x])
-// does NOT count as enabled — otherwise the installer would no-op and no hook
-// would ever run, a silent failure (reviewer I2).
+// TOML-table-aware: only a flag under the [features] table (or dotted
+// features.<flag>) counts — a stray `hooks`/`codex_hooks` under another table
+// does not (else the installer would no-op and no hook would ever run).
 
-// Scan the config for the state of the features.codex_hooks flag.
+// Scan [features] (+ dotted features.*) for the hook flag state.
 function scanFeatures(content) {
   const lines = content.split('\n');
   let cur = ''; // current table; '' = top-level document scope
-  let enabled = false, disabledIdx = -1, hasFeatures = false, featuresHeaderIdx = -1;
+  let enabledNew = false, enabledOld = false;
+  let oldTrueIdx = -1, falseIdx = -1, hasFeatures = false, featuresHeaderIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const th = line.match(/^\s*\[\[?([^\]]+)\]\]?\s*$/);
     if (th) { cur = th[1].trim(); if (cur === 'features') { hasFeatures = true; if (featuresHeaderIdx < 0) featuresHeaderIdx = i; } continue; }
-    const dotted = line.match(/^[ \t]*features\.codex_hooks[ \t]*=[ \t]*(true|false)\b/);
-    if (dotted && cur === '') { if (dotted[1] === 'true') enabled = true; else if (disabledIdx < 0) disabledIdx = i; continue; }
-    const bare = line.match(/^[ \t]*codex_hooks[ \t]*=[ \t]*(true|false)\b/);
-    if (bare && cur === 'features') { if (bare[1] === 'true') enabled = true; else if (disabledIdx < 0) disabledIdx = i; }
+    let m = cur === '' ? line.match(/^[ \t]*features\.(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/) : null;
+    if (!m && cur === 'features') m = line.match(/^[ \t]*(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/);
+    if (!m) continue;
+    if (m[2] === 'true') {
+      if (m[1] === 'hooks') enabledNew = true;
+      else { enabledOld = true; if (oldTrueIdx < 0) oldTrueIdx = i; }
+    } else if (falseIdx < 0) falseIdx = i;
   }
-  return { enabled, disabledIdx, hasFeatures, featuresHeaderIdx, lines };
+  return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, hasFeatures, featuresHeaderIdx, lines };
 }
 
-// True only when features.codex_hooks is true (features table or dotted form).
+// True when the hook feature is enabled under [features] by EITHER name.
 function isCodexHooksEnabled(input) {
   return scanFeatures(typeof input === 'string' ? input : '').enabled;
 }
 
-// Returns { content, changed, reason }.
+// Returns { content, changed, reason }. Prefers/sets the canonical `hooks`.
 function ensureCodexHooksFlag(input) {
   const content = typeof input === 'string' ? input : '';
   const s = scanFeatures(content);
 
-  if (s.enabled) return { content, changed: false, reason: 'already-enabled' };
+  if (s.enabledNew) return { content, changed: false, reason: 'already-enabled' };
 
-  // A features-scoped codex_hooks=false → flip it in place (avoids a duplicate key).
-  if (s.disabledIdx >= 0) {
+  // Deprecated `codex_hooks = true` present → migrate it in place to `hooks`.
+  if (s.enabledOld) {
     const lines = s.lines.slice();
-    lines[s.disabledIdx] = lines[s.disabledIdx].replace(/(codex_hooks[ \t]*=[ \t]*)false/, '$1true');
-    return { content: lines.join('\n'), changed: true, reason: 'flipped-false-to-true' };
+    lines[s.oldTrueIdx] = lines[s.oldTrueIdx].replace(/\bcodex_hooks\b/, 'hooks');
+    return { content: lines.join('\n'), changed: true, reason: 'migrated-codex_hooks-to-hooks' };
   }
 
-  // A [features] table exists but lacks the key → insert right after its header.
+  // A features-scoped `(codex_)hooks = false` → set the canonical `hooks = true`.
+  if (s.falseIdx >= 0) {
+    const lines = s.lines.slice();
+    lines[s.falseIdx] = lines[s.falseIdx].replace(/\b(?:codex_hooks|hooks)\b([ \t]*=[ \t]*)false/, 'hooks$1true');
+    return { content: lines.join('\n'), changed: true, reason: 'set-hooks-true' };
+  }
+
+  // A [features] table exists but lacks the flag → insert after its header.
   if (s.hasFeatures) {
     const lines = s.lines.slice();
-    lines.splice(s.featuresHeaderIdx + 1, 0, 'codex_hooks = true');
+    lines.splice(s.featuresHeaderIdx + 1, 0, 'hooks = true');
     return { content: lines.join('\n'), changed: true, reason: 'inserted-under-features' };
   }
 
-  // No [features] table → append one at the end (valid anywhere in TOML).
+  // No [features] table → append one.
   const sep = content.length === 0 ? '' : (content.endsWith('\n') ? '\n' : '\n\n');
-  return { content: `${content}${sep}[features]\ncodex_hooks = true\n`, changed: true, reason: 'appended-features-table' };
+  return { content: `${content}${sep}[features]\nhooks = true\n`, changed: true, reason: 'appended-features-table' };
 }
 
 module.exports = { ensureCodexHooksFlag, isCodexHooksEnabled };

@@ -23,7 +23,7 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/code
 - **Demotion**: a hook-enforced rule with 0 hits across a full review window is an always-on dilution source → move it from core to extended (Tier 0 → Tier 1) at zero behavioral cost, or drop the hook. Update `hard-rules.json` (`last_demote_review` date) in the same edit.
 - **Promotion**: only promote a rule into core (or advisory→enforced) after BOTH ≥3 real repros across distinct sessions AND ≥20 real L2+ tasks since the last HARD addition. Either missing → log-only, no promotion. Adding rules without invocation data is how specs bloat.
 - **Evidence-rebuttal shortcut**: an existing HARD rule shown (in session evidence) to produce wrong behavior → fix/remove that rule, do not wrap a new rule around it.
-- **Drift monitoring**: `node scripts/doctor.js` must stay green (jq/node present, hooks executable, `codex_hooks=true`, hard-rules anchors resolve). A red anchor means the spec text moved without updating the manifest — fix in the same commit.
+- **Drift monitoring**: `node scripts/doctor.js` must stay green (jq/node present, hooks executable, `[features] hooks=true`, hard-rules anchors resolve). A red anchor means the spec text moved without updating the manifest — fix in the same commit.
 
 ## §O3 Size budget (the discovery-chain ceiling)
 
