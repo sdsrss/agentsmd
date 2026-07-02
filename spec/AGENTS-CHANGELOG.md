@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.1.0 (2026-07-03) — distribution install surfaces (no rule-text changes)
+
+Spec rule text unchanged. The shared version moves to v2.1.0 in lockstep with the
+agentsmd plugin's new distribution surfaces: root `install.sh`, repo marketplace
+metadata for `codex plugin add agentsmd --marketplace agentsmd`, and README install,
+update, and uninstall instructions. `spec_version` → v2.1.0. Hook/script/docs fixes:
+repo `CHANGELOG.md`.
+
 ## v2.0.2 (2026-07-03) — install/update hardening (no rule-text changes)
 
 Spec rule text unchanged. The shared version moves to v2.0.2 in lockstep with management

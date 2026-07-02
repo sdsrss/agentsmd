@@ -3,6 +3,25 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.1.0 — 2026-07-03 — distribution install surfaces (no rule-text changes)
+
+The published artifact now has first-class install paths for both standalone users
+and Codex plugin marketplace users. No spec RULE text changed.
+
+### Added
+- Root `install.sh` for curl-friendly standalone install/update/status/doctor/uninstall.
+  The script fetches a GitHub snapshot by default, supports `--ref` pinning and local
+  `--source` development installs, checks for Node.js >= 18, and removes its temporary
+  download directory on exit.
+- Repo marketplace metadata at `.agents/plugins/marketplace.json`, exposing the root
+  `agentsmd` plugin for `codex plugin add agentsmd --marketplace agentsmd`.
+- README install/update/uninstall flows for standalone curl installs and Codex plugin
+  marketplace installs, including cleanup commands for both surfaces.
+
+### Testing
+- Added distribution tests for `install.sh` syntax/help/local install-update-uninstall,
+  marketplace metadata, and package-file inclusion.
+
 ## v2.0.2 — 2026-07-03 — install/update hardening (no rule-text changes)
 
 QA cycling across realistic install, update, migration, doctor, and hook-execution paths

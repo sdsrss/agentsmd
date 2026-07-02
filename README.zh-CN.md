@@ -53,11 +53,54 @@ Stop hook 的 advisory 会排队,在下一次 `UserPromptSubmit` 通过已验证
 
 ## 安装
 
-### 作为 Codex 插件(推荐)
+### 独立安装器
 
-把一个 Codex marketplace 指向本仓库并添加它。Codex 会自动注册 `skills/` 命令层与插件根的 `hooks.json`,并替你管理生命周期。
+如果你希望 agentsmd 直接管理 `$CODEX_HOME` 里的自身标记作用域条目,使用这条路径。
+安装器会下载最新仓库快照,运行与本地开发相同的幂等 Node 安装器,并在退出时清理临时文件。
 
-### 手动安装(独立,无需 marketplace)
+```bash
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh
+```
+
+GitHub 不会从 `https://github.com/sdsrss/agentsmd/install.sh` 返回可执行的 raw 文件内容;
+curl 管道安装请使用上面的 `raw.githubusercontent.com` URL。
+
+常用选项:
+
+```bash
+# 固定到某个 branch、tag 或 commit
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.0
+
+# 显式更新:与安装是同一个幂等操作,可反复运行
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
+
+# 安装后的检查
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --status
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --doctor
+```
+
+如果你的本地策略阻断 `curl | sh`,使用可检查的两步形式:
+
+```bash
+curl -fsSLo /tmp/agentsmd-install.sh https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh
+sh /tmp/agentsmd-install.sh
+```
+
+### Codex plugin marketplace
+
+如果你希望 Codex 把 agentsmd 当作插件安装,并由 Codex 的 plugin cache 管理 bundle,使用这条路径。
+仓库自带 `.agents/plugins/marketplace.json`,marketplace 名称是 `agentsmd`。
+
+```bash
+codex plugin marketplace add sdsrss/agentsmd --json
+codex plugin add agentsmd --marketplace agentsmd --json
+```
+
+Codex 也接受 `codex plugin add agentsmd@agentsmd`。`--marketplace` 形式在脚本里更清晰,
+也与当前 CLI reference 一致。如果你本机的 `codex plugin` 子命令还不可用,先更新 Codex,
+或使用上面的独立安装器。
+
+### 本地开发 checkout
 
 ```bash
 node scripts/install.js     # 并入 ~/.codex、设置 [features] hooks、注入规范块
@@ -69,19 +112,46 @@ node scripts/doctor.js      # 健康检查
 
 ## 更新
 
-重跑安装器即可——它会刷新 agentsmd 的文件、无重复地重新并入 hook,并拉取新的规范。没有额外的更新路径要记:
+独立安装器的更新路径就是重跑:curl 安装器会抓取当前仓库快照,刷新 agentsmd 文件,
+无重复地重新并入 hook,并拉取新的规范。
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
+
+# 从 checkout 运行:
 node scripts/install.js     # = 更新(幂等);或:npm run spec:update
+```
+
+插件更新先刷新已配置的 marketplace 快照,再从该 marketplace 重新安装插件。重装后开启一个新的
+Codex 线程,让新的 skills/hooks 被加载。
+
+```bash
+codex plugin marketplace upgrade agentsmd --json
+codex plugin add agentsmd --marketplace agentsmd --json
 ```
 
 ## 卸载
 
+独立卸载会移除 agentsmd 自己的条目与状态,同时保留其他插件和用户配置:
+
 ```bash
-node scripts/uninstall.js   # 移除 agentsmd;逐字节保留其他每个租户
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --uninstall
+
+# 从 checkout 运行:
+node scripts/uninstall.js
 ```
 
 卸载只 strip agentsmd 自己的条目(hook、skills、`AGENTS.md` 块、install 与 state 目录),并且按 §5 **保留 `config.toml` 的 hooks flag**(删掉它可能会断掉 oh-my-codex 或你自己的 hook)。
+
+插件卸载会移除 Codex 的插件安装/cache 条目。如果你不希望 Codex 继续跟踪本仓库作为 source,
+也移除 marketplace:
+
+```bash
+codex plugin remove agentsmd --marketplace agentsmd --json
+codex plugin marketplace remove agentsmd --json
+```
+
+如果你同时使用过独立安装和插件安装,两套清理都要运行;它们管理的是不同的 Codex surface。
 
 ### 从 codexmd 升级
 
@@ -117,8 +187,10 @@ spec/        正典规范(core、extended、changelog、hard-rules.json、OPERAT
 hooks/       L1 强制层——原生 hook + 共享 lib + 冒烟测试
 scripts/     L2 管理层——install/uninstall/status/doctor/audit/rules(+ migrate + 测试)
 skills/      L3 命令层——agentsmd-audit/rules/doctor/status
+.agents/     repo marketplace,用于 `codex plugin add agentsmd --marketplace agentsmd`
 .codex-plugin/plugin.json   Codex 插件清单
 hooks.json   插件根的 hook 接线(相对路径)
+install.sh   适合 curl 的独立安装/更新/卸载入口
 ```
 
 ## 常见问题
@@ -136,7 +208,11 @@ hooks.json   插件根的 hook 接线(相对路径)
 只改它自己的、按标记作用域的条目,并且拒绝触碰不可解析的 `hooks.json`。你的 model、profile 以及其他插件的条目都会被逐字节保留。
 
 **如何更新或移除?**
-重跑 `node scripts/install.js`(幂等)即更新;用 `node scripts/uninstall.js` 移除,过程中不动其他任何租户。
+独立安装:重跑 curl 安装器或 `node scripts/install.js`;用 `install.sh --uninstall`
+或 `node scripts/uninstall.js` 移除。插件安装:先
+`codex plugin marketplace upgrade agentsmd`,再
+`codex plugin add agentsmd --marketplace agentsmd`;用
+`codex plugin remove agentsmd --marketplace agentsmd` 移除。
 
 ## 许可
 

@@ -12,3 +12,8 @@ tasks/
 # ...but the Codex plugin manifest MUST be committed to be distributable.
 !.codex-plugin/
 !.codex-plugin/**
+
+# Repo-scoped Codex plugin marketplace metadata is distributable too.
+!.agents/
+!.agents/plugins/
+!.agents/plugins/marketplace.json

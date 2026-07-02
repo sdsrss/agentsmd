@@ -53,11 +53,59 @@ Everything honors `$CODEX_HOME` (defaults to `~/.codex`).
 
 ## Install
 
-### As a Codex plugin (recommended)
+### Standalone installer
 
-Point a Codex marketplace at this repo and add it. Codex auto-registers the `skills/` command layer and the plugin-root `hooks.json`, and manages the lifecycle for you.
+Use this when you want agentsmd to manage its own marker-scoped entries in
+`$CODEX_HOME` directly. The installer downloads the latest repo snapshot, runs
+the same idempotent Node installer used by local development, and cleans up its
+temporary files when it exits.
 
-### Manual (standalone, no marketplace)
+```bash
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh
+```
+
+GitHub does not serve raw file contents from
+`https://github.com/sdsrss/agentsmd/install.sh`; use the `raw.githubusercontent.com`
+URL above for a curl-piped install.
+
+Useful options:
+
+```bash
+# pin a branch, tag, or commit
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.0
+
+# explicit update: same operation as install, safe to re-run
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
+
+# health checks after install
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --status
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --doctor
+```
+
+If your local policy blocks `curl | sh`, use the inspectable two-step form:
+
+```bash
+curl -fsSLo /tmp/agentsmd-install.sh https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh
+sh /tmp/agentsmd-install.sh
+```
+
+### Codex plugin marketplace
+
+Use this when you want Codex to install agentsmd as a plugin and keep the bundle
+in Codex's plugin cache. The repo ships a marketplace at
+`.agents/plugins/marketplace.json`; its marketplace name is `agentsmd`.
+
+```bash
+codex plugin marketplace add sdsrss/agentsmd --json
+codex plugin add agentsmd --marketplace agentsmd --json
+```
+
+Codex also accepts `codex plugin add agentsmd@agentsmd`. The `--marketplace`
+form is clearer in scripts and matches the documented CLI reference. If
+`codex plugin` is not available in your local CLI yet, update Codex or use the
+standalone installer above.
+
+### Local development checkout
 
 ```bash
 node scripts/install.js     # merge into ~/.codex, set [features] hooks, inject the spec block
@@ -69,19 +117,50 @@ Install is **idempotent** and preserves every other tenant's entries byte-for-by
 
 ## Update
 
-Re-run the installer — it refreshes agentsmd's files, re-merges its hooks without duplication, and picks up any new spec. There is no separate update path to learn:
+Standalone updates are automatic on re-run: the curl installer fetches the
+current repo snapshot, refreshes agentsmd's files, re-merges its hooks without
+duplication, and picks up any new spec.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
+
+# from a checkout:
 node scripts/install.js     # = update (idempotent); or: npm run spec:update
+```
+
+Plugin updates refresh the configured marketplace snapshot, then reinstall the
+plugin from that marketplace. Start a new Codex thread after reinstall so newly
+packaged skills/hooks are loaded.
+
+```bash
+codex plugin marketplace upgrade agentsmd --json
+codex plugin add agentsmd --marketplace agentsmd --json
 ```
 
 ## Uninstall
 
+Standalone uninstall removes agentsmd's own entries and cleanup state while
+preserving other plugins and user config:
+
 ```bash
-node scripts/uninstall.js   # remove agentsmd; leave every other tenant byte-for-byte
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --uninstall
+
+# from a checkout:
+node scripts/uninstall.js
 ```
 
 Uninstall strips only agentsmd's own entries (hooks, skills, the `AGENTS.md` block, the install + state dirs) and, per §5, **leaves the `config.toml` hooks flag enabled** (removing it could break oh-my-codex or your own hooks).
+
+Plugin uninstall removes the Codex plugin install/cache entry. Remove the
+marketplace too if you do not want Codex to keep tracking this repo as a source:
+
+```bash
+codex plugin remove agentsmd --marketplace agentsmd --json
+codex plugin marketplace remove agentsmd --json
+```
+
+If you installed both the standalone and plugin paths, run both cleanup flows;
+they manage different Codex surfaces.
 
 ### Upgrading from codexmd
 
@@ -117,8 +196,10 @@ spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATO
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
 skills/      L3 command layer — agentsmd-audit/rules/doctor/status
+.agents/     repo marketplace for `codex plugin add agentsmd --marketplace agentsmd`
 .codex-plugin/plugin.json   Codex plugin manifest
 hooks.json   plugin-root hook wiring (relative paths)
+install.sh   curl-friendly standalone installer/updater/uninstaller
 ```
 
 ## FAQ
@@ -136,7 +217,11 @@ Yes — it targets the Codex CLI's native hook system (`[features] hooks = true`
 Only its own marker-scoped entries, and it refuses to touch an unparseable `hooks.json`. Your model, profiles, and other plugins' entries are preserved byte-for-byte.
 
 **How do I update or remove it?**
-Update by re-running `node scripts/install.js` (idempotent). Remove with `node scripts/uninstall.js`, which leaves every other tenant untouched.
+Standalone: re-run the curl installer or `node scripts/install.js`; remove with
+`install.sh --uninstall` or `node scripts/uninstall.js`. Plugin: run
+`codex plugin marketplace upgrade agentsmd` then
+`codex plugin add agentsmd --marketplace agentsmd`; remove with
+`codex plugin remove agentsmd --marketplace agentsmd`.
 
 ## License
 
