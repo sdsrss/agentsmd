@@ -1,0 +1,27 @@
+# banned-vocab.patterns — §10 Specificity / Honesty banned vocabulary.
+# One extended-regex (grep -iE) per line. `#` lines and blanks ignored.
+# Scanned against git commit messages (PreToolUse:Bash) and, later, assistant
+# prose (Stop transcript scan). A hit = an unquantified value claim → the spec
+# requires an absolute number or baseline-anchored ratio instead.
+# Keep patterns anchored to whole words to avoid substring false positives.
+
+# ── English ──────────────────────────────────────────────────────────────
+\bshould work\b
+\brobust(ly|ness)?\b
+\bsignificantly\b
+\bcomprehensive(ly)?\b
+\bseamless(ly)?\b
+\bblazing(ly)? fast\b
+\b[0-9]+x faster\b
+\bmuch (faster|better|cleaner)\b
+\bgreatly impro(ve|ved|ves)\b
+\bproduction[- ]ready\b
+
+# ── 中文 ─────────────────────────────────────────────────────────────────
+显著提升
+显著改善
+应该可以
+基本可用
+已完善
+大幅提升
+完美(解决|支持|兼容)

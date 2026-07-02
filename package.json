@@ -1,0 +1,28 @@
+{
+  "name": "codexmd",
+  "version": "1.4.0",
+  "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/drift.test.js && bash hooks/tests/smoke.sh",
+    "spec:install": "node scripts/install.js",
+    "spec:uninstall": "node scripts/uninstall.js",
+    "audit": "node scripts/audit.js",
+    "rules": "node scripts/rules.js",
+    "doctor": "node scripts/doctor.js",
+    "status": "node scripts/status.js"
+  },
+  "files": [
+    "spec",
+    "hooks",
+    "scripts",
+    "skills",
+    "hooks.json",
+    ".codex-plugin",
+    "ARCHITECTURE.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

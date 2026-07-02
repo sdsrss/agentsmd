@@ -1,0 +1,14 @@
+# Files and directories excluded from version control
+
+docs/
+CLAUDE.md
+
+# Machine-local working state (spec/AGENTS.md §9): tasks are not shipped.
+tasks/
+
+# All dot-prefixed directories (.claude, etc.)
+.*/
+
+# ...but the Codex plugin manifest MUST be committed to be distributable.
+!.codex-plugin/
+!.codex-plugin/**

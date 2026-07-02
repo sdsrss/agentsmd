@@ -1,0 +1,31 @@
+{
+  "name": "codexmd",
+  "version": "1.4.0",
+  "description": "CODEX-CODING-SPEC — a global coding-discipline spec enforced by native Codex hooks: SPINE workflow, level classification, Iron Laws (no done without fresh evidence), §8 SAFETY (blocks rm -rf $VAR / remote-exec), four-section reports, banned-vocab on commits, and a base-branch CI ship gate — plus a rule-hit telemetry closed loop that lets data decide which rules stay always-on. Installs standalone and is fully independent of oh-my-codex.",
+  "author": {
+    "name": "codexmd"
+  },
+  "license": "MIT",
+  "keywords": [
+    "coding-spec",
+    "discipline",
+    "hooks",
+    "safety",
+    "evidence",
+    "code-quality",
+    "governance",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "codexmd",
+    "shortDescription": "A coding-discipline spec enforced by native Codex hooks + a rule-hit telemetry loop",
+    "longDescription": "codexmd turns a global coding spec (SPINE workflow, level classification, evidence-before-done Iron Laws, §8 SAFETY, honest four-section reporting) from a document the model may drift from into an enforced system: native Codex hooks block dangerous shell + banned commit vocabulary + red-CI ship pushes, a Stop-time scan checks report structure, and every hit is logged so `codexmd-rules` can surface which always-on rules earn their place and which are attention dilution. It manages only its own entries in ~/.codex and never touches oh-my-codex or other plugins.",
+    "developerName": "codexmd",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+'use strict';
+// audit.test.js — proves the closed-loop read side: audit() aggregates rule-hit
+// telemetry correctly (window filtering, enforcement vs lifecycle events) and
+// rulesAudit() derives the right promote/demote signals against hard-rules.json.
+// Synthetic telemetry + fixed `now` → deterministic.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+const { audit } = require('../audit');
+const { rulesAudit } = require('../rules');
+
+let PASS = 0, FAIL = 0;
+const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
+
+const NOW = Date.parse('2026-07-02T12:00:00.000Z');
+const day = (n) => new Date(NOW - n * 86400000).toISOString();
+
+const rows = [
+  { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var' },
+  { ts: day(2), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var' },
+  { ts: day(3), hook: 'banned-vocab', event: 'block', spec_section: '§10-V' },
+  { ts: day(1), hook: 'pre-bash-safety', event: 'advisory', spec_section: '§8-unknown-script' },
+  { ts: day(1), hook: 'session-start', event: 'context', spec_section: null },     // lifecycle, NOT enforcement
+  { ts: day(1), hook: 'pre-bash-safety', event: 'bypass', spec_section: '§8-rm-rf-var' }, // bypass = rule fired
+  { ts: day(40), hook: 'ship-baseline', event: 'block', spec_section: '§E3-ship-baseline' }, // OUT of 30d window
+];
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codexmd-audit-test.'));
+try {
+  const log = path.join(tmp, 'codexmd.jsonl');
+  fs.writeFileSync(log, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+  const a = audit({ days: 30, now: NOW, logPath: log });
+  t('window excludes rows older than N days', () => assert.strictEqual(a.inWindow, 6));
+  t('§8-rm-rf-var aggregates block+block+bypass = 3', () => { assert.strictEqual(a.bySection['§8-rm-rf-var'].total, 3); assert.strictEqual(a.bySection['§8-rm-rf-var'].enforcement, 3); });
+  t('context (lifecycle) not counted as enforcement', () => assert.strictEqual(a.enforcementEvents, 5));
+  t('byHook tallies pre-bash-safety = 4', () => assert.strictEqual(a.byHook['pre-bash-safety'], 4));
+  t('malformed lines are skipped, not fatal', () => { fs.appendFileSync(log, 'not json\n'); assert.strictEqual(audit({ days: 30, now: NOW, logPath: log }).inWindow, 6); });
+
+  const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
+  t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
+  t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });
+  t('rules: self-enforced Iron Law #2 labeled self-enforced (never a demote-candidate)', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-2'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
+  t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
+process.exit(FAIL === 0 ? 0 : 1);

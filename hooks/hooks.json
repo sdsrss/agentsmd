@@ -1,0 +1,40 @@
+{
+  "_doc": "codexmd hook registration manifest. The Phase-3 installer MERGES these entries into ~/.codex/hooks.json managing ONLY codexmd's own entries (identified by the '/codexmd/' path marker in each command) — never reading, modifying, or depending on oh-my-codex or any other tenant, and working whether or not the file pre-exists or OMX is installed. Install = strip-own + preserve-all-others + append-own (idempotent); uninstall = strip-own + preserve-others. The installer replaces __CODEXMD_HOOKS_DIR__ with the absolute install path (must contain a '/codexmd/' segment so the marker resolves). Event names + entry shape match the Codex native hook contract (requires config.toml features.codex_hooks=true, which the installer sets append-only if absent). matcher 'Bash' scopes PreToolUse to Bash calls; SessionStart matcher 'startup|resume' matches Codex's two start kinds.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/session-start-check.sh\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/pre-bash-safety-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/banned-vocab-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/ship-baseline-check.sh\"", "timeout": 8 },
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/memory-read-check.sh\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/memory-prompt-hint.sh\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/residue-audit.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/sandbox-disposal-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"__CODEXMD_HOOKS_DIR__/transcript-structure-scan.sh\"", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}
