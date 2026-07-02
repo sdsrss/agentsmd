@@ -7,6 +7,7 @@ const fs = require('fs');
 const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
+const CT = require('./lib/config-toml');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
@@ -32,7 +33,7 @@ function status() {
     codexmdHooksRegistered: hooksContent ? H.countCodexmdHooks(hooksContent) : 0,
     otherTenantHooksPreserved: other,
     totalHookEntries: total,
-    codexHooksFlag: /^[ \t]*codex_hooks[ \t]*=[ \t]*true/m.test(cfg),
+    codexHooksFlag: CT.isCodexHooksEnabled(cfg),
     specBlockInAgentsMd: AM.hasSpecBlock(read(P.agentsMdPath())),
     telemetryRows: log ? log.split('\n').filter(Boolean).length : 0,
   };

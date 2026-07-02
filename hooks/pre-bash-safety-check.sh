@@ -41,15 +41,13 @@ hook_is_readonly_bash "$CMD" && exit 0
 cmd_has_rm_rf_var() {
   local c="$1"
   [[ "$c" == *"[allow-rm-rf-var]"* ]] && return 1
-  # rm invoked with recursive AND force (any flag spelling)
-  local rm_rf=1
-  if   printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])rm([[:space:]]+-[a-z]*r[a-z]*f|[[:space:]]+-[a-z]*f[a-z]*r)'; then :
-  elif printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])rm([[:space:]]|$)' \
-       && printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*r' \
-       && printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*f'; then :
-  else rm_rf=0; fi
-  [[ "$rm_rf" == 1 ]] || return 1
-  # target contains a variable expansion  ($VAR / ${VAR} / "$VAR")
+  # rm invoked as a command — bare `rm` or path-qualified (`/bin/rm`, `/usr/bin/rm`).
+  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])([^[:space:];&|`()]*/)?rm([[:space:]]|$)' || return 1
+  # recursive flag: short (-r / -rf / -Rf …) OR long --recursive.
+  printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*r|--recursive([[:space:]=]|$)' || return 1
+  # force flag: short (-f / -rf …) OR long --force.
+  printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*f|--force([[:space:]=]|$)' || return 1
+  # target contains a variable expansion ($VAR / ${VAR} / "$VAR").
   printf '%s' "$c" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*' && return 0
   return 1
 }

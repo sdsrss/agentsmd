@@ -23,6 +23,14 @@ function install(nowIso) {
   const installDir = P.installDir();
   const hooksDir = P.installHooksDir();
 
+  // 0. Abort BEFORE touching anything if the shared hooks.json is present but
+  //    unparseable — it may hold other tenants' hooks we cannot see, and
+  //    overwriting it would silently delete them (C1). Never clobber blind.
+  const existingHooks = readOrNull(P.hooksJsonPath());
+  if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
+    throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — codexmd will not overwrite it. Fix or remove it, then re-run install.`);
+  }
+
   // 1. Copy hooks/ + spec/ + scripts/ into the self-contained install dir (the
   //    `/codexmd/` path segment is what the hooks.json marker matches).
   fs.mkdirSync(installDir, { recursive: true });

@@ -33,11 +33,19 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+commit\b' || exit 0
 [[ "$CMD" == *"[allow-vocab]"* ]] && exit 0
 
-# Find the first banned pattern that hits the commit command text.
+# Scan ONLY the inline message value(s), not the whole command line — otherwise a
+# filename/arg token (e.g. `-- significantly.txt`) would false-block a clean
+# message. Handles -m "…" / -m '…' / -m word / --message[= ]"…". Non-inline
+# messages (editor/-F) aren't inspectable pre-exec → nothing to scan.
+MSG="$(printf '%s' "$CMD" | grep -oE -- "(-m|--message)([[:space:]]+|=)('[^']*'|\"[^\"]*\"|[^[:space:]'\"][^[:space:]]*)" 2>/dev/null \
+  | sed -E "s/^(-m|--message)([[:space:]]+|=)//; s/^'(.*)'$/\1/; s/^\"(.*)\"$/\1/")"
+[[ -n "$MSG" ]] || exit 0
+
+# Find the first banned pattern that hits the message text.
 HIT=""
 while IFS= read -r pat; do
   [[ -z "$pat" || "$pat" == \#* ]] && continue
-  if printf '%s' "$CMD" | grep -qiE "$pat"; then HIT="$pat"; break; fi
+  if printf '%s' "$MSG" | grep -qiE "$pat"; then HIT="$pat"; break; fi
 done < "$PATTERNS_FILE"
 
 [[ -n "$HIT" ]] || exit 0

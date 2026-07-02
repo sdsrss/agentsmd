@@ -17,6 +17,12 @@ hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
+# Refresh the per-session reference timestamp that sandbox-disposal-check.sh
+# uses to detect THIS session's undisposed scratch dirs (§8.V4). Without this
+# refresh the reference would freeze at the first-ever Stop and grow stale.
+STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/null || true
+
 # Resolve spec version from the installed core spec, if present.
 VER="v1.4.0"
 for spec in "${CODEX_HOME:-$HOME/.codex}/AGENTS.override.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"; do

@@ -55,8 +55,18 @@ function stripCodexmdFromGroup(group) {
 
 // Install / update: per event → strip own + preserve all others + append own.
 // Idempotent (re-running replaces our stale entries, never duplicates).
+// Refuses to proceed on a present-but-unparseable file: absent/empty → start
+// fresh, but a non-empty string that fails to parse may hold OTHER tenants'
+// entries we cannot see — clobbering it would silently delete them (the exact
+// independence break the marker design exists to prevent). Throw instead.
 function mergeCodexmdHooks(existingContent, managed) {
-  const parsed = typeof existingContent === 'string' ? parseHooksConfig(existingContent) : null;
+  let parsed = null;
+  if (typeof existingContent === 'string' && existingContent.trim() !== '') {
+    parsed = parseHooksConfig(existingContent);
+    if (!parsed) {
+      throw new Error('refusing to overwrite an unparseable ~/.codex/hooks.json — it may contain other tenants\' hooks. Fix or remove it, then re-run.');
+    }
+  }
   const root = parsed ? clone(parsed.root) : {};
   const hooks = parsed ? clone(parsed.hooks) : {};
   for (const event of Object.keys(managed.hooks)) {

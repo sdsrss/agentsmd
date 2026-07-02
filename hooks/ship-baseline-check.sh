@@ -39,6 +39,8 @@ BRANCH="$(printf '%s' "$CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[a-z-
 if [[ -z "$BRANCH" ]]; then
   BRANCH="$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 fi
+# A `src:dst` refspec pushes to dst — gate on the destination branch.
+[[ "$BRANCH" == *:* ]] && BRANCH="${BRANCH##*:}"
 [[ -n "$BRANCH" && "$BRANCH" != "HEAD" ]] || exit 0
 
 # Only gate shared branches.

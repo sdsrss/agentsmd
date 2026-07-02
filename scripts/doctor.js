@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const P = require('./lib/paths');
+const CT = require('./lib/config-toml');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const has = (bin) => { try { cp.execSync(`command -v ${bin}`, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -17,7 +18,7 @@ function doctor() {
   add('node present', has('node'), 'transcript scan + scripts require node');
 
   const cfg = read(P.configTomlPath()) || '';
-  add('config.toml codex_hooks=true', /^[ \t]*codex_hooks[ \t]*=[ \t]*true/m.test(cfg), 'Codex native hooks enabled');
+  add('config.toml features.codex_hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled (must be under [features])');
 
   const hooksDir = P.installHooksDir();
   if (fs.existsSync(hooksDir)) {

@@ -144,5 +144,36 @@ withSandbox((dir) => {
   t('uninstall reports skillsRemoved count', () => assert(un.skillsRemoved >= 4, 'skillsRemoved=' + un.skillsRemoved));
 });
 
+// ── 7. C1: never clobber a present-but-unparseable shared hooks.json ─────────
+{
+  const H = require('../lib/codex-hooks');
+  const managed = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash "/x/codexmd/hooks/a.sh"' }] }] } };
+  t('merge throws on a present-but-unparseable hooks.json', () => assert.throws(() => H.mergeCodexmdHooks('{"hooks": nope,}', managed)));
+  t('merge treats empty/whitespace as absent (starts fresh)', () => assert.strictEqual(H.countCodexmdHooks(H.mergeCodexmdHooks('  \n', managed)), 1));
+  withSandbox((dir) => {
+    const malformed = '{"hooks": {,}}  // OMX was here: node /omx/x.js\n';
+    fs.writeFileSync(path.join(dir, 'hooks.json'), malformed);
+    const { install } = loadModules();
+    t('install aborts (throws) on a malformed hooks.json', () => assert.throws(() => install('2026-07-02T00:00:00.000Z')));
+    t('install leaves the malformed hooks.json byte-untouched', () => assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), malformed));
+  });
+}
+
+// ── 8. I2: config.toml codex_hooks detection is [features]-scoped ────────────
+{
+  const CT = require('../lib/config-toml');
+  t('config: codex_hooks under a NON-features table is not "enabled"', () => {
+    const r = CT.ensureCodexHooksFlag('[experimental]\ncodex_hooks = true\n');
+    assert.strictEqual(r.changed, true, 'should still add features.codex_hooks');
+    assert(CT.isCodexHooksEnabled(r.content), 'result must be truly enabled');
+    assert(r.content.includes('[experimental]'), 'stray key preserved');
+  });
+  t('config: features.codex_hooks=true recognized (no-op)', () => assert.strictEqual(CT.ensureCodexHooksFlag('[features]\ncodex_hooks = true\n').changed, false));
+  t('config: features codex_hooks=false flipped in place (no duplicate key)', () => {
+    const r = CT.ensureCodexHooksFlag('[features]\ncodex_hooks = false\n');
+    assert(/codex_hooks = true/.test(r.content) && !/=\s*false/.test(r.content));
+  });
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
