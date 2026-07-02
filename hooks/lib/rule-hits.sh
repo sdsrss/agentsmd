@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# rule-hits.sh — append-only JSONL telemetry for codexmd's closed-loop data plane.
+# rule-hits.sh — append-only JSONL telemetry for agentsmd's closed-loop data plane.
 # Ported from claudemd hooks/lib/rule-hits.sh. Log path retargeted to
-# ~/.codex/logs/codexmd.jsonl (Codex home, not ~/.claude). Feeds scripts/audit.js
+# ~/.codex/logs/agentsmd.jsonl (Codex home, not ~/.claude). Feeds scripts/audit.js
 # bySection aggregation → hit-rate promote/demote governance (ARCHITECTURE.md §4).
 
 # rule_hits_append HOOK EVENT EXTRA_JSON [SPEC_SECTION] [SESSION_ID]
@@ -32,11 +32,11 @@ rule_hits_append() {
   [[ -n "$project_raw" ]] && project=$(printf '%s' "$project_raw" | tr -c 'a-zA-Z0-9-' '-')
 
   local log_dir="${CODEX_HOME:-$HOME/.codex}/logs"
-  local log_file="$log_dir/codexmd.jsonl"
+  local log_file="$log_dir/agentsmd.jsonl"
   mkdir -p "$log_dir" 2>/dev/null || return 0
 
   # Size-capped rotation (default 5 MB → .1, pushing .1 → .2, drop .2).
-  local max_mb="${CODEXMD_LOG_MAX_MB:-5}"
+  local max_mb="${AGENTSMD_LOG_MAX_MB:-5}"
   [[ "$max_mb" =~ ^[0-9]+$ ]] || max_mb=5
   local max_bytes=$((max_mb * 1024 * 1024))
   if [[ -f "$log_file" ]]; then

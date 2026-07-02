@@ -1,7 +1,7 @@
 'use strict';
-// paths.js — resolve codexmd's install + Codex config locations. Honors
+// paths.js — resolve agentsmd's install + Codex config locations. Honors
 // CODEX_HOME (set by tests to a sandbox) before falling back to ~/.codex.
-// Every codexmd-owned path lives under a `codexmd` segment or a codexmd-*
+// Every agentsmd-owned path lives under a `agentsmd` segment or a agentsmd-*
 // filename so nothing can collide with OMX or other tenants (ARCHITECTURE.md §5).
 
 const os = require('os');
@@ -15,22 +15,22 @@ function codexHome() {
 // Repo root = two levels up from scripts/lib.
 function repoRoot() { return path.resolve(__dirname, '..', '..'); }
 
-// Self-contained install dir under Codex home; its `/codexmd/` segment is what
+// Self-contained install dir under Codex home; its `/agentsmd/` segment is what
 // the hooks.json marker matches on.
-function installDir() { return path.join(codexHome(), 'codexmd'); }
+function installDir() { return path.join(codexHome(), 'agentsmd'); }
 function installHooksDir() { return path.join(installDir(), 'hooks'); }
 function installSpecDir() { return path.join(installDir(), 'spec'); }
 function installScriptsDir() { return path.join(installDir(), 'scripts'); }
-// Codex user-skills dir (shared with other plugins). codexmd only ever adds /
-// removes its own `codexmd-*` prefixed dirs here — never touches others.
+// Codex user-skills dir (shared with other plugins). agentsmd only ever adds /
+// removes its own `agentsmd-*` prefixed dirs here — never touches others.
 function codexSkillsDir() { return path.join(codexHome(), 'skills'); }
 
 function hooksJsonPath() { return path.join(codexHome(), 'hooks.json'); }
 function configTomlPath() { return path.join(codexHome(), 'config.toml'); }
 function agentsMdPath() { return path.join(codexHome(), 'AGENTS.md'); }
-function stateDir() { return path.join(codexHome(), '.codexmd-state'); }
+function stateDir() { return path.join(codexHome(), '.agentsmd-state'); }
 function manifestPath() { return path.join(stateDir(), 'manifest.json'); }
-function logPath() { return path.join(codexHome(), 'logs', 'codexmd.jsonl'); }
+function logPath() { return path.join(codexHome(), 'logs', 'agentsmd.jsonl'); }
 
 module.exports = {
   codexHome, repoRoot, installDir, installHooksDir, installSpecDir, installScriptsDir, codexSkillsDir,

@@ -1,9 +1,9 @@
 'use strict';
-// codex-hooks.js — marker-scoped merge/remove of codexmd's own entries in the
+// codex-hooks.js — marker-scoped merge/remove of agentsmd's own entries in the
 // shared ~/.codex/hooks.json. Mirrors oh-my-codex's dist/config/codex-hooks.js
-// (production-proven) but identifies OUR entries by the '/codexmd/' path marker
+// (production-proven) but identifies OUR entries by the '/agentsmd/' path marker
 // instead of OMX's codex-native-hook.js. Invariant (ARCHITECTURE.md §5): touch
-// ONLY codexmd's entries — never read, modify, reorder, or depend on OMX or any
+// ONLY agentsmd's entries — never read, modify, reorder, or depend on OMX or any
 // other tenant; work whether or not the file pre-exists or OMX is installed.
 
 const fs = require('fs');
@@ -13,20 +13,20 @@ const MANAGED_EVENTS = ['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPrompt
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-// A command hook is codexmd's iff its command path contains a `/codexmd/`
+// A command hook is agentsmd's iff its command path contains a `/agentsmd/`
 // segment. The installer guarantees the install dir carries that segment, so
 // this can never match OMX (`codex-native-hook.js`) or any other tenant.
-function isCodexmdCommand(command) {
-  return typeof command === 'string' && /[\\/]codexmd[\\/]/.test(command);
+function isAgentsmdCommand(command) {
+  return typeof command === 'string' && /[\\/]agentsmd[\\/]/.test(command);
 }
 
-// Build codexmd's managed hook config from the repo template, substituting the
-// __CODEXMD_HOOKS_DIR__ placeholder with the absolute install path. The template
+// Build agentsmd's managed hook config from the repo template, substituting the
+// __AGENTSMD_HOOKS_DIR__ placeholder with the absolute install path. The template
 // (hooks/hooks.json) is the single source of truth — no duplicated wiring here.
 function buildManagedConfig(hooksDir, templatePath) {
-  const raw = fs.readFileSync(templatePath, 'utf8').replace(/__CODEXMD_HOOKS_DIR__/g, hooksDir);
+  const raw = fs.readFileSync(templatePath, 'utf8').replace(/__AGENTSMD_HOOKS_DIR__/g, hooksDir);
   const parsed = JSON.parse(raw);
-  if (!isObj(parsed) || !isObj(parsed.hooks)) throw new Error('invalid codexmd hooks template');
+  if (!isObj(parsed) || !isObj(parsed.hooks)) throw new Error('invalid agentsmd hooks template');
   return { hooks: parsed.hooks };
 }
 
@@ -42,16 +42,19 @@ function serialize(root) {
   return JSON.stringify(root, null, 2) + '\n';
 }
 
-// Remove codexmd command-hooks from one event group; preserve everything else.
-// Returns { group: <group|null>, removed } — null when the group is left empty.
-function stripCodexmdFromGroup(group) {
+// Remove command-hooks matching `isMarked` from one event group; preserve all
+// else. Returns { group: <group|null>, removed } — null when the group is empty.
+// Parameterized by predicate so the SAME strip discipline serves both agentsmd's
+// own marker and the legacy-codexmd migration (scripts/lib/migrate.js).
+function stripFromGroup(group, isMarked) {
   if (!isObj(group) || !Array.isArray(group.hooks)) return { group: clone(group), removed: 0 };
-  const kept = group.hooks.filter((h) => !(isObj(h) && h.type === 'command' && isCodexmdCommand(h.command)));
+  const kept = group.hooks.filter((h) => !(isObj(h) && h.type === 'command' && isMarked(h.command)));
   const removed = group.hooks.length - kept.length;
   if (removed === 0) return { group: clone(group), removed: 0 };
   if (kept.length === 0) return { group: null, removed };
   return { group: { ...clone(group), hooks: kept }, removed };
 }
+const stripAgentsmdFromGroup = (group) => stripFromGroup(group, isAgentsmdCommand);
 
 // Install / update: per event → strip own + preserve all others + append own.
 // Idempotent (re-running replaces our stale entries, never duplicates).
@@ -59,7 +62,7 @@ function stripCodexmdFromGroup(group) {
 // fresh, but a non-empty string that fails to parse may hold OTHER tenants'
 // entries we cannot see — clobbering it would silently delete them (the exact
 // independence break the marker design exists to prevent). Throw instead.
-function mergeCodexmdHooks(existingContent, managed) {
+function mergeAgentsmdHooks(existingContent, managed) {
   let parsed = null;
   if (typeof existingContent === 'string' && existingContent.trim() !== '') {
     parsed = parseHooksConfig(existingContent);
@@ -73,7 +76,7 @@ function mergeCodexmdHooks(existingContent, managed) {
     const existing = Array.isArray(hooks[event]) ? hooks[event] : [];
     const preserved = [];
     for (const group of existing) {
-      const s = stripCodexmdFromGroup(group);
+      const s = stripAgentsmdFromGroup(group);
       if (s.group !== null) preserved.push(s.group);
     }
     hooks[event] = [...preserved, ...managed.hooks[event].map(clone)];
@@ -82,9 +85,11 @@ function mergeCodexmdHooks(existingContent, managed) {
   return serialize(root);
 }
 
-// Uninstall: strip own from every event + preserve others. Empty event → drop
-// key; empty hooks → drop hooks; empty root → return null (caller deletes file).
-function removeCodexmdHooks(existingContent) {
+// Strip every command-hook matching `isMarked` from all events + preserve others.
+// Empty event → drop key; empty hooks → drop hooks; empty root → return null
+// (caller deletes file). Used by uninstall (agentsmd marker) and the legacy
+// migration (codexmd marker) alike — one implementation, two predicates.
+function removeMarkedHooks(existingContent, isMarked) {
   const parsed = parseHooksConfig(existingContent);
   if (!parsed) return { nextContent: existingContent, removed: 0 };
   const root = clone(parsed.root);
@@ -94,7 +99,7 @@ function removeCodexmdHooks(existingContent) {
     if (!Array.isArray(groups)) continue;
     const preserved = [];
     for (const group of groups) {
-      const s = stripCodexmdFromGroup(group);
+      const s = stripFromGroup(group, isMarked);
       removed += s.removed;
       if (s.group !== null) preserved.push(s.group);
     }
@@ -105,9 +110,11 @@ function removeCodexmdHooks(existingContent) {
   if (Object.keys(root).length === 0) return { nextContent: null, removed };
   return { nextContent: serialize(root), removed };
 }
+// Uninstall: strip agentsmd's own entries.
+const removeAgentsmdHooks = (existingContent) => removeMarkedHooks(existingContent, isAgentsmdCommand);
 
-// How many codexmd command-hooks are currently registered in the given content.
-function countCodexmdHooks(content) {
+// How many agentsmd command-hooks are currently registered in the given content.
+function countAgentsmdHooks(content) {
   const parsed = parseHooksConfig(content);
   if (!parsed) return 0;
   let n = 0;
@@ -115,7 +122,7 @@ function countCodexmdHooks(content) {
     if (!Array.isArray(groups)) continue;
     for (const g of groups) {
       if (isObj(g) && Array.isArray(g.hooks)) {
-        n += g.hooks.filter((h) => isObj(h) && h.type === 'command' && isCodexmdCommand(h.command)).length;
+        n += g.hooks.filter((h) => isObj(h) && h.type === 'command' && isAgentsmdCommand(h.command)).length;
       }
     }
   }
@@ -123,6 +130,6 @@ function countCodexmdHooks(content) {
 }
 
 module.exports = {
-  MANAGED_EVENTS, isCodexmdCommand, buildManagedConfig, parseHooksConfig,
-  mergeCodexmdHooks, removeCodexmdHooks, countCodexmdHooks, serialize,
+  MANAGED_EVENTS, isAgentsmdCommand, buildManagedConfig, parseHooksConfig,
+  mergeAgentsmdHooks, removeAgentsmdHooks, removeMarkedHooks, countAgentsmdHooks, serialize,
 };

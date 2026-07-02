@@ -43,11 +43,11 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
 
 function formatReport(ra) {
   const L = [];
-  L.push(`codexmd rules governance — last ${ra.days}d · ${ra.telemetryRows} telemetry rows`);
+  L.push(`agentsmd rules governance — last ${ra.days}d · ${ra.telemetryRows} telemetry rows`);
   L.push('');
   if (ra.telemetryRows === 0) {
     L.push('No telemetry in window yet. Demote/promote signals need field data —');
-    L.push('install codexmd live and let hooks fire before trusting these counts.');
+    L.push('install agentsmd live and let hooks fire before trusting these counts.');
     L.push('');
   }
   L.push('hook-enforced rules:');

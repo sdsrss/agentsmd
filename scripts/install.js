@@ -1,8 +1,8 @@
 'use strict';
-// install.js — install codexmd into ~/.codex (honors $CODEX_HOME). Independent
-// of oh-my-codex: touches only codexmd's own entries, preserves everything else,
+// install.js — install agentsmd into ~/.codex (honors $CODEX_HOME). Independent
+// of oh-my-codex: touches only agentsmd's own entries, preserves everything else,
 // works whether or not ~/.codex pre-exists or OMX is present (ARCHITECTURE.md §5).
-// Idempotent — re-running refreshes codexmd's entries without duplicating them.
+// Idempotent — re-running refreshes agentsmd's entries without duplicating them.
 
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +10,7 @@ const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const CT = require('./lib/config-toml');
 const AM = require('./lib/agents-md');
+const M = require('./lib/migrate');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const writeFile = (p, c) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, c); };
@@ -28,11 +29,17 @@ function install(nowIso) {
   //    overwriting it would silently delete them (C1). Never clobber blind.
   const existingHooks = readOrNull(P.hooksJsonPath());
   if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
-    throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — codexmd will not overwrite it. Fix or remove it, then re-run install.`);
+    throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
   }
 
+  // 0b. Migrate away any prior codexmd install (agentsmd's former name) BEFORE we
+  //     lay down our own entries — strip the legacy /codexmd/ hooks, AGENTS.md
+  //     block, skills, and dirs so an upgrader gets a clean replacement, not
+  //     duplicates. Marker-scoped (never touches OMX); a no-op when none exists.
+  const migratedFromCodexmd = M.removeLegacyCodexmd();
+
   // 1. Copy hooks/ + spec/ + scripts/ into the self-contained install dir (the
-  //    `/codexmd/` path segment is what the hooks.json marker matches).
+  //    `/agentsmd/` path segment is what the hooks.json marker matches).
   fs.mkdirSync(installDir, { recursive: true });
   fs.cpSync(path.join(repo, 'hooks'), hooksDir, { recursive: true });
   fs.cpSync(path.join(repo, 'spec'), P.installSpecDir(), { recursive: true });
@@ -40,13 +47,13 @@ function install(nowIso) {
   chmodShells(hooksDir); chmodShells(path.join(hooksDir, 'lib')); chmodShells(path.join(hooksDir, 'tests'));
 
   // 1b. Install command-layer skills into the Codex user-skills dir — ONLY our
-  //     `codexmd-*` prefixed dirs; never touch any other tenant's skill.
+  //     `agentsmd-*` prefixed dirs; never touch any other tenant's skill.
   const installedSkills = [];
   const repoSkills = path.join(repo, 'skills');
   if (fs.existsSync(repoSkills)) {
     fs.mkdirSync(P.codexSkillsDir(), { recursive: true });
     for (const name of fs.readdirSync(repoSkills)) {
-      if (!name.startsWith('codexmd-')) continue;
+      if (!name.startsWith('agentsmd-')) continue;
       const src = path.join(repoSkills, name);
       if (!fs.statSync(src).isDirectory()) continue;
       fs.rmSync(path.join(P.codexSkillsDir(), name), { recursive: true, force: true }); // idempotent refresh
@@ -55,9 +62,9 @@ function install(nowIso) {
     }
   }
 
-  // 2. Merge hooks.json — marker-scoped, preserve all non-codexmd entries.
+  // 2. Merge hooks.json — marker-scoped, preserve all non-agentsmd entries.
   const managed = H.buildManagedConfig(hooksDir, path.join(hooksDir, 'hooks.json'));
-  const mergedHooks = H.mergeCodexmdHooks(readOrNull(P.hooksJsonPath()), managed);
+  const mergedHooks = H.mergeAgentsmdHooks(readOrNull(P.hooksJsonPath()), managed);
   writeFile(P.hooksJsonPath(), mergedHooks);
 
   // 3. Ensure config.toml [features] hooks = true (Codex 0.142+; migrates a
@@ -72,21 +79,22 @@ function install(nowIso) {
 
   // 5. Record what we did, for an exact reversible uninstall.
   const manifest = {
-    name: 'codexmd',
+    name: 'agentsmd',
     installedAt: nowIso || new Date().toISOString(),
     installDir, hooksDir,
-    hookCount: H.countCodexmdHooks(mergedHooks),
+    hookCount: H.countAgentsmdHooks(mergedHooks),
     installedSkills,
     configFlag: cfg.reason,
     configFlagAddedByUs: cfg.changed,
     agentsBlockUpdated: am.updated === true,
+    migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
   };
   writeFile(P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
 
 if (require.main === module) {
-  try { console.log('codexmd installed:\n' + JSON.stringify(install(), null, 2)); }
-  catch (e) { console.error('codexmd install failed:', e.message); process.exit(1); }
+  try { console.log('agentsmd installed:\n' + JSON.stringify(install(), null, 2)); }
+  catch (e) { console.error('agentsmd install failed:', e.message); process.exit(1); }
 }
 module.exports = { install };

@@ -78,5 +78,5 @@ fi
 ISSUES="${ISSUES% }"
 hook_record "$HOOK" "advisory" "$(jq -cn --arg i "$ISSUES" '{issues:$i}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
 hook_queue_advisory \
-  "[codexmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain."
+  "[agentsmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain."
 exit 0

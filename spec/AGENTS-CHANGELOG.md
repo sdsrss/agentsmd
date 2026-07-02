@@ -2,22 +2,29 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.0.0 (2026-07-03) — project rename (no rule changes)
+
+Rule text unchanged. The shared version moves to v2.0.0 in lockstep with the plugin's
+rename from **codexmd** to **agentsmd** — the tool's identity only; the `CODEX-CODING-SPEC`
+title and every rule are the same. `hard-rules.json` `added_version` fields stay at v1.4.0
+(when each rule was added). See the repo `CHANGELOG.md`.
+
 ## v1.4.3 (2026-07-03) — version-sync (no rule changes)
 
-Rule text unchanged; the shared version moves in lockstep with the codexmd plugin's
+Rule text unchanged; the shared version moves in lockstep with the agentsmd plugin's
 v1.4.3 fix (SessionStart `resume` no longer clears the advisory queue) + the empirical
 confirmation that Stop advisories reach the model. See the repo `CHANGELOG.md`.
 
 ## v1.4.2 (2026-07-03) — version-sync (no rule changes)
 
-Rule text unchanged; the shared version moves in lockstep with the codexmd plugin's
+Rule text unchanged; the shared version moves in lockstep with the agentsmd plugin's
 v1.4.2 fix for the Codex 0.142 hook-flag rename (`[features].codex_hooks` → `hooks`).
 See the repo `CHANGELOG.md`. `hard-rules.json` `added_version` fields stay at v1.4.0.
 
 ## v1.4.1 (2026-07-03) — version-sync (no rule changes)
 
 Core + extended rule text is unchanged from v1.4.0; the shared version moves to
-keep it in lockstep with the codexmd plugin's v1.4.1 hook-delivery fix (Stop
+keep it in lockstep with the agentsmd plugin's v1.4.1 hook-delivery fix (Stop
 advisories deferred to the next UserPromptSubmit — see the repo `CHANGELOG.md`).
 `hard-rules.json` `added_version` fields stay at v1.4.0 (that is when each rule
 was added).

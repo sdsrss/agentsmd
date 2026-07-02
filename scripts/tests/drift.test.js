@@ -69,8 +69,8 @@ t('version: package.json = plugin.json = hard-rules = spec header', () => {
 t('plugin: skills dir declared and populated', () => {
   const plugin = JSON.parse(read('.codex-plugin/plugin.json'));
   assert.strictEqual(plugin.skills, './skills/', 'plugin.json skills path');
-  const skills = fs.readdirSync(path.join(ROOT, 'skills')).filter((d) => d.startsWith('codexmd-'));
-  assert(skills.length >= 4, 'expected ≥4 codexmd-* skills, got ' + skills.length);
+  const skills = fs.readdirSync(path.join(ROOT, 'skills')).filter((d) => d.startsWith('agentsmd-'));
+  assert(skills.length >= 4, 'expected ≥4 agentsmd-* skills, got ' + skills.length);
   for (const s of skills) assert(fs.existsSync(path.join(ROOT, 'skills', s, 'SKILL.md')), s + ' missing SKILL.md');
 });
 

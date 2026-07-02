@@ -1,11 +1,12 @@
 {
-  "name": "codexmd",
-  "version": "1.4.3",
+  "name": "agentsmd",
+  "version": "2.0.0",
   "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
   "license": "MIT",
   "scripts": {
     "test": "node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/drift.test.js && bash hooks/tests/smoke.sh",
     "spec:install": "node scripts/install.js",
+    "spec:update": "node scripts/install.js",
     "spec:uninstall": "node scripts/uninstall.js",
     "audit": "node scripts/audit.js",
     "rules": "node scripts/rules.js",
@@ -21,6 +22,7 @@
     ".codex-plugin",
     "ARCHITECTURE.md",
     "README.md",
+    "README.zh-CN.md",
     "CHANGELOG.md"
   ],
   "engines": {

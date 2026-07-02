@@ -27,9 +27,9 @@ const rows = [
   { ts: day(40), hook: 'ship-baseline', event: 'block', spec_section: '§E3-ship-baseline' }, // OUT of 30d window
 ];
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codexmd-audit-test.'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-audit-test.'));
 try {
-  const log = path.join(tmp, 'codexmd.jsonl');
+  const log = path.join(tmp, 'agentsmd.jsonl');
   fs.writeFileSync(log, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 
   const a = audit({ days: 30, now: NOW, logPath: log });

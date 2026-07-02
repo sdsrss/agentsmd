@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# platform.sh — cross-platform abstractions for stat/find/timeout in codexmd hooks.
+# platform.sh — cross-platform abstractions for stat/find/timeout in agentsmd hooks.
 # Ported from claudemd hooks/lib/platform.sh (GNU + BSD/macOS safe).
 
 # platform_stat_mtime FILE — echo mtime as epoch seconds.
@@ -31,7 +31,7 @@ platform_find_newer() {
 platform_timeout() {
   local secs="${1:-}"; shift || true
   [[ -n "$secs" && "$#" -gt 0 ]] || return 1
-  if [[ "${CODEXMD_NO_TIMEOUT_BIN:-0}" != "1" ]]; then
+  if [[ "${AGENTSMD_NO_TIMEOUT_BIN:-0}" != "1" ]]; then
     if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"; return $?; fi
     if command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"; return $?; fi
   fi

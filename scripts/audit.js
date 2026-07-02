@@ -1,5 +1,5 @@
 'use strict';
-// audit.js — aggregate codexmd's rule-hit telemetry (~/.codex/logs/codexmd.jsonl)
+// audit.js — aggregate agentsmd's rule-hit telemetry (~/.codex/logs/agentsmd.jsonl)
 // over a time window. The read side of the closed-loop data plane
 // (ARCHITECTURE.md §4): spec rule → hook → jsonl → THIS → promote/demote signal.
 // bySection is what scripts/rules.js cross-references against spec/hard-rules.json.
@@ -60,7 +60,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
 
 function formatReport(a) {
   const lines = [];
-  lines.push(`codexmd audit — last ${a.days}d (since ${a.windowStartIso})`);
+  lines.push(`agentsmd audit — last ${a.days}d (since ${a.windowStartIso})`);
   lines.push(`rows: ${a.inWindow} in window / ${a.totalRows} total · enforcement events: ${a.enforcementEvents}`);
   lines.push('');
   lines.push('by spec_section (enforcement / total):');

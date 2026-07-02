@@ -26,5 +26,5 @@ rm -f "$PENDING" 2>/dev/null || true
 
 hook_record "$HOOK" "surface" 'null' '' "$SID"
 hook_context \
-  "[codexmd] Advisories from your previous turn (address or acknowledge):"$'\n'"${MSG}" \
+  "[agentsmd] Advisories from your previous turn (address or acknowledge):"$'\n'"${MSG}" \
   "UserPromptSubmit"

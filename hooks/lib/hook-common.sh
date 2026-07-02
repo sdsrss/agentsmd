@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-common.sh — fail-open library for codexmd hooks.
+# hook-common.sh — fail-open library for agentsmd hooks.
 # Codex output protocol verified against oh-my-codex's production codex-native
 # hook (v0.130): PreToolUse block = {decision:"block", reason, systemMessage,
 # hookSpecificOutput:{hookEventName}}; advisory = {hookSpecificOutput:{...},
@@ -9,7 +9,7 @@
 
 # hook_kill_switch NAME — return 0 to proceed, 1 to short-circuit.
 hook_kill_switch() {
-  [[ "${DISABLE_CODEXMD_HOOKS:-0}" == "1" ]] && return 1
+  [[ "${DISABLE_AGENTSMD_HOOKS:-0}" == "1" ]] && return 1
   local var="DISABLE_${1}_HOOK"
   [[ "${!var:-0}" == "1" ]] && return 1
   return 0
@@ -66,9 +66,9 @@ hook_context() {
   exit 0
 }
 
-# hook_state_dir — echo (and ensure) codexmd's state dir under the Codex home.
+# hook_state_dir — echo (and ensure) agentsmd's state dir under the Codex home.
 hook_state_dir() {
-  local d="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+  local d="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
   mkdir -p "$d" 2>/dev/null || true
   printf '%s' "$d"
 }
@@ -105,7 +105,7 @@ hook_record() {
 hook_record_failopen() {
   [[ "${DISABLE_RULE_HITS_LOG:-0}" == "1" ]] && return 0
   local hook="${1:-unknown}" reason="${2:-unspecified}"
-  local state_dir="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+  local state_dir="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
   mkdir -p "$state_dir" 2>/dev/null || return 0
   local stamp; stamp=$(printf '%s-%s' "$hook" "$reason" | tr '/. ' '___')
   local marker="$state_dir/failopen-${stamp}.ts"

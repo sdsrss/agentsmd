@@ -90,7 +90,7 @@ cmd_npx_unpinned() {
 if cmd_npx_unpinned "$CMD"; then
   hook_record "$HOOK" "advisory" '{"pattern":"npx-unpinned"}' '§8-unknown-script' "$SID"
   hook_advisory \
-    "[codexmd §4] Unpinned 'npx <pkg>' — spec resolves NPX as lockfile → local → pinned whitelist. Pin a version (pkg@x.y.z), run the locally-installed binary, or append [allow-npx-unpinned] if this is intentional." \
+    "[agentsmd §4] Unpinned 'npx <pkg>' — spec resolves NPX as lockfile → local → pinned whitelist. Pin a version (pkg@x.y.z), run the locally-installed binary, or append [allow-npx-unpinned] if this is intentional." \
     "PreToolUse"
 fi
 

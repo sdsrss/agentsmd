@@ -11,10 +11,10 @@ Companion files:
 
 ## §O1 The point of the machine
 
-codexmd's hooks + telemetry + this handbook exist for ONE reason: **keep every rule enforceable, and let data — not taste — decide which rules stay in the always-on layer.** A rule that no one triggers and no hook enforces is pure attention dilution. The closed loop (ARCHITECTURE.md §4) makes that measurable:
+agentsmd's hooks + telemetry + this handbook exist for ONE reason: **keep every rule enforceable, and let data — not taste — decide which rules stay in the always-on layer.** A rule that no one triggers and no hook enforces is pure attention dilution. The closed loop (ARCHITECTURE.md §4) makes that measurable:
 
 ```
-spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/codexmd.jsonl → scripts/audit.js → scripts/rules.js → promote/demote decision
+spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agentsmd.jsonl → scripts/audit.js → scripts/rules.js → promote/demote decision
 ```
 
 ## §O2 Operator responsibilities
@@ -56,4 +56,4 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/code
 | 2 (keyword) | `MEMORY.md` + `memory/*.md` | keyword/path match | recall-on-demand |
 | operator | `OPERATOR.md` (this file) | **never auto-loaded** | human maintenance rules |
 
-Codex ships no built-in three-tier loader; codexmd's SessionStart hook + the extended-load trigger in the core header approximate it, and the telemetry loop is what keeps Tier 0 honest. Putting operator content in Tier 1 would burn agent context on directives it can't execute — hence this dedicated, never-loaded home.
+Codex ships no built-in three-tier loader; agentsmd's SessionStart hook + the extended-load trigger in the core header approximate it, and the telemetry loop is what keeps Tier 0 honest. Putting operator content in Tier 1 would burn agent context on directives it can't execute — hence this dedicated, never-loaded home.

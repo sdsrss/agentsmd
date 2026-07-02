@@ -19,7 +19,7 @@ EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
 TMP_DIR="${CODEX_HOME:-$HOME/.codex}/tmp"
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
 BASELINE="$STATE_DIR/tmp-baseline.txt"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
@@ -39,6 +39,6 @@ if (( NOW_COUNT > PREV_COUNT )); then
   GREW=$(( NOW_COUNT - PREV_COUNT ))
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson g "$GREW" --argjson n "$NOW_COUNT" '{grew:$g,now:$n}' 2>/dev/null || echo null)" '§7-user-global-state' "$SID"
   hook_queue_advisory \
-    "[codexmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt."
+    "[agentsmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt."
 fi
 exit 0

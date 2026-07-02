@@ -1,5 +1,5 @@
 'use strict';
-// status.js — report codexmd's install state, and explicitly how many OTHER
+// status.js — report agentsmd's install state, and explicitly how many OTHER
 // tenants' hook entries are present + preserved (the independence guarantee is
 // observable, not just asserted).
 
@@ -22,7 +22,7 @@ function status() {
     try {
       const p = JSON.parse(hooksContent);
       for (const groups of Object.values(p.hooks || {})) for (const g of groups || []) for (const h of (g.hooks || [])) {
-        if (h && h.type === 'command') { total++; if (!H.isCodexmdCommand(h.command)) other++; }
+        if (h && h.type === 'command') { total++; if (!H.isAgentsmdCommand(h.command)) other++; }
       }
     } catch {}
   }
@@ -30,7 +30,7 @@ function status() {
   return {
     installed: !!manifest,
     installedAt: manifest && manifest.installedAt,
-    codexmdHooksRegistered: hooksContent ? H.countCodexmdHooks(hooksContent) : 0,
+    agentsmdHooksRegistered: hooksContent ? H.countAgentsmdHooks(hooksContent) : 0,
     otherTenantHooksPreserved: other,
     totalHookEntries: total,
     codexHooksFlag: CT.isCodexHooksEnabled(cfg),

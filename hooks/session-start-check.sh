@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# session-start-check.sh — SessionStart. Injects a one-line codexmd banner via
+# session-start-check.sh — SessionStart. Injects a one-line agentsmd banner via
 # hookSpecificOutput.additionalContext so each session confirms the spec is live
 # and which enforcement layer is active. Phase-1 scope: static confirmation +
 # spec-version read from the installed spec. Bootstrap-on-mismatch and upstream
@@ -20,7 +20,7 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 # Refresh the per-session reference timestamp that sandbox-disposal-check.sh
 # uses to detect THIS session's undisposed scratch dirs (§8.V4). Without this
 # refresh the reference would freeze at the first-ever Stop and grow stale.
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
 mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/null || true
 # Drop advisories queued by a PREVIOUS session's Stop hooks — but ONLY on a fresh
 # start, never on `resume` (a resumed session continues, so a queued advisory from
@@ -39,5 +39,5 @@ done
 
 hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
 hook_context \
-  "[codexmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_CODEXMD_HOOKS=1." \
+  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1." \
   "SessionStart"

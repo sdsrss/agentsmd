@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke.sh — end-to-end contract test for the codexmd hook layer.
+# smoke.sh — end-to-end contract test for the agentsmd hook layer.
 # Sandboxes HOME to a temp dir so telemetry writes to $tmp/.codex/logs, never
 # the live ~/.codex (spec §8.V3). Cleans the sandbox on exit (§8.V4).
 # Asserts each of the three Codex output modes: block / advisory / context.
@@ -7,7 +7,7 @@
 set -uo pipefail
 HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/codexmd-smoke.XXXXXX")"
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-smoke.XXXXXX")"
 cleanup() { rm -rf "$SANDBOX"; }
 trap cleanup EXIT
 export HOME="$SANDBOX"                 # redirect $HOME-based lookups into the sandbox
@@ -53,7 +53,7 @@ OUT="$(run_hook banned-vocab-check.sh "$(j 'ls -la')")";                        
 echo "== session-start-check.sh =="
 OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
-[ -f "$CODEX_HOME/.codexmd-state/session-start.ref" ] && ok "session start refreshes sandbox-disposal ref (I3)" || bad "session start refreshes sandbox-disposal ref (I3)" "(no ref file)"
+[ -f "$CODEX_HOME/.agentsmd-state/session-start.ref" ] && ok "session start refreshes sandbox-disposal ref (I3)" || bad "session start refreshes sandbox-disposal ref (I3)" "(no ref file)"
 
 echo "== ship-baseline-check.sh (gh stubbed) =="
 mkdir -p "$SANDBOX/bin"
@@ -71,7 +71,7 @@ OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push
 OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push origin HEAD:main')")"; is_block "$OUT" && ok "push HEAD:main refspec + red → block" || bad "push HEAD:main refspec + red → block" "$OUT"
 
 STOP='{"session_id":"smoke1","hook_event_name":"Stop"}'
-PENDING="$CODEX_HOME/.codexmd-state/pending-advisories"
+PENDING="$CODEX_HOME/.agentsmd-state/pending-advisories"
 pending_has() { [[ -f "$PENDING" ]] && grep -qF "$1" "$PENDING"; }
 TRJSON() { jq -cn --arg p "$1" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}'; }
 
@@ -84,9 +84,9 @@ OUT="$(run_hook residue-audit.sh "$STOP")"
 
 echo "== sandbox-disposal-check.sh (Stop → queue) =="
 rm -f "$PENDING"; export TMPDIR="$SANDBOX/tmproot"; mkdir -p "$TMPDIR"
-mkdir -p "$CODEX_HOME/.codexmd-state"
-touch -d '2 hours ago' "$CODEX_HOME/.codexmd-state/session-start.ref" 2>/dev/null || touch "$CODEX_HOME/.codexmd-state/session-start.ref"
-mkdir -p "$TMPDIR/codexmd-smoke-scratch"            # matches prefix, newer than ref
+mkdir -p "$CODEX_HOME/.agentsmd-state"
+touch -d '2 hours ago' "$CODEX_HOME/.agentsmd-state/session-start.ref" 2>/dev/null || touch "$CODEX_HOME/.agentsmd-state/session-start.ref"
+mkdir -p "$TMPDIR/agentsmd-smoke-scratch"            # matches prefix, newer than ref
 OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"
 { is_empty "$OUT" && pending_has "§8.V4"; } && ok "mkdtemp residue → queued" || bad "mkdtemp residue → queued" "out=[$OUT]"
 unset TMPDIR
@@ -107,7 +107,7 @@ OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 
 echo "== surface-advisories.sh (UserPromptSubmit → surface + clear) =="
 UPS="$(jq -cn '{prompt:"next task",session_id:"smoke1",hook_event_name:"UserPromptSubmit"}')"
-printf '%s\n' "[codexmd §9] queued advisory" > "$PENDING"
+printf '%s\n' "[agentsmd §9] queued advisory" > "$PENDING"
 OUT="$(run_hook surface-advisories.sh "$UPS")"
 { is_context "$OUT" && [[ ! -f "$PENDING" ]]; } && ok "queued advisory → surfaced via UserPromptSubmit + cleared" || bad "surface + clear" "out=[$OUT]"
 OUT="$(run_hook surface-advisories.sh "$UPS")"; is_empty "$OUT" && ok "empty queue → silent" || bad "empty queue → silent" "$OUT"
@@ -140,7 +140,7 @@ OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'bump the version number' "$PROJ"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$SANDBOX/noproj")")"; is_empty "$OUT" && ok "no MEMORY.md → silent" || bad "no MEMORY.md → silent" "$OUT"
 
 echo "== telemetry =="
-LOG="$SANDBOX/.codex/logs/codexmd.jsonl"
+LOG="$SANDBOX/.codex/logs/agentsmd.jsonl"
 if [[ -r "$LOG" ]]; then
   ROWS="$(wc -l < "$LOG" | tr -d ' ')"
   SECTIONS="$(jq -r '.spec_section // "null"' "$LOG" 2>/dev/null | sort -u | paste -sd, -)"

@@ -51,5 +51,5 @@ done < "$MEM"
 
 hook_record "$HOOK" "hint" "$(jq -cn --argjson c "$COUNT" '{matches:$c}' 2>/dev/null || echo null)" '§7-memory-read' "$SID"
 hook_context \
-  "[codexmd §7] Prior memory may be relevant to this task — read before acting:"$'\n'"${MATCHES%$'\n'}" \
+  "[agentsmd §7] Prior memory may be relevant to this task — read before acting:"$'\n'"${MATCHES%$'\n'}" \
   "UserPromptSubmit"

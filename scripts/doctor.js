@@ -1,5 +1,5 @@
 'use strict';
-// doctor.js — health checks for a codexmd install + spec integrity.
+// doctor.js — health checks for a agentsmd install + spec integrity.
 
 const fs = require('fs');
 const path = require('path');
@@ -48,7 +48,7 @@ function doctor() {
 if (require.main === module) {
   const r = doctor();
   for (const c of r.checks) console.log(`${c.ok ? '  ok  ' : '  FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
-  console.log(r.ok ? '\ncodexmd doctor: all checks passed' : '\ncodexmd doctor: some checks failed');
+  console.log(r.ok ? '\nagentsmd doctor: all checks passed' : '\nagentsmd doctor: some checks failed');
   process.exit(r.ok ? 0 : 1);
 }
 module.exports = { doctor };
