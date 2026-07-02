@@ -112,10 +112,13 @@ OUT="$(run_hook surface-advisories.sh "$UPS")"
 { is_context "$OUT" && [[ ! -f "$PENDING" ]]; } && ok "queued advisory → surfaced via UserPromptSubmit + cleared" || bad "surface + clear" "out=[$OUT]"
 OUT="$(run_hook surface-advisories.sh "$UPS")"; is_empty "$OUT" && ok "empty queue → silent" || bad "empty queue → silent" "$OUT"
 
-echo "== session-start clears the queue (session-scoped) =="
+echo "== session-start clears queue on startup, PRESERVES on resume =="
 printf 'stale advisory\n' > "$PENDING"
-run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart"}' >/dev/null 2>&1
-[[ ! -f "$PENDING" ]] && ok "SessionStart drops stale queue" || bad "SessionStart drops stale queue" "(still exists)"
+run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"startup"}' >/dev/null 2>&1
+[[ ! -f "$PENDING" ]] && ok "SessionStart(startup) drops stale queue" || bad "SessionStart(startup) drops stale queue" "(still exists)"
+printf 'in-session advisory\n' > "$PENDING"
+run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"resume"}' >/dev/null 2>&1
+[[ -f "$PENDING" ]] && ok "SessionStart(resume) PRESERVES queue (I5 empirical fix)" || bad "SessionStart(resume) preserves queue" "(cleared)"
 
 echo "== memory-read-check.sh =="
 PROJ="$SANDBOX/proj"; mkdir -p "$PROJ"

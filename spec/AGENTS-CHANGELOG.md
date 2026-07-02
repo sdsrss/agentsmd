@@ -2,6 +2,12 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v1.4.3 (2026-07-03) — version-sync (no rule changes)
+
+Rule text unchanged; the shared version moves in lockstep with the codexmd plugin's
+v1.4.3 fix (SessionStart `resume` no longer clears the advisory queue) + the empirical
+confirmation that Stop advisories reach the model. See the repo `CHANGELOG.md`.
+
 ## v1.4.2 (2026-07-03) — version-sync (no rule changes)
 
 Rule text unchanged; the shared version moves in lockstep with the codexmd plugin's

@@ -3,6 +3,21 @@
 Release history for **codexmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v1.4.3 — 2026-07-03 — Stop-advisory surfacing verified + resume fix
+
+### Fixed
+- `session-start-check.sh` cleared the pending-advisory queue on EVERY SessionStart,
+  including `resume` — dropping an advisory that a resumed session's previous turn had
+  queued, before `surface-advisories` could show it. It now clears only on a fresh
+  start (SessionStart `source != "resume"`), so resumed sessions keep their queue.
+
+### Verified
+- The v1.4.1 deferred-surfacing mechanism is now **empirically confirmed against live
+  Codex 0.142**: a Stop-hook advisory queued in turn 1 was surfaced at turn 2's
+  `UserPromptSubmit` and **quoted back verbatim by the model** — the `additionalContext`
+  channel reaches the model, closing the I5 open item. (Also confirmed the SessionStart
+  stdin `.source` = `startup` / `resume` discriminator.)
+
 ## v1.4.2 — 2026-07-03 — Codex 0.142 hook-flag rename (codex_hooks → hooks)
 
 ### Changed
