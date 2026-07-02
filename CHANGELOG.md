@@ -3,6 +3,17 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.1.1 — 2026-07-03 — npm scoped package publish (no rule-text changes)
+
+No spec RULE text changed.
+
+### Changed
+- npm package name is now `@sdsrs/agentsmd`. npm rejected the unscoped `agentsmd`
+  package name as too similar to the existing `agents-md` package, so the publishable
+  npm artifact moved under the maintainer scope. The Codex plugin name, marketplace
+  name, GitHub repository, install directory, hooks, skills, and user-facing command
+  names remain `agentsmd`.
+
 ## v2.1.0 — 2026-07-03 — distribution install surfaces (no rule-text changes)
 
 The published artifact now has first-class install paths for both standalone users

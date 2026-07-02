@@ -72,7 +72,7 @@ Useful options:
 
 ```bash
 # pin a branch, tag, or commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.0
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.1
 
 # explicit update: same operation as install, safe to re-run
 curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
