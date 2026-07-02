@@ -13,12 +13,15 @@ A global **coding-discipline spec for Codex**, enforced by native Codex hooks an
 | `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY — blocks `rm -rf $VAR`, `curl \| bash`; warns on unpinned `npx` |
 | `banned-vocab-check` | PreToolUse:Bash | §10 — blocks unquantified value claims in `git commit` messages |
 | `ship-baseline-check` | PreToolUse:Bash | §E3 — blocks `git push` to a shared branch when its CI is red |
-| `session-start-check` | SessionStart | injects the active-spec banner |
+| `memory-read-check` | PreToolUse:Bash | §7 — blocks a ship when a project `MEMORY.md` was not consulted |
+| `session-start-check` | SessionStart | injects the active-spec banner; resets the advisory queue |
+| `memory-prompt-hint` | UserPromptSubmit | surfaces `MEMORY.md` entries matching the prompt |
+| `surface-advisories` | UserPromptSubmit | surfaces advisories the Stop hooks queued last turn |
 | `residue-audit` | Stop | §7/§9 — flags `~/.codex/tmp` growth |
 | `sandbox-disposal-check` | Stop | §8.V4 — flags undisposed scratch dirs |
 | `transcript-structure-scan` | Stop | §10 — checks four-section order + banned vocab in the last report |
 
-Every hit is logged to `~/.codex/logs/codexmd.jsonl`; `codexmd-rules` reads it to surface which always-on rules earn their place and which are demote candidates (the closed loop — see `ARCHITECTURE.md §4`).
+Stop-hook advisories are queued and surfaced at the next turn's `UserPromptSubmit` (the verified `additionalContext` channel), not emitted inline on Stop. Every hit is logged to `~/.codex/logs/codexmd.jsonl`; `codexmd-rules` reads it to surface which always-on rules earn their place and which are demote candidates (the closed loop — see `ARCHITECTURE.md §4`).
 
 ## Requirements
 

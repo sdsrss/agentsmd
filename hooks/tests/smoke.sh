@@ -71,28 +71,51 @@ OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push
 OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push origin HEAD:main')")"; is_block "$OUT" && ok "push HEAD:main refspec + red → block" || bad "push HEAD:main refspec + red → block" "$OUT"
 
 STOP='{"session_id":"smoke1","hook_event_name":"Stop"}'
-echo "== residue-audit.sh (Stop) =="
-mkdir -p "$SANDBOX/.codex/tmp"
-run_hook residue-audit.sh "$STOP" >/dev/null 2>&1   # run 1: establish baseline (silent)
-: > "$SANDBOX/.codex/tmp/orphan1"                    # tmp grows by 1
-OUT="$(run_hook residue-audit.sh "$STOP")"; is_context "$OUT" && ok "~/.codex/tmp grew → advisory" || bad "~/.codex/tmp grew → advisory" "$OUT"
+PENDING="$CODEX_HOME/.codexmd-state/pending-advisories"
+pending_has() { [[ -f "$PENDING" ]] && grep -qF "$1" "$PENDING"; }
+TRJSON() { jq -cn --arg p "$1" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}'; }
 
-echo "== sandbox-disposal-check.sh (Stop) =="
-export TMPDIR="$SANDBOX/tmproot"; mkdir -p "$TMPDIR"
-mkdir -p "$SANDBOX/.codex/.codexmd-state"
-touch -d '2 hours ago' "$SANDBOX/.codex/.codexmd-state/session-start.ref" 2>/dev/null || touch "$SANDBOX/.codex/.codexmd-state/session-start.ref"
+echo "== residue-audit.sh (Stop → queue, no inline emit) =="
+mkdir -p "$CODEX_HOME/tmp"; rm -f "$PENDING"
+run_hook residue-audit.sh "$STOP" >/dev/null 2>&1   # run 1: establish baseline (silent)
+: > "$CODEX_HOME/tmp/orphan1"                        # tmp grows by 1
+OUT="$(run_hook residue-audit.sh "$STOP")"
+{ is_empty "$OUT" && pending_has "§9"; } && ok "tmp grew → queued (Stop emits nothing)" || bad "tmp grew → queued" "out=[$OUT]"
+
+echo "== sandbox-disposal-check.sh (Stop → queue) =="
+rm -f "$PENDING"; export TMPDIR="$SANDBOX/tmproot"; mkdir -p "$TMPDIR"
+mkdir -p "$CODEX_HOME/.codexmd-state"
+touch -d '2 hours ago' "$CODEX_HOME/.codexmd-state/session-start.ref" 2>/dev/null || touch "$CODEX_HOME/.codexmd-state/session-start.ref"
 mkdir -p "$TMPDIR/codexmd-smoke-scratch"            # matches prefix, newer than ref
-OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; is_context "$OUT" && ok "mkdtemp residue → advisory" || bad "mkdtemp residue → advisory" "$OUT"
+OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"
+{ is_empty "$OUT" && pending_has "§8.V4"; } && ok "mkdtemp residue → queued" || bad "mkdtemp residue → queued" "out=[$OUT]"
 unset TMPDIR
 
-echo "== transcript-structure-scan.sh (Stop) =="
-TR="$SANDBOX/transcript.jsonl"
+echo "== transcript-structure-scan.sh (Stop → queue) =="
+TR="$SANDBOX/transcript.jsonl"; rm -f "$PENDING"
 printf '%s\n' '{"timestamp":"t","type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: significantly improved the parser."}]}}' > "$TR"
-OUT="$(run_hook transcript-structure-scan.sh "$(jq -cn --arg p "$TR" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}')")"; is_context "$OUT" && ok "transcript banned-vocab → advisory" || bad "transcript banned-vocab → advisory" "$OUT"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+{ is_empty "$OUT" && pending_has "§10"; } && ok "banned-vocab → queued" || bad "banned-vocab → queued" "out=[$OUT]"
+rm -f "$PENDING"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the crash (12/12 tests passed)."}]}}' > "$TR"
-OUT="$(run_hook transcript-structure-scan.sh "$(jq -cn --arg p "$TR" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}')")"; is_empty "$OUT" && ok "transcript clean report → silent" || bad "transcript clean report → silent" "$OUT"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+{ is_empty "$OUT" && ! pending_has "§10"; } && ok "clean report → silent, nothing queued" || bad "clean report → silent" "out=[$OUT]"
+rm -f "$PENDING"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Not done: a\nDone: b\nFailed: c\nUncertain: d"}]}}' > "$TR"
-OUT="$(run_hook transcript-structure-scan.sh "$(jq -cn --arg p "$TR" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}')")"; is_context "$OUT" && ok "transcript four-section out-of-order → advisory" || bad "transcript four-section out-of-order → advisory" "$OUT"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+{ is_empty "$OUT" && pending_has "four-section"; } && ok "four-section out-of-order → queued" || bad "four-section → queued" "out=[$OUT]"
+
+echo "== surface-advisories.sh (UserPromptSubmit → surface + clear) =="
+UPS="$(jq -cn '{prompt:"next task",session_id:"smoke1",hook_event_name:"UserPromptSubmit"}')"
+printf '%s\n' "[codexmd §9] queued advisory" > "$PENDING"
+OUT="$(run_hook surface-advisories.sh "$UPS")"
+{ is_context "$OUT" && [[ ! -f "$PENDING" ]]; } && ok "queued advisory → surfaced via UserPromptSubmit + cleared" || bad "surface + clear" "out=[$OUT]"
+OUT="$(run_hook surface-advisories.sh "$UPS")"; is_empty "$OUT" && ok "empty queue → silent" || bad "empty queue → silent" "$OUT"
+
+echo "== session-start clears the queue (session-scoped) =="
+printf 'stale advisory\n' > "$PENDING"
+run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart"}' >/dev/null 2>&1
+[[ ! -f "$PENDING" ]] && ok "SessionStart drops stale queue" || bad "SessionStart drops stale queue" "(still exists)"
 
 echo "== memory-read-check.sh =="
 PROJ="$SANDBOX/proj"; mkdir -p "$PROJ"

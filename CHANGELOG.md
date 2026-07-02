@@ -3,6 +3,25 @@
 Release history for **codexmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v1.4.1 — 2026-07-03 — Stop-advisory delivery fix
+
+### Changed
+- Stop-event advisories (`~/.codex/tmp` growth, undisposed scratch dirs, and the
+  four-section / banned-vocab report scan) are now **queued at Stop and surfaced
+  at the next UserPromptSubmit** via `additionalContext` — the surfacing channel
+  oh-my-codex uses in production — instead of emitted inline on Stop, whose
+  `additionalContext` surfacing is unverified. New `surface-advisories.sh`
+  (UserPromptSubmit) drains the queue; `session-start-check.sh` clears it so
+  advisories stay session-scoped. Hard enforcement (PreToolUse blocks) is
+  unchanged.
+
+### Note
+- Empirical confirmation that the queued advisories reach the model still awaits
+  an active Codex workspace (the dogfood account returned `402
+  deactivated_workspace`), but delivery now rides the SessionStart/UserPromptSubmit
+  channel rather than the unverified Stop channel. Telemetry remains the guaranteed
+  record either way.
+
 ## v1.4.0 — 2026-07-03 — first release
 
 A global coding-discipline spec for Codex, enforced by native Codex hooks and

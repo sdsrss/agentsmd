@@ -66,6 +66,29 @@ hook_context() {
   exit 0
 }
 
+# hook_state_dir — echo (and ensure) codexmd's state dir under the Codex home.
+hook_state_dir() {
+  local d="${CODEX_HOME:-$HOME/.codex}/.codexmd-state"
+  mkdir -p "$d" 2>/dev/null || true
+  printf '%s' "$d"
+}
+
+# hook_queue_advisory MESSAGE — queue a Stop-time advisory to be surfaced at the
+# NEXT UserPromptSubmit. additionalContext on the Stop event is not a verified
+# surfacing channel; UserPromptSubmit/SessionStart is (matches OMX's usage), so
+# Stop advisories are deferred there instead of emitted inline on Stop. The queue
+# is capped and cleared at SessionStart (session-scoped).
+hook_queue_advisory() {
+  local msg="$1" f
+  f="$(hook_state_dir)/pending-advisories"
+  printf '%s\n' "$msg" >> "$f" 2>/dev/null || return 0
+  local n
+  n=$(wc -l < "$f" 2>/dev/null || echo 0)
+  if [[ "$n" =~ ^[0-9]+$ && "$n" -gt 20 ]]; then
+    tail -n 20 "$f" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" 2>/dev/null
+  fi
+}
+
 # hook_record HOOK EVENT [EXTRA_JSON] [SECTION] [SESSION_ID] — append telemetry.
 hook_record() {
   local lib_dir

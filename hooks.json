@@ -23,6 +23,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
+          { "type": "command", "command": "bash \"./hooks/surface-advisories.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"./hooks/memory-prompt-hint.sh\"", "timeout": 3 }
         ]
       }

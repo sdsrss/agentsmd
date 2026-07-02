@@ -3,7 +3,7 @@
 # message for spec §10 violations: (a) banned vocabulary (§10 Specificity), and
 # (b) four-section REPORT order Done → Not done → Failed → Uncertain (§10 Order),
 # only when the message is clearly a four-section report. Non-blocking: telemetry
-# + best-effort additionalContext advisory. Parses the Codex session JSONL
+# + a queued advisory surfaced at the next UserPromptSubmit. Parses the Codex session JSONL
 # ({timestamp,type,payload}); if it can't locate an assistant message it stays
 # silent (fail-open — a scan that can't parse must not misfire).
 
@@ -77,7 +77,6 @@ fi
 [[ -n "$ISSUES" ]] || exit 0
 ISSUES="${ISSUES% }"
 hook_record "$HOOK" "advisory" "$(jq -cn --arg i "$ISSUES" '{issues:$i}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
-hook_context \
-  "[codexmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain." \
-  "Stop"
+hook_queue_advisory \
+  "[codexmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain."
 exit 0

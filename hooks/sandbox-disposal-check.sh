@@ -2,7 +2,7 @@
 # sandbox-disposal-check.sh — Stop. Advises when mkdtemp-style scratch dirs the
 # session likely created are still present in $TMPDIR (spec §8.V4: a task deletes
 # its own sandbox artifacts on exit; residue voids the next task's baseline).
-# Non-blocking: telemetry + best-effort additionalContext. Scoped to codexmd's
+# Non-blocking: telemetry + a queued advisory surfaced next UserPromptSubmit. Scoped to codexmd's
 # own smoke/scratch prefixes + generic agent scratch, depth-1, newer than the
 # session-start reference — never a deep traversal.
 
@@ -36,8 +36,7 @@ done < <(find "$TMPROOT" -maxdepth 1 -mindepth 1 -type d -newer "$REF" 2>/dev/nu
 
 if (( RESIDUE > 0 )); then
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson r "$RESIDUE" '{residue:$r}' 2>/dev/null || echo null)" '§8.V4' "$SID"
-  hook_context \
-    "[codexmd §8.V4] ${RESIDUE} scratch dir(s) created under ${TMPROOT} this session look undisposed. The creating task should delete its own sandbox artifacts on exit (exempt: .keep-marked or paused-task-referenced)." \
-    "Stop"
+  hook_queue_advisory \
+    "[codexmd §8.V4] ${RESIDUE} scratch dir(s) created under ${TMPROOT} this session look undisposed. The creating task should delete its own sandbox artifacts on exit (exempt: .keep-marked or paused-task-referenced)."
 fi
 exit 0

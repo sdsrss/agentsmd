@@ -2,11 +2,10 @@
 # residue-audit.sh — Stop. Advises when ~/.codex/tmp/ has grown since the last
 # session baseline (spec §9 end-of-task sweep / §7 user-global-state: code that
 # writes to user-global paths must not leave orphans). Non-blocking: records
-# telemetry (the guaranteed signal) and best-effort injects an advisory via
-# additionalContext. First run establishes the baseline silently.
-#
-# Note: additionalContext surfacing on the Stop event is best-effort pending
-# live verification; telemetry is the reliable channel until then.
+# telemetry (the guaranteed signal) and QUEUES an advisory (hook_queue_advisory)
+# for surface-advisories.sh to surface at the next UserPromptSubmit — Stop-event
+# additionalContext is not a verified surfacing channel. First run establishes
+# the baseline silently.
 
 set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
@@ -39,8 +38,7 @@ printf '%s' "$NOW_COUNT" > "$BASELINE" 2>/dev/null || true
 if (( NOW_COUNT > PREV_COUNT )); then
   GREW=$(( NOW_COUNT - PREV_COUNT ))
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson g "$GREW" --argjson n "$NOW_COUNT" '{grew:$g,now:$n}' 2>/dev/null || echo null)" '§7-user-global-state' "$SID"
-  hook_context \
-    "[codexmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt." \
-    "Stop"
+  hook_queue_advisory \
+    "[codexmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt."
 fi
 exit 0
