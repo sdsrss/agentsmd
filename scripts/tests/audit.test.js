@@ -181,6 +181,59 @@ try {
     );
   });
 
+  // --- Phase 3: rules.js project scope ------------------------------------
+  const { formatReport: rulesFormat } = require('../rules');
+  const raProj = rulesAudit({ days: 30, now: NOW, logPath: projRows });
+  t('rulesAudit reports projectCount (distinct real projects, (none) excluded)', () => {
+    assert.strictEqual(raProj.projectCount, 3);
+    assert.strictEqual(raProj.projectFilter, null);
+  });
+  t('rulesAudit --project scopes telemetry + sets projectFilter', () => {
+    const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
+    assert.strictEqual(scoped.projectFilter, 'alpha');
+    assert.strictEqual(scoped.telemetryRows, 3);
+    assert.strictEqual(scoped.projectCount, 1);
+  });
+  t('rules report: spans-N by default, informational-lens note when scoped', () => {
+    assert.ok(/telemetry spans 3 project\(s\)/.test(rulesFormat(raProj)));
+    const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
+    assert.ok(/informational lens; demote signals remain cross-project/.test(rulesFormat(scoped)));
+  });
+  t('rules demote semantics unchanged under project scoping (regression)', () => {
+    const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
+    const r = scoped.rules.find((x) => x.section === '§8-rm-rf-var');
+    assert(r && r.signal === 'active', 'got ' + (r && r.signal));
+  });
+  t('rules CLI accepts --project and scopes the governance header to exactly one matched slug', () => {
+    // Mirrors the Task 3 audit-CLI discriminating fix (agentsmd-cli-proj /
+    // cliHome): a fresh, independently-rooted CODEX_HOME with its own logs/
+    // dir, seeded with enforcement rows for TWO distinct projects. This fails
+    // if --project forwarding is dropped anywhere: a fully-dropped forward
+    // (rulesAudit never receives `project`) prints the default "telemetry
+    // spans …" line instead of a scoped line at all; a forward that reaches
+    // rulesAudit but not its internal audit() call would still scope-print
+    // but show "(2 slug(s))" since both projects would remain in byProject.
+    const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-rules-cli-proj.'));
+    try {
+      fs.mkdirSync(path.join(cliHome, 'logs'), { recursive: true });
+      const cliLog = path.join(cliHome, 'logs', 'agentsmd.jsonl');
+      // CLI uses real Date.now() for its window (no `now` override available
+      // from the outside) — use real "yesterday", not the fixed NOW/day() fixture helpers.
+      const yesterday = new Date(Date.now() - 86400000).toISOString();
+      fs.writeFileSync(cliLog, [
+        { ts: yesterday, hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: '-home-user-alpha-project' },
+        { ts: yesterday, hook: 'banned-vocab',    event: 'block', spec_section: '§10-V',        project: '-home-user-beta-project' },
+      ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+      const out = cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--project=alpha'],
+        { env: { ...process.env, CODEX_HOME: cliHome }, encoding: 'utf8' }); // throws on non-zero exit → no throw here proves exit 0
+      assert.ok(/governance/.test(out), 'missing governance header; got:\n' + out);
+      assert.ok(/scoped to project filter 'alpha' \(1 slug\(s\)\)/.test(out), 'missing scoped header w/ exactly 1 slug; got:\n' + out);
+    } finally {
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
   t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });

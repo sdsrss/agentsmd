@@ -11,10 +11,10 @@ const path = require('path');
 const P = require('./lib/paths');
 const { audit, parseDaysArg } = require('./audit');
 
-function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath() } = {}) {
+function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
   const liveSections = new Set(hr.live_sections || []);
-  const a = audit({ days, now, logPath });
+  const a = audit({ days, now, logPath, project });
   // With zero telemetry in the window, a 0-hit live rule is NOT dilution — there is
   // simply no data to judge it. Distinguish 'no-data' from 'demote-candidate' so the
   // governance surface never recommends demotion off an empty window (e.g. a fresh
@@ -35,10 +35,14 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     return { id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits, live, signal, confidence: r.confidence, lastDemoteReview: r.last_demote_review };
   });
 
+  const projectCount = Object.keys(a.byProject).filter((k) => k !== '(none)').length;
+
   return {
     days,
     windowStartIso: a.windowStartIso,
     telemetryRows: a.inWindow,
+    projectFilter: project || null,
+    projectCount,
     rules: rows,
     demoteCandidates: rows.filter((r) => r.signal === 'demote-candidate'),
     active: rows.filter((r) => r.signal === 'active'),
@@ -49,6 +53,11 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
 function formatReport(ra) {
   const L = [];
   L.push(`agentsmd rules governance — last ${ra.days}d · ${ra.telemetryRows} telemetry rows`);
+  if (ra.projectFilter) {
+    L.push(`scoped to project filter '${ra.projectFilter}' (${ra.projectCount} slug(s)) — informational lens; demote signals remain cross-project.`);
+  } else {
+    L.push(`telemetry spans ${ra.projectCount} project(s).`);
+  }
   L.push('');
   if (ra.telemetryRows === 0) {
     L.push('No telemetry in window yet. Demote/promote signals need field data —');
@@ -74,14 +83,14 @@ function formatReport(ra) {
 if (require.main === module) {
   const parsed = parseDaysArg(process.argv.slice(2), 'agentsmd-rules');
   if (parsed.help) {
-    console.log('Usage: agentsmd-rules [--days=N]');
+    console.log('Usage: agentsmd-rules [--days=N] [--project=SUBSTR]');
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd rules: ${parsed.error}`);
-    console.error('Usage: agentsmd-rules [--days=N]');
+    console.error('Usage: agentsmd-rules [--days=N] [--project=SUBSTR]');
     process.exit(1);
   }
-  console.log(formatReport(rulesAudit({ days: parsed.days })));
+  console.log(formatReport(rulesAudit({ days: parsed.days, project: parsed.project })));
 }
 module.exports = { rulesAudit, formatReport };
