@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.2.2 (2026-07-04) — review follow-ups (no rule-text changes)
+
+Spec rule text unchanged; the shared version moves to v2.2.2 in lockstep with
+post-review follow-ups (`bin/agentsmd.js` POSIX signal exit code, README `--ref`
+bump, packaging E2E test, `ARCHITECTURE.md` bin/ note). `spec_version` → v2.2.2.
+Detail: repo `CHANGELOG.md`.
+
 ## v2.2.1 (2026-07-03) — docs: npm install guidance (no rule-text changes)
 
 Spec rule text unchanged; the shared version moves to v2.2.1 in lockstep with a

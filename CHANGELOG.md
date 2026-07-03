@@ -3,6 +3,25 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.2.2 — 2026-07-04 — review follow-ups: docs, POSIX exit code, packaging test (no rule-text changes)
+
+No spec RULE text changed. Follow-ups from a post-release code review of the
+v2.2.0/2.2.1 npm CLI.
+
+### Fixed
+- `bin/agentsmd.js`: a subcommand killed by a signal now exits `128 + signum`
+  (e.g. SIGINT → 130) instead of a flat `1`, per POSIX convention.
+- README (EN + 中文): the `--ref` curl example pins `v2.2.1` (was `v2.2.0`).
+
+### Added
+- `scripts/tests/distribution.test.js`: a packaging E2E test — `npm pack` +
+  global install into a sandbox prefix, then run the linked bin — covering the
+  bin-resolution / packaging class that direct `node bin/agentsmd.js` tests
+  cannot reach (the failure behind v2.2.1). The bare-npx regression guard also
+  now tolerates flags between `npx` and the scoped name (e.g. `npx -y …`).
+- `ARCHITECTURE.md`: documents `bin/` as the npm CLI entry that spawns (never
+  imports) the L2 scripts, upholding the layer-isolation invariant.
+
 ## v2.2.1 — 2026-07-03 — docs: npm install guidance (no rule-text changes)
 
 No spec RULE text changed. No package code changed from v2.2.0 — the `agentsmd`

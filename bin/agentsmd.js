@@ -9,6 +9,7 @@
 
 const path = require('path');
 const cp = require('child_process');
+const os = require('os');
 
 const SCRIPTS = path.join(__dirname, '..', 'scripts'); // self-derived; survives path/version changes
 
@@ -81,7 +82,9 @@ function main(argv) {
   }
   if (res.signal) {
     console.error(`agentsmd: ${cmd} terminated by signal ${res.signal}`);
-    return 1;
+    // POSIX convention: a process killed by signal N exits with 128+N (e.g. SIGINT → 130).
+    const signum = os.constants.signals[res.signal];
+    return signum ? 128 + signum : 1;
   }
   return res.status == null ? 1 : res.status;
 }

@@ -76,7 +76,7 @@ curl 管道安装请使用上面的 `raw.githubusercontent.com` URL。
 
 ```bash
 # 固定到某个 branch、tag 或 commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.2.0
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.2.1
 
 # 显式更新:与安装是同一个幂等操作,可反复运行
 curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update

@@ -194,11 +194,36 @@ t('package.json carries repository, homepage, and bugs metadata', () => {
   assert(/github\.com\/sdsrss\/agentsmd\/issues/.test(bugs));
 });
 
+t('npm pack + global install links a runnable agentsmd bin (packaging E2E)', () => withSandbox((dir) => {
+  // The `node bin/agentsmd.js` tests above cannot catch bin-resolution / packaging
+  // regressions — the failure class behind v2.2.1. Pack the real tarball, install
+  // it globally into a sandbox prefix, and run the LINKED bin. POSIX-only (this
+  // project targets bash-hook platforms); no deps, so the install is offline.
+  const packDir = path.join(dir, 'pack');
+  fs.mkdirSync(packDir, { recursive: true });
+  const packed = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }))[0].filename;
+  const tarball = path.join(packDir, packed);
+  assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
+
+  const prefix = path.join(dir, 'prefix');
+  cp.execFileSync('npm', ['install', '-g', '--prefix', prefix, '--no-audit', '--no-fund', tarball], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const binLink = path.join(prefix, 'bin', 'agentsmd');
+  assert(fs.existsSync(binLink), 'global install did not link the agentsmd bin');
+  const version = cp.execFileSync(binLink, ['--version'], { encoding: 'utf8' }).trim();
+  assert.strictEqual(version, JSON.parse(read('package.json')).version);
+}));
+
 t('README (EN + zh) leads with global install, not the flaky bare npx form', () => {
   // Regression guard (v2.2.1): a bare `npx @sdsrs/agentsmd <cmd>` for this scoped
   // package is unreliable on npm 11.x (intermittent "agentsmd: not found"). Docs
   // must use `npm i -g … && agentsmd <cmd>` or `npx --package @sdsrs/agentsmd agentsmd <cmd>`.
-  const bareNpx = /npx @sdsrs\/agentsmd(@[^\s]+)? (install|status|doctor|uninstall|update|audit|rules)\b/;
+  // Tolerate flags between `npx` and the scoped name (e.g. `npx -y @sdsrs/agentsmd install`);
+  // still allows the recommended `npx --package @sdsrs/agentsmd agentsmd <cmd>` (command follows the name).
+  const bareNpx = /npx (?:-\S+ )*@sdsrs\/agentsmd(@[^\s]+)? (install|status|doctor|uninstall|update|audit|rules)\b/;
   for (const f of ['README.md', 'README.zh-CN.md']) {
     const md = read(f);
     assert(md.includes('npm install -g @sdsrs/agentsmd'), `${f}: must document the global install`);
