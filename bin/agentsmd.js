@@ -14,7 +14,10 @@ const os = require('os');
 const SCRIPTS = path.join(__dirname, '..', 'scripts'); // self-derived; survives path/version changes
 
 // subcommand → script under scripts/. `update` is an install re-run (install is idempotent).
+// `init` is the one exception to the $CODEX_HOME rule below — it targets the
+// current project directory (process.cwd()), not $CODEX_HOME.
 const COMMANDS = {
+  init: 'init.js',
   install: 'install.js',
   update: 'install.js',
   uninstall: 'uninstall.js',
@@ -36,6 +39,7 @@ function usage() {
     'Usage: agentsmd <command> [options]',
     '',
     'Commands:',
+    '  init               Generate/refresh this project\'s AGENTS.md (current directory).',
     '  install            Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent.',
     '  update             Alias for install — re-run to refresh to this version.',
     "  uninstall          Remove agentsmd's own entries; every other tenant is preserved.",
@@ -48,7 +52,7 @@ function usage() {
     '  -v, --version      Print the agentsmd version.',
     '  -h, --help         Show this help.',
     '',
-    'Everything honors $CODEX_HOME (defaults to ~/.codex).',
+    'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, which targets the current project directory instead.',
     'Docs: https://github.com/sdsrss/agentsmd#readme',
   ].join('\n');
 }

@@ -133,7 +133,7 @@ t('agentsmd --version prints the package version', () => {
 
 t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
   const out = cli(['--help'], { CODEX_HOME: dir });
-  for (const c of ['install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
+  for (const c of ['init', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
   assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
@@ -148,6 +148,25 @@ t('agentsmd with no args prints usage and does NOT install (safe npx bare-run)',
 t('agentsmd unknown command exits non-zero with usage and does not install', () => withSandbox((dir) => {
   assert.throws(() => cli(['frobnicate'], { CODEX_HOME: dir }), /unknown command/);
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+}));
+
+t('agentsmd init dispatches to scripts/init.js, targeting the invoking directory rather than CODEX_HOME', () => withSandbox((dir) => {
+  // init is the one COMMANDS entry that is NOT $CODEX_HOME-scoped — unlike cli()
+  // above (fixed cwd: ROOT), it must run with cwd set to a throwaway project dir,
+  // or it would write an AGENTS.md into this repo's own root.
+  const projectDir = path.join(dir, 'project');
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({ name: 'dispatchcheck' }));
+  const codexHome = path.join(dir, 'codex-home');
+  const out = cp.execFileSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), 'init'], {
+    cwd: projectDir,
+    env: { ...process.env, CODEX_HOME: codexHome },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert(out.includes('created:'));
+  assert(fs.existsSync(path.join(projectDir, 'AGENTS.md')), 'init did not write to the invoking directory');
+  assert(!fs.existsSync(codexHome), 'init must not touch CODEX_HOME');
 }));
 
 t('agentsmd install → status → uninstall round-trips against a sandbox CODEX_HOME', () => withSandbox((dir) => {
