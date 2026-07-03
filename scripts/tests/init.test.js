@@ -101,5 +101,28 @@ const AM = require('../lib/agents-md');
   });
 }
 
+// ── skeleton rendering (project-templates.js) ────────────────────────────────
+const { renderProjectAgentsMd } = require('../lib/project-templates');
+{
+  const md = renderProjectAgentsMd({
+    language: 'TypeScript', runtime: 'Node.js', projectName: 'app', packageManager: 'pnpm',
+    monorepo: true, structure: ['src', 'tests'],
+    commands: { dev: 'pnpm run dev', build: 'pnpm run build', test: 'pnpm run test', lint: null },
+  });
+  t('render: names the project and stack', () => assert(md.includes('app') && md.includes('TypeScript')));
+  t('render: notes monorepo', () => assert(/monorepo/i.test(md)));
+  t('render: lists structure dirs', () => assert(md.includes('`src/`') && md.includes('`tests/`')));
+  t('render: emits present commands, skips null ones', () => assert(md.includes('pnpm run build') && !md.includes('lint')));
+  t('render: conventions placeholder points at agentsmd-analyze', () => assert(md.includes('## Conventions') && md.includes('agentsmd-analyze')));
+  t('render: carries no global-discipline headings (facts only)', () => assert(!/SAFETY|four-section|Iron Law/i.test(md)));
+
+  const bare = renderProjectAgentsMd({
+    language: 'Unknown', runtime: 'Unknown', projectName: 'x', packageManager: 'Unknown',
+    monorepo: false, structure: [], commands: { dev: null, build: null, test: null, lint: null },
+  });
+  t('render: omits Structure and Commands when empty', () => assert(!bare.includes('## Structure') && !bare.includes('## Commands')));
+  t('render: still emits Project and Conventions when bare', () => assert(bare.includes('## Project') && bare.includes('## Conventions')));
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
