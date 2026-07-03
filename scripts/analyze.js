@@ -41,4 +41,59 @@ function gather(root) {
   walk(base);
   return { detection: detect(base), files, truncated };
 }
-module.exports = { gather };
+
+const MAX_CONVENTIONS_BYTES = 6 * 1024, MAX_AGENTS_MD_BYTES = 32 * 1024;
+const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+
+function writeConventions(root, md) {
+  const base = root || process.cwd();
+  const target = path.join(base, 'AGENTS.md');
+  const body = String(md).trim();
+  if (Buffer.byteLength(body, 'utf8') > MAX_CONVENTIONS_BYTES)
+    throw new Error(`conventions block ${Buffer.byteLength(body, 'utf8')}B exceeds ${MAX_CONVENTIONS_BYTES}B budget — distill fewer, higher-signal conventions`);
+  const existing = readOrNull(target) || '';
+  const { content } = AM.injectBlockBetween(existing, body, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END);
+  if (Buffer.byteLength(content, 'utf8') > MAX_AGENTS_MD_BYTES)
+    throw new Error(`AGENTS.md would be ${Buffer.byteLength(content, 'utf8')}B, past the ~32 KiB discovery budget — trim facts or conventions`);
+  fs.writeFileSync(target, content);
+  return { action: 'written', target, bytes: Buffer.byteLength(content, 'utf8') };
+}
+module.exports = { gather, writeConventions };
+
+const USAGE = 'Usage: agentsmd-analyze [--gather] | agentsmd-analyze --write --from <file> | --help';
+
+function parseArgs(argv) {
+  const opts = { mode: 'gather', from: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--help' || a === '-h') return { help: true };
+    else if (a === '--gather') opts.mode = 'gather';
+    else if (a === '--write') opts.mode = 'write';
+    else if (a === '--from') opts.from = argv[++i];
+    else return { error: `unknown option: ${a}` };
+  }
+  if (opts.mode === 'write' && !opts.from) return { error: '--write requires --from <file>' };
+  return opts;
+}
+
+if (require.main === module) {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (parsed.help) { console.log(USAGE); process.exit(0); }
+  if (parsed.error) { console.error(`agentsmd analyze: ${parsed.error}`); console.error(USAGE); process.exit(1); }
+  if (parsed.mode === 'write') {
+    let md;
+    try { md = fs.readFileSync(parsed.from, 'utf8'); }
+    catch (e) { console.error(`agentsmd analyze: cannot read ${parsed.from}: ${e.message}`); process.exit(1); }
+    try {
+      const r = writeConventions(process.cwd(), md);
+      console.log(`written: ${r.target}`);
+    } catch (e) {
+      console.error(e.message);
+      process.exit(1);
+    }
+  } else {
+    const g = gather(process.cwd());
+    console.log(`${g.detection.language} (${g.detection.packageManager}) — ${g.files.length} file(s)${g.truncated ? ', truncated' : ''}`);
+    for (const f of g.files) console.log(`  ${f.path} (${f.bytes}B)`);
+  }
+}

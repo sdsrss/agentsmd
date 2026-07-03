@@ -39,5 +39,24 @@ withProject({
   t('gather: excludes .gitignore dirs', () => assert(!g.files.some(f => f.path.includes('secret/'))));
 });
 
+// ── writeConventions ────────────────────────────────────────────────────────
+const { writeConventions } = require('../analyze');
+const AM = require('../lib/agents-md');
+withProject({ 'package.json': JSON.stringify({ name: 'w' }) }, (dir) => {
+  require('../init').init({ projectRoot: dir }); // seed AGENTS.md
+  const target = path.join(dir, 'AGENTS.md');
+  const r = writeConventions(dir, '## Conventions\n\n- prefer const\n- no default export\n');
+  const body = fs.readFileSync(target, 'utf8');
+  t('write: injects into conventions block', () => assert(body.includes('- prefer const') && body.includes(AM.CONVENTIONS_BEGIN)));
+  t('write: leaves the facts block intact', () => assert(body.includes(AM.PROJECT_BEGIN) && body.includes('w')));
+  t('write: idempotent when unchanged', () => {
+    const a = fs.readFileSync(target, 'utf8');
+    writeConventions(dir, '## Conventions\n\n- prefer const\n- no default export\n');
+    assert.strictEqual(a, fs.readFileSync(target, 'utf8'));
+  });
+  t('write: refuses oversize conventions (no truncation)', () =>
+    assert.throws(() => writeConventions(dir, '## Conventions\n\n' + 'x'.repeat(7 * 1024)), /exceeds|budget|size/i));
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
