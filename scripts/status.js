@@ -8,6 +8,7 @@ const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
 const CT = require('./lib/config-toml');
+const { readRows } = require('./audit');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
@@ -26,7 +27,6 @@ function status() {
       }
     } catch {}
   }
-  const log = read(P.logPath());
   return {
     installed: !!manifest,
     installedAt: manifest && manifest.installedAt,
@@ -34,10 +34,32 @@ function status() {
     otherTenantHooksPreserved: other,
     totalHookEntries: total,
     codexHooksFlag: CT.isCodexHooksEnabled(cfg),
+    tuiStatusLineConfigured: CT.getTuiStatusLine(cfg).exists,
+    agentsmdStatusLinePreset: CT.isAgentsmdStatusLineEnabled(cfg),
     specBlockInAgentsMd: AM.hasSpecBlock(read(P.agentsMdPath())),
-    telemetryRows: log ? log.split('\n').filter(Boolean).length : 0,
+    telemetryRows: readRows(P.logPath()).length,
   };
 }
 
-if (require.main === module) console.log(JSON.stringify(status(), null, 2));
-module.exports = { status };
+function parseNoArgs(argv, commandName) {
+  for (const arg of argv) {
+    if (arg === '--help' || arg === '-h') return { help: true };
+    return { error: `unknown option: ${arg}` };
+  }
+  return { usage: `Usage: ${commandName}` };
+}
+
+if (require.main === module) {
+  const parsed = parseNoArgs(process.argv.slice(2), 'agentsmd-status');
+  if (parsed.help) {
+    console.log('Usage: agentsmd-status');
+    process.exit(0);
+  }
+  if (parsed.error) {
+    console.error(`agentsmd status: ${parsed.error}`);
+    console.error('Usage: agentsmd-status');
+    process.exit(1);
+  }
+  console.log(JSON.stringify(status(), null, 2));
+}
+module.exports = { status, parseNoArgs };

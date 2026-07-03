@@ -2,9 +2,9 @@
 # memory-read-check.sh — PreToolUse:Bash. Enforces spec §7 "MEMORY.md
 # read-the-file (HARD at ship/destructive/L3)": before a ship-family command
 # (git push/merge, publish, deploy), if the project (or global) MEMORY.md exists
-# it MUST have been consulted this session. Detection is transcript-format
-# agnostic: if MEMORY.md exists but the literal string "MEMORY.md" appears 0
-# times in the session transcript, it was definitely never opened → block.
+# it MUST have been consulted this session. Detection scans non-user transcript
+# entries only: if MEMORY.md exists but no assistant/tool/system-side entry names
+# it, the file was not observably opened → block.
 # Bypass: [allow-unread-memory]. Fail-open when no MEMORY.md / no transcript.
 
 set -uo pipefail
@@ -15,6 +15,7 @@ source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
 HOOK="memory-read"
 hook_kill_switch "MEMORY_READ" || exit 0
 hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
+command -v node >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "node-missing"; exit 0; }
 
 EVENT="$(hook_read_event)" || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
 [[ -n "$EVENT" ]] || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
@@ -31,18 +32,34 @@ printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+(push|merge)
 # Locate a MEMORY.md worth consulting: cwd, the enclosing git root (a ship command
 # is often run from a subdir), or global.
 MEM=""
-GITROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)"
-for cand in "$CWD/MEMORY.md" ${GITROOT:+"$GITROOT/MEMORY.md"} "${CODEX_HOME:-$HOME/.codex}/MEMORY.md"; do
-  [[ -r "$cand" ]] && { MEM="$cand"; break; }
-done
+MEM="$(hook_find_memory_file "$CWD" 2>/dev/null || true)"
 [[ -n "$MEM" ]] || exit 0   # no MEMORY.md → nothing to enforce
 
-# Was it consulted? Fail-open if we can't read the transcript to tell.
+# Was it consulted? Fail-open if we can't read the transcript to tell. User
+# prompts do not count: otherwise "push without reading MEMORY.md" satisfies the
+# gate by merely naming the file. Non-user transcript entries are the only
+# evidence this hook can observe cheaply across Codex transcript variants.
 TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 [[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || { hook_record_failopen "$HOOK" "no-transcript"; exit 0; }
-if grep -q "MEMORY\.md" "$TRANSCRIPT" 2>/dev/null; then
+node -e '
+const fs = require("fs");
+let lines;
+try { lines = fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/).filter(Boolean); } catch { process.exit(2); }
+for (const line of lines) {
+  let o;
+  try { o = JSON.parse(line); } catch { continue; }
+  const p = o && o.payload != null ? o.payload : o;
+  const role = p && (p.role || p.author);
+  if (role === "user") continue;
+  if (line.includes("MEMORY.md")) process.exit(0);
+}
+process.exit(1);
+' "$TRANSCRIPT" 2>/dev/null
+CONSULTED=$?
+if [[ "$CONSULTED" -eq 0 ]]; then
   exit 0   # referenced this session → consider it consulted
 fi
+[[ "$CONSULTED" -eq 2 ]] && { hook_record_failopen "$HOOK" "transcript-read-failed"; exit 0; }
 
 # The block text below refers to the file by its DIRECTORY, never the literal
 # "MEMORY.md" — otherwise, if Codex echoes this hook's own reason into the

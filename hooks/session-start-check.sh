@@ -26,7 +26,10 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/n
 # start, never on `resume` (a resumed session continues, so a queued advisory from
 # its last turn must survive to be surfaced at the next UserPromptSubmit).
 SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
-[[ "$SS_SOURCE" == "resume" ]] || rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
+if [[ "$SS_SOURCE" != "resume" ]]; then
+  rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
+  rm -f "$(hook_advisory_file "$SID")" 2>/dev/null || true
+fi
 
 # Resolve spec version from the installed core spec, if present. The fallback is a
 # non-version placeholder on purpose: a hardcoded vX.Y.Z here silently goes stale

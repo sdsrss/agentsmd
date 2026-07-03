@@ -35,12 +35,18 @@ printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+push\b' || e
 command -v gh >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "gh-missing"; exit 0; }
 
 # Resolve the target branch: `git push <remote> <branch>` wins, else HEAD.
-BRANCH="$(printf '%s' "$CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*' | awk '{print $NF}' | head -1)"
+# Strip push options whose values are separate argv tokens before the lightweight
+# parse, otherwise the option value is mistaken for the remote.
+PARSE_CMD="$(printf '%s' "$CMD" | sed -E 's/[[:space:]]--push-option[[:space:]]+[^[:space:]]+//g; s/[[:space:]]-o[[:space:]]+[^[:space:]]+//g')"
+BRANCH="$(printf '%s' "$PARSE_CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*' | awk '{print $NF}' | head -1)"
 if [[ -z "$BRANCH" ]]; then
   BRANCH="$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 fi
 # A `src:dst` refspec pushes to dst — gate on the destination branch.
 [[ "$BRANCH" == *:* ]] && BRANCH="${BRANCH##*:}"
+# Full refnames are common in scripted pushes (`HEAD:refs/heads/main`); normalize
+# them before shared-branch matching so they cannot bypass the ship gate.
+[[ "$BRANCH" == refs/heads/* ]] && BRANCH="${BRANCH#refs/heads/}"
 [[ -n "$BRANCH" && "$BRANCH" != "HEAD" ]] || exit 0
 
 # Only gate shared branches.

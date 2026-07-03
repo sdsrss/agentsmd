@@ -64,8 +64,8 @@ fi
 cmd_pipes_to_shell() {
   local c="$1"
   [[ "$c" == *"[allow-remote-exec]"* ]] && return 1
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh([[:space:]]|$)' && return 0
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
+  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(ba)?(sh|zsh|dash|ksh|fish)([[:space:]]|$)' && return 0
+  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
   return 1
 }
 

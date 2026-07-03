@@ -1,6 +1,6 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
   "license": "MIT",
   "scripts": {

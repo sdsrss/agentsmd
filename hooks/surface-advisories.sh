@@ -18,7 +18,7 @@ hook_require_jq || exit 0
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
-PENDING="$(hook_state_dir)/pending-advisories"
+PENDING="$(hook_advisory_file "$SID")"
 [[ -s "$PENDING" ]] || exit 0
 MSG="$(cat "$PENDING" 2>/dev/null)"
 rm -f "$PENDING" 2>/dev/null || true

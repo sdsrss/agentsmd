@@ -7,6 +7,7 @@ const cp = require('child_process');
 const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
 const H = require('./lib/codex-hooks');
+const { parseNoArgs } = require('./status');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const has = (bin) => { try { cp.execSync(`command -v ${bin}`, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -20,6 +21,13 @@ function doctor() {
 
   const cfg = read(P.configTomlPath()) || '';
   add('config.toml features.hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)');
+  const statusLine = CT.getTuiStatusLine(cfg);
+  const statusLineOk = statusLine.exists && statusLine.items !== null;
+  add(
+    'config.toml tui.status_line configured',
+    statusLineOk,
+    CT.isAgentsmdStatusLineEnabled(cfg) ? 'agentsmd preset' : (statusLine.exists ? (statusLineOk ? 'custom' : 'unparseable') : 'missing')
+  );
 
   let expectedHooks = 0;
   try {
@@ -59,6 +67,16 @@ function doctor() {
 }
 
 if (require.main === module) {
+  const parsed = parseNoArgs(process.argv.slice(2), 'agentsmd-doctor');
+  if (parsed.help) {
+    console.log('Usage: agentsmd-doctor');
+    process.exit(0);
+  }
+  if (parsed.error) {
+    console.error(`agentsmd doctor: ${parsed.error}`);
+    console.error('Usage: agentsmd-doctor');
+    process.exit(1);
+  }
   const r = doctor();
   for (const c of r.checks) console.log(`${c.ok ? '  ok  ' : '  FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
   console.log(r.ok ? '\nagentsmd doctor: all checks passed' : '\nagentsmd doctor: some checks failed');

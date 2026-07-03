@@ -11,6 +11,7 @@ const P = require('./lib/paths');
 // events (session banner, fail-open bookkeeping) are NOT rule activity and must
 // not inflate the "is this rule earning its keep" signal.
 const ENFORCEMENT_EVENTS = new Set(['block', 'deny', 'advisory', 'bypass']);
+const MAX_DAYS = 100000000;
 
 function readRows(logPath) {
   let raw;
@@ -31,7 +32,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
 
   for (const r of rows) {
     const ts = Date.parse(r && r.ts);
-    if (!Number.isNaN(ts) && ts < cutoff) continue; // unparseable ts → keep (can't window it out)
+    if (!Number.isNaN(ts) && (ts < cutoff || ts > now)) continue; // unparseable ts → keep (can't window it out)
     total++;
     const sec = (r && r.spec_section) || '(none)';
     const ev = (r && r.event) || 'unknown';
@@ -74,9 +75,40 @@ function formatReport(a) {
   return lines.join('\n');
 }
 
-if (require.main === module) {
-  const daysArg = process.argv.find((a) => /^--days=\d+$/.test(a));
-  const days = daysArg ? Number(daysArg.split('=')[1]) : 30;
-  console.log(formatReport(audit({ days })));
+function parseDaysArg(argv, commandName = 'agentsmd-audit') {
+  let days = 30;
+  let sawDays = false;
+  for (const arg of argv) {
+    if (arg === '--help' || arg === '-h') return { help: true, days };
+    const m = arg.match(/^--days=(.+)$/);
+    if (m) {
+      if (sawDays) return { error: 'duplicate option: --days', days };
+      sawDays = true;
+      if (!/^[1-9][0-9]*$/.test(m[1])) {
+        return { error: `invalid --days value: ${m[1]}`, days };
+      }
+      days = Number(m[1]);
+      if (!Number.isSafeInteger(days) || days > MAX_DAYS) {
+        return { error: `invalid --days value: ${m[1]}`, days: 30 };
+      }
+      continue;
+    }
+    return { error: `unknown option: ${arg}`, days };
+  }
+  return { days, usage: `Usage: ${commandName} [--days=N]` };
 }
-module.exports = { audit, formatReport, readRows, ENFORCEMENT_EVENTS };
+
+if (require.main === module) {
+  const parsed = parseDaysArg(process.argv.slice(2));
+  if (parsed.help) {
+    console.log('Usage: agentsmd-audit [--days=N]');
+    process.exit(0);
+  }
+  if (parsed.error) {
+    console.error(`agentsmd audit: ${parsed.error}`);
+    console.error('Usage: agentsmd-audit [--days=N]');
+    process.exit(1);
+  }
+  console.log(formatReport(audit({ days: parsed.days })));
+}
+module.exports = { audit, formatReport, parseDaysArg, readRows, ENFORCEMENT_EVENTS, MAX_DAYS };

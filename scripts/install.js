@@ -75,9 +75,12 @@ function install(nowIso) {
   writeFile(P.hooksJsonPath(), mergedHooks);
 
   // 3. Ensure config.toml [features] hooks = true (Codex 0.142+; migrates a
-  //    legacy codex_hooks flag to the canonical name).
+  //    legacy codex_hooks flag to the canonical name), and restore the useful
+  //    Codex built-in footer items formerly configured by OMX. User-defined
+  //    [tui] status_line values are preserved byte-for-byte.
   const cfg = CT.ensureCodexHooksFlag(readOrNull(P.configTomlPath()));
-  if (cfg.changed) writeFile(P.configTomlPath(), cfg.content);
+  const statusLine = CT.ensureTuiStatusLine(cfg.content);
+  if (cfg.changed || statusLine.changed) writeFile(P.configTomlPath(), statusLine.content);
 
   // 4. Inject the core spec into ~/.codex/AGENTS.md as a sentinel block.
   const specText = fs.readFileSync(path.join(P.installSpecDir(), 'AGENTS.md'), 'utf8');
@@ -93,6 +96,8 @@ function install(nowIso) {
     installedSkills,
     configFlag: cfg.reason,
     configFlagAddedByUs: cfg.changed,
+    statusLine: statusLine.reason,
+    statusLineAddedByUs: statusLine.changed,
     agentsBlockUpdated: am.updated === true,
     migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
     migratedTelemetryRows: migratedTelemetry.migrated,

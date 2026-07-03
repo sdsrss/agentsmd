@@ -39,6 +39,7 @@ if (( NOW_COUNT > PREV_COUNT )); then
   GREW=$(( NOW_COUNT - PREV_COUNT ))
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson g "$GREW" --argjson n "$NOW_COUNT" '{grew:$g,now:$n}' 2>/dev/null || echo null)" '§7-user-global-state' "$SID"
   hook_queue_advisory \
-    "[agentsmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt."
+    "[agentsmd §9] ~/.codex/tmp/ grew by ${GREW} entr$([[ $GREW -eq 1 ]] && echo y || echo ies) this session (now ${NOW_COUNT}). If any are your task's scratch artifacts, sweep them (spec §8.V4 disposal); .keep-marked or paused-task fixtures are exempt." \
+    "$SID"
 fi
 exit 0

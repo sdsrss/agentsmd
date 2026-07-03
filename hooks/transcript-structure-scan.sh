@@ -47,12 +47,20 @@ process.stdout.write(texts[texts.length-1]);
 [[ -n "$LAST" ]] || exit 0
 
 ISSUES=""
+SCAN_TEXT="$(printf '%s' "$LAST" | node -e '
+let s = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (c) => { s += c; });
+process.stdin.on("end", () => {
+  process.stdout.write(s.replace(/```[\s\S]*?```/g, ""));
+});
+' 2>/dev/null || printf '%s' "$LAST")"
 
 # (a) banned vocabulary
 if [[ -r "$PATTERNS_FILE" ]]; then
   while IFS= read -r pat; do
     [[ -z "$pat" || "$pat" == \#* ]] && continue
-    if printf '%s' "$LAST" | grep -qiE "$pat"; then
+    if printf '%s' "$SCAN_TEXT" | grep -qiE "$pat"; then
       ISSUES="${ISSUES}banned-vocab:/${pat}/ "; break
     fi
   done < "$PATTERNS_FILE"
@@ -78,5 +86,6 @@ fi
 ISSUES="${ISSUES% }"
 hook_record "$HOOK" "advisory" "$(jq -cn --arg i "$ISSUES" '{issues:$i}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
 hook_queue_advisory \
-  "[agentsmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain."
+  "[agentsmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain." \
+  "$SID"
 exit 0

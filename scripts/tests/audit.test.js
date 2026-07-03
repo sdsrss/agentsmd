@@ -10,6 +10,7 @@ const path = require('path');
 const assert = require('assert');
 const { audit } = require('../audit');
 const { rulesAudit } = require('../rules');
+const cp = require('child_process');
 
 let PASS = 0, FAIL = 0;
 const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
@@ -38,6 +39,17 @@ try {
   t('context (lifecycle) not counted as enforcement', () => assert.strictEqual(a.enforcementEvents, 5));
   t('byHook tallies pre-bash-safety = 4', () => assert.strictEqual(a.byHook['pre-bash-safety'], 4));
   t('malformed lines are skipped, not fatal', () => { fs.appendFileSync(log, 'not json\n'); assert.strictEqual(audit({ days: 30, now: NOW, logPath: log }).inWindow, 6); });
+  t('window includes the exact cutoff and excludes future rows', () => {
+    const boundary = path.join(tmp, 'boundary.jsonl');
+    fs.writeFileSync(boundary, [
+      { ts: new Date(NOW - 30 * 86400000 - 1).toISOString(), hook: 'h', event: 'block', spec_section: 'before-cutoff' },
+      { ts: new Date(NOW - 30 * 86400000).toISOString(), hook: 'h', event: 'block', spec_section: 'at-cutoff' },
+      { ts: new Date(NOW).toISOString(), hook: 'h', event: 'block', spec_section: 'now' },
+      { ts: new Date(NOW + 86400000).toISOString(), hook: 'h', event: 'block', spec_section: 'future' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const b = audit({ days: 30, now: NOW, logPath: boundary });
+    assert.deepStrictEqual(Object.keys(b.bySection).sort(), ['at-cutoff', 'now']);
+  });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
@@ -54,6 +66,43 @@ try {
     assert.strictEqual(raEmpty.demoteCandidates.length, 0, 'demote off an empty window');
     const r = raEmpty.rules.find((x) => x.id === '§8-rm-rf-var');
     assert(r && r.signal === 'no-data', 'got ' + (r && r.signal));
+  });
+
+  t('audit CLI rejects invalid --days instead of silently using default', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=abc'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /invalid --days value: abc/.test(String(e.stderr))
+    );
+  });
+  t('audit CLI rejects oversized --days instead of throwing a RangeError', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=999999999999999999999999999999'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
+    );
+  });
+  t('audit CLI rejects duplicate --days instead of silently taking the last value', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=7', '--days=30'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /duplicate option: --days/.test(String(e.stderr))
+    );
+  });
+  t('rules CLI rejects unknown options instead of silently using default', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--wat'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /unknown option: --wat/.test(String(e.stderr))
+    );
+  });
+  t('rules CLI rejects oversized --days instead of throwing a RangeError', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--days=999999999999999999999999999999'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
+    );
+  });
+  t('rules CLI rejects duplicate --days instead of silently taking the last value', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--days=7', '--days=30'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /duplicate option: --days/.test(String(e.stderr))
+    );
   });
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

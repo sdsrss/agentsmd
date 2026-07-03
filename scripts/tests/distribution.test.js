@@ -48,6 +48,24 @@ t('install.sh rejects unknown options before touching CODEX_HOME', () => withSan
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
 }));
 
+t('install.sh cleans its temp source dir when repo validation fails', () => withSandbox((dir) => {
+  const script = path.join(dir, 'install.sh');
+  const tmpdir = path.join(dir, 'tmp');
+  fs.mkdirSync(tmpdir, { recursive: true });
+  fs.copyFileSync(path.join(ROOT, 'install.sh'), script);
+  assert.throws(
+    () => cp.execFileSync('sh', [script, '--repo', 'not-a-repo'], {
+      cwd: dir,
+      env: { ...process.env, CODEX_HOME: path.join(dir, 'codex'), TMPDIR: tmpdir },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+    /unsupported --repo value: not-a-repo/
+  );
+  assert(!fs.existsSync(path.join(dir, 'codex')), 'CODEX_HOME should remain untouched');
+  assert.strictEqual(fs.readdirSync(tmpdir).filter((n) => n.startsWith('agentsmd-install.')).length, 0);
+}));
+
 t('install.sh installs, updates, reports status, and uninstalls from a local source', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   const installOut = run(['--source', ROOT, '--yes'], env);
@@ -60,6 +78,7 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
   const status = JSON.parse(run(['--source', ROOT, '--status'], env));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 10);
+  assert.strictEqual(status.agentsmdStatusLinePreset, true);
 
   const uninstallOut = run(['--source', ROOT, '--uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));

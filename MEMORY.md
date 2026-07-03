@@ -1,0 +1,13 @@
+- [Codex status line ownership](memory/reference_codex-status-line.md) [codex-config,status-line,omx] — OMX footer state maps to Codex built-in `[tui] status_line`; agentsmd may fill the preset only when missing.
+- [Session-scoped advisories](memory/reference_session-scoped-advisories.md) [hooks,advisories,session-state] — Stop-time advisory queues must be keyed by Codex `session_id` to avoid cross-session surfacing/clearing.
+- [Transcript evidence boundaries](memory/reference_transcript-evidence-boundaries.md) [hooks,transcript,memory-read,ship-gate] — User prompt text is not evidence that an agent action happened; memory-read ship gate ignores user-only `MEMORY.md` mentions.
+- [PreTool command variants](memory/reference_pretool-command-variants.md) [hooks,pretool,safety,commit] — Safety and commit-message hooks must cover common shell/Git variants such as `env bash`, path-qualified interpreters, and `git commit -am`.
+- [CLI argument validation](memory/reference_cli-argument-validation.md) [cli,audit,rules,args] — CLI tools must reject invalid options instead of silently falling back to defaults.
+- [Memory lookup](memory/reference_memory-lookup.md) [hooks,memory,subdir,lookup] — Memory hooks use shared lookup: cwd, git root, parent walk, then global memory.
+- [Transcript scan scope](memory/reference_transcript-scan-scope.md) [hooks,transcript,report,banned-vocab] — Stop transcript scanning strips fenced code blocks before banned-vocab checks.
+- [Installer cleanup](memory/reference_installer-cleanup.md) [installer,cleanup,tmpdir,posix-sh] — Installer cleanup state must be set in the parent shell, not inside command substitution.
+- [Telemetry row counting](memory/reference_telemetry-row-counting.md) [telemetry,status,audit,jsonl] — User-facing telemetry counts reuse the JSONL parser and skip malformed rows.
+- [Telemetry fallback JSON escaping](memory/reference_telemetry-fallback-json-escaping.md) [telemetry,hooks,jq,jsonl] — jq-less telemetry fallback must JSON-escape string fields beyond quotes.
+- [Doctor config parseability](memory/reference_doctor-config-parseability.md) [doctor,config,status-line] — Health checks must fail on unparseable detected config values, not only missing values.
+- [Config status_line TOML strings](memory/reference_config-status-line-toml-strings.md) [config,status-line,toml,doctor] — `tui.status_line` parsing accepts double-quoted and single-quoted TOML strings.
+- [Audit time window](memory/reference_audit-time-window.md) [audit,rules,telemetry,time-window] — `audit --days=N` counts parseable timestamps only within `[cutoff, now]`.

@@ -37,8 +37,8 @@ printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+commit\b' ||
 # filename/arg token (e.g. `-- significantly.txt`) would false-block a clean
 # message. Handles -m "…" / -m '…' / -m word / --message[= ]"…". Non-inline
 # messages (editor/-F) aren't inspectable pre-exec → nothing to scan.
-MSG="$(printf '%s' "$CMD" | grep -oE -- "(-m|--message)([[:space:]]+|=)('[^']*'|\"[^\"]*\"|[^[:space:]'\"][^[:space:]]*)" 2>/dev/null \
-  | sed -E "s/^(-m|--message)([[:space:]]+|=)//; s/^'(.*)'$/\1/; s/^\"(.*)\"$/\1/")"
+MSG="$(printf '%s' "$CMD" | grep -oE -- "(--message([[:space:]]+|=)|-[A-Za-z]*m[[:space:]]*)('[^']*'|\"[^\"]*\"|[^[:space:]'\"][^[:space:]]*)" 2>/dev/null \
+  | sed -E "s/^(--message([[:space:]]+|=)|-[A-Za-z]*m[[:space:]]*)//; s/^'(.*)'$/\1/; s/^\"(.*)\"$/\1/")"
 [[ -n "$MSG" ]] || exit 0
 
 # Find the first banned pattern that hits the message text.

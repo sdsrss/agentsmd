@@ -46,7 +46,7 @@ Stop-hook advisories are queued and surfaced at the next `UserPromptSubmit` (the
 
 ## Requirements
 
-- **Codex CLI** with native hooks enabled — `config.toml` → `[features] hooks = true`. The installer sets this and migrates the pre-0.142 `codex_hooks` name automatically.
+- **Codex CLI** with native hooks enabled — `config.toml` → `[features] hooks = true`. The installer sets this and migrates the pre-0.142 `codex_hooks` name automatically. It also restores a useful built-in TUI footer with `[tui] status_line` when the user has not already configured one.
 - **`jq`** and **`node` ≥ 18** on `PATH`.
 
 Everything honors `$CODEX_HOME` (defaults to `~/.codex`).
@@ -80,7 +80,7 @@ Useful options:
 
 ```bash
 # pin a branch, tag, or commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.1
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.2
 
 # explicit update: same operation as install, safe to re-run
 curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
@@ -140,7 +140,7 @@ plugin browser, or use the standalone/npm installer above.
 ### Local development checkout
 
 ```bash
-node scripts/install.js     # merge into ~/.codex, set [features] hooks, inject the spec block
+node scripts/install.js     # merge into ~/.codex, set hooks + status_line, inject the spec block
 node scripts/status.js      # confirm: agentsmd hooks registered, other tenants preserved
 node scripts/doctor.js      # health checks
 ```
@@ -192,7 +192,7 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-Uninstall strips only agentsmd's own entries (hooks, skills, the `AGENTS.md` block, the install + state dirs) and, per §5, **leaves the `config.toml` hooks flag enabled** (removing it could break oh-my-codex or your own hooks).
+Uninstall strips only agentsmd's own entries (hooks, skills, the `AGENTS.md` block, the install + state dirs) and, per §5, **leaves `config.toml` hook/status-line settings enabled** (removing them could break oh-my-codex, your own hooks, or your preferred footer).
 
 For npm installs, uninstall agentsmd's Codex footprint before removing the
 global package:
@@ -222,7 +222,7 @@ If you previously installed **codexmd** (v1.4.0–v1.4.3), you don't need to do 
 
 ## How is it independent of oh-my-codex?
 
-agentsmd manages **only its own entries** in the shared `~/.codex/hooks.json`, `config.toml`, and `AGENTS.md`, identified by the active `CODEX_HOME/agentsmd` install-dir marker in hook commands and `# >>> agentsmd >>>` sentinels. It never reads, modifies, reorders, or depends on oh-my-codex (OMX) or any other tenant, and it installs cleanly whether or not OMX is present. If the shared `hooks.json` is ever unparseable, the installer **aborts rather than clobber** it — it may hold other tenants' hooks it cannot see. This is proven by `scripts/tests/install.test.js`, which asserts a byte-identical round-trip alongside a seeded OMX config.
+agentsmd manages **only its own entries** in the shared `~/.codex/hooks.json`, `config.toml`, and `AGENTS.md`, identified by the active `CODEX_HOME/agentsmd` install-dir marker in hook commands and `# >>> agentsmd >>>` sentinels. For `config.toml`, it sets `[features] hooks = true` and fills `[tui] status_line` only when missing; an existing user footer is preserved. It never reads, modifies, reorders, or depends on oh-my-codex (OMX) or any other tenant, and it installs cleanly whether or not OMX is present. If the shared `hooks.json` is ever unparseable, the installer **aborts rather than clobber** it — it may hold other tenants' hooks it cannot see. This is proven by `scripts/tests/install.test.js`, which asserts a byte-identical round-trip alongside a seeded OMX config.
 
 OMX (if present) is an orchestration framework; agentsmd is the discipline/enforcement layer. They are complementary — and agentsmd does not depend on OMX.
 

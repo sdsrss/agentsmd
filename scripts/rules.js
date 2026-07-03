@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const P = require('./lib/paths');
-const { audit } = require('./audit');
+const { audit, parseDaysArg } = require('./audit');
 
 function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath() } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
@@ -72,8 +72,16 @@ function formatReport(ra) {
 }
 
 if (require.main === module) {
-  const daysArg = process.argv.find((a) => /^--days=\d+$/.test(a));
-  const days = daysArg ? Number(daysArg.split('=')[1]) : 30;
-  console.log(formatReport(rulesAudit({ days })));
+  const parsed = parseDaysArg(process.argv.slice(2), 'agentsmd-rules');
+  if (parsed.help) {
+    console.log('Usage: agentsmd-rules [--days=N]');
+    process.exit(0);
+  }
+  if (parsed.error) {
+    console.error(`agentsmd rules: ${parsed.error}`);
+    console.error('Usage: agentsmd-rules [--days=N]');
+    process.exit(1);
+  }
+  console.log(formatReport(rulesAudit({ days: parsed.days })));
 }
 module.exports = { rulesAudit, formatReport };

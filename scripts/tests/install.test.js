@@ -139,10 +139,44 @@ withSandbox((dir) => {
     assert.strictEqual(countCmd(hooks, (c) => !H.isAgentsmdCommand(c)), 0);
   });
   t('standalone install sets hooks=true', () => assert(/^\s*hooks\s*=\s*true/m.test(cfg)));
+  t('standalone install configures the agentsmd status line preset', () => {
+    assert(cfg.includes('status_line = ["model-with-reasoning", "git-branch", "context-remaining", "total-input-tokens", "total-output-tokens", "five-hour-limit", "weekly-limit"]'));
+  });
   t('standalone install injects the spec sentinel block', () => assert(agents.includes('# >>> agentsmd >>>') && agents.includes('CODEX-CODING-SPEC')));
   const st = status();
   t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert.strictEqual(st.agentsmdHooksRegistered, EXPECTED_HOOKS); });
+  t('status reports the agentsmd status line preset', () => { assert.strictEqual(st.tuiStatusLineConfigured, true); assert.strictEqual(st.agentsmdStatusLinePreset, true); });
+  fs.mkdirSync(path.join(dir, 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'logs', 'agentsmd.jsonl'), [
+    JSON.stringify({ ts: '2026-07-03T00:00:00.000Z', hook: 'pre-bash-safety', event: 'block' }),
+    'not json',
+  ].join('\n') + '\n');
+  t('status telemetryRows counts parseable telemetry, not malformed lines', () => assert.strictEqual(status().telemetryRows, 1));
   t('doctor reports a healthy standalone install', () => assert.strictEqual(doctor().ok, true));
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [broken\n');
+  t('doctor fails on an unparseable tui.status_line', () => {
+    const d = doctor();
+    assert.strictEqual(d.ok, false);
+    assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === false && c.detail === 'unparseable'));
+  });
+  fs.writeFileSync(path.join(dir, 'config.toml'), "[features]\nhooks = true\n\n[tui]\nstatus_line = ['model']\n");
+  t('doctor accepts a single-quoted custom tui.status_line', () => {
+    const d = doctor();
+    assert.strictEqual(d.ok, true);
+    assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === true && c.detail === 'custom'));
+  });
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "model",\n]\n');
+  t('doctor accepts a multiline custom tui.status_line', () => {
+    const d = doctor();
+    assert.strictEqual(d.ok, true);
+    assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === true && c.detail === 'custom'));
+  });
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "model", # keep footer small\n]\n');
+  t('doctor accepts comments inside a multiline custom tui.status_line', () => {
+    const d = doctor();
+    assert.strictEqual(d.ok, true);
+    assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === true && c.detail === 'custom'));
+  });
   uninstall();
   t('standalone uninstall removes hooks.json (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'hooks.json'))));
   t('standalone uninstall removes AGENTS.md (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'AGENTS.md'))));
@@ -151,6 +185,20 @@ withSandbox((dir) => {
     assert.strictEqual(d.ok, false);
     assert(d.checks.some((c) => c.name === 'agentsmd hooks registered' && c.ok === false));
     assert(d.checks.some((c) => c.name === 'installed hooks executable' && c.ok === false));
+  });
+});
+
+// ── 4a. status/doctor CLIs reject unknown args and support help ─────────────
+withSandbox((dir) => {
+  t('status CLI rejects unknown options instead of printing JSON', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'status.js'), '--wat'], { env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /unknown option: --wat/.test(String(e.stderr))
+    );
+  });
+  t('doctor CLI --help prints usage without running checks', () => {
+    const out = cp.execFileSync('node', [path.join(__dirname, '..', 'doctor.js'), '--help'], { env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8' });
+    assert.strictEqual(out.trim(), 'Usage: agentsmd-doctor');
   });
 });
 
@@ -198,7 +246,7 @@ withSandbox((dir) => {
 
 // ── 5. config.toml + AGENTS.md preserve unrelated content ───────────────────
 withSandbox((dir) => {
-  const userCfg = '# my config\nmodel = "gpt-5.5"\n\n[features]\nmulti_agent = true\n';
+  const userCfg = '# my config\nmodel = "gpt-5.5"\n\n[features]\nmulti_agent = true\n\n[tui]\nstatus_line = ["model"]\n';
   const userAgents = '# My global instructions\nAlways write tests.\n';
   fs.writeFileSync(path.join(dir, 'config.toml'), userCfg);
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), userAgents);
@@ -207,6 +255,7 @@ withSandbox((dir) => {
   const cfg = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('config.toml keeps the user model + multi_agent keys', () => { assert(cfg.includes('model = "gpt-5.5"')); assert(cfg.includes('multi_agent = true')); assert(/^\s*hooks\s*=\s*true/m.test(cfg)); });
+  t('config.toml preserves a user-defined status_line', () => assert(cfg.includes('status_line = ["model"]')));
   t('AGENTS.md keeps the user instructions + adds the block', () => { assert(agents.includes('Always write tests.')); assert(agents.includes('# >>> agentsmd >>>')); });
   uninstall();
   const agents2 = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
@@ -281,6 +330,67 @@ withSandbox((dir) => {
     assert(CT.isCodexHooksEnabled('[features]\nhooks = true\n'));
     assert(CT.isCodexHooksEnabled('[features]\ncodex_hooks = true\n'));
     assert(!CT.isCodexHooksEnabled('[features]\nmulti_agent = true\n'));
+  });
+  t('config: missing [tui] gets the agentsmd status line preset', () => {
+    const r = CT.ensureTuiStatusLine('[features]\nhooks = true\n');
+    assert.strictEqual(r.reason, 'appended-tui-table');
+    assert(CT.isAgentsmdStatusLineEnabled(r.content), r.content);
+  });
+  t('config: existing [tui] with inline comment receives status_line once', () => {
+    const r = CT.ensureTuiStatusLine('[tui] # display\nnotifications = true\n');
+    assert.strictEqual(r.reason, 'inserted-under-tui');
+    assert(!/\n\[tui\]\n/.test(r.content), 'must not append a duplicate [tui] table: ' + r.content);
+    assert(/\[tui\] # display\nstatus_line = \["model-with-reasoning"/.test(r.content), r.content);
+  });
+  t('config: existing user status_line is preserved', () => {
+    const input = '[tui]\nstatus_line = ["model"]\nnotifications = true\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.reason, 'already-custom-status-line');
+    assert.strictEqual(r.content, input);
+    assert.strictEqual(CT.isAgentsmdStatusLineEnabled(r.content), false);
+  });
+  t('config: existing single-quoted user status_line is preserved', () => {
+    const input = "[tui]\nstatus_line = ['model']\nnotifications = true\n";
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.reason, 'already-custom-status-line');
+    assert.strictEqual(r.content, input);
+    assert.deepStrictEqual(CT.getTuiStatusLine(input).items, ['model']);
+  });
+  t('config: existing multiline user status_line is preserved', () => {
+    const input = '[tui]\nstatus_line = [\n  "model",\n]\nnotifications = true\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.reason, 'already-custom-status-line');
+    assert.strictEqual(r.content, input);
+    assert.deepStrictEqual(CT.getTuiStatusLine(input).items, ['model']);
+  });
+  t('config: existing commented multiline user status_line is preserved', () => {
+    const input = '[tui]\nstatus_line = [\n  "model", # keep footer small\n  "branch#name",\n]\nnotifications = true\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.reason, 'already-custom-status-line');
+    assert.strictEqual(r.content, input);
+    assert.deepStrictEqual(CT.getTuiStatusLine(input).items, ['model', 'branch#name']);
+  });
+  t('config: existing dotted user tui.status_line is preserved', () => {
+    const input = 'tui.status_line = ["model"]\n[features]\nhooks = true\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.reason, 'already-custom-status-line');
+    assert.strictEqual(r.content, input);
+  });
+  t('config: top-level dotted tui keys receive dotted status_line', () => {
+    const r = CT.ensureTuiStatusLine('tui.notifications = true\n[features]\nhooks = true\n');
+    assert.strictEqual(r.reason, 'inserted-after-dotted-tui');
+    assert(/^tui\.notifications = true\ntui\.status_line = \["model-with-reasoning"/.test(r.content), r.content);
+    assert(CT.isAgentsmdStatusLineEnabled(r.content), r.content);
+  });
+  t('config: status_line under a NON-tui table is not treated as configured', () => {
+    const r = CT.ensureTuiStatusLine('[foo]\nstatus_line = ["model"]\n');
+    assert.strictEqual(r.changed, true);
+    assert(CT.isAgentsmdStatusLineEnabled(r.content), r.content);
   });
 }
 

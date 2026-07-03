@@ -73,14 +73,54 @@ hook_state_dir() {
   printf '%s' "$d"
 }
 
+hook_session_key() {
+  local sid="${1:-}"
+  [[ -n "$sid" ]] || { printf 'global'; return 0; }
+  printf '%s' "$sid" | tr -c 'a-zA-Z0-9_.-' '_'
+}
+
+hook_advisory_file() {
+  local key d
+  d="$(hook_state_dir)"
+  key="$(hook_session_key "${1:-}")"
+  if [[ "$key" == "global" ]]; then
+    printf '%s/pending-advisories' "$d"
+  else
+    printf '%s/pending-advisories-%s' "$d" "$key"
+  fi
+}
+
+hook_find_memory_file() {
+  local cwd="${1:-$PWD}" cand gitroot dir parent
+  for cand in "$cwd/MEMORY.md"; do
+    [[ -r "$cand" ]] && { printf '%s' "$cand"; return 0; }
+  done
+  gitroot="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
+  if [[ -n "$gitroot" && -r "$gitroot/MEMORY.md" ]]; then
+    printf '%s' "$gitroot/MEMORY.md"
+    return 0
+  fi
+  dir="$cwd"
+  while [[ -n "$dir" && "$dir" != "/" ]]; do
+    cand="$dir/MEMORY.md"
+    [[ -r "$cand" ]] && { printf '%s' "$cand"; return 0; }
+    parent="$(dirname "$dir")"
+    [[ "$parent" == "$dir" ]] && break
+    dir="$parent"
+  done
+  cand="${CODEX_HOME:-$HOME/.codex}/MEMORY.md"
+  [[ -r "$cand" ]] && { printf '%s' "$cand"; return 0; }
+  return 1
+}
+
 # hook_queue_advisory MESSAGE — queue a Stop-time advisory to be surfaced at the
 # NEXT UserPromptSubmit. additionalContext on the Stop event is not a verified
 # surfacing channel; UserPromptSubmit/SessionStart is (matches OMX's usage), so
 # Stop advisories are deferred there instead of emitted inline on Stop. The queue
 # is capped and cleared at SessionStart (session-scoped).
 hook_queue_advisory() {
-  local msg="$1" f
-  f="$(hook_state_dir)/pending-advisories"
+  local msg="$1" sid="${2:-}" f
+  f="$(hook_advisory_file "$sid")"
   printf '%s\n' "$msg" >> "$f" 2>/dev/null || return 0
   local n
   n=$(wc -l < "$f" 2>/dev/null || echo 0)

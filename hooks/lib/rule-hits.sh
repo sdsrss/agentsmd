@@ -62,11 +62,25 @@ rule_hits_append() {
       2>/dev/null >> "$log_file" || return 0
   else
     # jq-less fallback: minimal hand-escaped row so telemetry survives without jq.
-    local es="${session_id//\"/\\\"}" eh="${hook//\"/\\\"}" ee="${event//\"/\\\"}"
+    local es eh ee ep esection
+    rule_hits_json_escape() {
+      local s="${1:-}"
+      s="${s//\\/\\\\}"
+      s="${s//\"/\\\"}"
+      s="${s//$'\n'/\\n}"
+      s="${s//$'\r'/\\r}"
+      s="${s//$'\t'/\\t}"
+      printf '%s' "$s"
+    }
+    es="$(rule_hits_json_escape "$session_id")"
+    eh="$(rule_hits_json_escape "$hook")"
+    ee="$(rule_hits_json_escape "$event")"
+    ep="$(rule_hits_json_escape "$project")"
+    esection="$(rule_hits_json_escape "$section")"
     printf '{"ts":"%s","hook":"%s","event":"%s","project":"%s","session_id":%s,"spec_section":%s,"extra":%s}\n' \
-      "$ts" "$eh" "$ee" "$project" \
+      "$ts" "$eh" "$ee" "$ep" \
       "$([[ -n "$es" ]] && printf '"%s"' "$es" || echo null)" \
-      "$([[ -n "$section" ]] && printf '"%s"' "$section" || echo null)" \
+      "$([[ -n "$esection" ]] && printf '"%s"' "$esection" || echo null)" \
       "$extra" >> "$log_file" 2>/dev/null || return 0
   fi
 }

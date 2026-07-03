@@ -22,10 +22,7 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
 MEM=""
-GITROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)"
-for cand in "$CWD/MEMORY.md" ${GITROOT:+"$GITROOT/MEMORY.md"} "${CODEX_HOME:-$HOME/.codex}/MEMORY.md"; do
-  [[ -r "$cand" ]] && { MEM="$cand"; break; }
-done
+MEM="$(hook_find_memory_file "$CWD" 2>/dev/null || true)"
 [[ -n "$MEM" ]] || exit 0
 
 PROMPT_LC="$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')"

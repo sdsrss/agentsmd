@@ -46,7 +46,7 @@ Stop hook 的 advisory 会排队,在下一次 `UserPromptSubmit` 通过已验证
 
 ## 依赖
 
-- **Codex CLI** 且启用原生 hook——`config.toml` → `[features] hooks = true`。安装器会设置它,并自动迁移 0.142 之前的旧名 `codex_hooks`。
+- **Codex CLI** 且启用原生 hook——`config.toml` → `[features] hooks = true`。安装器会设置它,并自动迁移 0.142 之前的旧名 `codex_hooks`。如果用户还没有配置 `[tui] status_line`,安装器也会恢复一组有用的 Codex 内置 footer 字段。
 - `PATH` 上要有 **`jq`** 和 **`node` ≥ 18**。
 
 一切都尊重 `$CODEX_HOME`(默认 `~/.codex`)。
@@ -69,7 +69,7 @@ curl 管道安装请使用上面的 `raw.githubusercontent.com` URL。
 
 ```bash
 # 固定到某个 branch、tag 或 commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.1
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.2
 
 # 显式更新:与安装是同一个幂等操作,可反复运行
 curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
@@ -103,7 +103,7 @@ Codex 也接受 `codex plugin add agentsmd@agentsmd`。`--marketplace` 形式在
 ### 本地开发 checkout
 
 ```bash
-node scripts/install.js     # 并入 ~/.codex、设置 [features] hooks、注入规范块
+node scripts/install.js     # 并入 ~/.codex、设置 hooks + status_line、注入规范块
 node scripts/status.js      # 确认:agentsmd hook 已注册,其他租户被保留
 node scripts/doctor.js      # 健康检查
 ```
@@ -141,7 +141,7 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-卸载只 strip agentsmd 自己的条目(hook、skills、`AGENTS.md` 块、install 与 state 目录),并且按 §5 **保留 `config.toml` 的 hooks flag**(删掉它可能会断掉 oh-my-codex 或你自己的 hook)。
+卸载只 strip agentsmd 自己的条目(hook、skills、`AGENTS.md` 块、install 与 state 目录),并且按 §5 **保留 `config.toml` 的 hook/status-line 设置**(删掉它们可能会断掉 oh-my-codex、你自己的 hook 或你偏好的 footer)。
 
 插件卸载会移除 Codex 的插件安装/cache 条目。如果你不希望 Codex 继续跟踪本仓库作为 source,
 也移除 marketplace:
@@ -159,7 +159,7 @@ codex plugin marketplace remove agentsmd --json
 
 ## 它如何独立于 oh-my-codex?
 
-agentsmd 在共享的 `~/.codex/hooks.json`、`config.toml`、`AGENTS.md` 里**只管自己的条目**,靠当前 `CODEX_HOME/agentsmd` 安装目录标记和 `# >>> agentsmd >>>` sentinel 唯一识别 hook 命令。它绝不读取、修改、重排或依赖 oh-my-codex(OMX)或任何其他租户,且无论 OMX 是否存在都能干净安装。若共享的 `hooks.json` 不可解析,安装器会**宁可中止也不覆盖**——因为它可能藏着看不见的其他租户 hook。这一点由 `scripts/tests/install.test.js` 证明:在种入的 OMX 配置旁做到逐字节往返一致。
+agentsmd 在共享的 `~/.codex/hooks.json`、`config.toml`、`AGENTS.md` 里**只管自己的条目**,靠当前 `CODEX_HOME/agentsmd` 安装目录标记和 `# >>> agentsmd >>>` sentinel 唯一识别 hook 命令。对于 `config.toml`,它会设置 `[features] hooks = true`,并且只在缺失时补 `[tui] status_line`;已有用户 footer 会原样保留。它绝不读取、修改、重排或依赖 oh-my-codex(OMX)或任何其他租户,且无论 OMX 是否存在都能干净安装。若共享的 `hooks.json` 不可解析,安装器会**宁可中止也不覆盖**——因为它可能藏着看不见的其他租户 hook。这一点由 `scripts/tests/install.test.js` 证明:在种入的 OMX 配置旁做到逐字节往返一致。
 
 OMX(若在)是编排框架,agentsmd 是纪律/执行力层。二者互补——且 agentsmd **不依赖** OMX。
 

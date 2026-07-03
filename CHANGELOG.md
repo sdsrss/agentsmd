@@ -3,6 +3,57 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.1.2 — 2026-07-03 — QA hardening (no rule-text changes)
+
+No spec RULE text changed.
+
+### Added
+- Installer restores the useful Codex built-in TUI footer preset formerly provided
+  by oh-my-codex: `[tui] status_line = ["model-with-reasoning", "git-branch",
+  "context-remaining", "total-input-tokens", "total-output-tokens",
+  "five-hour-limit", "weekly-limit"]`. Existing user-defined `status_line`
+  values are preserved byte-for-byte.
+- `status` now reports `tuiStatusLineConfigured` and
+  `agentsmdStatusLinePreset`; `doctor` reports whether `tui.status_line` is
+  configured.
+
+### Fixed
+- Ship gates now block red-CI pushes using `HEAD:refs/heads/<branch>` refspecs
+  and `--push-option` / `-o` before the remote name.
+- Stop-time advisories are scoped by Codex `session_id`, so one Codex session
+  cannot surface and clear another session's queued advisory.
+- Memory-read ship checks no longer treat user prompt text mentioning
+  `MEMORY.md` as evidence that the file was consulted, and memory lookup now
+  covers non-git parent directories.
+- PreTool safety checks catch more remote-exec shell variants such as
+  `curl | env bash`, path-qualified interpreters, `zsh`, `dash`, `ksh`, and
+  `fish`.
+- Banned-vocabulary checks now inspect Git commit message variants such as
+  `git commit -am`, `git commit -sm`, and `git commit -m"..."`.
+- `audit`, `rules`, `status`, and `doctor` reject invalid CLI arguments instead
+  of silently falling back; `audit`/`rules` also reject oversized and duplicate
+  `--days` values.
+- `status.telemetryRows` now counts parseable telemetry rows using the same
+  JSONL parser as `audit`, instead of counting malformed non-empty log lines.
+- `audit --days=N` excludes parseable future timestamps while keeping the exact
+  cutoff timestamp in the window.
+- `doctor` now fails on unparseable `tui.status_line` values but accepts valid
+  custom TOML arrays, including single-quoted strings, multiline arrays, and
+  comments outside strings.
+- The jq-less telemetry fallback now escapes JSON string fields correctly.
+- `transcript-structure-scan` ignores banned vocabulary inside fenced code
+  blocks.
+- `install.sh` now cleans its temp source directory on early repo validation
+  failures, including custom `TMPDIR` paths.
+
+### Testing
+- Added sandbox install coverage for fresh status-line installation, existing
+  `[tui]` tables, custom user status lines, and `install.sh --status` reporting.
+- Added regression coverage across ship parsing, advisory scoping, memory
+  gates, PreTool command variants, CLI validation, telemetry parsing, transcript
+  scans, and installer cleanup. Full release suite: install 79, audit 17, drift
+  8, distribution 7, hook smoke 59 checks.
+
 ## v2.1.1 — 2026-07-03 — npm scoped package publish (no rule-text changes)
 
 No spec RULE text changed.

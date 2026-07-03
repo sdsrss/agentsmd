@@ -13,6 +13,7 @@ REPO="${AGENTSMD_REPO:-$DEFAULT_REPO}"
 REF="${AGENTSMD_REF:-$DEFAULT_REF}"
 SOURCE_DIR="${AGENTSMD_SOURCE_DIR:-}"
 TMP_ROOT=""
+SRC_PATH=""
 
 usage() {
   cat <<'EOF'
@@ -62,8 +63,9 @@ die() {
 
 cleanup() {
   if [ -n "${TMP_ROOT:-}" ] && [ -d "$TMP_ROOT" ]; then
+    tmp_base=$(abs_dir "${TMPDIR:-/tmp}" 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")
     case "$TMP_ROOT" in
-      "${TMPDIR:-/tmp}"/agentsmd-install.*) rm -rf "$TMP_ROOT" ;;
+      "$tmp_base"/agentsmd-install.*) rm -rf "$TMP_ROOT" ;;
     esac
   fi
 }
@@ -154,12 +156,12 @@ fetch_source() {
   if [ -n "$SOURCE_DIR" ]; then
     src=$(abs_dir "$SOURCE_DIR")
     [ -f "$src/scripts/install.js" ] || die "--source does not look like an agentsmd checkout: $src"
-    printf '%s\n' "$src"
+    SRC_PATH="$src"
     return 0
   fi
 
   if src=$(script_dir_source 2>/dev/null); then
-    printf '%s\n' "$src"
+    SRC_PATH="$src"
     return 0
   fi
 
@@ -176,7 +178,7 @@ fetch_source() {
   src=$(find "$unpack" -mindepth 1 -maxdepth 1 -type d | sed -n '1p')
   [ -n "$src" ] || die "downloaded archive did not contain a source directory"
   [ -f "$src/scripts/install.js" ] || die "downloaded archive is missing scripts/install.js"
-  printf '%s\n' "$src"
+  SRC_PATH="$src"
 }
 
 run_node_script() {
@@ -232,7 +234,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-src=$(fetch_source)
+fetch_source
+src="$SRC_PATH"
 if [ -n "${CODEX_HOME:-}" ]; then
   codex_home=$CODEX_HOME
 else
