@@ -124,5 +124,47 @@ const { renderProjectAgentsMd } = require('../lib/project-templates');
   t('render: still emits Project and Conventions when bare', () => assert(bare.includes('## Project') && bare.includes('## Conventions')));
 }
 
+// ── init CLI end-to-end ──────────────────────────────────────────────────────
+const { init } = require('../init');
+withProject({ 'package.json': JSON.stringify({ name: 'demo', scripts: { build: 'tsc' } }), 'src/i': '' }, (dir) => {
+  const target = path.join(dir, 'AGENTS.md');
+  const r1 = init({ projectRoot: dir });
+  t('init: creates AGENTS.md on first run', () => { assert.strictEqual(r1.action, 'created'); assert(fs.existsSync(target)); });
+  t('init: written file carries the project block', () => {
+    const body = fs.readFileSync(target, 'utf8');
+    assert(body.includes(AM.PROJECT_BEGIN) && body.includes('demo') && body.includes('npm run build'));
+  });
+  const r2 = init({ projectRoot: dir });
+  t('init: second run updates in place', () => assert.strictEqual(r2.action, 'updated'));
+  t('init: re-run is byte-stable', () => {
+    const a = fs.readFileSync(target, 'utf8');
+    init({ projectRoot: dir });
+    assert.strictEqual(a, fs.readFileSync(target, 'utf8'));
+  });
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'keep' }), 'AGENTS.md': '# keep\n\nUser prose stays.\n' }, (dir) => {
+  init({ projectRoot: dir });
+  t('init: preserves pre-existing user content outside the block', () => {
+    const body = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+    assert(body.includes('User prose stays.') && body.includes(AM.PROJECT_BEGIN));
+  });
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'dry' }) }, (dir) => {
+  const r = init({ projectRoot: dir, dryRun: true });
+  t('init: --dry-run returns content without writing', () => {
+    assert.strictEqual(r.action, 'dry-run');
+    assert(typeof r.content === 'string' && r.content.includes('dry'));
+    assert(!fs.existsSync(path.join(dir, 'AGENTS.md')));
+  });
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'chk' }) }, (dir) => {
+  t('init: --check reports drift before generation', () => assert.strictEqual(init({ projectRoot: dir, check: true }).inSync, false));
+  init({ projectRoot: dir });
+  t('init: --check reports in sync after generation', () => assert.strictEqual(init({ projectRoot: dir, check: true }).inSync, true));
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
