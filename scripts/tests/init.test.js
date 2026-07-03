@@ -99,6 +99,17 @@ const AM = require('../lib/agents-md');
     assert(g.includes(AM.BEGIN) && g.includes('GLOBAL'));
     assert(!g.includes(AM.PROJECT_BEGIN));
   });
+  t('merge: project and conventions blocks coexist without collision', () => {
+    let c = AM.injectBlockBetween('# Repo\n', 'FACTS', AM.PROJECT_BEGIN, AM.PROJECT_END).content;
+    c = AM.injectBlockBetween(c, 'CONV', AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END).content;
+    assert(AM.hasBlockBetween(c, AM.PROJECT_BEGIN, AM.PROJECT_END));
+    assert(AM.hasBlockBetween(c, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END));
+    // updating conventions leaves facts intact
+    const c2 = AM.injectBlockBetween(c, 'CONV2', AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END).content;
+    assert(c2.includes('FACTS') && c2.includes('CONV2') && !c2.includes('CONV\n'));
+  });
+  t('merge: hasBlockBetween false when absent', () =>
+    assert(!AM.hasBlockBetween('nothing here', AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END)));
 }
 
 // ── skeleton rendering (project-templates.js) ────────────────────────────────

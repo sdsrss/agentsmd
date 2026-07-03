@@ -9,6 +9,8 @@ const BEGIN = '# >>> agentsmd >>>';
 const END = '# <<< agentsmd <<<';
 const PROJECT_BEGIN = '# >>> agentsmd:project >>>';
 const PROJECT_END = '# <<< agentsmd:project <<<';
+const CONVENTIONS_BEGIN = '# >>> agentsmd:conventions >>>';
+const CONVENTIONS_END = '# <<< agentsmd:conventions <<<';
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const blockRe = (begin, end) => new RegExp(`\\n*${esc(begin)}[\\s\\S]*?${esc(end)}\\n*`);
 const BLOCK_RE = blockRe(BEGIN, END);
@@ -45,4 +47,8 @@ const removeSpecBlock = (input) => removeBlockBetween(input, BEGIN, END);
 
 function hasSpecBlock(input) { return BLOCK_RE.test(typeof input === 'string' ? input : ''); }
 
-module.exports = { BEGIN, END, PROJECT_BEGIN, PROJECT_END, injectSpecBlock, injectBlockBetween, removeSpecBlock, removeBlockBetween, hasSpecBlock };
+function hasBlockBetween(input, begin, end) {
+  return blockRe(begin, end).test(typeof input === 'string' ? input : '');
+}
+
+module.exports = { BEGIN, END, PROJECT_BEGIN, PROJECT_END, CONVENTIONS_BEGIN, CONVENTIONS_END, injectSpecBlock, injectBlockBetween, removeSpecBlock, removeBlockBetween, hasSpecBlock, hasBlockBetween };
