@@ -82,6 +82,18 @@ function formatReport(a) {
     const evs = Object.entries(b.events).map(([k, v]) => `${k}:${v}`).join(' ');
     lines.push(`  ${s.padEnd(26)} ${String(b.enforcement).padStart(4)} / ${String(b.total).padStart(4)}   ${evs}`);
   }
+  lines.push('');
+  lines.push('by project (enforcement / total):');
+  const projs = Object.keys(a.byProject).sort((x, y) => a.byProject[y].enforcement - a.byProject[x].enforcement);
+  if (!projs.length) lines.push('  (no telemetry yet — hooks have not fired in this window)');
+  for (const p of projs) {
+    const b = a.byProject[p];
+    const label = p.length > 26 ? '…' + p.slice(-25) : p;
+    const secs = Object.entries(b.sections).sort((x, y) => y[1] - x[1]);
+    const top = secs.slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ');
+    const more = secs.length > 3 ? ` +${secs.length - 3} more` : '';
+    lines.push(`  ${label.padEnd(28)} ${String(b.enforcement).padStart(4)} / ${String(b.total).padStart(4)}   ${top}${more}`.trimEnd());
+  }
   return lines.join('\n');
 }
 
@@ -121,14 +133,14 @@ function parseDaysArg(argv, commandName = 'agentsmd-audit') {
 if (require.main === module) {
   const parsed = parseDaysArg(process.argv.slice(2));
   if (parsed.help) {
-    console.log('Usage: agentsmd-audit [--days=N]');
+    console.log('Usage: agentsmd-audit [--days=N] [--project=SUBSTR]');
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd audit: ${parsed.error}`);
-    console.error('Usage: agentsmd-audit [--days=N]');
+    console.error('Usage: agentsmd-audit [--days=N] [--project=SUBSTR]');
     process.exit(1);
   }
-  console.log(formatReport(audit({ days: parsed.days })));
+  console.log(formatReport(audit({ days: parsed.days, project: parsed.project })));
 }
 module.exports = { audit, formatReport, parseDaysArg, readRows, ENFORCEMENT_EVENTS, MAX_DAYS };

@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
-const { audit, parseDaysArg } = require('../audit');
+const { audit, parseDaysArg, formatReport } = require('../audit');
 const { rulesAudit } = require('../rules');
 const cp = require('child_process');
 
@@ -120,6 +120,25 @@ try {
     const p = parseDaysArg(['--days=7', '--project=x']);
     assert.strictEqual(p.days, 7);
     assert.strictEqual(p.project, 'x');
+  });
+
+  // --- Phase 3: audit report block + CLI ----------------------------------
+  t('audit report includes a by-project block with enforcement/total', () => {
+    const rep = formatReport(audit({ days: 30, now: NOW, logPath: projRows }));
+    assert.ok(/by project \(enforcement \/ total\):/.test(rep), 'missing by-project header');
+    assert.ok(/-home-user-alpha\s+2 \/ +3\b/.test(rep), 'missing alpha line; got:\n' + rep);
+  });
+  t('audit CLI accepts --project and exits 0', () => {
+    const out = cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--project=alpha'],
+      { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8' });
+    assert.ok(/by project/.test(out));
+  });
+  t('audit CLI rejects empty --project=', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--project='],
+        { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
+    );
   });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
