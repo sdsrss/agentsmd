@@ -128,10 +128,50 @@ try {
     assert.ok(/by project \(enforcement \/ total\):/.test(rep), 'missing by-project header');
     assert.ok(/-home-user-alpha\s+2 \/ +3\b/.test(rep), 'missing alpha line; got:\n' + rep);
   });
-  t('audit CLI accepts --project and exits 0', () => {
-    const out = cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--project=alpha'],
-      { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8' });
-    assert.ok(/by project/.test(out));
+  t('audit report by-project line has no trailing whitespace when a project has zero enforcement hits (trimEnd guard)', () => {
+    const lifecycleOnlyRows = path.join(tmp, 'lifecycle-only.jsonl');
+    fs.writeFileSync(lifecycleOnlyRows, [
+      { ts: day(1), hook: 'session-start', event: 'context', spec_section: null, project: '-home-user-lifecycle-only' },
+      { ts: day(2), hook: 'session-start', event: 'context', spec_section: null, project: '-home-user-lifecycle-only' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const a = audit({ days: 30, now: NOW, logPath: lifecycleOnlyRows });
+    assert.strictEqual(a.byProject['-home-user-lifecycle-only'].total, 2);
+    assert.strictEqual(a.byProject['-home-user-lifecycle-only'].enforcement, 0);
+    assert.deepStrictEqual(a.byProject['-home-user-lifecycle-only'].sections, {});
+
+    const rep = formatReport(a);
+    const projLine = rep.split('\n').find((l) => l.includes('-home-user-lifecycle-only'));
+    assert.ok(projLine, 'missing lifecycle-only project line; got:\n' + rep);
+    assert.strictEqual(projLine, projLine.trimEnd(), 'project line has trailing whitespace: ' + JSON.stringify(projLine));
+    assert.ok(!/ +$/m.test(rep), 'report has a line with trailing whitespace:\n' + rep);
+  });
+  t('audit CLI accepts --project, exits 0, and filters the by-project block to just that project', () => {
+    // Fresh, independently-rooted sandbox (NOT the outer `tmp`): CODEX_HOME →
+    // P.logPath() resolves to <cliHome>/logs/agentsmd.jsonl, which must exist
+    // for this test to be discriminating. (The outer `tmp` fixtures above are
+    // written directly under `tmp`, not under `tmp/logs/`, so pointing the CLI
+    // at `tmp` would read an empty/absent log and the by-project header would
+    // print regardless of whether --project filtering actually happened.)
+    const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-cli-proj.'));
+    try {
+      fs.mkdirSync(path.join(cliHome, 'logs'), { recursive: true });
+      const cliLog = path.join(cliHome, 'logs', 'agentsmd.jsonl');
+      // CLI uses real Date.now() for its window (no `now` override available
+      // from the outside) — use real "yesterday", not the fixed NOW/day() fixture helpers.
+      const yesterday = new Date(Date.now() - 86400000).toISOString();
+      fs.writeFileSync(cliLog, [
+        { ts: yesterday, hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: '-home-user-alpha-project' },
+        { ts: yesterday, hook: 'banned-vocab',    event: 'block', spec_section: '§10-V',        project: '-home-user-beta-project' },
+      ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+      const out = cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--project=alpha'],
+        { env: { ...process.env, CODEX_HOME: cliHome }, encoding: 'utf8' }); // throws on non-zero exit → no throw here proves exit 0
+      assert.ok(/by project/.test(out), 'missing by-project header; got:\n' + out);
+      assert.ok(/-home-user-alpha-project/.test(out), 'missing alpha project line; got:\n' + out);
+      assert.ok(!/beta-project/.test(out), 'beta project leaked into --project=alpha filtered output; got:\n' + out);
+    } finally {
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
   });
   t('audit CLI rejects empty --project=', () => {
     assert.throws(
