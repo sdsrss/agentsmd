@@ -27,8 +27,8 @@ function renderProjectAgentsMd(d) {
   }
 
   L.push('## Conventions', '');
-  L.push("> Run the `agentsmd-analyze` skill to distill this project's implicit conventions");
-  L.push('> (naming, imports, error handling, request encapsulation) from the source into this section.');
+  L.push('> Document this project\'s conventions here (naming, imports, error handling, request/API encapsulation).');
+  L.push('> A future `agentsmd-analyze` pass (Phase 2) will automate distilling these from the source.');
 
   return L.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
