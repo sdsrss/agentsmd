@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.6.0 (2026-07-04) — project-aware telemetry (no rule-text changes)
+
+Spec rule text unchanged; the shared version moves to v2.6.0 in lockstep with a
+read-side telemetry feature — `audit`/`rules` gain a `--project` filter and a
+per-project breakdown, slicing the existing hit-log by the `project` field it
+already records. A package/tooling feature, not a spec-rule change.
+`spec_version` → v2.6.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.5.0 (2026-07-04) — project convention distiller (no rule-text changes)
 
 Spec rule text unchanged; the shared version moves to v2.5.0 in lockstep with a

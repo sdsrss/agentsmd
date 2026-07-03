@@ -3,6 +3,19 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.6.0 — 2026-07-04 — project-aware telemetry (`--project`, per-project audit)
+
+Slices the existing rule-hit telemetry loop along the `project` dimension already
+stamped on every log row. Pure read-side: no new hook, no spec-rule change,
+nothing new written into your repos. Establishes the per-project axis a future
+project-convention telemetry layer builds on. Purely additive; every existing
+command behaves as before. Revert by pinning the prior version
+(`npm i -g @sdsrs/agentsmd@2.5.0`).
+
+### Added
+- `agentsmd audit --project=<substr>` — scope the per-project view to projects whose path-slug contains `<substr>` (case-insensitive), plus a new **by project** block in the report (enforcement / total, with the top firing sections per project).
+- `agentsmd rules --project=<substr>` — an **informational lens**: the report shows how many projects the telemetry spans and, when filtered, which project is in view. **Demote/promote signals remain cross-project** — a rule dead in one repo but firing in another still earns its core seat; `--project` never changes a rule's verdict.
+
 ## v2.5.0 — 2026-07-04 — project convention distiller (`agentsmd-analyze`) + `init --local`
 
 Completes the project layer: `init` (v2.4.0) writes stack *facts*; this adds the
