@@ -256,7 +256,7 @@ OMX (if present) is an orchestration framework; agentsmd is the discipline/enfor
 
 ```bash
 node scripts/audit.js --days=30    # aggregate rule-hit telemetry by spec section
-node scripts/audit.js --project=X  # …scoped to projects whose path contains "X" (also on rules)
+node scripts/audit.js --project=X  # …scoped to projects whose path contains "X" (also on rules — informational lens there)
 node scripts/rules.js --days=30    # promote/demote signals vs spec/hard-rules.json
 ```
 
