@@ -37,6 +37,7 @@ function status() {
     tuiStatusLineConfigured: CT.getTuiStatusLine(cfg).exists,
     agentsmdStatusLinePreset: CT.isAgentsmdStatusLineEnabled(cfg),
     specBlockInAgentsMd: AM.hasSpecBlock(read(P.agentsMdPath())),
+    extendedMdInstalled: fs.existsSync(P.agentsExtendedMdPath()),
     telemetryRows: readRows(P.logPath()).length,
   };
 }

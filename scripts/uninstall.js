@@ -13,7 +13,7 @@ const M = require('./lib/migrate');
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 function uninstall() {
-  const result = { hooksRemoved: 0, hooksJsonDeleted: false, agentsBlockRemoved: false, flagLeftEnabled: true };
+  const result = { hooksRemoved: 0, hooksJsonDeleted: false, agentsBlockRemoved: false, extendedMdRemoved: false, flagLeftEnabled: true };
 
   // 1. hooks.json — strip agentsmd entries, preserve others; delete file only if
   //    nothing else remains.
@@ -37,6 +37,14 @@ function uninstall() {
       if (am.content.trim() === '') { try { fs.unlinkSync(P.agentsMdPath()); } catch {} }
       else fs.writeFileSync(P.agentsMdPath(), am.content);
     }
+  }
+
+  // 2b. AGENTS-extended.md — agentsmd's own standalone file (not shared, not in
+  //     the discovery chain). Remove it only when it is ours (carries the
+  //     CODEX-CODING-SPEC header); a foreign same-named file is left byte-for-byte.
+  const beforeExtended = readOrNull(P.agentsExtendedMdPath());
+  if (beforeExtended !== null && beforeExtended.includes('CODEX-CODING-SPEC')) {
+    try { fs.unlinkSync(P.agentsExtendedMdPath()); result.extendedMdRemoved = true; } catch {}
   }
 
   // 3. config.toml hooks flag: intentionally LEFT (see header).

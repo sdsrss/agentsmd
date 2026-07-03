@@ -3,6 +3,39 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.3.0 — 2026-07-04 — Superpowers accelerator + fix: extended spec now installs to ~/.codex/
+
+Adds optional `superpowers`-plugin routing to the spec, and fixes an install bug
+that made the entire extended spec unreachable for every user.
+
+### Added
+- `spec/AGENTS.md` §4 **Superpowers accelerator**: when the optional
+  `superpowers` plugin is installed, matching task-types route to its
+  `brainstorming` / `systematic-debugging` / `test-driven-development` /
+  `dispatching-parallel-agents` skills — the concrete procedure for principles
+  §3/§6 already mandate. Not installed → the base spec's missing-skill rule
+  applies, zero impact. Codex's `[features] multi_agent = true` requirement for
+  parallel agents is noted inline.
+- `spec/AGENTS-extended.md` §E7 SUPERPOWERS: the `multi_agent` setup, the wider
+  sp skill set, and the boundary that a skill executes this spec's rules and
+  never relaxes them (Iron Laws / §5 / §8 bind inside).
+- `scripts/doctor.js`: verifies `~/.codex/AGENTS-extended.md` exists and matches
+  the install-dir copy — a missing/stale cat-target now surfaces instead of
+  silently stripping every L3/ship/override rule. `scripts/status.js` gains an
+  `extendedMdInstalled` field.
+
+### Fixed
+- **`install.js` never wrote the extended spec to its documented path.** Core
+  §2/§5 order the agent to `cat ~/.codex/AGENTS-extended.md` on L3, but install
+  only copied `spec/` into the install dir — the top-level cat-target never
+  existed, so the whole extended spec was unreachable for every install. Install
+  now writes it there (foreign-guarded — a non-agentsmd file of that name is
+  never clobbered; manifest-tracked via `extendedMd` / `extendedMdAddedByUs`),
+  and uninstall removes it only when it is ours.
+- `spec/AGENTS-extended.md` header realigned to the shared version (was stale at
+  v2.1.2; the drift test only checks the core header, so it had drifted
+  unnoticed).
+
 ## v2.2.2 — 2026-07-04 — review follow-ups: docs, POSIX exit code, packaging test (no rule-text changes)
 
 No spec RULE text changed. Follow-ups from a post-release code review of the

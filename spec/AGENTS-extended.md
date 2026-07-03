@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.1.2 — Extended
+# CODEX-CODING-SPEC v2.3.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -52,6 +52,14 @@ Gate order — a red item stops the pipeline until fixed, waived by user, or `[B
 - Description MUST front-load trigger words, scope, AND non-trigger cases — implicit invocation matches on description alone, and truncated descriptions keep only the front.
 - Keep one skill = one job; prefer instructions over scripts unless determinism or external tooling requires them.
 - Creating or editing any skill / prompt template / MCP tool description = LLM-visible metadata → **L3** (core §2 hard upgrade); test the description against sample prompts before shipping it.
+
+## §E7 SUPERPOWERS (optional `superpowers` / sp plugin)
+
+Core §4 routes common task-types to sp skills; this section is the setup + boundary, read when §4 points here or on an L3 leaning on sp. No plugin → the §4 names don't resolve, base spec runs unchanged (zero impact); nothing here is a dependency.
+
+- **Config**: `dispatching-parallel-agents` / `subagent-driven-development` need `config.toml [features] multi_agent = true` (enables `spawn_agent` / `wait_agent` / `close_agent`; close spawned agents when their work is done). `brainstorming` / `systematic-debugging` / `test-driven-development` need only the install.
+- **Wider set**: sp ships more skills (plan writing/execution, code-review request/receive, git-worktrees, verification-before-completion, skill-authoring…); §4 names only the highest-frequency four — select any other by description per §4, not enumerated here to avoid budget cost + version staleness.
+- **Boundary**: a skill executes this spec's rules, never relaxes them — Iron Laws, §5 AUTH, §8 SAFETY bind inside a skill exactly as outside; sp's own 'MUST invoke' wording does not override core §4 level routing.
 
 ## Changelog
 

@@ -2,6 +2,17 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.3.0 (2026-07-04) — superpowers accelerator (spec-text change)
+
+Core §4 gains a **Superpowers accelerator**: when the optional `superpowers`
+plugin is present, matching task-types route to its skills (`brainstorming`,
+`systematic-debugging`, `test-driven-development`, `dispatching-parallel-agents`)
+as the concrete procedure for principles §3/§6 already mandate; absent → the §4
+missing-skill rule applies, zero impact. Extended gains §E7 SUPERPOWERS
+(`multi_agent` setup + wider skill set + boundary). Both headers move to v2.3.0 —
+the extended header was stale at v2.1.2 and is now realigned with the shared
+version. `spec_version` → v2.3.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.2.2 (2026-07-04) — review follow-ups (no rule-text changes)
 
 Spec rule text unchanged; the shared version moves to v2.2.2 in lockstep with

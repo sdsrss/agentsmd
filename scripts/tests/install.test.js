@@ -143,6 +143,11 @@ withSandbox((dir) => {
     assert(cfg.includes('status_line = ["model-with-reasoning", "git-branch", "context-remaining", "total-input-tokens", "total-output-tokens", "five-hour-limit", "weekly-limit"]'));
   });
   t('standalone install injects the spec sentinel block', () => assert(agents.includes('# >>> agentsmd >>>') && agents.includes('CODEX-CODING-SPEC')));
+  t('standalone install writes AGENTS-extended.md at the top level (core §2/§5 cat target)', () => {
+    const ext = fs.readFileSync(path.join(dir, 'AGENTS-extended.md'), 'utf8');
+    assert(ext.includes('CODEX-CODING-SPEC') && ext.includes('Extended'), 'extended header missing');
+    assert.strictEqual(ext, fs.readFileSync(path.join(dir, 'agentsmd', 'spec', 'AGENTS-extended.md'), 'utf8'), 'top-level extended must match the install-dir copy');
+  });
   const st = status();
   t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert.strictEqual(st.agentsmdHooksRegistered, EXPECTED_HOOKS); });
   t('status reports the agentsmd status line preset', () => { assert.strictEqual(st.tuiStatusLineConfigured, true); assert.strictEqual(st.agentsmdStatusLinePreset, true); });
@@ -180,6 +185,7 @@ withSandbox((dir) => {
   uninstall();
   t('standalone uninstall removes hooks.json (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'hooks.json'))));
   t('standalone uninstall removes AGENTS.md (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'AGENTS.md'))));
+  t('standalone uninstall removes AGENTS-extended.md', () => assert(!fs.existsSync(path.join(dir, 'AGENTS-extended.md'))));
   t('doctor fails after standalone uninstall', () => {
     const d = doctor();
     assert.strictEqual(d.ok, false);
@@ -243,6 +249,34 @@ withSandbox((dir) => {
     fs.rmSync(base, { recursive: true, force: true });
   }
 }
+
+// ── 4d. doctor catches a missing top-level AGENTS-extended.md (the cat target) ─
+withSandbox((dir) => {
+  const { install, doctor } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  t('doctor healthy while ~/.codex/AGENTS-extended.md is present', () => assert.strictEqual(doctor().ok, true));
+  fs.unlinkSync(path.join(dir, 'AGENTS-extended.md'));
+  t('doctor fails when ~/.codex/AGENTS-extended.md is missing', () => {
+    const d = doctor();
+    assert.strictEqual(d.ok, false);
+    assert(d.checks.some((c) => c.name === 'AGENTS-extended.md installed at ~/.codex/' && c.ok === false && /missing/.test(c.detail)));
+  });
+});
+
+// ── 4e. independence: a FOREIGN ~/.codex/AGENTS-extended.md is never clobbered ─
+withSandbox((dir) => {
+  const foreign = "# Someone else's extended notes\nnot ours\n";
+  fs.writeFileSync(path.join(dir, 'AGENTS-extended.md'), foreign);
+  const { install, uninstall } = loadModules();
+  const manifest = install('2026-07-02T00:00:00.000Z');
+  t('install does not clobber a foreign AGENTS-extended.md', () => {
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS-extended.md'), 'utf8'), foreign);
+    assert.strictEqual(manifest.extendedMd, 'skipped-foreign');
+    assert.strictEqual(manifest.extendedMdAddedByUs, false);
+  });
+  uninstall();
+  t('uninstall leaves a foreign AGENTS-extended.md untouched', () => assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS-extended.md'), 'utf8'), foreign));
+});
 
 // ── 5. config.toml + AGENTS.md preserve unrelated content ───────────────────
 withSandbox((dir) => {

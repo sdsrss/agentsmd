@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.2.2 — Global
+# CODEX-CODING-SPEC v2.3.0 — Global
 
 **Discovery**: Global — `$CODEX_HOME/AGENTS.override.md` if present, else `$CODEX_HOME/AGENTS.md` (this file). Project — repo root → cwd; each dir: `AGENTS.override.md` > `AGENTS.md` > `project_doc_fallback_filenames`. Concatenated root→leaf, closer overrides earlier; combined cap `project_doc_max_bytes` (default 32 KiB) — truncation past the cap is SILENT, and this file spends ~3/4 of it: keep it lean, raise the cap in `config.toml` when a project chain starves, verify the assembled chain after config changes (a "summarize current instructions" run). Project layers may override defaults here, NEVER §8 or §5-hard.
 **Extended**: `~/.codex/AGENTS-extended.md` — not auto-loaded; MUST `cat` it on: **L3** · **ship intent** (= `git push` to shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**. This line is the single source for these triggers; extended does not restate them.
@@ -83,6 +83,8 @@ Escalate cheap → expensive; never fan out blindly:
 **Skills**: skill = dir with `SKILL.md` (`name` + `description` frontmatter mandatory). Progressive disclosure: only name/description/path sit in context; read full `SKILL.md` after selecting; never bulk-load `references/` — load only what the step needs; prefer running `scripts/` over retyping their logic. Multiple matches → narrowest that covers the task; tied → state pick + why. Task depends on a missing skill → `[BLOCKED]`; else proceed without and note it. Authoring → §E6 extended (L3 per §2).
 
 **Trigger announcement**: plausible skill match → name it or one line why skipped (silent skip of a match = drift). No plausible match on ordinary L0–L2 → skip silently, no "no skill used" noise. L3 / ship / destructive / domain-procedure → MUST record skill or no-skill reason in plan/report. Skill-file "MUST" wording does not override this spec's level routing — a clear-scope L1 bug goes reproduce→fix→re-run, no ceremony. **Custom prompts deprecated upstream**: never create new ones — author a skill; existing prompts usable on explicit request.
+
+**Superpowers accelerator** (plugin installed → use; absent → names miss the live skill set, §4 missing-skill rule → proceed per base spec, zero impact): its skills are the concrete procedure for principles this spec already mandates — design/clarify before code → `brainstorming`; L2+ bug / §3 debug → `systematic-debugging`; additive feature / §6 RED → `test-driven-development`; 2+ independent tasks / §3 parallel-first → `dispatching-parallel-agents` (Codex needs `[features] multi_agent = true`; setup + wider set → §E7). Skills execute these rules, never waive them (Iron Laws + §5 bind inside).
 
 **Don't reimplement tools**: package manager / formatter / codegen / MCP tool already does it → invoke it. Manual edits to lockfiles or generated files while the proper tool works = violation.
 

@@ -28,11 +28,15 @@ function codexSkillsDir() { return path.join(codexHome(), 'skills'); }
 function hooksJsonPath() { return path.join(codexHome(), 'hooks.json'); }
 function configTomlPath() { return path.join(codexHome(), 'config.toml'); }
 function agentsMdPath() { return path.join(codexHome(), 'AGENTS.md'); }
+// Extended spec — the exact top-level path core §2/§5 tell the agent to `cat` on
+// L3. NOT in Codex's discovery chain (zero AGENTS.md-budget); a agentsmd-owned
+// standalone file, not the shared/sentinel-merged AGENTS.md.
+function agentsExtendedMdPath() { return path.join(codexHome(), 'AGENTS-extended.md'); }
 function stateDir() { return path.join(codexHome(), '.agentsmd-state'); }
 function manifestPath() { return path.join(stateDir(), 'manifest.json'); }
 function logPath() { return path.join(codexHome(), 'logs', 'agentsmd.jsonl'); }
 
 module.exports = {
   codexHome, repoRoot, installDir, installHooksDir, installSpecDir, installScriptsDir, codexSkillsDir,
-  hooksJsonPath, configTomlPath, agentsMdPath, stateDir, manifestPath, logPath,
+  hooksJsonPath, configTomlPath, agentsMdPath, agentsExtendedMdPath, stateDir, manifestPath, logPath,
 };

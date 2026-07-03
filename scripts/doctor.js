@@ -63,6 +63,17 @@ function doctor() {
     add('hard-rules anchors resolve', miss.length === 0, miss.length ? `${miss.length} missing` : `${hr.rules.length}/${hr.rules.length}`);
   } catch (e) { add('hard-rules anchors resolve', false, e.message); }
 
+  // Extended spec must exist at the top-level path core §2/§5 order the agent to
+  // `cat` (~/.codex/AGENTS-extended.md) AND match the copy in the install dir — a
+  // missing/stale target silently strips every L3/ship/override/three-strike rule.
+  const extTop = read(P.agentsExtendedMdPath());
+  const extSrc = read(path.join(P.installSpecDir(), 'AGENTS-extended.md'));
+  add(
+    'AGENTS-extended.md installed at ~/.codex/',
+    extTop !== null && extSrc !== null && extTop === extSrc,
+    extTop === null ? 'missing — run install' : (extSrc === null ? 'not installed' : (extTop === extSrc ? 'ok' : 'stale — re-run install'))
+  );
+
   return { ok: checks.every((c) => c.ok), checks };
 }
 

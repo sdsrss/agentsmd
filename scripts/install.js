@@ -87,6 +87,25 @@ function install(nowIso) {
   const am = AM.injectSpecBlock(readOrNull(P.agentsMdPath()), specText);
   writeFile(P.agentsMdPath(), am.content);
 
+  // 4b. Place the extended spec at the top-level ~/.codex/AGENTS-extended.md — the
+  //     exact path core §2/§5 order the agent to `cat` on L3. Without this it is
+  //     copied into the install dir (step 1) but the `cat` target never exists, so
+  //     the whole extended spec is unreachable. It is NOT in the discovery chain
+  //     (zero AGENTS.md-budget) and its name is agentsmd's own → a self-owned
+  //     standalone file. Never clobber a FOREIGN same-named file: write only when
+  //     absent or when the existing one is ours (carries the CODEX-CODING-SPEC
+  //     header). Tracked in the manifest for a precise, reversible uninstall.
+  const extendedSrc = fs.readFileSync(path.join(P.installSpecDir(), 'AGENTS-extended.md'), 'utf8');
+  const existingExtended = readOrNull(P.agentsExtendedMdPath());
+  let extendedMd, extendedMdAddedByUs;
+  if (existingExtended !== null && !existingExtended.includes('CODEX-CODING-SPEC')) {
+    extendedMd = 'skipped-foreign'; extendedMdAddedByUs = false;
+  } else {
+    writeFile(P.agentsExtendedMdPath(), extendedSrc);
+    extendedMd = existingExtended === null ? 'created' : 'refreshed';
+    extendedMdAddedByUs = true;
+  }
+
   // 5. Record what we did, for an exact reversible uninstall.
   const manifest = {
     name: 'agentsmd',
@@ -99,6 +118,8 @@ function install(nowIso) {
     statusLine: statusLine.reason,
     statusLineAddedByUs: statusLine.changed,
     agentsBlockUpdated: am.updated === true,
+    extendedMd,
+    extendedMdAddedByUs,
     migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
     migratedTelemetryRows: migratedTelemetry.migrated,
   };
