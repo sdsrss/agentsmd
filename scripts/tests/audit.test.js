@@ -59,6 +59,9 @@ try {
     { ts: day(1), hook: 'session-start',   event: 'context',  spec_section: null,           project: '-home-user-alpha' }, // lifecycle, not enforcement
     { ts: day(2), hook: 'banned-vocab',    event: 'advisory', spec_section: '§10-V',        project: '-home-user-beta' },
     { ts: day(1), hook: 'pre-bash-safety', event: 'block',    spec_section: '§8-rm-rf-var' },                              // no project → (none)
+    { ts: day(1), hook: 'pre-bash-safety', event: 'block',    spec_section: '§8-rm-rf-var', project: '-home-user-gamma' },
+    { ts: day(2), hook: 'pre-bash-safety', event: 'block',    spec_section: '§8-rm-rf-var', project: '-home-user-gamma' }, // same section twice → sections count must accumulate to 2
+    { ts: day(1), hook: 'pre-bash-safety', event: 'advisory', spec_section: null,           project: '-home-user-gamma' }, // ENFORCEMENT event with NO section: must bump total/enforcement but the `sec !== '(none)'` guard must keep it OUT of sections
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
   const ap = audit({ days: 30, now: NOW, logPath: projRows });
 
@@ -79,6 +82,14 @@ try {
   t('byProject: beta advisory counts as enforcement', () => {
     assert.strictEqual(ap.byProject['-home-user-beta'].enforcement, 1);
     assert.deepStrictEqual(ap.byProject['-home-user-beta'].sections, { '§10-V': 1 });
+  });
+  t('byProject: gamma null-section ENFORCEMENT row bumps total/enforcement but is excluded from sections (isolates the sec !== "(none)" guard, unlike the lifecycle-event row above)', () => {
+    assert.strictEqual(ap.byProject['-home-user-gamma'].total, 3);
+    assert.strictEqual(ap.byProject['-home-user-gamma'].enforcement, 3);
+    assert.ok(!('(none)' in ap.byProject['-home-user-gamma'].sections));
+  });
+  t('byProject: gamma sections accumulates a repeated section hit to 2, not 1', () => {
+    assert.strictEqual(ap.byProject['-home-user-gamma'].sections['§8-rm-rf-var'], 2);
   });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
