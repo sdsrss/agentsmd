@@ -1,8 +1,18 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
+  "homepage": "https://github.com/sdsrss/agentsmd#readme",
+  "bugs": "https://github.com/sdsrss/agentsmd/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sdsrss/agentsmd.git"
+  },
+  "author": "agentsmd",
   "license": "MIT",
+  "bin": {
+    "agentsmd": "bin/agentsmd.js"
+  },
   "scripts": {
     "test": "node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/drift.test.js && node scripts/tests/distribution.test.js && bash hooks/tests/smoke.sh",
     "spec:install": "node scripts/install.js",
@@ -14,6 +24,7 @@
     "status": "node scripts/status.js"
   },
   "files": [
+    "bin",
     "spec",
     "hooks",
     "scripts",

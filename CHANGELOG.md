@@ -3,6 +3,36 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.2.0 — 2026-07-03 — npm CLI (`npx @sdsrs/agentsmd`) (no rule-text changes)
+
+No spec RULE text changed.
+
+### Added
+- **`agentsmd` npm CLI** (`bin/agentsmd.js`): the package now ships a CLI, so npm
+  users no longer need `npm explore -g @sdsrs/agentsmd -- node scripts/install.js`.
+  - `npx @sdsrs/agentsmd install` runs a one-shot install with nothing left
+    globally; `npm install -g @sdsrs/agentsmd` then exposes `agentsmd
+    install | update | uninstall | status | doctor | audit | rules`.
+  - The CLI is a thin dispatcher that spawns the existing `scripts/*.js`, so each
+    script's argument parsing, JSON output, and exit code pass through unchanged
+    (`audit`/`rules` still take `--days=N`).
+  - A bare `agentsmd` / `npx @sdsrs/agentsmd` prints help and installs nothing — a
+    bare `npx` run never silently writes to `$CODEX_HOME`.
+- `package.json` now carries `repository`, `homepage`, and `bugs` metadata and
+  ships `bin/`.
+
+### Changed
+- README (EN + 中文): the npm sections use `npx` / the `agentsmd` CLI instead of
+  `npm explore`; the plugin section now states that plugin install wires **hooks
+  only** — the spec block, `[features] hooks = true`, and codexmd migration come
+  from the script installer (`npx @sdsrs/agentsmd install`).
+
+### Migration
+- Additive and backward-compatible. The old `npm explore -g @sdsrs/agentsmd --
+  node scripts/install.js` path still works. To adopt the CLI, upgrade with
+  `npm install -g @sdsrs/agentsmd@latest`. Pin `@sdsrs/agentsmd@2.1.2` to stay on
+  the previous release.
+
 ## v2.1.2 — 2026-07-03 — QA hardening (no rule-text changes)
 
 No spec RULE text changed.

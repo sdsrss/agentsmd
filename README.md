@@ -56,7 +56,8 @@ Everything honors `$CODEX_HOME` (defaults to `~/.codex`).
 Choose one install surface:
 
 - **Standalone curl installer:** shortest path for most local Codex CLI users.
-- **npm package:** useful when you want a package-manager-pinned source.
+- **npm package / `npx`:** a one-shot `npx @sdsrs/agentsmd install`, or a
+  version-pinned global `agentsmd` CLI.
 - **Codex plugin marketplace:** use Codex's plugin browser; newer CLIs also
   expose automation commands.
 - **Local checkout:** for development or reviewing changes before installing.
@@ -80,7 +81,7 @@ Useful options:
 
 ```bash
 # pin a branch, tag, or commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.1.2
+curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.2.0
 
 # explicit update: same operation as install, safe to re-run
 curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
@@ -99,23 +100,49 @@ sh /tmp/agentsmd-install.sh
 
 ### npm package
 
-Use this when you want npm to keep a local copy of the release artifact. The npm
-package is scoped as `@sdsrs/agentsmd` because npm rejected the unscoped
-`agentsmd` name as too similar to an existing package. The installed Codex
-footprint still uses the `agentsmd` name.
+Use this when you want a one-shot `npx` run with nothing left installed, or an
+`agentsmd` CLI that npm keeps version-pinned. The package ships the `agentsmd`
+CLI, so **you never need `npm explore`**. It is scoped as `@sdsrs/agentsmd`
+because npm rejected the unscoped `agentsmd` name as too similar to an existing
+package; the installed Codex footprint still uses the `agentsmd` name.
+
+Run it once with `npx` (nothing installed globally):
+
+```bash
+npx @sdsrs/agentsmd install     # merge agentsmd into $CODEX_HOME
+npx @sdsrs/agentsmd status      # confirm what registered
+npx @sdsrs/agentsmd doctor      # health checks
+```
+
+Or install the CLI globally and call it directly:
 
 ```bash
 npm install -g @sdsrs/agentsmd
-npm explore -g @sdsrs/agentsmd -- node scripts/install.js
-npm explore -g @sdsrs/agentsmd -- node scripts/status.js
-npm explore -g @sdsrs/agentsmd -- node scripts/doctor.js
+agentsmd install
+agentsmd status
+agentsmd doctor
 ```
+
+`agentsmd --help` lists every subcommand: `install` · `update` · `uninstall` ·
+`status` · `doctor` · `audit` · `rules`. A bare `agentsmd` (or `npx
+@sdsrs/agentsmd` with no command) prints help and installs nothing.
 
 ### Codex plugin marketplace
 
 Use this when you want Codex to install agentsmd as a plugin and keep the bundle
 in Codex's plugin cache. The repo ships a marketplace at
 `.agents/plugins/marketplace.json`; its marketplace name is `agentsmd`.
+
+> **What the plugin path wires — and what it doesn't.** Codex auto-manages
+> agentsmd's **hooks** from the plugin bundle. The rest of a full install —
+> injecting the core spec into `~/.codex/AGENTS.md`, setting `config.toml`
+> `[features] hooks = true`, and migrating a prior codexmd install — is done by
+> the script installer, **not** by plugin install. For the complete experience,
+> run the installer once after adding the plugin:
+>
+> ```bash
+> npx @sdsrs/agentsmd install
+> ```
 
 The general Codex plugin install flow is the plugin browser:
 
@@ -160,12 +187,13 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/install.js     # = update (idempotent); or: npm run spec:update
 ```
 
-For npm installs, refresh the package first, then re-run the same idempotent
-installer from the installed package:
+For npm installs, refresh the package first, then re-run install (idempotent):
 
 ```bash
 npm install -g @sdsrs/agentsmd@latest
-npm explore -g @sdsrs/agentsmd -- node scripts/install.js
+agentsmd install
+# …or with no global install:
+npx @sdsrs/agentsmd@latest install
 ```
 
 Plugin updates refresh the configured marketplace snapshot, then reinstall the
@@ -198,7 +226,7 @@ For npm installs, uninstall agentsmd's Codex footprint before removing the
 global package:
 
 ```bash
-npm explore -g @sdsrs/agentsmd -- node scripts/uninstall.js
+agentsmd uninstall
 npm uninstall -g @sdsrs/agentsmd
 ```
 
@@ -238,7 +266,7 @@ A hook-enforced rule with **zero hits** over a review window is always-on-layer 
 ## Develop
 
 ```bash
-npm test    # install/independence + closed-loop telemetry + drift + hook smoke suites
+npm test    # install/independence + closed-loop telemetry + drift + distribution + hook smoke suites
 ```
 
 `scripts/tests/drift.test.js` is the CI gate that keeps `spec/`, `hard-rules.json`, both hook wirings, and the version in sync. Architecture and phase history: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
@@ -246,6 +274,7 @@ npm test    # install/independence + closed-loop telemetry + drift + hook smoke 
 ## Layout
 
 ```
+bin/         npm CLI entry — the `agentsmd` / `npx @sdsrs/agentsmd` dispatcher over scripts/
 spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATOR.md)
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
@@ -273,9 +302,8 @@ Only its own marker-scoped entries, and it refuses to touch an unparseable `hook
 **How do I update or remove it?**
 Standalone: re-run the curl installer or `node scripts/install.js`; remove with
 `install.sh --uninstall` or `node scripts/uninstall.js`. npm: re-run
-`npm install -g @sdsrs/agentsmd@latest` then
-`npm explore -g @sdsrs/agentsmd -- node scripts/install.js`; remove with
-`npm explore -g @sdsrs/agentsmd -- node scripts/uninstall.js` then
+`npm install -g @sdsrs/agentsmd@latest` then `agentsmd install` (or a one-shot
+`npx @sdsrs/agentsmd@latest install`); remove with `agentsmd uninstall` then
 `npm uninstall -g @sdsrs/agentsmd`. Plugin: use the Codex plugin browser
 (`codex` then `/plugins`, or the app's **Plugins** page) to update or uninstall;
 newer CLIs can also run `codex plugin marketplace upgrade agentsmd` then

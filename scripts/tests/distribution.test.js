@@ -23,6 +23,15 @@ const run = (args, env) => cp.execFileSync('sh', [path.join(ROOT, 'install.sh'),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
+// the npm CLI dispatcher (bin/agentsmd.js), reached the way `npx @sdsrs/agentsmd`
+// or a global `agentsmd` would: node runs the bin, the subcommand + args pass through.
+const cli = (args, env) => cp.execFileSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), ...args], {
+  cwd: ROOT,
+  env: { ...process.env, ...env },
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
 const withSandbox = (fn) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-distribution-test.'));
   try { fn(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -109,6 +118,80 @@ t('package files include curl installer and repo marketplace metadata', () => {
   const files = JSON.parse(read('package.json')).files;
   assert(files.includes('install.sh'));
   assert(files.includes('.agents'));
+});
+
+// ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
+
+t('bin/agentsmd.js exists and runs under node', () => {
+  assert(fs.existsSync(path.join(ROOT, 'bin', 'agentsmd.js')));
+});
+
+t('agentsmd --version prints the package version', () => {
+  const v = JSON.parse(read('package.json')).version;
+  assert.strictEqual(cli(['--version']).trim(), v);
+});
+
+t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
+  const out = cli(['--help'], { CODEX_HOME: dir });
+  for (const c of ['install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
+    assert(out.includes(c), `help missing subcommand: ${c}`);
+  }
+  assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
+}));
+
+t('agentsmd with no args prints usage and does NOT install (safe npx bare-run)', () => withSandbox((dir) => {
+  const out = cli([], { CODEX_HOME: dir });
+  assert(/Usage/i.test(out));
+  assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'bare run must not install');
+}));
+
+t('agentsmd unknown command exits non-zero with usage and does not install', () => withSandbox((dir) => {
+  assert.throws(() => cli(['frobnicate'], { CODEX_HOME: dir }), /unknown command/);
+  assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+}));
+
+t('agentsmd install → status → uninstall round-trips against a sandbox CODEX_HOME', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  const installOut = cli(['install'], env);
+  assert(installOut.includes('agentsmd installed:'));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+
+  const status = JSON.parse(cli(['status'], env));
+  assert.strictEqual(status.installed, true);
+  assert.strictEqual(status.agentsmdHooksRegistered, 10);
+
+  const uninstallOut = cli(['uninstall'], env);
+  assert(uninstallOut.includes('agentsmd uninstalled:'));
+  assert.strictEqual(JSON.parse(cli(['status'], env)).installed, false);
+}));
+
+t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  cli(['install'], env);
+  assert(cli(['update'], env).includes('agentsmd installed:'));
+  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 10);
+}));
+
+t('agentsmd audit forwards --days to audit.js (invalid value rejected there)', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  cli(['install'], env);
+  assert.throws(() => cli(['audit', '--days=notanumber'], env), /invalid --days value/);
+}));
+
+t('package.json bin maps agentsmd to the dispatcher and files[] ships it', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.strictEqual(pkg.bin.agentsmd, 'bin/agentsmd.js');
+  assert(fs.existsSync(path.join(ROOT, pkg.bin.agentsmd)));
+  assert(pkg.files.includes('bin'));
+});
+
+t('package.json carries repository, homepage, and bugs metadata', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const repoUrl = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository.url;
+  assert(/github\.com\/sdsrss\/agentsmd/.test(repoUrl));
+  assert(/github\.com\/sdsrss\/agentsmd/.test(pkg.homepage));
+  const bugs = typeof pkg.bugs === 'string' ? pkg.bugs : pkg.bugs.url;
+  assert(/github\.com\/sdsrss\/agentsmd\/issues/.test(bugs));
 });
 
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
