@@ -261,6 +261,16 @@ node scripts/rules.js --days=30    # promote/demote signals vs spec/hard-rules.j
 
 A hook-enforced rule with **zero hits** over a review window is always-on-layer dilution → a demote candidate. A high-hit rule justifies its place in the core. Operator cadence, size budget, and promote/demote gates live in `spec/OPERATOR.md`.
 
+## Generate a project-level AGENTS.md
+
+agentsmd installs the **global** discipline spec into `~/.codex/AGENTS.md` (the universal *how*). To scaffold a **project** `AGENTS.md` (this repo's *what* — stack, structure, commands), run from the project root:
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js"   # or the agentsmd-init skill
+```
+
+It detects Node/Rust/Python/Go, writes a sentinel-delimited managed block, and re-running updates it in place while preserving your own edits. `--check` reports drift; `--dry-run` previews.
+
 ## Develop
 
 ```bash

@@ -3,6 +3,11 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## [Unreleased]
+
+### Added
+- `agentsmd-init` — generate a project-level `AGENTS.md` (Node/Rust/Python/Go detection) that complements the global spec; project-scoped marker-merge preserves user edits. `--check` / `--dry-run` supported.
+
 ## v2.3.0 — 2026-07-04 — Superpowers accelerator + fix: extended spec now installs to ~/.codex/
 
 Adds optional `superpowers`-plugin routing to the spec, and fixes an install bug
