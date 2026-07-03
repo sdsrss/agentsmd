@@ -183,5 +183,23 @@ withProject({ 'package.json': JSON.stringify({ name: 'chk' }) }, (dir) => {
   t('init: --check reports in sync after generation', () => assert.strictEqual(init({ projectRoot: dir, check: true }).inSync, true));
 });
 
+withProject({ 'package.json': JSON.stringify({ name: 'two' }) }, (dir) => {
+  const target = path.join(dir, 'AGENTS.md');
+  init({ projectRoot: dir });
+  const body = fs.readFileSync(target, 'utf8');
+  t('init: writes both facts and conventions blocks', () => {
+    assert(body.includes(AM.PROJECT_BEGIN) && body.includes(AM.CONVENTIONS_BEGIN));
+    assert(body.includes('agentsmd-analyze'));
+  });
+  // simulate analyze having filled the conventions block:
+  const filled = body.replace(
+    new RegExp(AM.CONVENTIONS_BEGIN + '[\\s\\S]*?' + AM.CONVENTIONS_END),
+    AM.CONVENTIONS_BEGIN + '\n## Conventions\n\n- prefer const\n' + AM.CONVENTIONS_END);
+  fs.writeFileSync(target, filled);
+  init({ projectRoot: dir }); // re-init
+  t('init: re-run preserves a filled conventions block (create-once)', () =>
+    assert(fs.readFileSync(target, 'utf8').includes('- prefer const')));
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

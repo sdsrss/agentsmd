@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { detect } = require('./lib/detect');
-const { renderProjectAgentsMd } = require('./lib/project-templates');
+const { renderProjectAgentsMd, renderConventionsSeed } = require('./lib/project-templates');
 const AM = require('./lib/agents-md');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -20,7 +20,16 @@ function init({ projectRoot, check = false, dryRun = false } = {}) {
   const detection = detect(root);
   const blockContent = renderProjectAgentsMd(detection);
   const existing = readOrNull(target);
-  const { content, updated } = AM.injectBlockBetween(existing, blockContent, AM.PROJECT_BEGIN, AM.PROJECT_END);
+  // Check on existing content to determine seeding, before modifying content.
+  const hasExistingConventions = existing && AM.hasBlockBetween(existing, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END);
+  let { content, updated } = AM.injectBlockBetween(existing, blockContent, AM.PROJECT_BEGIN, AM.PROJECT_END);
+  // Seed the agent-owned conventions block ONCE; never overwrite analyze's output.
+  if (!hasExistingConventions) {
+    content = AM.injectBlockBetween(content, renderConventionsSeed(), AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END).content;
+    // Normalize spacing: remove one newline between blocks to match re-injection behavior.
+    content = content.replace(/(\n# <<< agentsmd:project <<<)\n\n(# >>> agentsmd:conventions >>>)/,
+      '$1\n$2');
+  }
 
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
