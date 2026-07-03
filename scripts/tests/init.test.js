@@ -124,7 +124,7 @@ const { renderProjectAgentsMd } = require('../lib/project-templates');
   t('render: notes monorepo', () => assert(/monorepo/i.test(md)));
   t('render: lists structure dirs', () => assert(md.includes('`src/`') && md.includes('`tests/`')));
   t('render: emits present commands, skips null ones', () => assert(md.includes('pnpm run build') && !md.includes('lint')));
-  t('render: conventions placeholder points at agentsmd-analyze', () => assert(md.includes('## Conventions') && md.includes('agentsmd-analyze')));
+  t('render: facts block carries no Conventions section', () => assert(!/##\s*Conventions/.test(md)));
   t('render: carries no global-discipline headings (facts only)', () => assert(!/SAFETY|four-section|Iron Law/i.test(md)));
 
   const bare = renderProjectAgentsMd({
@@ -132,7 +132,13 @@ const { renderProjectAgentsMd } = require('../lib/project-templates');
     monorepo: false, structure: [], commands: { dev: null, build: null, test: null, lint: null },
   });
   t('render: omits Structure and Commands when empty', () => assert(!bare.includes('## Structure') && !bare.includes('## Commands')));
-  t('render: still emits Project and Conventions when bare', () => assert(bare.includes('## Project') && bare.includes('## Conventions')));
+  t('render: bare block still emits Project, no Conventions', () => assert(bare.includes('## Project') && !/##\s*Conventions/.test(bare)));
+
+  const { renderConventionsSeed } = require('../lib/project-templates');
+  const s = renderConventionsSeed();
+  t('seed: conventions seed points at agentsmd-analyze', () => {
+    assert(/##\s*Conventions/.test(s) && s.includes('agentsmd-analyze'));
+  });
 }
 
 // ── init CLI end-to-end ──────────────────────────────────────────────────────

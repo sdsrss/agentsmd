@@ -26,11 +26,19 @@ function renderProjectAgentsMd(d) {
     L.push('```', '');
   }
 
-  L.push('## Conventions', '');
-  L.push('> Document this project\'s conventions here (naming, imports, error handling, request/API encapsulation).');
-  L.push('> A future `agentsmd-analyze` pass (Phase 2) will automate distilling these from the source.');
-
   return L.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-module.exports = { renderProjectAgentsMd };
+// The conventions block is agent-owned (filled by `agentsmd-analyze`), so it is a
+// SEPARATE managed block, not part of the deterministic facts above. init seeds
+// this once; analyze refills it. Hand-edits belong OUTSIDE the managed block.
+function renderConventionsSeed() {
+  return [
+    '## Conventions',
+    '',
+    "> Distilled from this project's source by the `agentsmd-analyze` skill.",
+    '> Run it to fill this block. Hand-edits belong OUTSIDE the managed block (they are preserved; this block is regenerated).',
+  ].join('\n');
+}
+
+module.exports = { renderProjectAgentsMd, renderConventionsSeed };
