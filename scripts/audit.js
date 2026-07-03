@@ -24,15 +24,17 @@ function readRows(logPath) {
   return rows;
 }
 
-function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
+function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = null } = {}) {
   const rows = readRows(logPath);
   const cutoff = now - days * 86400000;
+  const projNeedle = project ? String(project).toLowerCase() : null;
   const bySection = {}, byHook = {}, byEvent = {}, byProject = {};
   let total = 0, enforcement = 0;
 
   for (const r of rows) {
     const ts = Date.parse(r && r.ts);
     if (!Number.isNaN(ts) && (ts < cutoff || ts > now)) continue; // unparseable ts → keep (can't window it out)
+    if (projNeedle !== null && !String((r && r.project) || '').toLowerCase().includes(projNeedle)) continue;
     total++;
     const sec = (r && r.spec_section) || '(none)';
     const ev = (r && r.event) || 'unknown';
@@ -85,9 +87,19 @@ function formatReport(a) {
 
 function parseDaysArg(argv, commandName = 'agentsmd-audit') {
   let days = 30;
+  let project = null;
   let sawDays = false;
+  let sawProject = false;
   for (const arg of argv) {
     if (arg === '--help' || arg === '-h') return { help: true, days };
+    const p = arg.match(/^--project=(.*)$/);
+    if (p) {
+      if (sawProject) return { error: 'duplicate option: --project', days };
+      sawProject = true;
+      if (p[1] === '') return { error: 'invalid --project value: (empty)', days };
+      project = p[1];
+      continue;
+    }
     const m = arg.match(/^--days=(.+)$/);
     if (m) {
       if (sawDays) return { error: 'duplicate option: --days', days };
@@ -103,7 +115,7 @@ function parseDaysArg(argv, commandName = 'agentsmd-audit') {
     }
     return { error: `unknown option: ${arg}`, days };
   }
-  return { days, usage: `Usage: ${commandName} [--days=N]` };
+  return { days, project, usage: `Usage: ${commandName} [--days=N] [--project=SUBSTR]` };
 }
 
 if (require.main === module) {

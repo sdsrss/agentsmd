@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
-const { audit } = require('../audit');
+const { audit, parseDaysArg } = require('../audit');
 const { rulesAudit } = require('../rules');
 const cp = require('child_process');
 
@@ -90,6 +90,36 @@ try {
   });
   t('byProject: gamma sections accumulates a repeated section hit to 2, not 1', () => {
     assert.strictEqual(ap.byProject['-home-user-gamma'].sections['§8-rm-rf-var'], 2);
+  });
+
+  // --- Phase 3: --project filter + parser ---------------------------------
+  const apAlpha = audit({ days: 30, now: NOW, logPath: projRows, project: 'ALPHA' });
+  t('audit --project filters rows by case-insensitive substring', () => {
+    assert.deepStrictEqual(Object.keys(apAlpha.byProject), ['-home-user-alpha']);
+    assert.strictEqual(apAlpha.inWindow, 3);
+  });
+  t('audit --project with no match yields empty aggregates', () => {
+    const none = audit({ days: 30, now: NOW, logPath: projRows, project: 'zzz' });
+    assert.strictEqual(none.inWindow, 0);
+    assert.deepStrictEqual(none.byProject, {});
+    assert.deepStrictEqual(none.bySection, {});
+  });
+  t('parseDaysArg returns project on --project=', () => {
+    assert.strictEqual(parseDaysArg(['--project=foo']).project, 'foo');
+  });
+  t('parseDaysArg: absent --project → project null', () => {
+    assert.strictEqual(parseDaysArg(['--days=7']).project, null);
+  });
+  t('parseDaysArg rejects empty --project=', () => {
+    assert.strictEqual(parseDaysArg(['--project=']).error, 'invalid --project value: (empty)');
+  });
+  t('parseDaysArg rejects duplicate --project', () => {
+    assert.strictEqual(parseDaysArg(['--project=a', '--project=b']).error, 'duplicate option: --project');
+  });
+  t('parseDaysArg accepts --days and --project together', () => {
+    const p = parseDaysArg(['--days=7', '--project=x']);
+    assert.strictEqual(p.days, 7);
+    assert.strictEqual(p.project, 'x');
   });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
