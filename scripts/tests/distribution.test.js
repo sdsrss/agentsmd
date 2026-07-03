@@ -133,7 +133,7 @@ t('agentsmd --version prints the package version', () => {
 
 t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
   const out = cli(['--help'], { CODEX_HOME: dir });
-  for (const c of ['init', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
+  for (const c of ['init', 'analyze', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
   assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
@@ -167,6 +167,25 @@ t('agentsmd init dispatches to scripts/init.js, targeting the invoking directory
   assert(out.includes('created:'));
   assert(fs.existsSync(path.join(projectDir, 'AGENTS.md')), 'init did not write to the invoking directory');
   assert(!fs.existsSync(codexHome), 'init must not touch CODEX_HOME');
+}));
+
+t('agentsmd analyze --gather dispatches to scripts/analyze.js, targeting the invoking dir', () => withSandbox((dir) => {
+  // analyze is the other COMMANDS entry that is NOT $CODEX_HOME-scoped, like init
+  // above — it must run with cwd set to a throwaway project dir, or it would read
+  // this repo's own root instead of the invoking project.
+  const projectDir = path.join(dir, 'project');
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({ name: 'ana' }));
+  fs.writeFileSync(path.join(projectDir, 'a.js'), 'const x=1');
+  const codexHome = path.join(dir, 'codex-home');
+  const out = cp.execFileSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), 'analyze', '--gather'], {
+    cwd: projectDir,
+    env: { ...process.env, CODEX_HOME: codexHome },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert(/ana|a\.js|files/i.test(out));
+  assert(!fs.existsSync(codexHome), 'analyze must not touch CODEX_HOME');
 }));
 
 t('agentsmd install → status → uninstall round-trips against a sandbox CODEX_HOME', () => withSandbox((dir) => {

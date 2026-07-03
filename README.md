@@ -271,6 +271,24 @@ node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js"   # or the agentsmd-
 
 It detects Node/Rust/Python/Go, writes a sentinel-delimited managed block, and re-running updates it in place while preserving your own edits. `--check` reports drift; `--dry-run` previews.
 
+Add `--local` to also scaffold a git-ignored `AGENTS.local.md` for personal preferences (e.g. `AUTONOMY_LEVEL`) that never leave your machine:
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js" --local
+```
+
+It's create-only (never clobbers an existing `AGENTS.local.md`) and idempotently adds the filename to `.gitignore`. Codex only reads it once you add `AGENTS.local.md` to `project_doc_fallback_filenames` in `~/.codex/config.toml` — `init --local` prints the exact line to add.
+
+## Distill project conventions
+
+`init` only detects stack *facts* (language, package manager, commands). To also capture a project's *implicit* conventions — naming, import order, error handling, comment style — from its own source, run the `agentsmd-analyze` skill from within a Codex session, or drive its deterministic half directly:
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --gather
+```
+
+`--gather` prints a capped, ignore-aware source-file map (default when no flag is given). Reading that map and distilling it into conventions is the one AI step — done by the `agentsmd-analyze` skill, not this script. `--write --from <file>` then injects the result into the project `AGENTS.md`'s `agentsmd:conventions` block, refusing — never truncating — past a 6 KiB conventions / ~32 KiB whole-file budget.
+
 ## Develop
 
 ```bash

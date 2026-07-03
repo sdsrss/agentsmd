@@ -3,6 +3,12 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## [Unreleased]
+
+### Added
+- `agentsmd analyze` — distill a project's implicit coding conventions (naming, imports, error handling, comment style, git conventions) from its own source into the `AGENTS.md`'s `agentsmd:conventions` block. Deterministic gather/write (`analyze.js --gather` / `--write --from <file>`); the AI distillation step lives in the `agentsmd-analyze` skill.
+- `agentsmd init --local` — scaffold a git-ignored `AGENTS.local.md` for personal preferences, idempotently added to `.gitignore`.
+
 ## v2.4.0 — 2026-07-04 — project-level AGENTS.md generator (`agentsmd init`)
 
 Adds a project-level companion to the global spec. The global `~/.codex/AGENTS.md`
