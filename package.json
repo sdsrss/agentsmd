@@ -14,7 +14,7 @@
     "agentsmd": "bin/agentsmd.js"
   },
   "scripts": {
-    "test": "node scripts/tests/init.test.js && node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/drift.test.js && node scripts/tests/distribution.test.js && bash hooks/tests/smoke.sh",
+    "test": "node scripts/tests/init.test.js && node scripts/tests/analyze.test.js && node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/drift.test.js && node scripts/tests/distribution.test.js && bash hooks/tests/smoke.sh",
     "spec:install": "node scripts/install.js",
     "spec:update": "node scripts/install.js",
     "spec:uninstall": "node scripts/uninstall.js",
