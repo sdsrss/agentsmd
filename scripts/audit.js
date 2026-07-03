@@ -27,7 +27,7 @@ function readRows(logPath) {
 function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
   const rows = readRows(logPath);
   const cutoff = now - days * 86400000;
-  const bySection = {}, byHook = {}, byEvent = {};
+  const bySection = {}, byHook = {}, byEvent = {}, byProject = {};
   let total = 0, enforcement = 0;
 
   for (const r of rows) {
@@ -47,6 +47,14 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
 
     byHook[hook] = (byHook[hook] || 0) + 1;
     byEvent[ev] = (byEvent[ev] || 0) + 1;
+
+    const proj = (r && r.project) || '(none)';
+    byProject[proj] = byProject[proj] || { total: 0, enforcement: 0, sections: {} };
+    byProject[proj].total++;
+    if (isEnf) {
+      byProject[proj].enforcement++;
+      if (sec !== '(none)') byProject[proj].sections[sec] = (byProject[proj].sections[sec] || 0) + 1;
+    }
   }
 
   return {
@@ -55,7 +63,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath() } = {}) {
     totalRows: rows.length,
     inWindow: total,
     enforcementEvents: enforcement,
-    bySection, byHook, byEvent,
+    bySection, byHook, byEvent, byProject,
   };
 }
 

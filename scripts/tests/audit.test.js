@@ -51,6 +51,36 @@ try {
     assert.deepStrictEqual(Object.keys(b.bySection).sort(), ['at-cutoff', 'now']);
   });
 
+  // --- Phase 3: byProject aggregation -------------------------------------
+  const projRows = path.join(tmp, 'projects.jsonl');
+  fs.writeFileSync(projRows, [
+    { ts: day(1), hook: 'pre-bash-safety', event: 'block',    spec_section: '§8-rm-rf-var', project: '-home-user-alpha' },
+    { ts: day(1), hook: 'banned-vocab',    event: 'block',    spec_section: '§10-V',        project: '-home-user-alpha' },
+    { ts: day(1), hook: 'session-start',   event: 'context',  spec_section: null,           project: '-home-user-alpha' }, // lifecycle, not enforcement
+    { ts: day(2), hook: 'banned-vocab',    event: 'advisory', spec_section: '§10-V',        project: '-home-user-beta' },
+    { ts: day(1), hook: 'pre-bash-safety', event: 'block',    spec_section: '§8-rm-rf-var' },                              // no project → (none)
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const ap = audit({ days: 30, now: NOW, logPath: projRows });
+
+  t('byProject: alpha = 3 total / 2 enforcement (context not enforcement)', () => {
+    assert.strictEqual(ap.byProject['-home-user-alpha'].total, 3);
+    assert.strictEqual(ap.byProject['-home-user-alpha'].enforcement, 2);
+  });
+  t('byProject: alpha.sections counts enforcement per named section', () => {
+    assert.deepStrictEqual(ap.byProject['-home-user-alpha'].sections, { '§8-rm-rf-var': 1, '§10-V': 1 });
+  });
+  t('byProject: null-section lifecycle row excluded from sections breakdown', () => {
+    assert.ok(!('(none)' in ap.byProject['-home-user-alpha'].sections));
+  });
+  t('byProject: row without a project bucketed under (none)', () => {
+    assert.strictEqual(ap.byProject['(none)'].total, 1);
+    assert.strictEqual(ap.byProject['(none)'].enforcement, 1);
+  });
+  t('byProject: beta advisory counts as enforcement', () => {
+    assert.strictEqual(ap.byProject['-home-user-beta'].enforcement, 1);
+    assert.deepStrictEqual(ap.byProject['-home-user-beta'].sections, { '§10-V': 1 });
+  });
+
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
   t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });
