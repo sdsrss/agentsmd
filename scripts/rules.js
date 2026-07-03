@@ -14,7 +14,13 @@ const { audit, parseDaysArg } = require('./audit');
 function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
   const liveSections = new Set(hr.live_sections || []);
-  const a = audit({ days, now, logPath, project });
+  // Demote/active/self-enforced signals MUST be computed over ALL telemetry,
+  // never narrowed by --project: a rule with plenty of cross-project hits but
+  // zero in one particular project is not evidence of dilution — it just means
+  // that project never happened to exercise it. --project is purely an
+  // informational lens layered on top (see projectFilter/matchedSlugs below
+  // and formatReport) — it must never change what "active" means.
+  const a = audit({ days, now, logPath });
   // With zero telemetry in the window, a 0-hit live rule is NOT dilution — there is
   // simply no data to judge it. Distinguish 'no-data' from 'demote-candidate' so the
   // governance surface never recommends demotion off an empty window (e.g. a fresh
@@ -35,14 +41,22 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     return { id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits, live, signal, confidence: r.confidence, lastDemoteReview: r.last_demote_review };
   });
 
+  // Cross-project count — always derived from the unfiltered audit above, so
+  // it reads the same whether or not --project is set.
   const projectCount = Object.keys(a.byProject).filter((k) => k !== '(none)').length;
+  const projectFilter = project || null;
+  // Separate, filtered audit used ONLY for the informational scoped-header
+  // count below — must never feed the rule-signal computation above.
+  const scoped = project ? audit({ days, now, logPath, project }) : null;
+  const matchedSlugs = scoped ? Object.keys(scoped.byProject).filter((k) => k !== '(none)').length : projectCount;
 
   return {
     days,
     windowStartIso: a.windowStartIso,
     telemetryRows: a.inWindow,
-    projectFilter: project || null,
+    projectFilter,
     projectCount,
+    matchedSlugs,
     rules: rows,
     demoteCandidates: rows.filter((r) => r.signal === 'demote-candidate'),
     active: rows.filter((r) => r.signal === 'active'),
@@ -54,7 +68,7 @@ function formatReport(ra) {
   const L = [];
   L.push(`agentsmd rules governance — last ${ra.days}d · ${ra.telemetryRows} telemetry rows`);
   if (ra.projectFilter) {
-    L.push(`scoped to project filter '${ra.projectFilter}' (${ra.projectCount} slug(s)) — informational lens; demote signals remain cross-project.`);
+    L.push(`scoped to project filter '${ra.projectFilter}' (${ra.matchedSlugs} slug(s)) — informational lens; demote signals remain cross-project.`);
   } else {
     L.push(`telemetry spans ${ra.projectCount} project(s).`);
   }

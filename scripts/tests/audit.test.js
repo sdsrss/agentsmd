@@ -188,21 +188,35 @@ try {
     assert.strictEqual(raProj.projectCount, 3);
     assert.strictEqual(raProj.projectFilter, null);
   });
-  t('rulesAudit --project scopes telemetry + sets projectFilter', () => {
+  t('rulesAudit --project sets projectFilter + matchedSlugs, but keeps telemetryRows/projectCount cross-project', () => {
     const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
     assert.strictEqual(scoped.projectFilter, 'alpha');
-    assert.strictEqual(scoped.telemetryRows, 3);
-    assert.strictEqual(scoped.projectCount, 1);
+    assert.strictEqual(scoped.matchedSlugs, 1); // only the alpha slug matches the substring filter
+    assert.strictEqual(scoped.telemetryRows, 8); // cross-project total (all 8 fixture rows), NOT narrowed to alpha's 3
+    assert.strictEqual(scoped.projectCount, 3); // cross-project count (alpha/beta/gamma), unchanged by scoping
   });
-  t('rules report: spans-N by default, informational-lens note when scoped', () => {
+  t('rules report: spans-N by default, informational-lens note w/ matched-slug count when scoped', () => {
     assert.ok(/telemetry spans 3 project\(s\)/.test(rulesFormat(raProj)));
     const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
-    assert.ok(/informational lens; demote signals remain cross-project/.test(rulesFormat(scoped)));
+    const rep = rulesFormat(scoped);
+    assert.ok(/scoped to project filter 'alpha' \(1 slug\(s\)\)/.test(rep), 'missing scoped header w/ matched-slug count; got:\n' + rep);
+    assert.ok(/demote signals remain cross-project/.test(rep));
   });
-  t('rules demote semantics unchanged under project scoping (regression)', () => {
+  t('rules demote semantics unchanged under project scoping (regression, alpha)', () => {
     const scoped = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
     const r = scoped.rules.find((x) => x.section === '§8-rm-rf-var');
     assert(r && r.signal === 'active', 'got ' + (r && r.signal));
+  });
+  t('rules demote signal stays cross-project when scoped to a project with ZERO hits on that rule (regression, beta) — the bug this fix closes', () => {
+    // -home-user-beta has no §8-rm-rf-var row at all (only a §10-V advisory) —
+    // if rulesAudit wrongly narrowed the signal-computing audit to --project,
+    // §8-rm-rf-var would read 0 hits here and flag as demote-candidate even
+    // though it fires plenty cross-project (alpha + (none) + gamma×2 = 4 hits).
+    const scopedBeta = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'beta' });
+    const r = scopedBeta.rules.find((x) => x.section === '§8-rm-rf-var');
+    assert(r && r.signal === 'active', 'got ' + (r && r.signal) + ' — signal leaked project scoping');
+    assert.ok(!scopedBeta.demoteCandidates.some((x) => x.section === '§8-rm-rf-var'), '§8-rm-rf-var wrongly flagged as demote-candidate when scoped to beta');
+    assert.strictEqual(scopedBeta.matchedSlugs, 1); // just the beta slug matches
   });
   t('rules CLI accepts --project and scopes the governance header to exactly one matched slug', () => {
     // Mirrors the Task 3 audit-CLI discriminating fix (agentsmd-cli-proj /
