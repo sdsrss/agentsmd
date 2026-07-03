@@ -73,5 +73,33 @@ withProject({ 'README.md': '# nothing' }, (dir) => {
   t('unknown: project name falls back to dir basename', () => assert.strictEqual(typeof d.projectName, 'string'));
 });
 
+// ── project marker-merge (agents-md.js) ──────────────────────────────────────
+const AM = require('../lib/agents-md');
+{
+  const first = AM.injectBlockBetween('# My Project\n\nHand-written notes.\n', 'BODY-A', AM.PROJECT_BEGIN, AM.PROJECT_END);
+  t('merge: appends a project block, keeps existing content', () => {
+    assert(first.content.includes('Hand-written notes.'));
+    assert(first.content.includes(AM.PROJECT_BEGIN) && first.content.includes('BODY-A'));
+    assert.strictEqual(first.updated, false);
+  });
+  const second = AM.injectBlockBetween(first.content, 'BODY-B', AM.PROJECT_BEGIN, AM.PROJECT_END);
+  t('merge: re-run replaces the block in place (updated=true)', () => {
+    assert.strictEqual(second.updated, true);
+    assert(second.content.includes('BODY-B'));
+    assert(!second.content.includes('BODY-A'));
+    assert(second.content.includes('Hand-written notes.'));
+  });
+  t('merge: idempotent when body unchanged', () => {
+    const a = AM.injectBlockBetween('X\n', 'SAME', AM.PROJECT_BEGIN, AM.PROJECT_END).content;
+    const b = AM.injectBlockBetween(a, 'SAME', AM.PROJECT_BEGIN, AM.PROJECT_END).content;
+    assert.strictEqual(a, b);
+  });
+  t('merge: global injectSpecBlock still uses global sentinels', () => {
+    const g = AM.injectSpecBlock('', 'GLOBAL').content;
+    assert(g.includes(AM.BEGIN) && g.includes('GLOBAL'));
+    assert(!g.includes(AM.PROJECT_BEGIN));
+  });
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
