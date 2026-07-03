@@ -3,10 +3,29 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## [Unreleased]
+## v2.4.0 — 2026-07-04 — project-level AGENTS.md generator (`agentsmd init`)
+
+Adds a project-level companion to the global spec. The global `~/.codex/AGENTS.md`
+carries language-agnostic *discipline* (SPINE / Iron Laws / §8 SAFETY); the new
+per-project `AGENTS.md` carries stack *facts* (detected language, package
+manager, commands, structure) — Codex's discovery chain merges both layers. This
+release is purely additive: every existing command behaves exactly as before, and
+a project that never runs `init` is unaffected. Revert by pinning the prior
+version (`npm i -g @sdsrs/agentsmd@2.3.0`).
 
 ### Added
-- `agentsmd-init` — generate a project-level `AGENTS.md` (Node/Rust/Python/Go detection) that complements the global spec; project-scoped marker-merge preserves user edits. `--check` / `--dry-run` supported.
+- **`agentsmd init`** — generate or refresh a project-level `AGENTS.md` in the
+  current directory. Deterministic, AI-free detection for Node / Rust / Python /
+  Go reads the real manifests (`package.json`, `Cargo.toml`, `pyproject.toml`,
+  `go.mod`) to fill language, runtime, package manager, monorepo layout, and
+  normalized dev/build/test/lint commands. A project-scoped marker block
+  (`# >>> agentsmd:project >>>` … `# <<< agentsmd:project <<<`) makes re-runs
+  idempotent and preserves everything the user writes outside it. `--check`
+  (exit 1 on drift, writes nothing) and `--dry-run` (print without writing)
+  supported. Unlike every other subcommand, `init` targets the current project
+  directory, not `$CODEX_HOME`.
+- **`agentsmd-init` skill** — the command-layer stub that runs the generator from
+  within a Codex session.
 
 ## v2.3.0 — 2026-07-04 — Superpowers accelerator + fix: extended spec now installs to ~/.codex/
 
