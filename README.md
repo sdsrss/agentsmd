@@ -56,8 +56,8 @@ Everything honors `$CODEX_HOME` (defaults to `~/.codex`).
 Choose one install surface:
 
 - **Standalone curl installer:** shortest path for most local Codex CLI users.
-- **npm package / `npx`:** a one-shot `npx @sdsrs/agentsmd install`, or a
-  version-pinned global `agentsmd` CLI.
+- **npm package:** a version-pinned global `agentsmd` CLI (`npm install -g
+  @sdsrs/agentsmd`), or a one-shot via `npx --package`.
 - **Codex plugin marketplace:** use Codex's plugin browser; newer CLIs also
   expose automation commands.
 - **Local checkout:** for development or reviewing changes before installing.
@@ -100,32 +100,30 @@ sh /tmp/agentsmd-install.sh
 
 ### npm package
 
-Use this when you want a one-shot `npx` run with nothing left installed, or an
-`agentsmd` CLI that npm keeps version-pinned. The package ships the `agentsmd`
-CLI, so **you never need `npm explore`**. It is scoped as `@sdsrs/agentsmd`
-because npm rejected the unscoped `agentsmd` name as too similar to an existing
-package; the installed Codex footprint still uses the `agentsmd` name.
+The package ships an `agentsmd` CLI, so npm users no longer need `npm explore`.
+It is scoped as `@sdsrs/agentsmd` because npm rejected the unscoped `agentsmd`
+name as too similar to an existing package; the installed Codex footprint still
+uses the `agentsmd` name.
 
-Run it once with `npx` (nothing installed globally):
-
-```bash
-npx @sdsrs/agentsmd install     # merge agentsmd into $CODEX_HOME
-npx @sdsrs/agentsmd status      # confirm what registered
-npx @sdsrs/agentsmd doctor      # health checks
-```
-
-Or install the CLI globally and call it directly:
+Install the CLI globally and call it directly:
 
 ```bash
 npm install -g @sdsrs/agentsmd
-agentsmd install
-agentsmd status
-agentsmd doctor
+agentsmd install     # then: update, uninstall, status, doctor, audit, rules
+```
+
+Prefer a one-shot with nothing installed globally? Run it through `npx` with an
+**explicit command name** — a scoped package needs the command spelled out, so
+`npx --package … agentsmd …`, not a bare `npx @sdsrs/agentsmd …` (which some
+npm/npx versions fail to resolve):
+
+```bash
+npx --package @sdsrs/agentsmd agentsmd install
 ```
 
 `agentsmd --help` lists every subcommand: `install` · `update` · `uninstall` ·
-`status` · `doctor` · `audit` · `rules`. A bare `agentsmd` (or `npx
-@sdsrs/agentsmd` with no command) prints help and installs nothing.
+`status` · `doctor` · `audit` · `rules`. A bare `agentsmd` prints help and
+installs nothing.
 
 ### Codex plugin marketplace
 
@@ -141,7 +139,7 @@ in Codex's plugin cache. The repo ships a marketplace at
 > run the installer once after adding the plugin:
 >
 > ```bash
-> npx @sdsrs/agentsmd install
+> npm install -g @sdsrs/agentsmd && agentsmd install
 > ```
 
 The general Codex plugin install flow is the plugin browser:
@@ -192,8 +190,8 @@ For npm installs, refresh the package first, then re-run install (idempotent):
 ```bash
 npm install -g @sdsrs/agentsmd@latest
 agentsmd install
-# …or with no global install:
-npx @sdsrs/agentsmd@latest install
+# …or one-shot, no global install:
+npx --package @sdsrs/agentsmd@latest agentsmd install
 ```
 
 Plugin updates refresh the configured marketplace snapshot, then reinstall the
@@ -274,7 +272,7 @@ npm test    # install/independence + closed-loop telemetry + drift + distributio
 ## Layout
 
 ```
-bin/         npm CLI entry — the `agentsmd` / `npx @sdsrs/agentsmd` dispatcher over scripts/
+bin/         npm CLI entry — the `agentsmd` CLI dispatcher over scripts/
 spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATOR.md)
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
@@ -303,8 +301,8 @@ Only its own marker-scoped entries, and it refuses to touch an unparseable `hook
 Standalone: re-run the curl installer or `node scripts/install.js`; remove with
 `install.sh --uninstall` or `node scripts/uninstall.js`. npm: re-run
 `npm install -g @sdsrs/agentsmd@latest` then `agentsmd install` (or a one-shot
-`npx @sdsrs/agentsmd@latest install`); remove with `agentsmd uninstall` then
-`npm uninstall -g @sdsrs/agentsmd`. Plugin: use the Codex plugin browser
+`npx --package @sdsrs/agentsmd@latest agentsmd install`); remove with `agentsmd
+uninstall` then `npm uninstall -g @sdsrs/agentsmd`. Plugin: use the Codex plugin browser
 (`codex` then `/plugins`, or the app's **Plugins** page) to update or uninstall;
 newer CLIs can also run `codex plugin marketplace upgrade agentsmd` then
 `codex plugin add agentsmd --marketplace agentsmd`, and remove with

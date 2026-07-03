@@ -3,6 +3,22 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.2.1 — 2026-07-03 — docs: npm install guidance (no rule-text changes)
+
+No spec RULE text changed. No package code changed from v2.2.0 — the `agentsmd`
+CLI is byte-identical; this is a docs-only correction.
+
+### Fixed
+- README (EN + 中文) now leads with the global install
+  (`npm install -g @sdsrs/agentsmd` then `agentsmd install`), which links the
+  `agentsmd` bin consistently. The bare `npx @sdsrs/agentsmd <command>` form
+  shown in v2.2.0 is unreliable for this scoped package on npm 11.x (intermittent
+  `agentsmd: not found` from npx's command resolution — the package itself is
+  unaffected; `npm install` links the bin every time). The documented one-shot
+  is now `npx --package @sdsrs/agentsmd agentsmd <command>`.
+- `scripts/tests/distribution.test.js` guards against reintroducing the bare-npx
+  form in either README.
+
 ## v2.2.0 — 2026-07-03 — npm CLI (`npx @sdsrs/agentsmd`) (no rule-text changes)
 
 No spec RULE text changed.

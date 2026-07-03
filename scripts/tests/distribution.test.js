@@ -194,5 +194,17 @@ t('package.json carries repository, homepage, and bugs metadata', () => {
   assert(/github\.com\/sdsrss\/agentsmd\/issues/.test(bugs));
 });
 
+t('README (EN + zh) leads with global install, not the flaky bare npx form', () => {
+  // Regression guard (v2.2.1): a bare `npx @sdsrs/agentsmd <cmd>` for this scoped
+  // package is unreliable on npm 11.x (intermittent "agentsmd: not found"). Docs
+  // must use `npm i -g … && agentsmd <cmd>` or `npx --package @sdsrs/agentsmd agentsmd <cmd>`.
+  const bareNpx = /npx @sdsrs\/agentsmd(@[^\s]+)? (install|status|doctor|uninstall|update|audit|rules)\b/;
+  for (const f of ['README.md', 'README.zh-CN.md']) {
+    const md = read(f);
+    assert(md.includes('npm install -g @sdsrs/agentsmd'), `${f}: must document the global install`);
+    assert(!bareNpx.test(md), `${f}: bare "npx @sdsrs/agentsmd <cmd>" is unreliable — use "npx --package @sdsrs/agentsmd agentsmd <cmd>"`);
+  }
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

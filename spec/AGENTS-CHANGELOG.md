@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.2.1 (2026-07-03) — docs: npm install guidance (no rule-text changes)
+
+Spec rule text unchanged; the shared version moves to v2.2.1 in lockstep with a
+docs-only fix — README now leads with `npm install -g @sdsrs/agentsmd` because
+the bare `npx @sdsrs/agentsmd <cmd>` form is unreliable on npm 11.x. No package
+code changed. `spec_version` → v2.2.1. Detail: repo `CHANGELOG.md`.
+
 ## v2.2.0 (2026-07-03) — npm CLI (no rule-text changes)
 
 Spec rule text unchanged. The shared version moves to v2.2.0 in lockstep with a
