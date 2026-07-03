@@ -58,5 +58,19 @@ withProject({ 'package.json': JSON.stringify({ name: 'w' }) }, (dir) => {
     assert.throws(() => writeConventions(dir, '## Conventions\n\n' + 'x'.repeat(7 * 1024)), /exceeds|budget|size/i));
 });
 
+// ── writeConventions: 32 KiB whole-file refuse ──────────────────────────────
+withProject({ 'package.json': JSON.stringify({ name: 'w2' }) }, (dir) => {
+  const target = path.join(dir, 'AGENTS.md');
+  // Seed AGENTS.md with ~31 KiB of pre-existing user prose, outside any sentinel block.
+  const unit = 'These are human-authored project notes kept outside any agentsmd block. ';
+  const prose = unit.repeat(Math.ceil(31 * 1024 / unit.length)).slice(0, 31 * 1024);
+  fs.writeFileSync(target, `# Notes\n\n${prose}\n`);
+  // Conventions body stays under the 6 KiB per-block budget on its own, but
+  // combined with the existing prose the whole file crosses the ~32 KiB budget.
+  const conventions = '## Conventions\n\n' + '- prefer const\n'.repeat(200);
+  t('write: refuses oversize AGENTS.md total (no truncation)', () =>
+    assert.throws(() => writeConventions(dir, conventions), /32 KiB|discovery budget|would be/));
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

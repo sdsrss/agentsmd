@@ -13,6 +13,7 @@ const { renderProjectAgentsMd, renderConventionsSeed } = require('./lib/project-
 const AM = require('./lib/agents-md');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const LOCAL_SKELETON = [
   '# AGENTS.local.md — personal, git-ignored, AI-read',
@@ -53,7 +54,8 @@ function init({ projectRoot, check = false, dryRun = false, local = false } = {}
   if (!hasExistingConventions) {
     content = AM.injectBlockBetween(content, renderConventionsSeed(), AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END).content;
     // Normalize spacing: remove one newline between blocks to match re-injection behavior.
-    content = content.replace(/(\n# <<< agentsmd:project <<<)\n\n(# >>> agentsmd:conventions >>>)/,
+    content = content.replace(
+      new RegExp('(\\n' + esc(AM.PROJECT_END) + ')\\n\\n(' + esc(AM.CONVENTIONS_BEGIN) + ')'),
       '$1\n$2');
   }
 
@@ -91,7 +93,10 @@ if (require.main === module) {
   if (r.action === 'dry-run') { console.log(r.content); process.exit(0); }
   console.log(`${r.action}: ${r.target} (${r.detection.language}, ${r.detection.packageManager})`);
   if (parsed.local) {
-    console.log('AGENTS.local.md written (git-ignored). To let Codex read it, add to ~/.codex/config.toml:');
+    const status = r.local.created
+      ? 'AGENTS.local.md written (git-ignored).'
+      : 'AGENTS.local.md already exists — preserved.';
+    console.log(`${status} To let Codex read it, add to ~/.codex/config.toml:`);
     console.log('  project_doc_fallback_filenames = ["AGENTS.local.md"]');
   }
   process.exit(0);

@@ -121,9 +121,9 @@ npm/npx versions fail to resolve):
 npx --package @sdsrs/agentsmd agentsmd install
 ```
 
-`agentsmd --help` lists every subcommand: `install` · `update` · `uninstall` ·
-`status` · `doctor` · `audit` · `rules`. A bare `agentsmd` prints help and
-installs nothing.
+`agentsmd --help` lists every subcommand: `init` · `analyze` · `install` ·
+`update` · `uninstall` · `status` · `doctor` · `audit` · `rules`. A bare
+`agentsmd` prints help and installs nothing.
 
 ### Codex plugin marketplace
 
@@ -304,7 +304,7 @@ bin/         npm CLI entry — the `agentsmd` CLI dispatcher over scripts/
 spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATOR.md)
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
-skills/      L3 command layer — agentsmd-audit/rules/doctor/status
+skills/      L3 command layer — agentsmd-init/analyze/audit/rules/doctor/status
 .agents/     repo marketplace metadata for Codex plugin browser/CLI installs
 .codex-plugin/plugin.json   Codex plugin manifest
 hooks.json   plugin-root hook wiring (relative paths)
