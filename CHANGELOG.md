@@ -3,7 +3,12 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## [Unreleased]
+## v2.5.0 — 2026-07-04 — project convention distiller (`agentsmd-analyze`) + `init --local`
+
+Completes the project layer: `init` (v2.4.0) writes stack *facts*; this adds the
+*implicit* conventions layer — an AI distiller that reads a project's own source
+— plus a personal-prefs file. Purely additive; every existing command is
+unchanged. Revert by pinning the prior version (`npm i -g @sdsrs/agentsmd@2.4.0`).
 
 ### Added
 - `agentsmd analyze` — distill a project's implicit coding conventions (naming, imports, error handling, comment style, git conventions) from its own source into the `AGENTS.md`'s `agentsmd:conventions` block. Deterministic gather/write (`analyze.js --gather` / `--write --from <file>`); the AI distillation step lives in the `agentsmd-analyze` skill.
