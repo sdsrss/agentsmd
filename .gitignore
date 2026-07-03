@@ -18,3 +18,6 @@ tasks/
 !.agents/plugins/
 !.agents/plugins/marketplace.json
 .code-graph/
+
+# subagent-driven-development scratch
+.superpowers/
