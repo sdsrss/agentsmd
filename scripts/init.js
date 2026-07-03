@@ -14,7 +14,33 @@ const AM = require('./lib/agents-md');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
-function init({ projectRoot, check = false, dryRun = false } = {}) {
+const LOCAL_SKELETON = [
+  '# AGENTS.local.md — personal, git-ignored, AI-read',
+  '',
+  '> Not committed. Codex reads it ONLY if you add `AGENTS.local.md` to',
+  '> `project_doc_fallback_filenames` in ~/.codex/config.toml.',
+  '',
+  '## Personal preferences', '',
+  '- AUTONOMY_LEVEL: ', '- Notes: ', '',
+].join('\n');
+
+function ensureGitignore(root, line) {
+  const p = path.join(root, '.gitignore');
+  const cur = readOrNull(p) || '';
+  if (cur.split('\n').some((l) => l.trim() === line)) return false;
+  fs.writeFileSync(p, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n');
+  return true;
+}
+
+function writeLocal(root) {
+  const localPath = path.join(root, 'AGENTS.local.md');
+  let created = false;
+  if (!fs.existsSync(localPath)) { fs.writeFileSync(localPath, LOCAL_SKELETON); created = true; }
+  const gitignore = ensureGitignore(root, 'AGENTS.local.md');
+  return { path: localPath, created, gitignore };
+}
+
+function init({ projectRoot, check = false, dryRun = false, local = false } = {}) {
   const root = projectRoot || process.cwd();
   const target = path.join(root, 'AGENTS.md');
   const detection = detect(root);
@@ -34,33 +60,40 @@ function init({ projectRoot, check = false, dryRun = false } = {}) {
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
   fs.writeFileSync(target, content);
-  return { action: updated ? 'updated' : 'created', target, detection };
+  const result = { action: updated ? 'updated' : 'created', target, detection };
+  if (local) result.local = writeLocal(root);
+  return result;
 }
 
 function parseArgs(argv) {
-  const opts = { check: false, dryRun: false };
+  const opts = { check: false, dryRun: false, local: false };
   for (const a of argv) {
     if (a === '--check') opts.check = true;
     else if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--local') opts.local = true;
     else if (a === '--help' || a === '-h') return { help: true };
     else return { error: `unknown option: ${a}` };
   }
   return opts;
 }
 
-const USAGE = 'Usage: agentsmd-init [--check] [--dry-run]';
+const USAGE = 'Usage: agentsmd-init [--check] [--dry-run] [--local]';
 
 if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) { console.log(USAGE); process.exit(0); }
   if (parsed.error) { console.error(`agentsmd init: ${parsed.error}`); console.error(USAGE); process.exit(1); }
-  const r = init({ projectRoot: process.cwd(), check: parsed.check, dryRun: parsed.dryRun });
+  const r = init({ projectRoot: process.cwd(), check: parsed.check, dryRun: parsed.dryRun, local: parsed.local });
   if (r.action === 'check') {
     console.log(r.inSync ? `in sync: ${r.target}` : `drift: ${r.target} — run agentsmd-init to regenerate`);
     process.exit(r.inSync ? 0 : 1);
   }
   if (r.action === 'dry-run') { console.log(r.content); process.exit(0); }
   console.log(`${r.action}: ${r.target} (${r.detection.language}, ${r.detection.packageManager})`);
+  if (parsed.local) {
+    console.log('AGENTS.local.md written (git-ignored). To let Codex read it, add to ~/.codex/config.toml:');
+    console.log('  project_doc_fallback_filenames = ["AGENTS.local.md"]');
+  }
   process.exit(0);
 }
 

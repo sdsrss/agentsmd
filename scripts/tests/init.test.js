@@ -201,5 +201,20 @@ withProject({ 'package.json': JSON.stringify({ name: 'two' }) }, (dir) => {
     assert(fs.readFileSync(target, 'utf8').includes('- prefer const')));
 });
 
+withProject({ 'package.json': JSON.stringify({ name: 'loc' }) }, (dir) => {
+  const r = init({ projectRoot: dir, local: true });
+  t('--local: creates AGENTS.local.md', () => assert(fs.existsSync(path.join(dir, 'AGENTS.local.md')) && r.local.created));
+  t('--local: adds it to .gitignore', () => assert(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8').includes('AGENTS.local.md')));
+  // idempotent + no clobber:
+  fs.writeFileSync(path.join(dir, 'AGENTS.local.md'), 'MINE');
+  const r2 = init({ projectRoot: dir, local: true });
+  t('--local: never clobbers an existing local file', () => assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS.local.md'), 'utf8'), 'MINE') && !r2.local.created);
+  t('--local: gitignore append is idempotent', () => {
+    const gi = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+    assert.strictEqual(gi.match(/AGENTS\.local\.md/g).length, 1);
+  });
+});
+t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
