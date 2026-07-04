@@ -279,5 +279,26 @@ withProject({ 'Cargo.toml': '[package]\nname = "k"\n' }, (dir) => {
 });
 t('frontend: detectFrontend exported', () => assert.strictEqual(typeof detectFrontend, 'function'));
 
+// ── frontend section rendering (project-templates.js) ────────────────────────
+const { renderFrontendSection } = require('../lib/project-templates');
+{
+  const fe = { framework: 'React', metaFramework: 'Next.js', uiLibs: ['Tailwind'], cssStrategy: 'Tailwind', typescript: true };
+  const md = renderFrontendSection(fe);
+  t('fe-render: heading present', () => assert(/##\s*Frontend/.test(md)));
+  t('fe-render: stack line names framework + meta', () => assert(md.includes('React (Next.js)')));
+  t('fe-render: stack notes TypeScript + Tailwind', () => assert(md.includes('TypeScript') && md.includes('Tailwind')));
+  t('fe-render: TS "any" convention present', () => assert(/any/.test(md)));
+  t('fe-render: React key convention present', () => assert(/key/i.test(md)));
+  t('fe-render: null frontend → empty string', () => assert.strictEqual(renderFrontendSection(null), ''));
+
+  const baseD = { language: 'TypeScript', runtime: 'Node.js', projectName: 'w', packageManager: 'npm', monorepo: false, structure: ['src'], commands: { dev: 'npm run dev', build: null, test: null, lint: null } };
+  const on = renderProjectAgentsMd(Object.assign({}, baseD, { frontend: fe }), { includeFrontend: true });
+  t('fe-render: renderProjectAgentsMd includes Frontend when includeFrontend true', () => assert(/##\s*Frontend/.test(on)));
+  const off = renderProjectAgentsMd(Object.assign({}, baseD, { frontend: fe }), { includeFrontend: false });
+  t('fe-render: suppressed when includeFrontend false', () => assert(!/##\s*Frontend/.test(off)));
+  const none = renderProjectAgentsMd({ language: 'Go', runtime: 'Go', projectName: 'g', packageManager: 'go modules', monorepo: false, structure: [], commands: { dev: null, build: null, test: null, lint: null } });
+  t('fe-render: no Frontend section when detection has no frontend', () => assert(!/##\s*Frontend/.test(none)));
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
