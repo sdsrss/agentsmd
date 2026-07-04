@@ -57,7 +57,7 @@ const AM = require('../lib/agents-md');
 withProject({ 'package.json': JSON.stringify({ name: 'w' }) }, (dir) => {
   require('../init').init({ projectRoot: dir }); // seed AGENTS.md
   const target = path.join(dir, 'AGENTS.md');
-  const r = writeConventions(dir, '## Conventions\n\n- prefer const\n- no default export\n');
+  writeConventions(dir, '## Conventions\n\n- prefer const\n- no default export\n');
   const body = fs.readFileSync(target, 'utf8');
   t('write: injects into conventions block', () => assert(body.includes('- prefer const') && body.includes(AM.CONVENTIONS_BEGIN)));
   t('write: leaves the facts block intact', () => assert(body.includes(AM.PROJECT_BEGIN) && body.includes('w')));
