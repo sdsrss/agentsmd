@@ -39,6 +39,18 @@ withProject({
   t('gather: excludes .gitignore dirs', () => assert(!g.files.some(f => f.path.includes('secret/'))));
 });
 
+// ── gather: *.ext gitignore globs (Phase-2a M3) ─────────────────────────────
+withProject({
+  'package.json': JSON.stringify({ name: 'gext' }),
+  '.gitignore': '*.gen.js\n',
+  'foo.gen.js': 'GENERATED',
+  'bar.js': 'const b=1',
+}, (dir) => {
+  const g = gather(dir);
+  t('gather: honors *.ext gitignore globs — normal file included', () => assert(g.files.some(f => f.path.endsWith('bar.js'))));
+  t('gather: honors *.ext gitignore globs — glob-matched file excluded', () => assert(!g.files.some(f => f.path.endsWith('foo.gen.js'))));
+});
+
 // ── writeConventions ────────────────────────────────────────────────────────
 const { writeConventions } = require('../analyze');
 const AM = require('../lib/agents-md');

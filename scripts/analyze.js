@@ -12,17 +12,25 @@ const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
 const SRC_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|rs|go|rb|java|kt|php|vue|svelte)$/;
 
-function gitignoreDirs(root) {
+function gitignorePatterns(root) {
+  const dirs = new Set(); const extGlobs = [];
   try {
-    return new Set(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')
-      .split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
-      .map(s => s.replace(/\/$/, '').replace(/^\//, '')).filter(s => !s.includes('/') && !s.includes('*')));
-  } catch { return new Set(); }
+    for (let line of fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split('\n')) {
+      line = line.trim();
+      if (!line || line.startsWith('#')) continue;
+      const m = line.match(/^\*(\.[A-Za-z0-9.]+)$/);   // *.log, *.gen.ts
+      if (m) { extGlobs.push(m[1]); continue; }
+      const bare = line.replace(/\/$/, '').replace(/^\//, '');
+      if (bare && !bare.includes('/') && !bare.includes('*')) dirs.add(bare);
+    }
+  } catch { /* no .gitignore */ }
+  return { dirs, extGlobs };
 }
 
 function gather(root) {
   const base = root || process.cwd();
-  const skip = new Set([...HARD_SKIP, ...gitignoreDirs(base)]);
+  const { dirs, extGlobs } = gitignorePatterns(base);
+  const skip = new Set([...HARD_SKIP, ...dirs]);
   const files = []; let bytes = 0, truncated = false;
   const walk = (dir) => {
     if (truncated) return;
@@ -32,6 +40,7 @@ function gather(root) {
       if (e.name.startsWith('.') && e.name !== '.') { if (e.isDirectory()) continue; }
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { if (!skip.has(e.name)) walk(full); continue; }
+      if (extGlobs.some((ext) => e.name.endsWith(ext))) continue;
       if (!SRC_RE.test(e.name)) continue;
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
       if (files.length >= MAX_FILES || bytes + sz > MAX_BYTES) { truncated = true; return; }
