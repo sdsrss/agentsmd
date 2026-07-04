@@ -3,7 +3,9 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## [Unreleased]
+## v2.8.0 — 2026-07-05 — frontend-aware project AGENTS.md
+
+`agentsmd init` now detects a project's frontend stack (framework / meta-framework / UI library) and writes a deterministic `## Frontend` section — stack facts plus a short per-stack convention list — into the generated project `AGENTS.md`. Additive and opt-out-able; non-frontend projects are byte-unchanged. Revert by pinning `npm i -g @sdsrs/agentsmd@2.7.1`.
 
 ### Added
 - `agentsmd init` now emits a deterministic `## Frontend` section for detected frontend projects (React/Vue/Svelte/Angular/Solid/Preact + meta-frameworks + UI libraries), carrying stack facts and a short per-stack convention list. `--no-frontend` opts out.
