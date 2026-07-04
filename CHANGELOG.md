@@ -3,6 +3,16 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.7.1 — 2026-07-04 — cleanup + gitignore ext-globs
+
+Maintenance. `agentsmd analyze --gather` now honors `*.<ext>` patterns from `.gitignore` (previously only bare directory names), so generated source matching a globbed extension is excluded from the AI's source map. Plus internal reporter cleanup and added characterization tests. No spec-rule change; no other command changes. Revert by pinning `npm i -g @sdsrs/agentsmd@2.7.0`.
+
+### Changed
+- `agentsmd analyze --gather` respects `*.<ext>` `.gitignore` globs, not just bare directory names.
+
+### Internal
+- Reporter readability refactor (`localHits`); added tests: self-enforced-rule `localHits` is `null` under `--project`; `injectBlockBetween` byte-stability across two blocks + user prose; dropped an unused test binding.
+
 ## v2.7.0 — 2026-07-04 — rules --project per-project activity (A-rich)
 
 Enriches the v2.6.0 informational lens: `agentsmd rules --project=<substr>` now annotates each hook-enforced rule with `local:<n>` — its enforcement hits *within* the filtered project(s) — alongside the cross-project `hits` and verdict, with the report header labelling the columns (`hits` = cross-project, `local` = within filter). **Demote/promote verdicts remain cross-project** — a rule dead in one repo but firing in another still earns its core seat; `local:<n>` is purely informational and never changes a verdict. Purely additive. Revert by pinning `npm i -g @sdsrs/agentsmd@2.6.0`.

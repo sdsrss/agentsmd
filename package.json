@@ -1,6 +1,6 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
   "homepage": "https://github.com/sdsrss/agentsmd#readme",
   "bugs": "https://github.com/sdsrss/agentsmd/issues",
