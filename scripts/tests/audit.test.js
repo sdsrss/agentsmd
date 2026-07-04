@@ -271,6 +271,13 @@ try {
   t('rulesAudit unscoped: matchedSlugs falls back to projectCount', () => {
     assert.strictEqual(raProj.matchedSlugs, raProj.projectCount);
   });
+  t('rulesAudit --project: self-enforced (null-section) rule has localHits null', () => {
+    const scopedAlpha = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
+    const selfRule = scopedAlpha.rules.find((x) => x.enforcement === 'self');
+    assert.ok(selfRule, 'expected a self-enforced rule in the manifest');
+    assert.strictEqual(selfRule.section, null);
+    assert.strictEqual(selfRule.localHits, null);
+  });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
