@@ -248,6 +248,27 @@ try {
     }
   });
 
+  // --- A-rich: per-rule local-hits annotation ---
+  t('rulesAudit: localHits null when unscoped', () => {
+    const r = raProj.rules.find((x) => x.section === '§8-rm-rf-var');
+    assert.strictEqual(r.localHits, null);
+  });
+  t('rulesAudit --project: localHits = enforcement within filter, hits stays cross-project', () => {
+    const scopedAlpha = rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' });
+    const r8 = scopedAlpha.rules.find((x) => x.section === '§8-rm-rf-var');
+    assert.strictEqual(r8.hits, 4, 'global hits unchanged');   // cross-project
+    assert.strictEqual(r8.localHits, 1, 'alpha-local §8 hits'); // within filter
+    assert.strictEqual(r8.signal, 'active', 'verdict unchanged');
+    const rV = scopedAlpha.rules.find((x) => x.section === '§10-V');
+    assert.strictEqual(rV.localHits, 1);
+  });
+  t('rules report shows local:<n> only when scoped', () => {
+    const scopedAlpha = rulesFormat(rulesAudit({ days: 30, now: NOW, logPath: projRows, project: 'alpha' }));
+    assert.ok(/§8-rm-rf-var\b.*\blocal:1\b/.test(scopedAlpha), 'missing local:1; got:\n' + scopedAlpha);
+    assert.ok(/hits = cross-project; local = within filter/.test(scopedAlpha));
+    assert.ok(!/local:/.test(rulesFormat(raProj)), 'unscoped report must not show local:');
+  });
+
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
   t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });
