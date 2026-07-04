@@ -281,10 +281,12 @@ node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js" --local
 It's create-only (never clobbers an existing `AGENTS.local.md`) and idempotently adds the filename to `.gitignore`. Codex only reads it once you add `AGENTS.local.md` to `project_doc_fallback_filenames` in `~/.codex/config.toml` — `init --local` prints the exact line to add.
 
 `agentsmd init` is frontend-aware: when it detects a frontend framework
-(React/Vue/Svelte/Angular/Solid/Preact, incl. Next/Nuxt/Remix/Astro/SvelteKit/Vite
-and UI libraries like Tailwind/MUI/shadcn), it adds a deterministic `## Frontend`
-section (stack facts + short per-stack conventions) to the managed block. Pass
-`--no-frontend` to skip it. Non-frontend projects are unaffected.
+(React/Vue/Svelte/Angular/Solid/Preact, incl. meta-frameworks like
+Next/Nuxt/Remix/Astro/SvelteKit, and UI libraries like Tailwind/MUI/shadcn), it
+adds a deterministic `## Frontend` section (stack facts + short per-stack
+conventions) to the managed block. Vite is noted as a build-tool label when a
+base framework is present, not a standalone trigger. Pass `--no-frontend` to
+skip it. Non-frontend projects are unaffected.
 
 ## Distill project conventions
 
