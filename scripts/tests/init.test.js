@@ -237,5 +237,47 @@ withProject({ 'package.json': JSON.stringify({ name: 'loc' }) }, (dir) => {
 });
 t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));
 
+// ── frontend detection (detect.js) ───────────────────────────────────────────
+const { detectFrontend } = require('../lib/detect');
+withProject({
+  'package.json': JSON.stringify({ name: 'web', dependencies: { react: '^18', 'react-dom': '^18' }, devDependencies: { typescript: '^5', tailwindcss: '^3' } }),
+  'tsconfig.json': '{}',
+  'tailwind.config.js': 'module.exports = {}',
+}, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: React detected from react dep', () => assert.strictEqual(f.framework, 'React'));
+  t('frontend: Tailwind in uiLibs', () => assert(f.uiLibs.includes('Tailwind')));
+  t('frontend: cssStrategy is Tailwind', () => assert.strictEqual(f.cssStrategy, 'Tailwind'));
+  t('frontend: typescript flagged', () => assert.strictEqual(f.typescript, true));
+});
+withProject({ 'package.json': JSON.stringify({ name: 'nextapp', dependencies: { next: '^14', react: '^18' } }) }, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: Next.js meta-framework', () => assert.strictEqual(f.metaFramework, 'Next.js'));
+  t('frontend: framework React under Next', () => assert.strictEqual(f.framework, 'React'));
+});
+withProject({ 'package.json': JSON.stringify({ name: 'nuxtapp', dependencies: { nuxt: '^3' } }) }, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: Nuxt infers Vue framework', () => { assert.strictEqual(f.metaFramework, 'Nuxt'); assert.strictEqual(f.framework, 'Vue'); });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'sv', dependencies: { svelte: '^4' }, devDependencies: { '@sveltejs/kit': '^2' } }) }, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: Svelte + SvelteKit', () => { assert.strictEqual(f.framework, 'Svelte'); assert.strictEqual(f.metaFramework, 'SvelteKit'); });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'mix', dependencies: { react: '^18', '@mui/material': '^5', '@emotion/react': '^11' } }) }, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: multiple UI libs collected', () => { assert(f.uiLibs.includes('MUI')); assert(f.uiLibs.includes('Emotion')); });
+  t('frontend: cssStrategy CSS-in-JS via emotion', () => assert.strictEqual(f.cssStrategy, 'CSS-in-JS'));
+});
+withProject({ 'package.json': JSON.stringify({ name: 'shad', dependencies: { react: '^18' } }), 'components.json': '{}' }, (dir) => {
+  t('frontend: shadcn/ui from components.json', () => assert(detect(dir).frontend.uiLibs.includes('shadcn/ui')));
+});
+withProject({ 'package.json': JSON.stringify({ name: 'plainnode', dependencies: { express: '^4' } }) }, (dir) => {
+  t('frontend: non-frontend node project → frontend null', () => assert.strictEqual(detect(dir).frontend, null));
+});
+withProject({ 'Cargo.toml': '[package]\nname = "k"\n' }, (dir) => {
+  t('frontend: non-node project → frontend null', () => assert.strictEqual(detect(dir).frontend, null));
+});
+t('frontend: detectFrontend exported', () => assert.strictEqual(typeof detectFrontend, 'function'));
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
