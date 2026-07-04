@@ -278,6 +278,10 @@ withProject({ 'Cargo.toml': '[package]\nname = "k"\n' }, (dir) => {
   t('frontend: non-node project → frontend null', () => assert.strictEqual(detect(dir).frontend, null));
 });
 t('frontend: detectFrontend exported', () => assert.strictEqual(typeof detectFrontend, 'function'));
+withProject({ 'package.json': JSON.stringify({ name: 'astroapp', dependencies: { astro: '^4' } }) }, (dir) => {
+  const f = detect(dir).frontend;
+  t('frontend: pure-Astro project detected as Astro framework', () => assert.strictEqual(f.framework, 'Astro'));
+});
 
 // ── frontend section rendering (project-templates.js) ────────────────────────
 const { renderFrontendSection } = require('../lib/project-templates');
@@ -298,6 +302,12 @@ const { renderFrontendSection } = require('../lib/project-templates');
   t('fe-render: suppressed when includeFrontend false', () => assert(!/##\s*Frontend/.test(off)));
   const none = renderProjectAgentsMd({ language: 'Go', runtime: 'Go', projectName: 'g', packageManager: 'go modules', monorepo: false, structure: [], commands: { dev: null, build: null, test: null, lint: null } });
   t('fe-render: no Frontend section when detection has no frontend', () => assert(!/##\s*Frontend/.test(none)));
+
+  const astroMd = renderFrontendSection({ framework: 'Astro', metaFramework: 'Astro', uiLibs: [], cssStrategy: 'plain', typescript: false });
+  t('fe-render: pure-Astro stack head dedups to "Astro" (not "Astro (Astro)")', () => {
+    assert(astroMd.includes('Astro'));
+    assert(!astroMd.includes('Astro (Astro)'));
+  });
 }
 
 // ── init frontend end-to-end ─────────────────────────────────────────────────

@@ -49,6 +49,7 @@ const FE_FRAMEWORK_RULES = {
   Angular: ['One class per file; follow style-guide suffixes (`.component.ts`, `.service.ts`).'],
   Solid: ["Don't destructure props (breaks reactivity); read via `props.x`."],
   Preact: ['Give list items stable keys; use `preact/compat` only when a library needs React.'],
+  Astro: ['Prefer `.astro` components for static content; add a framework integration only where you need client-side interactivity.'],
 };
 const FE_UILIB_RULES = {
   Tailwind: ['Prefer utility classes; reserve custom CSS for what utilities cannot express.'],
@@ -64,7 +65,7 @@ const FE_UILIB_RULES = {
 function renderFrontendSection(frontend) {
   if (!frontend) return '';
   const { framework, metaFramework, uiLibs = [], cssStrategy, typescript } = frontend;
-  const head = metaFramework ? `${framework} (${metaFramework})` : framework;
+  const head = metaFramework && metaFramework !== framework ? `${framework} (${metaFramework})` : framework;
   const stack = [head];
   if (typescript) stack.push('TypeScript');
   if (uiLibs.length) stack.push(`UI: ${uiLibs.join(', ')}`);

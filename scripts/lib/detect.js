@@ -86,7 +86,7 @@ const FE_FRAMEWORKS = [
 const FE_META = [
   ['next', 'Next.js', 'React'], ['nuxt', 'Nuxt', 'Vue'],
   ['@remix-run/react', 'Remix', 'React'], ['@sveltejs/kit', 'SvelteKit', 'Svelte'],
-  ['astro', 'Astro', null], ['vite', 'Vite', null],
+  ['astro', 'Astro', 'Astro'], ['vite', 'Vite', null],
 ];
 const FE_UILIBS = [
   ['tailwindcss', 'Tailwind'], ['@mui/material', 'MUI'], ['@chakra-ui/react', 'Chakra'],
