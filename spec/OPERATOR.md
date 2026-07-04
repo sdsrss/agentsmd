@@ -42,7 +42,7 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agen
 | Task | Command |
 |---|---|
 | Aggregate rule-hit telemetry | `node scripts/audit.js --days=30` (add `--project=<substr>` to scope to one repo) |
-| Promote/demote governance | `node scripts/rules.js --days=30` (`--project` = informational lens; demote stays cross-project) |
+| Promote/demote governance | `node scripts/rules.js --days=30` (`--project` = informational lens: per-rule local hits; demote stays cross-project) |
 | Install state + OMX-coexistence | `node scripts/status.js` |
 | Health checks | `node scripts/doctor.js` |
 | Install / uninstall (§5-hard) | `node scripts/install.js` / `node scripts/uninstall.js` |

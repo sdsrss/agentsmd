@@ -3,6 +3,16 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.7.0 — 2026-07-04 — rules --project per-project activity (A-rich)
+
+Enriches the v2.6.0 informational lens: `agentsmd rules --project=<substr>` now annotates each hook-enforced rule with `local:<n>` — its enforcement hits *within* the filtered project(s) — alongside the cross-project `hits` and verdict, with the report header labelling the columns (`hits` = cross-project, `local` = within filter). **Demote/promote verdicts remain cross-project** — a rule dead in one repo but firing in another still earns its core seat; `local:<n>` is purely informational and never changes a verdict. Purely additive. Revert by pinning `npm i -g @sdsrs/agentsmd@2.6.0`.
+
+### Added
+- `agentsmd rules --project=<substr>` — per hook-enforced rule `local:<n>` annotation (enforcement hits within the filter).
+
+### Changed (internal, no behavior change)
+- Deduplicated a project-count helper and un-shadowed a local variable in the reporter; added characterization tests (`rules` CLI empty-`--project=` rejection; `matchedSlugs` fallback).
+
 ## v2.6.0 — 2026-07-04 — project-aware telemetry (`--project`, per-project audit)
 
 Slices the existing rule-hit telemetry loop along the `project` dimension already

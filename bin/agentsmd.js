@@ -48,7 +48,7 @@ function usage() {
     '  status             Print what agentsmd registered, as JSON.',
     '  doctor             Run install health checks.',
     '  audit [--days=N] [--project=S]   Aggregate rule-hit telemetry by spec section (default 30d); --project scopes to a path-slug substring.',
-    '  rules [--days=N] [--project=S]   Promote/demote signals vs the HARD-rules manifest; --project = informational per-project lens.',
+    '  rules [--days=N] [--project=S]   Promote/demote signals vs the HARD-rules manifest; --project = informational lens (per-rule local hits; demote stays cross-project).',
     '',
     'Options:',
     '  -v, --version      Print the agentsmd version.',
