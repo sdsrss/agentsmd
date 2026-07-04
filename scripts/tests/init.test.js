@@ -300,5 +300,32 @@ const { renderFrontendSection } = require('../lib/project-templates');
   t('fe-render: no Frontend section when detection has no frontend', () => assert(!/##\s*Frontend/.test(none)));
 }
 
+// ── init frontend end-to-end ─────────────────────────────────────────────────
+withProject({ 'package.json': JSON.stringify({ name: 'fe', dependencies: { react: '^18', tailwindcss: '^3' }, devDependencies: { typescript: '^5' } }), 'tsconfig.json': '{}', 'src/i': '' }, (dir) => {
+  const target = path.join(dir, 'AGENTS.md');
+  const r = init({ projectRoot: dir });
+  t('init-fe: frontendIncluded true for a React project', () => assert.strictEqual(r.frontendIncluded, true));
+  t('init-fe: written AGENTS.md has a ## Frontend section', () => assert(/##\s*Frontend/.test(fs.readFileSync(target, 'utf8'))));
+  t('init-fe: re-run byte-stable with Frontend section', () => {
+    const a = fs.readFileSync(target, 'utf8'); init({ projectRoot: dir });
+    assert.strictEqual(a, fs.readFileSync(target, 'utf8'));
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'feoff', dependencies: { react: '^18' } }) }, (dir) => {
+  const r = init({ projectRoot: dir, noFrontend: true });
+  t('init-fe: --no-frontend suppresses the section and flag', () => {
+    assert.strictEqual(r.frontendIncluded, false);
+    assert(!/##\s*Frontend/.test(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')));
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'beapp', dependencies: { express: '^4' } }) }, (dir) => {
+  const r = init({ projectRoot: dir });
+  t('init-fe: non-frontend project → no section, flag false', () => {
+    assert.strictEqual(r.frontendIncluded, false);
+    assert(!/##\s*Frontend/.test(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')));
+  });
+});
+t('init-fe: parseArgs recognizes --no-frontend', () => assert.strictEqual(require('../init').parseArgs(['--no-frontend']).noFrontend, true));
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

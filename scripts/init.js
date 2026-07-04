@@ -41,11 +41,12 @@ function writeLocal(root) {
   return { path: localPath, created, gitignore };
 }
 
-function init({ projectRoot, check = false, dryRun = false, local = false } = {}) {
+function init({ projectRoot, check = false, dryRun = false, local = false, noFrontend = false } = {}) {
   const root = projectRoot || process.cwd();
   const target = path.join(root, 'AGENTS.md');
   const detection = detect(root);
-  const blockContent = renderProjectAgentsMd(detection);
+  const includeFrontend = !!detection.frontend && !noFrontend;
+  const blockContent = renderProjectAgentsMd(detection, { includeFrontend });
   const existing = readOrNull(target);
   // Check on existing content to determine seeding, before modifying content.
   const hasExistingConventions = existing && AM.hasBlockBetween(existing, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END);
@@ -62,36 +63,42 @@ function init({ projectRoot, check = false, dryRun = false, local = false } = {}
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
   fs.writeFileSync(target, content);
-  const result = { action: updated ? 'updated' : 'created', target, detection };
+  const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend };
   if (local) result.local = writeLocal(root);
   return result;
 }
 
 function parseArgs(argv) {
-  const opts = { check: false, dryRun: false, local: false };
+  const opts = { check: false, dryRun: false, local: false, noFrontend: false };
   for (const a of argv) {
     if (a === '--check') opts.check = true;
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--local') opts.local = true;
+    else if (a === '--no-frontend') opts.noFrontend = true;
     else if (a === '--help' || a === '-h') return { help: true };
     else return { error: `unknown option: ${a}` };
   }
   return opts;
 }
 
-const USAGE = 'Usage: agentsmd-init [--check] [--dry-run] [--local]';
+const USAGE = 'Usage: agentsmd-init [--check] [--dry-run] [--local] [--no-frontend]';
 
 if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) { console.log(USAGE); process.exit(0); }
   if (parsed.error) { console.error(`agentsmd init: ${parsed.error}`); console.error(USAGE); process.exit(1); }
-  const r = init({ projectRoot: process.cwd(), check: parsed.check, dryRun: parsed.dryRun, local: parsed.local });
+  const r = init({ projectRoot: process.cwd(), check: parsed.check, dryRun: parsed.dryRun, local: parsed.local, noFrontend: parsed.noFrontend });
   if (r.action === 'check') {
     console.log(r.inSync ? `in sync: ${r.target}` : `drift: ${r.target} — run agentsmd-init to regenerate`);
     process.exit(r.inSync ? 0 : 1);
   }
   if (r.action === 'dry-run') { console.log(r.content); process.exit(0); }
   console.log(`${r.action}: ${r.target} (${r.detection.language}, ${r.detection.packageManager})`);
+  if (r.frontendIncluded && r.action === 'created') {
+    const f = r.detection.frontend;
+    const libs = f.uiLibs.length ? ' + ' + f.uiLibs.join(', ') : '';
+    console.error(`agentsmd: detected frontend stack (${f.framework}${libs}) — added a ## Frontend section (disable with --no-frontend)`);
+  }
   if (parsed.local) {
     const status = r.local.created
       ? 'AGENTS.local.md written (git-ignored).'
