@@ -268,6 +268,9 @@ try {
     assert.ok(/hits = cross-project; local = within filter/.test(scopedAlpha));
     assert.ok(!/local:/.test(rulesFormat(raProj)), 'unscoped report must not show local:');
   });
+  t('rulesAudit unscoped: matchedSlugs falls back to projectCount', () => {
+    assert.strictEqual(raProj.matchedSlugs, raProj.projectCount);
+  });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
@@ -320,6 +323,13 @@ try {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--days=7', '--days=30'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
       (e) => e.status === 1 && /duplicate option: --days/.test(String(e.stderr))
+    );
+  });
+  t('rules CLI rejects empty --project=', () => {
+    assert.throws(
+      () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--project='],
+        { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
     );
   });
 } finally {

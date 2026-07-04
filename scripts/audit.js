@@ -89,9 +89,9 @@ function formatReport(a) {
   for (const p of projs) {
     const b = a.byProject[p];
     const label = p.length > 26 ? '…' + p.slice(-25) : p;
-    const secs = Object.entries(b.sections).sort((x, y) => y[1] - x[1]);
-    const top = secs.slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ');
-    const more = secs.length > 3 ? ` +${secs.length - 3} more` : '';
+    const projSecs = Object.entries(b.sections).sort((x, y) => y[1] - x[1]);
+    const top = projSecs.slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ');
+    const more = projSecs.length > 3 ? ` +${projSecs.length - 3} more` : '';
     lines.push(`  ${label.padEnd(28)} ${String(b.enforcement).padStart(4)} / ${String(b.total).padStart(4)}   ${top}${more}`.trimEnd());
   }
   return lines.join('\n');

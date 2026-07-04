@@ -49,9 +49,10 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
 
   // Cross-project count — always derived from the unfiltered audit above, so
   // it reads the same whether or not --project is set.
-  const projectCount = Object.keys(a.byProject).filter((k) => k !== '(none)').length;
+  const realProjects = (res) => Object.keys(res.byProject).filter((k) => k !== '(none)').length;
+  const projectCount = realProjects(a);
   const projectFilter = project || null;
-  const matchedSlugs = scoped ? Object.keys(scoped.byProject).filter((k) => k !== '(none)').length : projectCount;
+  const matchedSlugs = scoped ? realProjects(scoped) : projectCount;
 
   return {
     days,
