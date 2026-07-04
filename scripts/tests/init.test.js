@@ -112,6 +112,27 @@ const AM = require('../lib/agents-md');
     assert(!AM.hasBlockBetween('nothing here', AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END)));
 }
 
+// Phase-2a M2: two managed blocks with user prose between them — re-injecting one
+// block must preserve the prose and converge (byte-stable on a 2nd re-inject).
+{
+  const AM = require('../lib/agents-md');
+  const twoBlock = [
+    AM.PROJECT_BEGIN, 'proj v1', AM.PROJECT_END,
+    '', 'user prose between blocks', '',
+    AM.CONVENTIONS_BEGIN, 'conv v1', AM.CONVENTIONS_END, '',
+  ].join('\n');
+  const once = AM.injectBlockBetween(twoBlock, 'proj v2', AM.PROJECT_BEGIN, AM.PROJECT_END).content;
+  t('injectBlockBetween: prose + sibling block survive a re-inject', () => {
+    assert.ok(once.includes('user prose between blocks'), 'user prose preserved');
+    assert.ok(once.includes('proj v2'), 'target block updated');
+    assert.ok(once.includes(AM.CONVENTIONS_BEGIN) && once.includes('conv v1'), 'sibling conventions block intact');
+  });
+  const twice = AM.injectBlockBetween(once, 'proj v2', AM.PROJECT_BEGIN, AM.PROJECT_END).content;
+  t('injectBlockBetween: byte-stable on 2nd re-inject (idempotent)', () => {
+    assert.strictEqual(twice, once);
+  });
+}
+
 // ── skeleton rendering (project-templates.js) ────────────────────────────────
 const { renderProjectAgentsMd } = require('../lib/project-templates');
 {
