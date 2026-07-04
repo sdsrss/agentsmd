@@ -43,7 +43,8 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     else signal = 'self-enforced';
     // localHits: this rule's enforcement hits WITHIN the --project filter.
     // Informational only — null when unscoped or the rule has no section.
-    const localHits = (scoped && section) ? (scoped.bySection[section] ? scoped.bySection[section].enforcement : 0) : null;
+    const scopedBucket = (scoped && section) ? scoped.bySection[section] : null;
+    const localHits = (scoped && section) ? (scopedBucket ? scopedBucket.enforcement : 0) : null;
     return { id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits, live, signal, localHits, confidence: r.confidence, lastDemoteReview: r.last_demote_review };
   });
 
