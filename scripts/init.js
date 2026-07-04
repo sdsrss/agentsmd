@@ -48,6 +48,9 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
   const includeFrontend = !!detection.frontend && !noFrontend;
   const blockContent = renderProjectAgentsMd(detection, { includeFrontend });
   const existing = readOrNull(target);
+  // Computed pre-injection so an upgrader (existing PROJECT block, no prior
+  // Frontend section) is caught even though the run's action is 'updated'.
+  const frontendFirstAdded = includeFrontend && !/##\s*Frontend/.test(existing || '');
   // Check on existing content to determine seeding, before modifying content.
   const hasExistingConventions = existing && AM.hasBlockBetween(existing, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END);
   let { content, updated } = AM.injectBlockBetween(existing, blockContent, AM.PROJECT_BEGIN, AM.PROJECT_END);
@@ -63,7 +66,7 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
   fs.writeFileSync(target, content);
-  const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend };
+  const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend, frontendFirstAdded };
   if (local) result.local = writeLocal(root);
   return result;
 }
@@ -94,7 +97,7 @@ if (require.main === module) {
   }
   if (r.action === 'dry-run') { console.log(r.content); process.exit(0); }
   console.log(`${r.action}: ${r.target} (${r.detection.language}, ${r.detection.packageManager})`);
-  if (r.frontendIncluded && r.action === 'created') {
+  if (r.frontendFirstAdded) {
     const f = r.detection.frontend;
     const libs = f.uiLibs.length ? ' + ' + f.uiLibs.join(', ') : '';
     console.error(`agentsmd: detected frontend stack (${f.framework}${libs}) — added a ## Frontend section (disable with --no-frontend)`);

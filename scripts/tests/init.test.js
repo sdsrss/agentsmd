@@ -327,5 +327,30 @@ withProject({ 'package.json': JSON.stringify({ name: 'beapp', dependencies: { ex
 });
 t('init-fe: parseArgs recognizes --no-frontend', () => assert.strictEqual(require('../init').parseArgs(['--no-frontend']).noFrontend, true));
 
+withProject({ 'package.json': JSON.stringify({ name: 'fe-upgrade', dependencies: { react: '^18' } }) }, (dir) => {
+  const r1 = init({ projectRoot: dir, noFrontend: true });
+  t('init-fe: first run with --no-frontend has no Frontend section yet', () => {
+    assert.strictEqual(r1.action, 'created');
+    assert(!/##\s*Frontend/.test(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')));
+  });
+  const r2 = init({ projectRoot: dir });
+  t('init-fe: upgrader run (PROJECT block exists, no Frontend yet) → frontendFirstAdded true though action is updated', () => {
+    assert.strictEqual(r2.action, 'updated');
+    assert.strictEqual(r2.frontendFirstAdded, true);
+  });
+  const r3 = init({ projectRoot: dir });
+  t('init-fe: third run (Frontend already present) → frontendFirstAdded false', () => {
+    assert.strictEqual(r3.action, 'updated');
+    assert.strictEqual(r3.frontendFirstAdded, false);
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'fe-new', dependencies: { react: '^18' } }) }, (dir) => {
+  const r = init({ projectRoot: dir });
+  t('init-fe: brand-new frontend project first run → frontendFirstAdded true', () => {
+    assert.strictEqual(r.action, 'created');
+    assert.strictEqual(r.frontendFirstAdded, true);
+  });
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
