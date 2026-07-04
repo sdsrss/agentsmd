@@ -3,6 +3,14 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## [Unreleased]
+
+### Added
+- `agentsmd init` now emits a deterministic `## Frontend` section for detected frontend projects (React/Vue/Svelte/Angular/Solid/Preact + meta-frameworks + UI libraries), carrying stack facts and a short per-stack convention list. `--no-frontend` opts out.
+
+### Migration
+- Frontend projects: re-running `agentsmd init` adds a `## Frontend` block inside the managed section (user content outside the sentinels is preserved). Disable with `--no-frontend`, or pin the prior release (`npm i -g @sdsrs/agentsmd@2.7.1`). Non-frontend projects are byte-unchanged.
+
 ## v2.7.1 — 2026-07-04 — cleanup + gitignore ext-globs
 
 Maintenance. `agentsmd analyze --gather` now honors `*.<ext>` patterns from `.gitignore` (previously only bare directory names), so generated source matching a globbed extension is excluded from the AI's source map. Plus internal reporter cleanup and added characterization tests. No spec-rule change; no other command changes. Revert by pinning `npm i -g @sdsrs/agentsmd@2.7.0`.
