@@ -41,7 +41,7 @@ function usage() {
     '',
     'Commands:',
     '  init               Generate/refresh this project\'s AGENTS.md (current directory).',
-    '  analyze            Distill this project\'s conventions into its AGENTS.md (current dir).',
+    '  analyze            Distill this project\'s conventions into its AGENTS.md (current dir); --adoption reports @conv-* cite counts / prune candidates.',
     '  install            Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent.',
     '  update             Alias for install — re-run to refresh to this version.',
     "  uninstall          Remove agentsmd's own entries; every other tenant is preserved.",

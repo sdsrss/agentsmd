@@ -27,7 +27,7 @@ The point isn't saving tokens. **A rule nobody enforces and nobody triggers is p
 
 ## What it enforces
 
-Ten native hooks across all five Codex events. The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
+Eleven native hooks across all five Codex events. The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
 
 | Hook | Event | Enforces |
 |---|---|---|
@@ -41,6 +41,7 @@ Ten native hooks across all five Codex events. The blocking ones are hard gates;
 | `residue-audit` | Stop | §7/§9 — flags `~/.codex/tmp` growth |
 | `sandbox-disposal-check` | Stop | §8.V4 — flags undisposed scratch dirs |
 | `transcript-structure-scan` | Stop | §10 — checks four-section order + banned vocab in the last report |
+| `convention-cite-scan` | Stop | tracks `@conv-*` project-convention citations for `analyze --adoption` |
 
 Stop-hook advisories are queued and surfaced at the next `UserPromptSubmit` (the verified `additionalContext` channel), not emitted inline on Stop. Every hit is appended to `~/.codex/logs/agentsmd.jsonl`.
 
@@ -297,6 +298,17 @@ node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --gather
 ```
 
 `--gather` prints a capped, ignore-aware source-file map (default when no flag is given). Reading that map and distilling it into conventions is the one AI step — done by the `agentsmd-analyze` skill, not this script. `--write --from <file>` then injects the result into the project `AGENTS.md`'s `agentsmd:conventions` block, refusing — never truncating — past a 6 KiB conventions / ~32 KiB whole-file budget.
+
+## Convention adoption — is anyone citing what you distilled?
+
+`analyze --write` stamps each recognized convention heading with a stable `@conv-<dim>` anchor and a citation instruction, so distilled conventions get the same "cite it or it decays" treatment this repo already applies to its own memory lessons. A Stop hook (`convention-cite-scan`) watches your own output for those citations and records one `cite` event per known anchor actually named — an anchor the AI invents that isn't in *this* project's `AGENTS.md` is never recorded. See which dimensions are earning their keep:
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption --days=7 --project=X
+```
+
+A dimension with zero cites over the window is flagged a prune candidate — advisory only; nothing is deleted automatically, a human decides whether to drop it from `AGENTS.md`. This is the per-project mirror of the global `audit`/`rules` promote/demote loop above, kept intentionally separate: `@conv-*` measures **adoption** of a project's own conventions, `§*` measures **enforcement** of the global spec.
 
 ## Develop
 
