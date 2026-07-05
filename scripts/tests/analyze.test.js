@@ -152,21 +152,30 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
     writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase\n\n### Comment style\n- explain why, not what\n');
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-log.'));
     const logPath = path.join(logDir, 'agentsmd.jsonl');
+    // adoptionReport's default (no --project) scope auto-derives the project
+    // slug from `dir` itself, via the same tr/replace encoding
+    // hooks/lib/rule-hits.sh stamps on every row — tag "this project"'s rows
+    // with that same slug so the documented no-args default finds them.
+    const slug = dir.replace(/[^a-zA-Z0-9-]/g, '-');
     try {
       const rows = [
-        { ts: adoptDay(1), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: '-home-user-adopt' },
-        { ts: adoptDay(2), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: '-home-user-adopt' },
-        { ts: adoptDay(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: '-home-user-adopt' },
+        { ts: adoptDay(1), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: slug },
+        { ts: adoptDay(2), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: slug },
+        { ts: adoptDay(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: slug },
+        // A different project's cite of the OTHER dimension — must never leak
+        // into this project's default-scoped (no --project) report, but must
+        // be found when a caller explicitly overrides the scope to reach it.
+        { ts: adoptDay(1), hook: 'convention-cite', event: 'cite', spec_section: '@conv-comments', project: 'explicit-scope-marker' },
       ];
       fs.writeFileSync(logPath, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 
       const r = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath });
-      t('adoption: cited anchor shows its cite count', () => {
+      t('adoption: default scope auto-derives to this project — cited anchor shows its cite count', () => {
         const naming = r.dimensions.find((d) => d.anchor === '@conv-naming');
         assert.strictEqual(naming.cites, 2);
         assert.strictEqual(naming.signal, 'active');
       });
-      t('adoption: never-cited known anchor is a 0-cite prune candidate', () => {
+      t('adoption: never-cited known anchor is a 0-cite prune candidate (another project citing it does not count)', () => {
         const comments = r.dimensions.find((d) => d.anchor === '@conv-comments');
         assert.strictEqual(comments.cites, 0);
         assert.strictEqual(comments.signal, 'prune-candidate');
@@ -183,9 +192,9 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
         assert.ok(/@conv-comments: 0 cites — prune candidate/.test(text));
       });
 
-      const scoped = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath, project: 'adopt' });
-      t('adoption: --project scopes the cite counts', () => {
-        assert.strictEqual(scoped.dimensions.find((d) => d.anchor === '@conv-naming').cites, 2);
+      const scoped = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath, project: 'explicit-scope-marker' });
+      t('adoption: explicit --project overrides the auto-scope default', () => {
+        assert.strictEqual(scoped.dimensions.find((d) => d.anchor === '@conv-comments').cites, 1);
       });
 
       const scopedOut = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath, project: 'nonexistent-project-slug' });
@@ -205,6 +214,36 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
           assert.strictEqual(empty.pruneCandidates.length, 0);
         });
       } finally { fs.rmSync(emptyLogDir, { recursive: true, force: true }); }
+    } finally { fs.rmSync(logDir, { recursive: true, force: true }); }
+  });
+
+  // ── adoption: cold-start honesty against a shared, non-empty telemetry log ─
+  // Regression test for the design §7 cold-start false-positive: the production
+  // CLI path calls audit() with no --project, against the REAL shared
+  // ~/.codex/logs/agentsmd.jsonl — non-empty after ANY agentsmd usage anywhere,
+  // by any project. A freshly-distilled project whose own @conv-* anchors
+  // haven't been cited yet must still read no-data — never a false
+  // prune-candidate — even when the shared log is full of another project's
+  // rows, including a same-named @conv-naming cite that must not leak across
+  // projects and masquerade as this project's adoption.
+  withProject({ 'package.json': JSON.stringify({ name: 'coldstart' }) }, (dir) => {
+    require('../init').init({ projectRoot: dir });
+    writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase\n\n### Comment style\n- explain why, not what\n');
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-coldstart-log.'));
+    const logPath = path.join(logDir, 'agentsmd.jsonl');
+    try {
+      const rows = [
+        { ts: adoptDay(1), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: 'some-other-project' },
+        { ts: adoptDay(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: 'some-other-project' },
+      ];
+      fs.writeFileSync(logPath, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+      const r = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath });
+      t("adoption: shared non-empty log holding only another project's rows still reads no-data for this project", () => {
+        assert.strictEqual(r.noData, true, 'noData: ' + JSON.stringify(r));
+        assert.ok(r.dimensions.every((d) => d.signal === 'no-data'), JSON.stringify(r.dimensions));
+        assert.strictEqual(r.pruneCandidates.length, 0);
+      });
     } finally { fs.rmSync(logDir, { recursive: true, force: true }); }
   });
 

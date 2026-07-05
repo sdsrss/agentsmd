@@ -83,28 +83,33 @@ function knownAnchors(root) {
 // Per-dimension adoption report: for every @conv-<slug> anchor actually present
 // in this project's AGENTS.md, how many times was it CITED (an agent applied
 // the convention and named its anchor) within the telemetry window? Zero cites
-// over a non-empty window is a prune candidate — advisory only. An EMPTY
-// window reads as 'no-data', never as a false-negative "nobody uses this"
+// is a prune candidate — advisory only — UNLESS none of this project's own
+// anchors were cited at all, in which case the whole report reads 'no-data'
 // (design doc §7: a fresh/never-run install must not look like proof of
-// dilution) — this also covers a --project filter that happens to match zero
-// rows, which is ambiguous (wrong filter vs. genuine non-use) and must not be
-// read as confident prune evidence either. Independent of rules.js's §*
-// demote logic — this never touches spec/hard-rules.json or its live_sections.
+// dilution). This can't key off the audit window being merely empty: the
+// telemetry log is shared across every project on the machine, so a freshly
+// distilled project reads inWindow>0 from unrelated activity long before its
+// own anchors ever get cited. So the scope defaults to THIS project's own
+// cwd-slug (the same encoding hooks/lib/rule-hits.sh stamps on every row),
+// keeping cite counts from mixing across projects too. Independent of
+// rules.js's §* demote logic — this never touches spec/hard-rules.json or its
+// live_sections.
 function adoptionReport({ root, days = 30, now = Date.now(), logPath, project = null } = {}) {
   const base = root || process.cwd();
   const anchors = knownAnchors(base);
-  const auditOpts = { days, now, project };
+  const scope = project != null ? project : String(base).replace(/[^a-zA-Z0-9-]/g, '-');
+  const auditOpts = { days, now, project: scope };
   if (logPath) auditOpts.logPath = logPath;
   const a = audit(auditOpts);
-  const noData = a.inWindow === 0;
+  const cited = (x) => !!(a.bySection[x] && a.bySection[x].events && a.bySection[x].events.cite);
+  const noData = anchors.every((x) => !cited(x));
   const dimensions = anchors.map((anchor) => {
-    const bucket = a.bySection[anchor];
-    const cites = bucket ? (bucket.events.cite || 0) : 0;
+    const cites = cited(anchor) ? a.bySection[anchor].events.cite : 0;
     const signal = cites > 0 ? 'active' : (noData ? 'no-data' : 'prune-candidate');
     return { anchor, cites, signal };
   });
   return {
-    days, project, noData,
+    days, project: scope, noData,
     agentsMdPath: path.join(base, 'AGENTS.md'),
     dimensions,
     pruneCandidates: dimensions.filter((d) => d.signal === 'prune-candidate'),
