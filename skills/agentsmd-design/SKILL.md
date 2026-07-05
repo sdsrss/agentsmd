@@ -1,6 +1,6 @@
 ---
 name: agentsmd-design
-description: Extract a frontend project's design tokens — CSS `:root` custom properties + Tailwind v4 `@theme` — into a facts-only DESIGN.md (sentinel-managed block) plus a one-line pointer in AGENTS.md's ## Frontend. Use when the user wants Codex to know a project's design tokens (colors / spacing / typography / radii / shadows), asks to capture or document the design system, or is scaffolding project docs for a React/Vue/Svelte/Angular/Solid app. Deterministic (no AI), command-only, consent-gated — previews by default, writes only with --write. NOT for AI-distilled coding conventions (that is agentsmd-analyze); a no-op on a non-frontend project; does not parse a Tailwind v3 config-object theme (points you at tailwind.config.js instead).
+description: Extract a frontend project's design tokens — CSS `:root` custom properties + Tailwind v4 `@theme` — into a facts-only DESIGN.md (sentinel-managed block) plus a one-line pointer in AGENTS.md. Use when the user wants Codex to know a project's design tokens (colors / spacing / typography / radii / shadows), asks to capture or document the design system, or is scaffolding project docs for a React/Vue/Svelte/Angular/Solid app. Deterministic (no AI), command-only, consent-gated — previews by default, writes only with --write. NOT for AI-distilled coding conventions (that is agentsmd-analyze); a no-op on a non-frontend project; does not parse a Tailwind v3 config-object theme (points you at tailwind.config.js instead).
 ---
 
 # agentsmd-design

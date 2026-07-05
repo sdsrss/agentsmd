@@ -34,12 +34,16 @@ function findCssFiles(root) {
   return { files, truncated };
 }
 
-// Extract the BODY of every :root{...} / @theme{...} block. Brace-matched (a depth
-// counter, so a stray nested {} won't over-run); handles `:root {` (space),
-// `:root:where(...)`, `@theme inline {`. Stops the pre-brace scan at any } so an
-// unbalanced block can't swallow the file.
+// Extract the BODY of every :root{...} / @theme{...} block. Comments are stripped
+// FIRST — a `}` (or a whole commented-out :root{} block) inside a /* … */ must not
+// close or forge a block; facts-only means no silently-dropped or phantom tokens.
+// Then brace-matched (a depth counter, so a stray nested {} won't over-run); handles
+// `:root {` (space), `:root:where(...)`, `@theme inline {`. Stops the pre-brace scan
+// at any } so an unbalanced block can't swallow the file. (A :root{} literal embedded
+// inside a string value is still matched — pathological, not seen in real token CSS.)
 function extractBlocks(css) {
   const bodies = [];
+  css = css.replace(/\/\*[\s\S]*?\*\//g, ' '); // strip /* comments */ before matching
   const re = /(:root|@theme)\b[^{}]*\{/g;
   while (re.exec(css) !== null) {
     const start = re.lastIndex; // just after the {

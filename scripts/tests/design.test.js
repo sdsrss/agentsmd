@@ -110,6 +110,25 @@ t('no tokens found → honest note that points at tailwind.config.js', () => {
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
 });
 
+t('renderDesignMd: a truncated scan with 0 tokens still discloses the cap (honest no-tokens note)', () => {
+  const report = {
+    frontend: { framework: 'React', metaFramework: null, uiLibs: ['Tailwind'] },
+    tokens: { tokens: {}, categories: [], count: 0, sources: [], files: [], truncated: true },
+  };
+  const body = DZ.renderDesignMd(report);
+  assert.ok(/No .*tokens were found/i.test(body), 'still says none found');
+  assert.ok(/not read|incomplete|cap/i.test(body), 'discloses the scan was truncated, so "none found" is not a false all-clear');
+});
+
+t('renderDesignMd: a truncated scan WITH tokens also discloses the cap', () => {
+  const report = {
+    frontend: { framework: 'React', metaFramework: null, uiLibs: [] },
+    tokens: { tokens: { color: [{ name: '--color-a', value: '#111' }] }, categories: ['color'], count: 1, sources: ['a.css'], files: ['a.css'], truncated: true },
+  };
+  const body = DZ.renderDesignMd(report);
+  assert.ok(/--color-a/.test(body) && /not read|incomplete|cap/i.test(body));
+});
+
 t('budget refusal: a token block over the cap throws (never a silent truncation)', () => {
   let css = ':root {\n';
   for (let i = 0; i < 600; i++) css += `  --color-x${i}: #abcdef;\n`;

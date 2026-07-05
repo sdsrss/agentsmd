@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.15.1 (2026-07-06) — design-token parser bugfix (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a package bugfix — `agentsmd design`'s token parser now strips CSS comments before matching blocks (a `}`, or a commented-out `:root{}`, inside a comment no longer drops or forges tokens) and discloses a truncated scan in the no-tokens note. Surfaced by a code review of the v2.15.0 D1 release. A package bugfix, not a spec-rule change. No new hooks (count stays 15), no `live_sections`/manifest change. `spec_version` → v2.15.1. Detail: repo `CHANGELOG.md`.
+
 ## v2.15.0 (2026-07-06) — design-adopt capability (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a package feature — `agentsmd design` extracts a frontend project's design tokens (CSS `:root` custom properties + Tailwind v4 `@theme`) into a facts-only, sentinel-managed `DESIGN.md` + an `AGENTS.md` pointer. Deterministic, command-only, consent-gated (preview unless `--write`), stateless. Realizes the long-deferred `detect.js:6` "Phase 2" module. A package/tooling feature, not a spec-rule change. No new hooks (count stays 15), no `live_sections`/manifest change. `spec_version` → v2.15.0. Detail: repo `CHANGELOG.md`.

@@ -3,9 +3,21 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.15.1 — 2026-07-06 — fix: comment-aware design-token extraction + honest truncation note
+
+Bugfix patch for `agentsmd design` (v2.15.0), surfaced by a code review of the D1 release. The deterministic token parser now strips CSS comments **before** matching blocks, and the no-tokens note discloses a truncated scan. No change to any other command; no new hooks (count stays 15), no spec rule-text change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.0`.
+
+### Fixed
+- **Comment-aware block extraction** (`scripts/lib/design-tokens.js`): `extractBlocks` strips `/* … */` before brace-matching. Previously a `}` inside a comment prematurely closed a `:root{}`/`@theme{}` block (silently dropping every token after it in that file), and a commented-out `:root{}` block's stale values could override the live ones (last-definition-wins) — both emitting wrong "facts" into a facts-only doc.
+- **Honest truncation on an empty scan** (`scripts/design.js`): when the file/byte cap zeroes the token count, `DESIGN.md`'s "no tokens found" note now also discloses that the scan was truncated — "none found" is no longer a false all-clear. Both render branches share one truncation note.
+- **Doc-vs-behavior**: the `AGENTS.md` pointer is *appended to the file* (not placed under `## Frontend`); `agentsmd-design`'s `SKILL.md` (LLM-visible metadata), `README.md`, and the v2.15.0 note are corrected to match.
+
+### Internal
+- Regression tests: `design-tokens` 7→9 (brace-in-comment; commented-out block does not override), `design` 9→11 (truncation disclosed in both the no-tokens and has-tokens branches). `npm test`: 19 suites, 0 failed.
+
 ## v2.15.0 — 2026-07-06 — design-adopt: extract a project's design tokens into a facts-only DESIGN.md
 
-New capability (Workstream D — the last roadmap item). `agentsmd design` parses a frontend project's design tokens — CSS `:root` custom properties + Tailwind v4 `@theme` — into a facts-only, sentinel-managed `DESIGN.md`, plus a one-line pointer in `AGENTS.md`'s `## Frontend`. Deterministic (tokens are facts — no AI step), command-only, consent-gated (previews by default; `--write` commits), stateless. Realizes the "Phase 2" module `detect.js:6` has flagged since the project began. Revert by pinning `npm i -g @sdsrs/agentsmd@2.14.0`.
+New capability (Workstream D — the last roadmap item). `agentsmd design` parses a frontend project's design tokens — CSS `:root` custom properties + Tailwind v4 `@theme` — into a facts-only, sentinel-managed `DESIGN.md`, plus a one-line pointer appended to `AGENTS.md`. Deterministic (tokens are facts — no AI step), command-only, consent-gated (previews by default; `--write` commits), stateless. Realizes the "Phase 2" module `detect.js:6` has flagged since the project began. Revert by pinning `npm i -g @sdsrs/agentsmd@2.14.0`.
 
 ### Added
 - **`agentsmd design`**: `detectFrontend` → parse `:root`/`@theme` custom properties → group by category (colors / spacing / typography / radii / shadows / z-index / breakpoints / other) → write a facts-only `DESIGN.md` managed block + an `AGENTS.md` pointer. Default previews (writes nothing); `--write` commits. Keeps `AGENTS.md` lean (a one-line pointer, not the tokens); the agent reads `DESIGN.md` on demand. Budget-guarded (refuses, never truncates, past the block cap). Non-frontend project → no-op; no tokens found → an honest note (Tailwind v3? its theme is in `tailwind.config.js`, not yet parsed). Runs against the current project directory, like `init` / `analyze`.

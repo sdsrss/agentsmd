@@ -79,6 +79,21 @@ try {
       assert.ok(r.count >= 1 && r.tokens.color.some((x) => x.name === '--color-ok'), 'malformed block still parsed');
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
+  t('extractBlocks: a } inside a /* comment */ does not prematurely close the block (no silent token loss)', () => {
+    const bodies = D.extractBlocks(':root { --a: 1; /* a } here */ --b: 2; }');
+    assert.strictEqual(bodies.length, 1);
+    assert.deepStrictEqual(D.parseDecls(bodies[0]).map((d) => d.name), ['--a', '--b']); // --b must survive the brace-in-comment
+  });
+  t('parseDesignTokens: a commented-out :root{} does not forge or override a live token', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt5-'));
+    try {
+      // live #111111 first, then an OLD value inside a comment — last-wins must NOT let the commented-out block win
+      fs.writeFileSync(path.join(s, 'a.css'), ':root { --color-primary: #111111; }\n/* old theme:\n:root { --color-primary: #999999; } */');
+      const r = D.parseDesignTokens(s);
+      assert.strictEqual(r.count, 1);
+      assert.strictEqual(r.tokens.color[0].value, '#111111'); // commented-out #999999 must be ignored
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
 } finally {
   fs.rmSync(sb, { recursive: true, force: true }); // §8.V4
 }

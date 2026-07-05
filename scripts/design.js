@@ -15,6 +15,7 @@ const { ArgvError, printHelpAndExit, parseStrict } = require('./lib/argv');
 const MAX_DESIGN_BLOCK_BYTES = 12 * 1024; // budget cap on the managed block (refuse, never truncate — like writeConventions)
 const CATEGORY_TITLES = { color: 'Colors', spacing: 'Spacing', typography: 'Typography', radius: 'Radii', shadow: 'Shadows', 'z-index': 'Z-index', breakpoint: 'Breakpoints', other: 'Other' };
 const POINTER_LINE = 'Design tokens: see [`DESIGN.md`](./DESIGN.md) (facts extracted by `agentsmd design`).';
+const TRUNC_NOTE = '_(token scan hit its file/byte cap — some CSS was not read, so results may be incomplete.)_';
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 function designReport(root) {
@@ -37,6 +38,7 @@ function renderDesignMd(report) {
   if (!report.tokens.count) {
     L.push("No `:root` custom properties or Tailwind `@theme` tokens were found in this project's CSS.");
     if ((fe.uiLibs || []).includes('Tailwind')) L.push('(Tailwind detected — a v3 `theme` lives in `tailwind.config.js`, which `agentsmd design` does not parse yet.)');
+    if (report.tokens.truncated) L.push(TRUNC_NOTE); // honest even when the cap zeroed the count
     return L.join('\n');
   }
   for (const cat of report.tokens.categories) {
@@ -44,7 +46,7 @@ function renderDesignMd(report) {
     for (const { name, value } of report.tokens.tokens[cat]) L.push(`- \`${name}\`: ${value}`);
     L.push('');
   }
-  if (report.tokens.truncated) L.push('_(token scan hit its file/byte cap — some CSS was not read.)_');
+  if (report.tokens.truncated) L.push(TRUNC_NOTE);
   return L.join('\n').replace(/\s+$/, '');
 }
 

@@ -313,7 +313,7 @@ A dimension with zero cites over the window is flagged a prune candidate — adv
 
 ## Capture design tokens
 
-For a frontend project, `agentsmd design` extracts the design tokens — CSS `:root` custom properties and Tailwind v4 `@theme` — into a **facts-only `DESIGN.md`** (a sentinel-managed block) plus a one-line pointer in `AGENTS.md`'s `## Frontend`. It keeps `AGENTS.md` lean (the pointer, not the tokens); the agent reads `DESIGN.md` on demand.
+For a frontend project, `agentsmd design` extracts the design tokens — CSS `:root` custom properties and Tailwind v4 `@theme` — into a **facts-only `DESIGN.md`** (a sentinel-managed block) plus a one-line pointer appended to `AGENTS.md`. It keeps `AGENTS.md` lean (the pointer, not the tokens); the agent reads `DESIGN.md` on demand.
 
 ```bash
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/design.js"           # preview — writes nothing
