@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { detect } = require('./lib/detect');
 const AM = require('./lib/agents-md');
+const { stampConventionAnchors, CONVENTIONS_CITE_NOTICE } = require('./lib/conventions-taxonomy');
 
 const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
@@ -57,7 +58,8 @@ const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { r
 function writeConventions(root, md) {
   const base = root || process.cwd();
   const target = path.join(base, 'AGENTS.md');
-  const body = String(md).trim();
+  const stamped = stampConventionAnchors(String(md).trim());
+  const body = `${CONVENTIONS_CITE_NOTICE}\n\n${stamped}`;
   if (Buffer.byteLength(body, 'utf8') > MAX_CONVENTIONS_BYTES)
     throw new Error(`conventions block ${Buffer.byteLength(body, 'utf8')}B exceeds ${MAX_CONVENTIONS_BYTES}B budget — distill fewer, higher-signal conventions`);
   const existing = readOrNull(target) || '';

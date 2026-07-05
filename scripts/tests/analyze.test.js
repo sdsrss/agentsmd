@@ -84,5 +84,57 @@ withProject({ 'package.json': JSON.stringify({ name: 'w2' }) }, (dir) => {
     assert.throws(() => writeConventions(dir, conventions), /32 KiB|discovery budget|would be/));
 });
 
+// ── conventions taxonomy: anchor stamping (Task 1) ──────────────────────────
+const { stampConventionAnchors, anchorFor, DIMENSIONS } = require('../lib/conventions-taxonomy');
+{
+  const input = [
+    '## Conventions',
+    '',
+    '### Naming',
+    '- camelCase for variables',
+    '',
+    '### Made-up Section',
+    '- something not in the taxonomy',
+    '',
+    '#### Error handling',
+    '- always wrap awaits in try/catch',
+  ].join('\n');
+  const stamped = stampConventionAnchors(input);
+  t('stamp: recognized heading gets its stable anchor', () => assert(stamped.includes('### Naming (@conv-naming)')));
+  t('stamp: recognized heading at a different ATX level also gets its anchor', () => assert(stamped.includes('#### Error handling (@conv-error-handling)')));
+  t('stamp: unrecognized heading left untouched', () => assert(stamped.includes('### Made-up Section') && !stamped.includes('Made-up Section (@conv')));
+  t('stamp: non-heading lines untouched', () => assert(stamped.includes('- camelCase for variables')));
+  t('stamp: idempotent — re-stamping already-stamped text is byte-stable', () => assert.strictEqual(stampConventionAnchors(stamped), stamped));
+  t('stamp: anchorFor covers every declared dimension slug', () => {
+    for (const d of DIMENSIONS) assert.strictEqual(anchorFor(d.heading), d.slug, d.heading);
+  });
+}
+
+// ── conventions taxonomy: wired into writeConventions (Task 1) ─────────────
+withProject({ 'package.json': JSON.stringify({ name: 'wdim' }) }, (dir) => {
+  require('../init').init({ projectRoot: dir });
+  writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase for variables\n\n### Error handling\n- wrap awaits in try/catch\n');
+  const body = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  t('write: stamps anchors on recognized dimension headings', () => assert(body.includes('### Naming (@conv-naming)') && body.includes('### Error handling (@conv-error-handling)')));
+  t('write: includes the citation-instruction notice', () => assert(body.includes('@conv-<dim>')));
+  t('write: re-run on unchanged input is byte-stable (anchors do not drift)', () => {
+    const a = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+    writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase for variables\n\n### Error handling\n- wrap awaits in try/catch\n');
+    assert.strictEqual(a, fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'));
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'wdimbig' }) }, (dir) => {
+  require('../init').init({ projectRoot: dir });
+  // All 8 taxonomy dimensions, each with a heading + two short bullets — proves
+  // the anchor suffixes themselves (~20-24B each) don't tip a realistic full
+  // block over the 6 KiB budget.
+  const sections = DIMENSIONS.map((d) => `### ${d.heading}\n- one convention\n- another convention`).join('\n\n');
+  writeConventions(dir, `## Conventions\n\n${sections}\n`); // must not throw
+  const body = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  t('write: anchored full-taxonomy block still respects the 6 KiB budget', () => {
+    for (const d of DIMENSIONS) assert(body.includes(`(@conv-${d.slug})`));
+  });
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);
