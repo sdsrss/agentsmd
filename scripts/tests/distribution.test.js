@@ -86,7 +86,7 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
 
   const status = JSON.parse(run(['--source', ROOT, '--status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 10);
+  assert.strictEqual(status.agentsmdHooksRegistered, 11);
   assert.strictEqual(status.agentsmdStatusLinePreset, true);
 
   const uninstallOut = run(['--source', ROOT, '--uninstall'], env);
@@ -196,7 +196,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
 
   const status = JSON.parse(cli(['status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 10);
+  assert.strictEqual(status.agentsmdHooksRegistered, 11);
 
   const uninstallOut = cli(['uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));
@@ -207,7 +207,7 @@ t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) 
   const env = { CODEX_HOME: dir };
   cli(['install'], env);
   assert(cli(['update'], env).includes('agentsmd installed:'));
-  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 10);
+  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 11);
 }));
 
 t('agentsmd audit forwards --days to audit.js (invalid value rejected there)', () => withSandbox((dir) => {
