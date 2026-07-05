@@ -378,6 +378,33 @@ try {
     assert(r && r.signal === 'no-data', 'got ' + (r && r.signal));
   });
 
+  // E4 staleReviews — review-CADENCE signal (is governance being run?), orthogonal
+  // to the hit-based demote signals: a rule can be 'active' yet overdue for review.
+  t('rules: real manifest — every rule is stale (all last_demote_review null pre-deployment)', () => {
+    assert.strictEqual(ra.staleReviews.length, ra.rules.length, 'all rules stale when none reviewed');
+    assert.ok(ra.staleReviews.every((s) => s.lastDemoteReview === null), 'every stale entry carries its (null) review date');
+  });
+  const staleFix = path.join(tmp, 'stale-rules.json');
+  fs.writeFileSync(staleFix, JSON.stringify({
+    live_sections: [],
+    rules: [
+      { id: 'r-recent', scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: day(5) },   // within window → fresh
+      { id: 'r-old',    scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: day(60) },  // before cutoff → stale
+      { id: 'r-null',   scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: null },     // never reviewed → stale
+      { id: 'r-bad',    scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: 'not-a-date' }, // unparseable → stale
+    ],
+  }));
+  const raStale = rulesAudit({ days: 30, now: NOW, logPath: empty, hardRulesPath: staleFix });
+  t('rules: staleReviews = null + overdue + unparseable; a within-window review is fresh', () => {
+    const ids = raStale.staleReviews.map((s) => s.id).sort();
+    assert.deepStrictEqual(ids, ['r-bad', 'r-null', 'r-old']);
+  });
+  t('rules formatReport renders the stale-review cadence block with the overdue id', () => {
+    const rep = rulesFormat(raStale);
+    assert.ok(/overdue for a demote-review/.test(rep), 'missing stale-review block:\n' + rep);
+    assert.ok(/r-old \(/.test(rep), 'should list the overdue rule id');
+  });
+
   t('audit CLI rejects invalid --days instead of silently using default', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=abc'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),

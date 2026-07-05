@@ -7,6 +7,7 @@ const cp = require('child_process');
 const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
 const H = require('./lib/codex-hooks');
+const REG = require('./lib/hook-registry');
 const { parseNoArgs } = require('./status');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -29,16 +30,15 @@ function doctor() {
     CT.isAgentsmdStatusLineEnabled(cfg) ? 'agentsmd preset' : (statusLine.exists ? (statusLineOk ? 'custom' : 'unparseable') : 'missing')
   );
 
-  let expectedHooks = 0;
-  try {
-    const tpl = JSON.parse(read(path.join(P.repoRoot(), 'hooks', 'hooks.json')));
-    for (const groups of Object.values(tpl.hooks || {})) for (const g of groups || []) expectedHooks += (g.hooks || []).length;
-  } catch {}
+  // Expected hook count comes from the hook-registry (single source of truth);
+  // hook-registry.test.js asserts the registry never drifts from either hooks.json
+  // wiring, so this stays equivalent to the old template-parse without re-reading it.
+  const expectedHooks = REG.HOOK_REGISTRY.length;
   const registeredHooks = H.countAgentsmdHooks(read(P.hooksJsonPath()) || '');
   add(
     'agentsmd hooks registered',
-    expectedHooks > 0 && registeredHooks === expectedHooks,
-    expectedHooks > 0 ? `${registeredHooks}/${expectedHooks}` : 'cannot read hook template'
+    registeredHooks === expectedHooks,
+    `${registeredHooks}/${expectedHooks}`
   );
 
   const hooksDir = P.installHooksDir();

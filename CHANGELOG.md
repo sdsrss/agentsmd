@@ -3,6 +3,21 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.14.0 — 2026-07-06 — dev-ergonomics batch: measured hook latency, a free-text version gate, a hook single-source-of-truth, a review-cadence signal, and an argv-antipattern gate
+
+Dev-ergonomics / tooling batch (Workstream E). **No new hooks, no spec rule-text change, no user-visible default behavior change** — the hook count stays 15 and nothing new blocks or surfaces. Five additive operator/CI tools + one governance signal, all read-only. Revert by pinning `npm i -g @sdsrs/agentsmd@2.13.0`.
+
+### Added
+- **`agentsmd perf-baseline`**: measures the real wall-clock latency each hook adds — median over N runs of OFF (`DISABLE_AGENTSMD_HOOKS` kill-switch floor) vs ON, grouped by Codex event — so the per-turn cost is a measured number, not an estimate. Runs hooks in an isolated `CODEX_HOME` sandbox (writes nothing to the live `~/.codex` — §8.V3/V4); numbers are a lower bound (exclude Codex's harness round-trip).
+- **`agentsmd version-cascade`**: free-text version-drift gate — scans the prose READMEs for a same-major version token drifted off the current minor, complementing drift gate #5 (which only checks named JSON/header fields). Intentional historical/example refs are allowlisted by exact token. Wired into `npm test`.
+- **`agentsmd lint-argv`**: gate against the "silent-fallback argv" bug class — `args.includes('--x')` / `.find(a=>a.startsWith('--'))` / `.indexOf('--x')` and a `require.main===module` block with no argv parser. The class is currently absent; this locks it out. Wired into `npm test`.
+- **`scripts/lib/hook-registry.js`**: single source of truth for the 15 hooks + their kill-switch suffixes. `status` now reports which hooks are switched off (`killSwitches`); `doctor` sources its expected-hook count from it; a new `hook-registry.test.js` asserts the registry never drifts from either `hooks.json` wiring or any hook's own `hook_kill_switch` call.
+- **`scripts/lib/argv.js`**: shared strict argv parser — `parseStrict` (`--key=value` only, unknown flags rejected loudly), `parsePositiveInt` (rejects `Number()`/`parseInt` coercion footguns like `1e2` / `0x1e`), `printHelpAndExit`. Used by the new CLIs; the substrate `lint-argv` points fixes at.
+- **`agentsmd rules` `staleReviews`**: a review-CADENCE signal — rules whose `last_demote_review` is null or older than the window — surfaced in the report. Orthogonal to the hit-based demote signals (a rule can be `active` yet overdue for a human review).
+
+### Internal
+- New suites: `argv` (11), `hook-registry` (6), `version-cascade-check` (7), `lint-argv` (3, incl. a synthetic-broken-tree teeth check), `perf-baseline` (2, incl. a sandbox-isolation assertion); `audit` 63 → 67 (+4 staleReviews). Three new skills (`agentsmd-perf-baseline` / `-version-cascade` / `-lint-argv`). Hook count unchanged (15); no `hard-rules.json` rule added, no `live_sections` change. All additive, no breaking changes.
+
 ## v2.13.0 — 2026-07-06 — self-healing + coverage batch: rollback backups, a doc-vs-code gap gate, a cross-session summary banner, and two honesty observers
 
 Continues the observability / self-healing arc of v2.12.0. **User-visible default change (per the released-artifact rule): a new fail-open Stop hook `session-summary`, taking the hook count 14 → 15**, plus two new detections in the existing `transcript-structure-scan` Stop hook. Nothing new blocks; all surface a queued advisory only when actionable. `install` now also takes a rollback snapshot of the three shared files before merging. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.12.0`.

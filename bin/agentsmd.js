@@ -30,6 +30,9 @@ const COMMANDS = {
   'lesson-bypass-audit': 'lesson-bypass-audit.js',
   sparkline: 'sparkline.js',
   'safety-coverage-audit': 'safety-coverage-audit.js',
+  'version-cascade': 'version-cascade-check.js',
+  'perf-baseline': 'perf-baseline.js',
+  'lint-argv': 'lint-argv.js',
   rules: 'rules.js',
 };
 
@@ -59,6 +62,9 @@ function usage() {
     '  lesson-bypass-audit [--days=N]   Memory cite-recall: how often a surfaced memory hint was acted on vs bypassed (joins suggest-telemetry to transcripts).',
     '  sparkline [--windows=N] [--bucket-days=D] [--markdown]   Multi-window rule-usage trend; flags a rule that silently stopped firing (--markdown = CHANGELOG block).',
     '  safety-coverage-audit [--json] [--hook=<name>]   Static §8/§10/§7 doc-vs-code gap check: arrow-claims, manifest cross-ref, bypass-token + orphan-emission coverage.',
+    '  version-cascade [--json]   Free-text version-drift gate: scans the READMEs for a stale same-major version token (complements the structured drift test).',
+    '  perf-baseline [--runs=N] [--event=E] [--json]   Measure the wall-clock latency each hook adds (OFF kill-switch floor vs ON), grouped by Codex event.',
+    '  lint-argv [--json]   Gate against silent-fallback argv parsing (args.includes(--x) / main block without a parser) across bin + scripts/.',
     '',
     'Options:',
     '  -v, --version      Print the agentsmd version.',

@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.13.0 — Global
+# CODEX-CODING-SPEC v2.14.0 — Global
 
 **Discovery**: Global — `$CODEX_HOME/AGENTS.override.md` if present, else `$CODEX_HOME/AGENTS.md` (this file). Project — repo root → cwd; each dir: `AGENTS.override.md` > `AGENTS.md` > `project_doc_fallback_filenames`. Concatenated root→leaf, closer overrides earlier; combined cap `project_doc_max_bytes` (default 32 KiB) — truncation past the cap is SILENT, and this file spends ~3/4 of it: keep it lean, raise the cap in `config.toml` when a project chain starves, verify the assembled chain after config changes (a "summarize current instructions" run). Project layers may override defaults here, NEVER §8 or §5-hard.
 **Extended**: `~/.codex/AGENTS-extended.md` — not auto-loaded; MUST `cat` it on: **L3** · **ship intent** (= `git push` to shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**. This line is the single source for these triggers; extended does not restate them.

@@ -74,6 +74,21 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   const projectFilter = project || null;
   const matchedSlugs = scoped ? realProjects(scoped) : projectCount;
 
+  // Stale demote-reviews: a rule whose last_demote_review is null (never reviewed)
+  // or older than the window. A review-CADENCE signal (is governance being run at
+  // all?), orthogonal to the hit-based demote signals above — a rule can be 'active'
+  // yet overdue for a human review. Same now/days window the audit used. An
+  // unparseable date is treated as stale (safer than silently passing).
+  const reviewCutoffMs = now - days * 86400 * 1000;
+  const staleReviews = hr.rules
+    .filter((r) => {
+      const d = r.last_demote_review;
+      if (!d) return true;
+      const ts = new Date(d).getTime();
+      return !Number.isFinite(ts) || ts < reviewCutoffMs;
+    })
+    .map((r) => ({ id: r.id, lastDemoteReview: r.last_demote_review || null }));
+
   return {
     days,
     windowStartIso: a.windowStartIso,
@@ -91,6 +106,7 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     deterrenceOk: rows.filter((r) => r.signal === 'deterrence-ok'),
     active: rows.filter((r) => r.signal === 'active'),
     selfEnforced: rows.filter((r) => r.signal === 'self-enforced'),
+    staleReviews,
   };
 }
 
@@ -133,6 +149,16 @@ function formatReport(ra) {
     L.push(`${ra.hookValueReview.length} extended-scope hook rule(s) with 0 hits — review whether the HOOK earns`);
     L.push('  its upkeep (already outside always-on core; not a core→extended demote):');
     for (const r of ra.hookValueReview) L.push(`    - ${r.id} (${r.section})`);
+  }
+  if (ra.staleReviews.length) {
+    const never = ra.staleReviews.filter((s) => !s.lastDemoteReview);
+    L.push('');
+    L.push(`${ra.staleReviews.length} rule(s) overdue for a demote-review (never reviewed, or last review > ${ra.days}d):`);
+    if (never.length === ra.staleReviews.length) {
+      L.push('  all have last_demote_review: null — expected pre-deployment; stamp one after each governance review.');
+    } else {
+      for (const s of ra.staleReviews) L.push(`    - ${s.id} (${s.lastDemoteReview || 'never reviewed'})`);
+    }
   }
   return L.join('\n');
 }

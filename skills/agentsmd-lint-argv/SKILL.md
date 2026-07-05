@@ -1,0 +1,19 @@
+---
+name: agentsmd-lint-argv
+description: Gate against the "silent-fallback argv" bug class in agentsmd's CLIs — args.includes('--x') / .find(a=>a.startsWith('--')) / .indexOf('--x') (reading a flag by scanning argv and silently falling back when it is absent or mis-shaped) and a require.main===module block that never calls a real argv parser. Use when adding or reviewing a CLI script under bin/ or scripts/, or when the user asks whether argv is parsed safely / a new command validates its flags. Static scan (tests + lib/argv.js excluded); exit 1 on a hit. Fix by parsing through scripts/lib/argv.js parseStrict; suppress a deliberate line with `// argv-lint:allow`.
+---
+
+# agentsmd-lint-argv
+
+The bug class: a CLI that reads a flag with `args.includes('--x')` or `args[args.indexOf('--x')+1]` silently ignores a mis-shaped flag (`--days 30` instead of `--days=30`) or a bare value flag that swallows the next token — the failure is invisible, the wrong default wins. This gate locks it out:
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/lint-argv.js"
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/lint-argv.js" --json
+```
+
+- **Antipattern scan** — `.includes('--` / `.find(a=>a.startsWith('--'))` / `.indexOf('--` on a code line. Suppress a deliberate one with an inline `// argv-lint:allow`.
+- **Main-block scan** — a `require.main === module` block that never calls a real parser (`parseStrict` / `parseArgs` / `parseDaysArg` / `parseNoArgs` / `printHelpAndExit`) → a new CLI can't silently skip arg validation. No-arg CLIs (`install` / `uninstall`) are allowlisted.
+- `0 hits` + exit 0 = clean; a hit → exit 1 naming `file:line [pattern]`. **Fix**: parse through `scripts/lib/argv.js` (`parseStrict` demands `--key=value`, rejects unknown flags loudly; `parsePositiveInt` rejects the `Number()`/`parseInt` coercion footguns).
+
+Wired into `npm test` as a regression gate — a CLI that reintroduces the antipattern fails CI. From the repo instead of an install: `node scripts/lint-argv.js`.

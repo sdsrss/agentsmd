@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.14.0 (2026-07-06) — dev-ergonomics tooling batch (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a package dev-ergonomics batch (Workstream E) — measured hook-latency (`perf-baseline`), a free-text version-drift gate (`version-cascade`), a hook single-source-of-truth registry backing `status`/`doctor`, a review-cadence `staleReviews` signal in `rules.js`, and an argv-antipattern gate (`lint-argv`) + a shared `argv.js` parser. No new hooks (count stays 15), no `live_sections` change, no manifest rule added. `spec_version` → v2.14.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.13.0 (2026-07-06) — two §-rules move from self-enforced to hook-observed; §9 parallel-path enters the manifest (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a package enforcement/coverage batch. Two pre-existing self-enforced disciplines gain a Stop observer in `transcript-structure-scan` and move to hook-observed in `hard-rules.json` `live_sections`: **§6 Iron Law #2** (an evidence-fingerprint check on completed-fix claims — `§6-iron-law-2`) and **§10 Honesty** (an uncertain-section hedge check — `§10-honesty`); both carry `demote_policy: deterrence` (0 hits = the violation never arose, not dilution — a foundational rule stays core regardless of hit count). Separately, the **§9 parallel-path completeness** rule — already live prose in core §9 — becomes a first-class governed manifest entry (`§9-parallel-path`, self-enforced). No core or extended rule text changed. `spec_version` → v2.13.0. Detail: repo `CHANGELOG.md`.

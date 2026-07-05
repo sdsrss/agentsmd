@@ -8,6 +8,7 @@ const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
 const CT = require('./lib/config-toml');
+const REG = require('./lib/hook-registry');
 const { readRows } = require('./audit');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -39,6 +40,11 @@ function status() {
     specBlockInAgentsMd: AM.hasSpecBlock(read(P.agentsMdPath())),
     extendedMdInstalled: fs.existsSync(P.agentsExtendedMdPath()),
     telemetryRows: readRows(P.logPath()).length,
+    // Which hooks are currently switched off via env kill-switches (registry-
+    // enumerated; global DISABLE_AGENTSMD_HOOKS or per-hook DISABLE_<SUFFIX>_HOOK).
+    // Usually { global:false, disabled:[] } — a non-empty list explains "why did a
+    // hook not fire" without hunting through env + hook-common.sh.
+    killSwitches: REG.killSwitchState(),
   };
 }
 
