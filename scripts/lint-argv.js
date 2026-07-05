@@ -2,10 +2,13 @@
 // lint-argv.js — gate against the "silent-fallback argv" bug class in agentsmd's
 // CLIs. Two scans over bin/ + scripts/ (excluding scripts/tests/ — tests assert on
 // CLI OUTPUT, not argv — plus scripts/lib/argv.js and this file):
-//   A. antipattern regexes — args.includes('--x') / .find(a=>a.startsWith('--')) /
-//      .indexOf('--x'): the shapes that read a flag by scanning argv and silently
-//      fall back when it is absent or mis-shaped. Suppress a deliberate line with an
-//      inline `// argv-lint:allow`.
+//   A. antipattern regexes — args.includes('--x') / .find|findIndex|filter(a=>
+//      a.startsWith('--')) / .indexOf('--x'): the shapes that read a flag by scanning
+//      argv and silently fall back (bool/index) when it is absent or mis-shaped. The
+//      literal must be flag-shaped (--<letter>) so a `--- separator ---` string is not
+//      flagged. Explicit `arg === '--flag'` dispatch is NOT here — it is a normal,
+//      non-silent branch (the repo's grandfathered manual parseArgs use it) and scan B
+//      already governs those. Suppress a deliberate line with `// argv-lint:allow`.
 //   B. main-block-without-validation — a `require.main === module` block that never
 //      calls a real argv parser (parseStrict / parseArgs / parseDaysArg / ...), so a
 //      new CLI cannot silently skip arg validation. No-arg CLIs are allowlisted.
@@ -23,9 +26,9 @@ const SKIP_DIRS = new Set(['tests', 'node_modules', '.git']);
 const FILE_ALLOWLIST = new Set(['scripts/lib/argv.js', 'scripts/lint-argv.js']);
 
 const PATTERNS = [
-  { name: 'includes(--literal)',              regex: /\b\w+\.includes\s*\(\s*['"]--/ },
-  { name: 'find(a=>a.startsWith(--literal))', regex: /\.find\s*\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\.startsWith\s*\(\s*['"]--/ },
-  { name: 'indexOf(--literal)',               regex: /\b\w+\.indexOf\s*\(\s*['"]--/ },
+  { name: 'includes(--flag)',                     regex: /\b\w+\.includes\s*\(\s*['"]--[A-Za-z]/ },
+  { name: 'find/findIndex/filter(=>startsWith(--flag))', regex: /\.(?:find|findIndex|filter)\s*\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\.startsWith\s*\(\s*['"]--[A-Za-z]/ },
+  { name: 'indexOf(--flag)',                      regex: /\b\w+\.indexOf\s*\(\s*['"]--[A-Za-z]/ },
 ];
 const WHY = 'reads a flag by scanning argv and silently falls back when absent/mis-shaped — parse via scripts/lib/argv.js parseStrict instead';
 

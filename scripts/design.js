@@ -29,6 +29,7 @@ function designReport(root) {
 // advice — detected stack + token name:value grouped by category, and an honest note
 // when nothing was found.
 function renderDesignMd(report) {
+  if (!report.frontend) return '# Design tokens\n\n_(not a frontend project — nothing to extract.)_'; // guard: writeDesign skips non-frontend at its call site, but keep the exported fn safe for direct callers
   const fe = report.frontend;
   const stack = [fe.framework, fe.metaFramework, ...(fe.uiLibs || [])].filter(Boolean).join(' + ') || 'frontend';
   const L = ['# Design tokens', ''];

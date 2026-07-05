@@ -25,7 +25,7 @@ const { ArgvError, printHelpAndExit, parseStrict, parsePositiveInt } = require('
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 const EVENTS = ['SessionStart', 'PreToolUse', 'UserPromptSubmit', 'Stop'];
 const round1 = (x) => Math.round(x * 10) / 10;
-const median = (nums) => { const s = [...nums].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+const median = (nums) => { const s = [...nums].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 // One spawn of a hook with the event on stdin; returns elapsed ms (hrtime).
 function timeOne(hookPath, eventJson, env) {
@@ -111,4 +111,4 @@ if (require.main === module) {
     fs.rmSync(sandbox, { recursive: true, force: true }); // §8.V4 sandbox disposal
   }
 }
-module.exports = { perfBaseline, formatReport, EVENTS };
+module.exports = { perfBaseline, formatReport, EVENTS, median };

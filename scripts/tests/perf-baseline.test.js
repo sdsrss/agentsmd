@@ -44,5 +44,11 @@ t('--event filters to that group; unknown flag exits 2; unknown --event exits 1'
   assert.strictEqual(cp.spawnSync(process.execPath, [script, '--runs=abc']).status, 1);
 });
 
+t('median: odd N picks the middle; even N averages the two middles', () => {
+  const P = require('../perf-baseline');
+  assert.strictEqual(P.median([3, 1, 2]), 2);        // odd → middle
+  assert.strictEqual(P.median([4, 1, 3, 2]), 2.5);   // even → (2 + 3) / 2, not the upper-middle 3
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

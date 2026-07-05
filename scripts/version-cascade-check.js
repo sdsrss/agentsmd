@@ -31,11 +31,13 @@ function toMinor(token) {
 }
 
 // A regex matching v-prefixed tokens of the CURRENT major only, derived per run —
-// never a fixed /v2\./ that would go silent after a major bump and miss drift.
+// never a fixed /v2\./ that would go silent after a major bump and miss drift. The
+// leading `(?<![\w.])` boundary keeps a version-shaped substring glued to a preceding
+// word char or dot (e.g. `libv2.1`, `x.v2.1`) from registering as a stray token.
 function majorTokenRe(specVersion) {
   const m = String(specVersion).match(/^v?(\d+)\./);
   if (!m) throw new Error(`unparseable spec_version: ${specVersion}`);
-  return new RegExp(`v${m[1]}\\.\\d+(?:\\.\\d+)?`, 'g');
+  return new RegExp(`(?<![\\w.])v${m[1]}\\.\\d+(?:\\.\\d+)?`, 'g');
 }
 
 function runVersionCascadeCheck({ root = path.join(__dirname, '..') } = {}) {

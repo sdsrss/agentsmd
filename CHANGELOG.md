@@ -3,6 +3,20 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.15.2 — 2026-07-06 — fix: parser robustness (strings / comments / parens) + argv-gate coverage, from a second code review
+
+Second bugfix patch, from a code review of the v2.15.1 release. Hardens the `agentsmd design` token parser against string / comment / paren edge cases (each previously emitting a wrong or dropped "fact"), widens the `lint-argv` gate to `findIndex`/`filter`, and fixes two Minor correctness notes. No new hooks (count stays 15), no spec rule-text change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.1`.
+
+### Fixed
+- **Design-token parser is now string / comment / paren aware** (`scripts/lib/design-tokens.js`): a `;` inside `url("data:…;base64,…")` or a quoted value no longer truncates the value; a `/* … */` inside a string value is preserved; a `:root{`/`@theme{` (or a stray `{`/`}`) inside a string value is no longer read as block structure. Block/brace matching runs on a structural view with string contents blanked, while values are sliced from the real CSS.
+- **`renderDesignMd` guards a non-frontend report** (`scripts/design.js`): returns a safe note instead of throwing for direct callers (unreachable via `writeDesign`, which skips non-frontend at its call site).
+- **`lint-argv` gate widened + tightened** (`scripts/lint-argv.js`): the antipattern scan now catches `findIndex`/`filter` (not just `find`), and its literal must be flag-shaped (`--<letter>`) so a `--- separator ---` string is not flagged. Explicit `arg === '--flag'` dispatch is intentionally left unflagged — a normal, non-silent branch that scan B already governs.
+- **`version-cascade` token boundary** (`scripts/version-cascade-check.js`): a version-shaped substring glued to a preceding word char / dot no longer registers as a stray token.
+- **`perf-baseline` median** (`scripts/perf-baseline.js`): an even-N sample now averages the two middle values instead of returning the upper-middle.
+
+### Internal
+- Regression tests for each case: `design-tokens` 9→13, `design` 11→12, `perf-baseline` 2→3; `lint-argv` + `version-cascade` gain teeth for the new cases. `npm test`: 19 suites, 0 failed. `lint-argv` real-repo scan: 0 hits.
+
 ## v2.15.1 — 2026-07-06 — fix: comment-aware design-token extraction + honest truncation note
 
 Bugfix patch for `agentsmd design` (v2.15.0), surfaced by a code review of the D1 release. The deterministic token parser now strips CSS comments **before** matching blocks, and the no-tokens note discloses a truncated scan. No change to any other command; no new hooks (count stays 15), no spec rule-text change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.0`.

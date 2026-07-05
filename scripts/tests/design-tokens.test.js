@@ -94,6 +94,28 @@ try {
       assert.strictEqual(r.tokens.color[0].value, '#111111'); // commented-out #999999 must be ignored
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
+  t('extractBlocks: a selector string (:root[data-theme="x"]) still extracts; a } inside a string value does not break the boundary', () => {
+    const bodies = D.extractBlocks(':root[data-theme="dark"] { --a: 1; --brace: "}"; --b: 2; }');
+    assert.strictEqual(bodies.length, 1);
+    const decls = D.parseDecls(bodies[0]);
+    assert.deepStrictEqual(decls.map((d) => d.name), ['--a', '--brace', '--b']);
+    assert.strictEqual(decls.find((d) => d.name === '--brace').value, '"}"'); // } inside the string value preserved
+  });
+  t('extractBlocks: a :root{...} literal inside a string value is NOT a block (no phantom token)', () => {
+    const bodies = D.extractBlocks('.icon { content: ":root{--fake: 1}"; }');
+    assert.strictEqual(bodies.length, 0); // the :root{ inside the string must not open a block
+  });
+  t('parseDecls: a ; inside url(...) or a quoted value does not truncate the value', () => {
+    const decls = D.parseDecls('--icon: url("data:image/svg+xml;base64,AAA"); --sep: "; "; --y: 2;');
+    const by = Object.fromEntries(decls.map((d) => [d.name, d.value]));
+    assert.strictEqual(by['--icon'], 'url("data:image/svg+xml;base64,AAA")'); // full data URI, not cut at the first ;
+    assert.strictEqual(by['--sep'], '"; "');
+    assert.strictEqual(by['--y'], '2');
+  });
+  t('parseDecls: a /* */ inside a string value is preserved (comment-strip is string-aware)', () => {
+    const decls = D.parseDecls('--note: "/* keep */"; --y: 2;');
+    assert.strictEqual(decls.find((d) => d.name === '--note').value, '"/* keep */"');
+  });
 } finally {
   fs.rmSync(sb, { recursive: true, force: true }); // §8.V4
 }

@@ -34,38 +34,92 @@ function findCssFiles(root) {
   return { files, truncated };
 }
 
-// Extract the BODY of every :root{...} / @theme{...} block. Comments are stripped
-// FIRST — a `}` (or a whole commented-out :root{} block) inside a /* … */ must not
-// close or forge a block; facts-only means no silently-dropped or phantom tokens.
-// Then brace-matched (a depth counter, so a stray nested {} won't over-run); handles
-// `:root {` (space), `:root:where(...)`, `@theme inline {`. Stops the pre-brace scan
-// at any } so an unbalanced block can't swallow the file. (A :root{} literal embedded
-// inside a string value is still matched — pathological, not seen in real token CSS.)
+// Strip /* comments */ — but NOT inside string literals, so a value like
+// `--note: "/* x */"` survives intact. A `}` or a whole commented-out :root{} inside
+// a comment must not close or forge a block (facts-only: no dropped/phantom tokens).
+function stripComments(css) {
+  let out = '';
+  for (let i = 0, q = null, n = css.length; i < n; i++) {
+    const c = css[i];
+    if (q) { out += c; if (c === '\\' && i + 1 < n) out += css[++i]; else if (c === q) q = null; continue; }
+    if (c === '"' || c === "'") { q = c; out += c; continue; }
+    if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); out += ' '; i = e < 0 ? n : e + 1; continue; }
+    out += c;
+  }
+  return out;
+}
+
+// A structural view: string CONTENTS blanked to spaces (quotes + newlines kept, length
+// preserved), so a `:root{`, `@theme{`, or stray `{`/`}` sitting inside a string VALUE
+// is invisible to block/brace matching. Indices stay aligned with the input, so bodies
+// are sliced from the real (comment-stripped) CSS — token values are never blanked.
+function blankStrings(css) {
+  let out = '';
+  for (let i = 0, q = null, n = css.length; i < n; i++) {
+    const c = css[i];
+    if (q) {
+      if (c === '\\' && i + 1 < n) { out += '  '; i++; continue; }
+      if (c === q) { q = null; out += c; continue; }
+      out += c === '\n' ? '\n' : ' '; continue;
+    }
+    if (c === '"' || c === "'") { q = c; out += c; continue; }
+    out += c;
+  }
+  return out;
+}
+
+// Extract the BODY of every :root{...} / @theme{...} block. Comments are stripped and
+// string contents blanked FIRST — a `}`, or a `:root{`, inside a comment or a string
+// value must not close or forge a block (facts-only: no dropped or phantom tokens).
+// Then brace-matched on that structural view (a depth counter, so a stray nested {}
+// won't over-run); handles `:root {` (space), `:root:where(...)`, `:root[data-x="y"]`,
+// `@theme inline {`. Stops the pre-brace scan at any } so an unbalanced block can't
+// swallow the file. Bodies are sliced from the real CSS so values are kept verbatim.
 function extractBlocks(css) {
+  css = stripComments(css);
+  const struct = blankStrings(css); // string-blanked structural view; indices aligned with css
   const bodies = [];
-  css = css.replace(/\/\*[\s\S]*?\*\//g, ' '); // strip /* comments */ before matching
   const re = /(:root|@theme)\b[^{}]*\{/g;
-  while (re.exec(css) !== null) {
+  while (re.exec(struct) !== null) {
     const start = re.lastIndex; // just after the {
     let depth = 1, i = start;
-    while (i < css.length && depth > 0) {
-      const c = css[i];
+    while (i < struct.length && depth > 0) {
+      const c = struct[i];
       if (c === '{') depth++; else if (c === '}') depth--;
       i++;
     }
-    bodies.push(css.slice(start, depth === 0 ? i - 1 : i));
+    bodies.push(css.slice(start, depth === 0 ? i - 1 : i)); // real CSS, not the blanked view
     re.lastIndex = i; // continue past this block
   }
   return bodies;
 }
 
-// Parse `--name: value;` declarations from a block body, stripping /* comments */.
+// Parse `--name: value;` declarations from a block body. Comments are stripped
+// (string-aware); the value runs to the first `;` at paren-depth 0 outside any string
+// — so a `;` inside url("data:…;base64,…") or a quoted value doesn't truncate it — or
+// to the end of the body (a final declaration may omit its `;`).
 function parseDecls(body) {
+  const css = stripComments(body);
   const out = [];
-  const clean = body.replace(/\/\*[\s\S]*?\*\//g, ' ');
-  const re = /(--[A-Za-z0-9_-]+)\s*:\s*([^;]+);/g;
+  const n = css.length;
+  const declRe = /(--[A-Za-z0-9_-]+)\s*:/g;
   let m;
-  while ((m = re.exec(clean)) !== null) out.push({ name: m[1], value: m[2].trim().replace(/\s+/g, ' ') });
+  while ((m = declRe.exec(css)) !== null) {
+    let j = declRe.lastIndex; // just after the ':'
+    let q = null, paren = 0;
+    while (j < n) {
+      const c = css[j];
+      if (q) { if (c === '\\') j += 2; else { if (c === q) q = null; j++; } continue; }
+      if (c === '"' || c === "'") { q = c; j++; continue; }
+      if (c === '(') { paren++; j++; continue; }
+      if (c === ')') { if (paren > 0) paren--; j++; continue; }
+      if ((c === ';' && paren === 0) || c === '{' || c === '}') break; // value end (or a stray brace)
+      j++;
+    }
+    const value = css.slice(declRe.lastIndex, j).trim().replace(/\s+/g, ' ');
+    if (value) out.push({ name: m[1], value });
+    declRe.lastIndex = css[j] === ';' ? j + 1 : j; // resume after the terminator
+  }
   return out;
 }
 

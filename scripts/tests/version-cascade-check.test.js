@@ -22,10 +22,11 @@ t('toMinor collapses to v<major>.<minor> (v-prefixed and bare); junk → null', 
   assert.strictEqual(V.toMinor('v2.2.1'), 'v2.2');
   assert.strictEqual(V.toMinor('nope'), null);
 });
-t('majorTokenRe matches current-major v-tokens only (not other majors / bare)', () => {
+t('majorTokenRe matches current-major v-tokens only (not other majors / bare / glued)', () => {
   const re = () => V.majorTokenRe('v9.9.9');
   assert.deepStrictEqual('see v9.8.0 and v9.9.1'.match(re()), ['v9.8.0', 'v9.9.1']);
   assert.strictEqual('v8.1.0 and 9.9.0'.match(re()), null); // wrong major; bare 9.9.0 has no v
+  assert.deepStrictEqual('libv9.1.0 and v9.2.0'.match(re()), ['v9.2.0']); // glued-to-word-char token not matched (leading boundary)
 });
 
 // ── real tree is clean, and the allowlist is load-bearing ───────────────────

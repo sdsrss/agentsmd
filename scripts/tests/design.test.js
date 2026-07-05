@@ -129,6 +129,11 @@ t('renderDesignMd: a truncated scan WITH tokens also discloses the cap', () => {
   assert.ok(/--color-a/.test(body) && /not read|incomplete|cap/i.test(body));
 });
 
+t('renderDesignMd: a non-frontend report returns a safe note, does not throw (direct-caller guard)', () => {
+  const body = DZ.renderDesignMd({ frontend: null, tokens: null });
+  assert.ok(/not a frontend project/i.test(body));
+});
+
 t('budget refusal: a token block over the cap throws (never a silent truncation)', () => {
   let css = ':root {\n';
   for (let i = 0; i < 600; i++) css += `  --color-x${i}: #abcdef;\n`;
