@@ -58,7 +58,7 @@ function stampConventionAnchors(text) {
     if (!m) return line;
     const [, prefix, rest] = m;
     const already = rest.match(/\s*\(@conv-[a-z-]+\)\s*$/);
-    const title = already ? rest.slice(0, already.index) : rest;
+    const title = (already ? rest.slice(0, already.index) : rest).trimEnd();
     const slug = anchorFor(title);
     return slug ? `${prefix}${title} (@conv-${slug})` : line;
   }).join('\n');

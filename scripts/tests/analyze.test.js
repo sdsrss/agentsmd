@@ -105,6 +105,10 @@ const { stampConventionAnchors, anchorFor, DIMENSIONS } = require('../lib/conven
   t('stamp: unrecognized heading left untouched', () => assert(stamped.includes('### Made-up Section') && !stamped.includes('Made-up Section (@conv')));
   t('stamp: non-heading lines untouched', () => assert(stamped.includes('- camelCase for variables')));
   t('stamp: idempotent — re-stamping already-stamped text is byte-stable', () => assert.strictEqual(stampConventionAnchors(stamped), stamped));
+  t('stamp: idempotent even when the original heading has trailing whitespace', () => {
+    const once = stampConventionAnchors('### Naming  \n- camelCase');
+    assert.strictEqual(stampConventionAnchors(once), once);
+  });
   t('stamp: anchorFor covers every declared dimension slug', () => {
     for (const d of DIMENSIONS) assert.strictEqual(anchorFor(d.heading), d.slug, d.heading);
   });
@@ -117,7 +121,7 @@ withProject({ 'package.json': JSON.stringify({ name: 'wdim' }) }, (dir) => {
   const body = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('write: stamps anchors on recognized dimension headings', () => assert(body.includes('### Naming (@conv-naming)') && body.includes('### Error handling (@conv-error-handling)')));
   t('write: includes the citation-instruction notice', () => assert(body.includes('@conv-<dim>')));
-  t('write: re-run on unchanged input is byte-stable (anchors do not drift)', () => {
+  t('write: repeated writeConventions on the same input is byte-stable', () => {
     const a = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
     writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase for variables\n\n### Error handling\n- wrap awaits in try/catch\n');
     assert.strictEqual(a, fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'));
