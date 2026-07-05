@@ -33,7 +33,8 @@
         "hooks": [
           { "type": "command", "command": "bash \"./hooks/residue-audit.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"./hooks/sandbox-disposal-check.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"./hooks/transcript-structure-scan.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"./hooks/transcript-structure-scan.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"./hooks/convention-cite-scan.sh\"", "timeout": 5 }
         ]
       }
     ]

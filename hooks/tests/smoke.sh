@@ -118,6 +118,48 @@ printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 { is_empty "$OUT" && pending_has "four-section"; } && ok "four-section out-of-order → queued" || bad "four-section → queued" "out=[$OUT]"
 
+echo "== convention-cite-scan.sh (Stop → cite telemetry) =="
+CONVPROJ="$SANDBOX/convproj"; mkdir -p "$CONVPROJ"
+printf '%s\n' \
+  '# >>> agentsmd:conventions >>>' \
+  '## Conventions' \
+  '' \
+  '### Naming (@conv-naming)' \
+  '- camelCase for variables' \
+  '' \
+  '### Error handling (@conv-error-handling)' \
+  '- always wrap awaits in try/catch' \
+  '# <<< agentsmd:conventions <<<' \
+  > "$CONVPROJ/AGENTS.md"
+CONVTR="$SANDBOX/conv-transcript.jsonl"
+CLOG="$CODEX_HOME/logs/agentsmd.jsonl"
+CCJSON() { jq -cn --arg p "$1" --arg cwd "$2" '{session_id:"smoke1",transcript_path:$p,cwd:$cwd,hook_event_name:"Stop"}'; }
+clog_count() { [[ -r "$CLOG" ]] && wc -l < "$CLOG" 2>/dev/null | tr -d ' ' || echo 0; }
+clog_new()   { local before="$1"; [[ -r "$CLOG" ]] && tail -n "+$((before+1))" "$CLOG" 2>/dev/null || true; }
+
+BEFORE="$(clog_count)"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Applied camelCase per @conv-naming."}]}}' > "$CONVTR"
+OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
+NEW="$(clog_new "$BEFORE")"
+{ is_empty "$OUT" && printf '%s\n' "$NEW" | grep -q '"event":"cite".*"spec_section":"@conv-naming"'; } && ok "known anchor cited → cite row recorded" || bad "known anchor cited → cite row recorded" "out=[$OUT] new=[$NEW]"
+
+BEFORE="$(clog_count)"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Applied a rule per @conv-imports (not in this project)."}]}}' > "$CONVTR"
+OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
+NEW="$(clog_new "$BEFORE")"
+{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "unknown anchor cited → no cite row" || bad "unknown anchor cited → no cite row" "out=[$OUT] new=[$NEW]"
+
+BEFORE="$(clog_count)"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done, no conventions mentioned."}]}}' > "$CONVTR"
+OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
+NEW="$(clog_new "$BEFORE")"
+{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "no citation → no cite row" || bad "no citation → no cite row" "out=[$OUT] new=[$NEW]"
+
+BEFORE="$(clog_count)"
+OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$SANDBOX/does-not-exist.jsonl" "$CONVPROJ")")"
+NEW="$(clog_new "$BEFORE")"
+{ is_empty "$OUT" && printf '%s\n' "$NEW" | grep -q '"event":"fail-open".*"reason":"no-transcript"'; } && ok "missing transcript → fail-open" || bad "missing transcript → fail-open" "out=[$OUT] new=[$NEW]"
+
 echo "== surface-advisories.sh (UserPromptSubmit → surface + clear) =="
 UPS="$(jq -cn '{prompt:"next task",session_id:"smoke1",hook_event_name:"UserPromptSubmit"}')"
 printf '%s\n' "[agentsmd §9] queued advisory" > "$PENDING"
