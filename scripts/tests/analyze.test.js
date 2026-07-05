@@ -140,5 +140,113 @@ withProject({ 'package.json': JSON.stringify({ name: 'wdimbig' }) }, (dir) => {
   });
 });
 
+// ── analyze --adoption (Task 3) ─────────────────────────────────────────────
+const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze');
+{
+  const cp = require('child_process');
+  const ADOPT_NOW = Date.parse('2026-07-05T12:00:00.000Z');
+  const adoptDay = (n) => new Date(ADOPT_NOW - n * 86400000).toISOString();
+
+  withProject({ 'package.json': JSON.stringify({ name: 'adopt' }) }, (dir) => {
+    require('../init').init({ projectRoot: dir });
+    writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase\n\n### Comment style\n- explain why, not what\n');
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-log.'));
+    const logPath = path.join(logDir, 'agentsmd.jsonl');
+    try {
+      const rows = [
+        { ts: adoptDay(1), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: '-home-user-adopt' },
+        { ts: adoptDay(2), hook: 'convention-cite', event: 'cite', spec_section: '@conv-naming', project: '-home-user-adopt' },
+        { ts: adoptDay(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', project: '-home-user-adopt' },
+      ];
+      fs.writeFileSync(logPath, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+      const r = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath });
+      t('adoption: cited anchor shows its cite count', () => {
+        const naming = r.dimensions.find((d) => d.anchor === '@conv-naming');
+        assert.strictEqual(naming.cites, 2);
+        assert.strictEqual(naming.signal, 'active');
+      });
+      t('adoption: never-cited known anchor is a 0-cite prune candidate', () => {
+        const comments = r.dimensions.find((d) => d.anchor === '@conv-comments');
+        assert.strictEqual(comments.cites, 0);
+        assert.strictEqual(comments.signal, 'prune-candidate');
+      });
+      t('adoption: §* rows never surface in the dimensions list', () => {
+        assert.ok(!r.dimensions.some((d) => d.anchor.startsWith('§')));
+      });
+      t('adoption: pruneCandidates lists exactly the 0-cite anchors', () => {
+        assert.deepStrictEqual(r.pruneCandidates.map((d) => d.anchor), ['@conv-comments']);
+      });
+      t('adoption: report text includes counts and the prune flag', () => {
+        const text = formatAdoptionReport(r);
+        assert.ok(/@conv-naming: 2 cites/.test(text));
+        assert.ok(/@conv-comments: 0 cites — prune candidate/.test(text));
+      });
+
+      const scoped = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath, project: 'adopt' });
+      t('adoption: --project scopes the cite counts', () => {
+        assert.strictEqual(scoped.dimensions.find((d) => d.anchor === '@conv-naming').cites, 2);
+      });
+
+      const scopedOut = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath, project: 'nonexistent-project-slug' });
+      t('adoption: --project matching no rows reads as no-data, not a false prune-candidate', () => {
+        const naming = scopedOut.dimensions.find((d) => d.anchor === '@conv-naming');
+        assert.strictEqual(naming.cites, 0);
+        assert.strictEqual(naming.signal, 'no-data');
+      });
+
+      const emptyLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-empty.'));
+      const emptyLog = path.join(emptyLogDir, 'agentsmd.jsonl');
+      fs.writeFileSync(emptyLog, '');
+      try {
+        const empty = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath: emptyLog });
+        t('adoption: empty telemetry window → no-data, never prune-candidate', () => {
+          assert.strictEqual(empty.dimensions.find((d) => d.anchor === '@conv-naming').signal, 'no-data');
+          assert.strictEqual(empty.pruneCandidates.length, 0);
+        });
+      } finally { fs.rmSync(emptyLogDir, { recursive: true, force: true }); }
+    } finally { fs.rmSync(logDir, { recursive: true, force: true }); }
+  });
+
+  withProject({ 'package.json': JSON.stringify({ name: 'noconv' }) }, (dir) => {
+    require('../init').init({ projectRoot: dir });
+    const r = adoptionReport({ root: dir, days: 30, now: ADOPT_NOW, logPath: path.join(dir, 'agentsmd.jsonl') });
+    t('adoption: project with no @conv-* anchors yet reports an empty dimensions list', () => assert.deepStrictEqual(r.dimensions, []));
+    t('adoption: report text names AGENTS.md when there is nothing to report', () => assert(/run agentsmd-analyze first/.test(formatAdoptionReport(r))));
+  });
+
+  // ── parseArgs: --adoption / --days / --project ──────────────────────────
+  t('parseArgs: --adoption sets mode', () => assert.strictEqual(parseArgs(['--adoption']).mode, 'adoption'));
+  t('parseArgs: --adoption --days=7 --project=foo', () => {
+    const o = parseArgs(['--adoption', '--days=7', '--project=foo']);
+    assert.strictEqual(o.days, 7);
+    assert.strictEqual(o.project, 'foo');
+  });
+  t('parseArgs: --adoption defaults days to 30, project to null', () => {
+    const o = parseArgs(['--adoption']);
+    assert.strictEqual(o.days, 30);
+    assert.strictEqual(o.project, null);
+  });
+  t('parseArgs: rejects invalid --days value', () => assert.strictEqual(parseArgs(['--adoption', '--days=abc']).error, 'invalid --days value: abc'));
+  t('parseArgs: rejects empty --project=', () => assert.strictEqual(parseArgs(['--adoption', '--project=']).error, 'invalid --project value: (empty)'));
+
+  // ── CLI end-to-end ────────────────────────────────────────────────────────
+  t('analyze CLI --adoption runs end-to-end and exits 0', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-cli.'));
+    const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-cli-home.'));
+    try {
+      require('../init').init({ projectRoot: cwd });
+      writeConventions(cwd, '## Conventions\n\n### Naming\n- camelCase\n');
+      fs.mkdirSync(path.join(cliHome, 'logs'), { recursive: true });
+      const out = cp.execFileSync('node', [path.join(__dirname, '..', 'analyze.js'), '--adoption'],
+        { cwd, env: { ...process.env, CODEX_HOME: cliHome }, encoding: 'utf8' });
+      assert.ok(/@conv-naming: 0 cites/.test(out), 'missing naming line; got:\n' + out);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

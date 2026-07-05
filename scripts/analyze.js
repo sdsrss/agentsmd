@@ -8,6 +8,7 @@ const path = require('path');
 const { detect } = require('./lib/detect');
 const AM = require('./lib/agents-md');
 const { stampConventionAnchors, CONVENTIONS_CITE_NOTICE } = require('./lib/conventions-taxonomy');
+const { audit } = require('./audit');
 
 const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
@@ -69,18 +70,89 @@ function writeConventions(root, md) {
   fs.writeFileSync(target, content);
   return { action: 'written', target, bytes: Buffer.byteLength(content, 'utf8') };
 }
-module.exports = { gather, writeConventions };
 
-const USAGE = 'Usage: agentsmd-analyze [--gather] | agentsmd-analyze --write --from <file> | --help';
+// Extract the @conv-<slug> anchors literally present in a project's AGENTS.md —
+// the same "ground truth from disk, not the taxonomy" rule
+// hooks/convention-cite-scan.sh uses, so the report and the hook can never
+// disagree about which anchors exist for a given project.
+function knownAnchors(root) {
+  const body = readOrNull(path.join(root, 'AGENTS.md')) || '';
+  return [...new Set(body.match(/@conv-[a-z-]+/g) || [])].sort();
+}
+
+// Per-dimension adoption report: for every @conv-<slug> anchor actually present
+// in this project's AGENTS.md, how many times was it CITED (an agent applied
+// the convention and named its anchor) within the telemetry window? Zero cites
+// over a non-empty window is a prune candidate — advisory only. An EMPTY
+// window reads as 'no-data', never as a false-negative "nobody uses this"
+// (design doc §7: a fresh/never-run install must not look like proof of
+// dilution) — this also covers a --project filter that happens to match zero
+// rows, which is ambiguous (wrong filter vs. genuine non-use) and must not be
+// read as confident prune evidence either. Independent of rules.js's §*
+// demote logic — this never touches spec/hard-rules.json or its live_sections.
+function adoptionReport({ root, days = 30, now = Date.now(), logPath, project = null } = {}) {
+  const base = root || process.cwd();
+  const anchors = knownAnchors(base);
+  const auditOpts = { days, now, project };
+  if (logPath) auditOpts.logPath = logPath;
+  const a = audit(auditOpts);
+  const noData = a.inWindow === 0;
+  const dimensions = anchors.map((anchor) => {
+    const bucket = a.bySection[anchor];
+    const cites = bucket ? (bucket.events.cite || 0) : 0;
+    const signal = cites > 0 ? 'active' : (noData ? 'no-data' : 'prune-candidate');
+    return { anchor, cites, signal };
+  });
+  return {
+    days, project, noData,
+    agentsMdPath: path.join(base, 'AGENTS.md'),
+    dimensions,
+    pruneCandidates: dimensions.filter((d) => d.signal === 'prune-candidate'),
+  };
+}
+
+function formatAdoptionReport(r) {
+  const L = [];
+  L.push(`agentsmd convention adoption — last ${r.days}d${r.project ? ` (project filter: ${r.project})` : ''}`);
+  if (!r.dimensions.length) {
+    L.push(`  no @conv-* anchors found in ${r.agentsMdPath} — run agentsmd-analyze first.`);
+    return L.join('\n');
+  }
+  if (r.noData) L.push('  no telemetry in window yet — cite counts below are not evidence either way.');
+  for (const d of r.dimensions) {
+    const flag = d.signal === 'prune-candidate' ? ' — prune candidate' : '';
+    L.push(`  ${d.anchor}: ${d.cites} cite${d.cites === 1 ? '' : 's'}${flag}`);
+  }
+  if (r.pruneCandidates.length && !r.noData) {
+    L.push('');
+    L.push(`${r.pruneCandidates.length} dimension(s) had 0 cites this window — consider pruning from AGENTS.md (advisory, not automatic).`);
+  }
+  return L.join('\n');
+}
+
+module.exports = { gather, writeConventions, knownAnchors, adoptionReport, formatAdoptionReport, parseArgs };
+
+const USAGE = 'Usage: agentsmd-analyze [--gather] | agentsmd-analyze --write --from <file> | agentsmd-analyze --adoption [--days=N] [--project=SUBSTR] | --help';
 
 function parseArgs(argv) {
-  const opts = { mode: 'gather', from: null };
+  const opts = { mode: 'gather', from: null, days: 30, project: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') return { help: true };
     else if (a === '--gather') opts.mode = 'gather';
     else if (a === '--write') opts.mode = 'write';
+    else if (a === '--adoption') opts.mode = 'adoption';
     else if (a === '--from') opts.from = argv[++i];
+    else if (/^--days=/.test(a)) {
+      const v = a.slice('--days='.length);
+      if (!/^[1-9][0-9]*$/.test(v)) return { error: `invalid --days value: ${v}` };
+      opts.days = Number(v);
+    }
+    else if (/^--project=/.test(a)) {
+      const v = a.slice('--project='.length);
+      if (!v) return { error: 'invalid --project value: (empty)' };
+      opts.project = v;
+    }
     else return { error: `unknown option: ${a}` };
   }
   if (opts.mode === 'write' && !opts.from) return { error: '--write requires --from <file>' };
@@ -102,6 +174,8 @@ if (require.main === module) {
       console.error(e.message);
       process.exit(1);
     }
+  } else if (parsed.mode === 'adoption') {
+    console.log(formatAdoptionReport(adoptionReport({ root: process.cwd(), days: parsed.days, project: parsed.project })));
   } else {
     const g = gather(process.cwd());
     console.log(`${g.detection.language} (${g.detection.packageManager}) — ${g.files.length} file(s)${g.truncated ? ', truncated' : ''}`);
