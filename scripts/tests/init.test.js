@@ -291,8 +291,10 @@ const { renderFrontendSection } = require('../lib/project-templates');
   t('fe-render: heading present', () => assert(/##\s*Frontend/.test(md)));
   t('fe-render: stack line names framework + meta', () => assert(md.includes('React (Next.js)')));
   t('fe-render: stack notes TypeScript + Tailwind', () => assert(md.includes('TypeScript') && md.includes('Tailwind')));
-  t('fe-render: TS "any" convention present', () => assert(/any/.test(md)));
-  t('fe-render: React key convention present', () => assert(/key/i.test(md)));
+  t('fe-render: facts-only — stack line present, no generic guideline bullets', () => {
+    assert(md.includes('- Stack: React (Next.js)'));
+    assert(!/Stack guidelines/.test(md) && !/one component per file/i.test(md) && !/avoid `any`/.test(md));
+  });
   t('fe-render: null frontend → empty string', () => assert.strictEqual(renderFrontendSection(null), ''));
 
   const baseD = { language: 'TypeScript', runtime: 'Node.js', projectName: 'w', packageManager: 'npm', monorepo: false, structure: ['src'], commands: { dev: 'npm run dev', build: null, test: null, lint: null } };

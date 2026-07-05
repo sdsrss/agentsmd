@@ -2,7 +2,11 @@
 # convention-cite-scan.sh — Stop. Adoption-telemetry counterpart to
 # transcript-structure-scan.sh: scans the last assistant message for citations
 # of `@conv-<dim>` anchors that `analyze.js --write` stamped into this
-# project's AGENTS.md conventions block (scripts/lib/conventions-taxonomy.js
+# project's AGENTS.md conventions block. The citation convention is a single
+# trailing `<!-- adopted-conventions: … -->` HTML comment (so the signal never
+# intrudes on the user's prose); the grep below is position-independent and
+# finds the `@conv-<slug>` tokens wherever in the message they sit. (Taxonomy:
+# scripts/lib/conventions-taxonomy.js
 # is the taxonomy source — this hook never imports it: L1 must not import L2,
 # so it reads whichever `@conv-<slug>` tokens are LITERALLY present in
 # $CWD/AGENTS.md instead; the file on disk is the ground truth, not the

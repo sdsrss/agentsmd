@@ -3,6 +3,17 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.11.0 — 2026-07-05 — quieter convention telemetry + facts-only frontend section
+
+Two refinements to user-visible behaviors shipped in v2.8.0 / v2.9.0, from a cross-project review of the project-layer feature set. Both change what the plugin writes into a project's `AGENTS.md`; neither touches a spec rule or a CLI contract. Revert by pinning `npm i -g @sdsrs/agentsmd@2.10.0`.
+
+### Changed
+- **Convention-adoption citations move out of user-visible prose.** The citation instruction that `agentsmd analyze --write` writes into a project's `AGENTS.md` now directs a single trailing `<!-- adopted-conventions: @conv-<dim> … -->` HTML comment on the last line of a message, instead of inline `(@conv-x)` in the prose the user reads — the adoption signal no longer intrudes on the answer. The `convention-cite-scan` Stop hook is unchanged (its `@conv-<slug>` scan is position-independent). The written notice references anchors only via the inert `@conv-<dim>` placeholder — a real slug there would be extracted off disk as a phantom known-anchor and a false prune candidate.
+- **`agentsmd init` frontend section trimmed to stack facts.** The generated `## Frontend` block now carries only the detected stack line (e.g. `- Stack: React (Next.js) · TypeScript · UI: Tailwind`); the generic per-stack best-practice bullets — model-known boilerplate that taxed every turn's discovery-chain context without being specific to the project — are removed. `--no-frontend` still suppresses the whole section.
+
+### Internal
+- `spec/OPERATOR.md` §O8 documents the convention-adoption review cadence (never prune off an `insufficient-exposure` window; prune on the negative only) with an honest ship-day baseline (0 cites recorded). No core or extended rule text changed; the shared spec version moves in lockstep.
+
 ## v2.10.0 — 2026-07-05 — secret-scan gate, governance exposure model, safety + telemetry-integrity fixes
 
 The largest enforcement + governance batch since the closed loop landed. **User-visible default change (per the released-artifact rule): a new blocking hook `secrets-scan` gates `git commit`** — if the staged diff ADDS a line matching a high-confidence secret shape (AWS / GitHub / Slack / Google / Stripe keys, private-key headers), the commit is blocked (§8, immutable). Prefix-anchored patterns keep false positives low; bypass a documented example with `[allow-secret]`. This takes the hook count 11 → 12. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.9.0`.

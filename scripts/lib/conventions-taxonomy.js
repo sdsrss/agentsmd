@@ -25,7 +25,13 @@ const DIMENSIONS = [
 // One-line notice analyze.js prepends to every written conventions block —
 // deterministic, not AI-authored, so it can never drift or go missing on a
 // re-run the way AI-authored prose could.
-const CONVENTIONS_CITE_NOTICE = 'When you apply one of the conventions below, cite its `@conv-<dim>` anchor in your output — that citation is this project\'s only adoption signal (see `agentsmd analyze --adoption`); uncited dimensions decay toward a prune candidate.';
+// NB: the example below uses the `@conv-<dim>` PLACEHOLDER, never a real slug —
+// this notice is written verbatim into AGENTS.md, and both convention-cite-scan.sh
+// and analyze.js `anchorsInAgentsMd` extract every literal `@conv-<slug>` token on
+// disk. A real slug here (`@conv-naming`) would register as a phantom known anchor
+// and a false prune candidate. `@conv-<dim>` is inert: `<` ∉ `[a-z-]`, so the
+// extractor never matches it.
+const CONVENTIONS_CITE_NOTICE = 'When you apply a convention below, record its `@conv-<dim>` anchor in ONE HTML comment on the last line of your message — e.g. `<!-- adopted-conventions: @conv-<dim> … -->` — never inline in the prose the user reads. That comment is this project\'s only adoption signal (see `agentsmd analyze --adoption`); uncited dimensions decay toward a prune candidate.';
 
 // Normalize a heading's TITLE TEXT for alias lookup: strip ATX `#` marks and
 // inline markdown emphasis/code marks, collapse whitespace, lowercase.

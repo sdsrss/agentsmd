@@ -35,33 +35,13 @@ function renderProjectAgentsMd(d, opts = {}) {
   return L.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-const FE_FRAMEWORK_RULES = {
-  React: [
-    'One component per file; PascalCase filenames matching the component.',
-    'Custom hooks start with `use` and obey the rules of hooks.',
-    'Give every list item a stable, unique `key` — never the array index.',
-  ],
-  Vue: [
-    'One SFC per component; prefer `<script setup>`.',
-    'Type `props` and `emits`; avoid untyped passthrough.',
-  ],
-  Svelte: ['One component per `.svelte` file; keep logic in `<script>`, markup declarative.'],
-  Angular: ['One class per file; follow style-guide suffixes (`.component.ts`, `.service.ts`).'],
-  Solid: ["Don't destructure props (breaks reactivity); read via `props.x`."],
-  Preact: ['Give list items stable keys; use `preact/compat` only when a library needs React.'],
-  Astro: ['Prefer `.astro` components for static content; add a framework integration only where you need client-side interactivity.'],
-};
-const FE_UILIB_RULES = {
-  Tailwind: ['Prefer utility classes; reserve custom CSS for what utilities cannot express.'],
-  'styled-components': ['Colocate styles with the component; theme via provider, no hardcoded colors.'],
-  Emotion: ['Colocate styles with the component; theme via provider, no hardcoded colors.'],
-  MUI: ['Theme via `ThemeProvider`; use theme tokens, not ad-hoc color literals.'],
-  Chakra: ['Style via props/theme tokens; extend the theme rather than hardcoding hex.'],
-};
-
-// Render the ## Frontend managed-block CONTENT from a detection's `frontend` object.
-// Deterministic facts (stack line) + a short curated per-stack guideline list
-// (agentsmd-owned, regenerated each run). Returns '' when there is no frontend.
+// Render the ## Frontend managed-block CONTENT from a detection's `frontend`
+// object: deterministic STACK FACTS only (framework / meta-framework / UI libs /
+// CSS strategy / TS). No generic per-stack best-practice bullets — those are
+// model-known boilerplate that taxes every turn's context (discovery-chain
+// budget, OPERATOR.md §O3) without being specific to THIS project. A project
+// that wants stack reminders adds them by hand OUTSIDE the managed block.
+// Returns '' when there is no frontend.
 function renderFrontendSection(frontend) {
   if (!frontend) return '';
   const { framework, metaFramework, uiLibs = [], cssStrategy, typescript } = frontend;
@@ -70,19 +50,7 @@ function renderFrontendSection(frontend) {
   if (typescript) stack.push('TypeScript');
   if (uiLibs.length) stack.push(`UI: ${uiLibs.join(', ')}`);
   if (cssStrategy && cssStrategy !== 'plain') stack.push(`CSS: ${cssStrategy}`);
-
-  const L = ['## Frontend', '', `- Stack: ${stack.join(' · ')}`, ''];
-  L.push('Stack guidelines (agentsmd-owned; edit outside the managed block to customize):');
-  if (typescript) L.push('- Type everything — avoid `any`; prefer `unknown` + narrowing at boundaries.');
-  for (const r of (FE_FRAMEWORK_RULES[framework] || [])) L.push(`- ${r}`);
-  const seen = new Set();
-  for (const lib of uiLibs) {
-    for (const r of (FE_UILIB_RULES[lib] || [])) { if (!seen.has(r)) { seen.add(r); L.push(`- ${r}`); } }
-  }
-  if (framework === 'React' && cssStrategy && cssStrategy !== 'plain' && !uiLibs.includes('Tailwind')) {
-    L.push('- Avoid inline `style={{}}` when a styling system is in use.');
-  }
-  return L.join('\n');
+  return ['## Frontend', '', `- Stack: ${stack.join(' · ')}`].join('\n');
 }
 
 // The conventions block is agent-owned (filled by `agentsmd-analyze`), so it is a

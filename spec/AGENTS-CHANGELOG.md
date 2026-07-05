@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.11.0 (2026-07-05) — quieter convention citations + facts-only frontend section (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with two package refinements to what the plugin writes into a project's `AGENTS.md`: the convention-adoption citation instruction now directs a trailing `<!-- adopted-conventions: … -->` HTML comment instead of inline prose (the signal stops intruding on the user's answer; the `convention-cite-scan` hook is untouched), and `agentsmd init`'s `## Frontend` section is trimmed to the detected stack line (the generic per-stack guideline bullets, model-known boilerplate, are dropped). `OPERATOR.md` §O8 adds the convention-adoption review cadence. `spec_version` → v2.11.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.10.0 (2026-07-05) — secret-scan enforcement + governance exposure model (no core rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a package enforcement/governance batch. The pre-existing §8 rule "plaintext secrets in code/logs/commits" goes from self-enforced to hook-enforced (a new `secrets-scan` PreToolUse hook — `§8-secrets` added to `hard-rules.json` `live_sections`), and the promote/demote governance gains an exposure/deterrence model (`demote_policy` field on the immutable §8 rules; `MIN_EXPOSURE_SESSIONS` gate in `rules.js`). `OPERATOR.md` documents the Codex-only measurement boundary and the `@conv-*` citation-vs-adherence caveat. The `spec/AGENTS-extended.md` header, which had silently lagged since v2.4.0, is re-synced — the drift test now asserts both core and extended headers. `spec_version` → v2.10.0. Detail: repo `CHANGELOG.md`.

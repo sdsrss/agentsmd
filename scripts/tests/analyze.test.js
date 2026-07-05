@@ -120,7 +120,7 @@ withProject({ 'package.json': JSON.stringify({ name: 'wdim' }) }, (dir) => {
   writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase for variables\n\n### Error handling\n- wrap awaits in try/catch\n');
   const body = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('write: stamps anchors on recognized dimension headings', () => assert(body.includes('### Naming (@conv-naming)') && body.includes('### Error handling (@conv-error-handling)')));
-  t('write: includes the citation-instruction notice', () => assert(body.includes('@conv-<dim>')));
+  t('write: citation notice directs a trailing HTML comment, not inline prose', () => assert(body.includes('@conv-<dim>') && body.includes('HTML comment') && body.includes('<!-- adopted-conventions:')));
   t('write: repeated writeConventions on the same input is byte-stable', () => {
     const a = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
     writeConventions(dir, '## Conventions\n\n### Naming\n- camelCase for variables\n\n### Error handling\n- wrap awaits in try/catch\n');
