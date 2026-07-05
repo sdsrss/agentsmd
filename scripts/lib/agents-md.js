@@ -11,6 +11,12 @@ const PROJECT_BEGIN = '# >>> agentsmd:project >>>';
 const PROJECT_END = '# <<< agentsmd:project <<<';
 const CONVENTIONS_BEGIN = '# >>> agentsmd:conventions >>>';
 const CONVENTIONS_END = '# <<< agentsmd:conventions <<<';
+// DESIGN.md managed block + the AGENTS.md pointer to it (D1). HTML-comment
+// sentinels — invisible in rendered markdown, unlike the `# >>>` H1-style markers.
+const DESIGN_BEGIN = '<!-- agentsmd:design BEGIN -->';
+const DESIGN_END = '<!-- agentsmd:design END -->';
+const DESIGN_POINTER_BEGIN = '<!-- agentsmd:design-pointer BEGIN -->';
+const DESIGN_POINTER_END = '<!-- agentsmd:design-pointer END -->';
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const blockRe = (begin, end) => new RegExp(`\\n*${esc(begin)}[\\s\\S]*?${esc(end)}\\n*`);
 const BLOCK_RE = blockRe(BEGIN, END);
@@ -51,4 +57,4 @@ function hasBlockBetween(input, begin, end) {
   return blockRe(begin, end).test(typeof input === 'string' ? input : '');
 }
 
-module.exports = { BEGIN, END, PROJECT_BEGIN, PROJECT_END, CONVENTIONS_BEGIN, CONVENTIONS_END, injectSpecBlock, injectBlockBetween, removeSpecBlock, removeBlockBetween, hasSpecBlock, hasBlockBetween };
+module.exports = { BEGIN, END, PROJECT_BEGIN, PROJECT_END, CONVENTIONS_BEGIN, CONVENTIONS_END, DESIGN_BEGIN, DESIGN_END, DESIGN_POINTER_BEGIN, DESIGN_POINTER_END, injectSpecBlock, injectBlockBetween, removeSpecBlock, removeBlockBetween, hasSpecBlock, hasBlockBetween };

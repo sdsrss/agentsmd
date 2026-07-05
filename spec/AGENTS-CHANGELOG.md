@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.15.0 (2026-07-06) — design-adopt capability (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a package feature — `agentsmd design` extracts a frontend project's design tokens (CSS `:root` custom properties + Tailwind v4 `@theme`) into a facts-only, sentinel-managed `DESIGN.md` + an `AGENTS.md` pointer. Deterministic, command-only, consent-gated (preview unless `--write`), stateless. Realizes the long-deferred `detect.js:6` "Phase 2" module. A package/tooling feature, not a spec-rule change. No new hooks (count stays 15), no `live_sections`/manifest change. `spec_version` → v2.15.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.14.0 (2026-07-06) — dev-ergonomics tooling batch (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a package dev-ergonomics batch (Workstream E) — measured hook-latency (`perf-baseline`), a free-text version-drift gate (`version-cascade`), a hook single-source-of-truth registry backing `status`/`doctor`, a review-cadence `staleReviews` signal in `rules.js`, and an argv-antipattern gate (`lint-argv`) + a shared `argv.js` parser. No new hooks (count stays 15), no `live_sections` change, no manifest rule added. `spec_version` → v2.14.0. Detail: repo `CHANGELOG.md`.

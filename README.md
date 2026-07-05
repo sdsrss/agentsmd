@@ -311,6 +311,17 @@ node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption --days
 
 A dimension with zero cites over the window is flagged a prune candidate — advisory only; nothing is deleted automatically, a human decides whether to drop it from `AGENTS.md`. This is the per-project mirror of the global `audit`/`rules` promote/demote loop above, kept intentionally separate: `@conv-*` measures **adoption** of a project's own conventions, `§*` measures **enforcement** of the global spec.
 
+## Capture design tokens
+
+For a frontend project, `agentsmd design` extracts the design tokens — CSS `:root` custom properties and Tailwind v4 `@theme` — into a **facts-only `DESIGN.md`** (a sentinel-managed block) plus a one-line pointer in `AGENTS.md`'s `## Frontend`. It keeps `AGENTS.md` lean (the pointer, not the tokens); the agent reads `DESIGN.md` on demand.
+
+```bash
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/design.js"           # preview — writes nothing
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/design.js" --write   # commit DESIGN.md + the pointer
+```
+
+It's deterministic (tokens are facts — no AI step, unlike `analyze`), command-only, and consent-gated (previews by default). Tokens are grouped by category (colors / spacing / typography / radii / shadows / …); the managed block is budget-guarded (refuses, never truncates). A non-frontend project is a no-op; a Tailwind v3 project whose theme lives in `tailwind.config.js` gets an honest note pointing there (config-object parsing is a future extension).
+
 ## Develop
 
 ```bash

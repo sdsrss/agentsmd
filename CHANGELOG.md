@@ -3,6 +3,17 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.15.0 — 2026-07-06 — design-adopt: extract a project's design tokens into a facts-only DESIGN.md
+
+New capability (Workstream D — the last roadmap item). `agentsmd design` parses a frontend project's design tokens — CSS `:root` custom properties + Tailwind v4 `@theme` — into a facts-only, sentinel-managed `DESIGN.md`, plus a one-line pointer in `AGENTS.md`'s `## Frontend`. Deterministic (tokens are facts — no AI step), command-only, consent-gated (previews by default; `--write` commits), stateless. Realizes the "Phase 2" module `detect.js:6` has flagged since the project began. Revert by pinning `npm i -g @sdsrs/agentsmd@2.14.0`.
+
+### Added
+- **`agentsmd design`**: `detectFrontend` → parse `:root`/`@theme` custom properties → group by category (colors / spacing / typography / radii / shadows / z-index / breakpoints / other) → write a facts-only `DESIGN.md` managed block + an `AGENTS.md` pointer. Default previews (writes nothing); `--write` commits. Keeps `AGENTS.md` lean (a one-line pointer, not the tokens); the agent reads `DESIGN.md` on demand. Budget-guarded (refuses, never truncates, past the block cap). Non-frontend project → no-op; no tokens found → an honest note (Tailwind v3? its theme is in `tailwind.config.js`, not yet parsed). Runs against the current project directory, like `init` / `analyze`.
+- **`scripts/lib/design-tokens.js`**: the deterministic parser — ignore-aware capped `.css` scan, brace-matched `:root`/`@theme` block extraction, `--name: value` declarations, name-prefix + value-sniff categorization, last-definition-wins dedupe. No JS eval (a Tailwind v3 config-object theme is a documented non-goal).
+
+### Internal
+- New suites: `design-tokens` (7), `design` (9, incl. preview-writes-nothing, idempotent re-run preserving user content, budget refusal, non-frontend no-op). `agents-md.js` gains DESIGN + design-pointer sentinel constants; new skill `agentsmd-design`. No new hooks (count stays 15), no spec rule-text change, no `hard-rules.json` rule added. All additive, no breaking changes.
+
 ## v2.14.0 — 2026-07-06 — dev-ergonomics batch: measured hook latency, a free-text version gate, a hook single-source-of-truth, a review-cadence signal, and an argv-antipattern gate
 
 Dev-ergonomics / tooling batch (Workstream E). **No new hooks, no spec rule-text change, no user-visible default behavior change** — the hook count stays 15 and nothing new blocks or surfaces. Five additive operator/CI tools + one governance signal, all read-only. Revert by pinning `npm i -g @sdsrs/agentsmd@2.13.0`.

@@ -133,7 +133,7 @@ t('agentsmd --version prints the package version', () => {
 
 t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
   const out = cli(['--help'], { CODEX_HOME: dir });
-  for (const c of ['init', 'analyze', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
+  for (const c of ['init', 'analyze', 'design', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
   assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
