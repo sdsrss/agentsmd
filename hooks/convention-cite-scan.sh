@@ -77,9 +77,14 @@ process.stdout.write(texts[texts.length-1]);
 ' "$TRANSCRIPT" 2>/dev/null)"
 [[ -n "$LAST" ]] || exit 0
 
+# Exact @conv-<slug> tokens actually cited in the last message (token-level, not
+# substring — so @conv-error-handling-async does NOT count as citing
+# @conv-error-handling). Record only KNOWN anchors that were cited as whole tokens.
+CITED="$(printf '%s' "$LAST" | grep -oE '@conv-[a-z-]+' | sort -u)"
+[[ -n "$CITED" ]] || exit 0
 while IFS= read -r anchor; do
   [[ -z "$anchor" ]] && continue
-  if printf '%s' "$LAST" | grep -qF -- "$anchor"; then
+  if printf '%s\n' "$CITED" | grep -qxF -- "$anchor"; then
     hook_record "$HOOK" "cite" "$(jq -cn --arg a "$anchor" '{anchor:$a}' 2>/dev/null || echo null)" "$anchor" "$SID"
   fi
 done <<< "$KNOWN"

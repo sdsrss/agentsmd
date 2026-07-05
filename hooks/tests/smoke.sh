@@ -160,6 +160,12 @@ OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$SANDBOX/does-not-exist.jsonl
 NEW="$(clog_new "$BEFORE")"
 { is_empty "$OUT" && printf '%s\n' "$NEW" | grep -q '"event":"fail-open".*"reason":"no-transcript"'; } && ok "missing transcript → fail-open" || bad "missing transcript → fail-open" "out=[$OUT] new=[$NEW]"
 
+BEFORE="$(clog_count)"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Applied fix per @conv-error-handling-async (invented, prefixes a known anchor)."}]}}' > "$CONVTR"
+OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
+NEW="$(clog_new "$BEFORE")"
+{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "invented anchor that PREFIXES a known one → no cite row" || bad "invented anchor that PREFIXES a known one → no cite row" "out=[$OUT] new=[$NEW]"
+
 echo "== surface-advisories.sh (UserPromptSubmit → surface + clear) =="
 UPS="$(jq -cn '{prompt:"next task",session_id:"smoke1",hook_event_name:"UserPromptSubmit"}')"
 printf '%s\n' "[agentsmd §9] queued advisory" > "$PENDING"
