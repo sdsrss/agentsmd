@@ -1,6 +1,6 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "description": "A global coding-discipline spec for Codex, enforced by native Codex hooks + a rule-hit telemetry closed loop. Independent of oh-my-codex.",
   "homepage": "https://github.com/sdsrss/agentsmd#readme",
   "bugs": "https://github.com/sdsrss/agentsmd/issues",
@@ -14,7 +14,7 @@
     "agentsmd": "bin/agentsmd.js"
   },
   "scripts": {
-    "test": "node scripts/tests/init.test.js && node scripts/tests/analyze.test.js && node scripts/tests/install.test.js && node scripts/tests/audit.test.js && node scripts/tests/sampling-audit.test.js && node scripts/tests/lesson-bypass-audit.test.js && node scripts/tests/sparkline.test.js && node scripts/tests/drift.test.js && node scripts/tests/distribution.test.js && bash hooks/tests/smoke.sh",
+    "test": "node scripts/tests/init.test.js && node scripts/tests/analyze.test.js && node scripts/tests/install.test.js && node scripts/tests/backup.test.js && node scripts/tests/audit.test.js && node scripts/tests/sampling-audit.test.js && node scripts/tests/lesson-bypass-audit.test.js && node scripts/tests/sparkline.test.js && node scripts/tests/drift.test.js && node scripts/tests/safety-coverage.test.js && node scripts/tests/distribution.test.js && bash hooks/tests/smoke.sh",
     "spec:install": "node scripts/install.js",
     "spec:update": "node scripts/install.js",
     "spec:uninstall": "node scripts/uninstall.js",

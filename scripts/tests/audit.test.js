@@ -337,7 +337,16 @@ try {
     const r = ra.rules.find((x) => x.id === '§10-four-section-order');
     assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal));
   });
-  t('rules: self-enforced Iron Law #2 labeled self-enforced (never a demote-candidate)', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-2'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
+  // Iron Law #2 gained a Stop observer (roadmap C4) so it is now enforcement 'both' +
+  // live, but demote_policy 'deterrence' keeps it out of demote-candidates: 0 hits means
+  // no unanchored fix claim arose (discipline working), not dilution — a foundational
+  // Iron Law stays core regardless of hit count.
+  t('rules: Iron Law #2 live via C4 observer = deterrence-ok, never a demote-candidate', () => {
+    const r = ra.rules.find((x) => x.id === '§6-iron-law-2');
+    assert(r && r.signal === 'deterrence-ok', 'got ' + (r && r.signal));
+    assert(!ra.demoteCandidates.some((x) => x.id === '§6-iron-law-2'), 'a foundational Iron Law must never be a demote-candidate');
+  });
+  t('rules: a still-self-enforced Iron Law (#1) is labeled self-enforced', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-1'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
   t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
   // Thin window: telemetry present but < MIN_EXPOSURE_SESSIONS distinct sessions →
   // a 0-hit live rule reads 'insufficient-exposure' (can't judge dilution yet), and

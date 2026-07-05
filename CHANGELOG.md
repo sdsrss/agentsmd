@@ -3,6 +3,23 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.13.0 — 2026-07-06 — self-healing + coverage batch: rollback backups, a doc-vs-code gap gate, a cross-session summary banner, and two honesty observers
+
+Continues the observability / self-healing arc of v2.12.0. **User-visible default change (per the released-artifact rule): a new fail-open Stop hook `session-summary`, taking the hook count 14 → 15**, plus two new detections in the existing `transcript-structure-scan` Stop hook. Nothing new blocks; all surface a queued advisory only when actionable. `install` now also takes a rollback snapshot of the three shared files before merging. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.12.0`.
+
+### Added
+- **`session-summary` hook** (Stop) + SessionStart banner: aggregates a session's enforcement telemetry (denials / bypasses / most-active spec section) from the log tail into a per-session file; the next session surfaces the most-recent OTHER session's summary once as a one-line self-awareness banner, then deletes it. Windowed (O(1)/Stop) + atomic per-session write; agent-facing `additionalContext`, zero user action. Hook count 14 → 15.
+- **Two honesty observers in `transcript-structure-scan`** (Stop): (1) an **iron-law-2 evidence-fingerprint** — a completed-fix claim (fixed / resolved) with no evidence anchor anywhere (test count / `file:line` / exit code / commit hash / failing-state token) records under `§6-iron-law-2`; (2) an **uncertain-hedge** check — an Uncertain section that hedges (may / could / might) without a "because" records under `§10-honesty`. Both queue an advisory; each spec section gets its own telemetry row. This moves `§6-iron-law-2` and `§10-honesty` from self-enforced to hook-observed (`live_sections`; `demote_policy: deterrence` — a foundational rule stays core regardless of hit count).
+- **`agentsmd safety-coverage-audit`**: static "does the hook IMPLEMENT what its header CLAIMS" gap detector — arrow-claim sweep (a multi-clause `→` claim with an unimplemented clause), manifest cross-ref (a live rule no hook emits), bypass-token coverage (a documented `[allow-*]` with no code guard), and orphan emission (a `§`-section a hook emits that no rule declares). Exit 3 on any gap; wired into `npm test` as a coherence gate.
+- **`agentsmd restore` + pre-install backups**: `install` now snapshots the three shared multi-tenant files (`hooks.json` / `config.toml` / `AGENTS.md`) before merging — rotated (keep 5), in agentsmd's own state dir. `restore` rolls them back (dry-run by default, `--confirm` writes); it overwrites only files present at backup time and never deletes one absent then (`uninstall` stays the marker-scoped remover for agentsmd's own entries).
+- **`§9-parallel-path` manifest rule** (self-enforced): the §9 parallel-path completeness rule (enumerate + verify every branch), already live prose in core §9, is now a first-class governed `hard-rules.json` entry.
+
+### Changed
+- **`install` records a `backup` id** in its manifest and snapshots the shared files before any mutation — atomic-write already made a merge crash-safe; this makes it reversible if a merge is logically wrong. Best-effort: a backup failure never blocks the install.
+
+### Internal
+- Hook count 14 → 15; new suites `safety-coverage` (11, incl. a synthetic-broken-tree teeth check) + `backup` (8, round-trip + rotation); smoke 94 → 102. `hard-rules.json` 31 → 32 rules; `live_sections` +2 (`§6-iron-law-2`, `§10-honesty`); `_demote_policy_doc` broadened to cover foundational core observers alongside immutable §8. `session-start-check` GC sweeps `session-summary-*.json`. All additive, no breaking changes.
+
 ## v2.12.0 — 2026-07-06 — observability + self-healing batch: two Stop-hook safety nets, three telemetry CLIs, and the mid-SPINE turn-yield rule
 
 The largest governance/observability batch since the closed loop landed — it makes the previously-invisible measurable (self-enforced rules, memory follow-through, rule-usage trend) and adds two quiet self-healing Stop hooks. **User-visible default change (per the released-artifact rule): two new fail-open Stop hooks, taking the hook count 12 → 14.** Neither blocks; both surface a queued advisory only when genuinely actionable. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.11.0`.

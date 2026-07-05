@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.12.0",
+  "spec_version": "v2.13.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -8,8 +8,8 @@
   "codex_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
   "_live_sections_doc": "spec_section values currently EMITTED by a built+registered hook. scripts/rules.js only treats a hook-enforced rule as a demote-candidate when its section is live (0 hits on a live section = dilution); a hook-enforced rule whose section is NOT live is 'hook-planned' (its hook is not built yet, so 0 hits is expected, not dilution). Update this array in the same commit a hook starts/stops emitting a section.",
-  "_demote_policy_doc": "Optional per-rule governance policy (scripts/rules.js). Absent/'standard' = a live 0-hit rule with sufficient exposure is a core→extended demote-candidate. 'deterrence' = an immutable §8 SAFETY hook whose 0 hits mean the hazard never arose (deterrence working), NOT dilution — never flagged for demotion (consistent with §8 being immutable). Scope also matters independently: a hook rule already scoped 'extended' with 0 hits is 'hook-value-review' (nowhere to demote to), not 'demote-candidate'.",
-  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene"],
+  "_demote_policy_doc": "Optional per-rule governance policy (scripts/rules.js). Absent/'standard' = a live 0-hit rule with sufficient exposure is a core→extended demote-candidate. 'deterrence' = a rule whose 0 hits mean the hazard/violation never arose (the discipline is working), NOT dilution — never flagged for demotion. Applies to immutable §8 SAFETY hooks AND to foundational core self-discipline observers (Iron Law #2, §10 Honesty) that stay core on principle regardless of hit count; §7 session-hygiene observers (session-exit, memory-hygiene) stay 'standard' because they are genuinely demotable elaborations. Scope also matters independently: a hook rule already scoped 'extended' with 0 hits is 'hook-value-review' (nowhere to demote to), not 'demote-candidate'.",
+  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene", "§6-iron-law-2", "§10-honesty"],
   "rules": [
     {
       "id": "§8-rm-rf-var",
@@ -124,13 +124,14 @@
       "name": "Iron Law #2: no done without fresh evidence",
       "scope": "core",
       "section_anchor": "NO DONE WITHOUT FRESH EVIDENCE",
-      "enforcement": "self",
-      "codex_hook_event": null,
-      "rule_hits_section": null,
+      "enforcement": "both",
+      "codex_hook_event": "Stop",
+      "rule_hits_section": "§6-iron-law-2",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Never deferrable (not even under EMERGENCY). Partially observable via Stop transcript-structure scan (evidence-anchor presence)."
+      "note": "Never deferrable (not even under EMERGENCY), and never demotable — a foundational Iron Law stays core regardless of hit count (demote_policy 'deterrence': 0 hits = no unanchored claim arose, not dilution). transcript-structure-scan.sh (Stop) realizes the 'evidence-anchor presence' observer: a completed-fix claim (fixed / resolved / 修复 / 解决了) with NO evidence fingerprint anywhere (test count / file:line / exit code / commit hash / failing-state token / inline `code`) records under §6-iron-law-2 + queues an advisory. Complements §10-V banned-vocab (which fires on the PRESENCE of a bad phrasing) by catching the ABSENCE of any anchor behind a fix claim; the general 'done without evidence' case the heuristic can't see stays self-enforced."
     },
     {
       "id": "§6-iron-law-3",
@@ -251,12 +252,14 @@
       "name": "Honesty rules (yes/no first, no evaluative framing, no hedging)",
       "scope": "core",
       "section_anchor": "**Honesty (HARD)**",
-      "enforcement": "self",
-      "codex_hook_event": null,
-      "rule_hits_section": null,
+      "enforcement": "both",
+      "codex_hook_event": "Stop",
+      "rule_hits_section": "§10-honesty",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": null
+      "last_demote_review": null,
+      "note": "transcript-structure-scan.sh (Stop) observes the hedging clause: an Uncertain section that hedges (may / could / might / 可能 / 或许) without a because / 因为 / 由于 justification records under §10-honesty + queues an advisory. Scoped to the Uncertain-section tail so legitimate hedges elsewhere don't trip it. The yes/no-first and no-evaluative-framing clauses stay self-enforced. Foundational honesty rule — never demotable (demote_policy 'deterrence': 0 hits = no hedge arose, not dilution)."
     },
     {
       "id": "§10-specificity",
@@ -345,6 +348,19 @@
       "confidence": "medium",
       "last_demote_review": null,
       "note": "Stop residue-audit advisory on ~/.codex/tmp growth; the git-status sweep is self-enforced."
+    },
+    {
+      "id": "§9-parallel-path",
+      "name": "Parallel-path completeness (L2+) — enumerate + verify every branch",
+      "scope": "core",
+      "section_anchor": "enumerate every path before edit, verify each after",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v2.13.0",
+      "confidence": "high",
+      "last_demote_review": null,
+      "note": "§9 Beyond-green-tests parallel-path rule (fallback / feature flag / default match arm / early return / multi-dispatch): enumerate every branch before edit, verify each after; main-path green + silent siblings is not evidence. Self-enforced — 'did you check every branch' has no reliable bash-hook detector (semantic, needs code understanding); the manifest entry makes it a first-class governed rule (rules.js review cadence) instead of un-tracked prose. The rule text already lived in AGENTS.md §9; C2 adds a manifest row, no spec prose."
     },
     {
       "id": "§E2-phase-gate",

@@ -86,6 +86,32 @@ if [[ -n "$P_DONE" && "$MARKERS" -ge 2 ]]; then
   (( bad == 1 )) && ISSUES="${ISSUES}four-section-order "
 fi
 
+# (c) iron-law-2 evidence anchor (§6 bugfix-anchor / Iron Law #2): a completed-fix
+# claim ("fixed"/"resolved"/修复/解决了) with NO evidence fingerprint anywhere in the
+# message — no failing-state token, test count, file:line, exit code, commit hash, or
+# inline `code`. Complements banned-vocab (which fires on the PRESENCE of a bad
+# phrasing); this fires on the ABSENCE of any anchor behind a fix claim. Deliberately
+# conservative — a single concrete token clears it, so a genuinely evidenced report
+# never trips, and it stays silent on non-fix "Done:" lines (those are §10's job).
+FIXCLAIM_RE='\b(fixed|resolved)\b|修复|解决了|已解决'
+EVID_RE='[0-9]+ ?/ ?[0-9]+|[0-9]+ (passed|failed|tests?|ok|assertions?)|\b(passed|failed)\b|exit [0-9]+|exit code|[0-9]+%|[0-9]+ ?(→|->|=>) ?[0-9]+|\.[a-z0-9_]+:[0-9]+|\b(was|were|used to|previously|regression|crash|crashed|threw|throws|traceback)\b|TypeError|Exception|Error:|\b[0-9a-f]{7,40}\b|`[^`]+`'
+if printf '%s' "$SCAN_TEXT" | grep -qiE "$FIXCLAIM_RE" \
+   && ! printf '%s' "$SCAN_TEXT" | grep -qiE "$EVID_RE"; then
+  ISSUES="${ISSUES}iron-law-2 "
+fi
+
+# (d) uncertain-hedge (§10 Honesty): the Uncertain section hedges (may/could/might/
+# 可能/或许) instead of stating "uncertain because <X>". Scoped to the Uncertain
+# section tail (byte offset P_UNC into $LAST) so legitimate hedges elsewhere don't
+# trip it; cleared by a because/因为/由于 justification in the same section.
+if [[ -n "$P_UNC" ]]; then
+  UNC_TAIL="$(printf '%s' "$LAST" | tail -c "+$((P_UNC+1))" 2>/dev/null)"
+  if printf '%s' "$UNC_TAIL" | grep -qiE '\b(may|might|could|possibly|perhaps)\b|可能|或许|也许|大概' \
+     && ! printf '%s' "$UNC_TAIL" | grep -qiE '\bbecause\b|因为|由于'; then
+    ISSUES="${ISSUES}uncertain-hedge "
+  fi
+fi
+
 [[ -n "$ISSUES" ]] || exit 0
 ISSUES="${ISSUES% }"
 # Attribute each issue class to its OWN spec section so the promote/demote ledger
@@ -100,7 +126,18 @@ if [[ "$ISSUES" == *banned-vocab:* ]]; then
 fi
 [[ "$ISSUES" == *four-section-order* ]] && \
   hook_record "$HOOK" "advisory" "$(jq -cn '{issues:"four-section-order"}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
-hook_queue_advisory \
-  "[agentsmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain." \
-  "$SID"
+[[ "$ISSUES" == *iron-law-2* ]] && \
+  hook_record "$HOOK" "advisory" "$(jq -cn '{issues:"iron-law-2"}' 2>/dev/null || echo null)" '§6-iron-law-2' "$SID"
+[[ "$ISSUES" == *uncertain-hedge* ]] && \
+  hook_record "$HOOK" "advisory" "$(jq -cn '{issues:"uncertain-hedge"}' 2>/dev/null || echo null)" '§10-honesty' "$SID"
+# One composed advisory carrying only the clauses whose issue actually fired (each
+# spec section already got its own telemetry row above).
+ADV="[agentsmd spec] Last report may violate: ${ISSUES}."
+[[ "$ISSUES" == *banned-vocab:* || "$ISSUES" == *four-section-order* ]] && \
+  ADV="$ADV §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain."
+[[ "$ISSUES" == *iron-law-2* ]] && \
+  ADV="$ADV Iron Law #2: a fix/done claim needs a fresh-evidence anchor (failing-state token + test name / number / file:line), not a bare assertion."
+[[ "$ISSUES" == *uncertain-hedge* ]] && \
+  ADV="$ADV §10 Honesty: write 'uncertain because <X>', not may/could/might hedging."
+hook_queue_advisory "$ADV" "$SID"
 exit 0

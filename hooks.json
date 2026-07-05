@@ -37,7 +37,8 @@
           { "type": "command", "command": "bash \"./hooks/transcript-structure-scan.sh\"", "timeout": 5 },
           { "type": "command", "command": "bash \"./hooks/convention-cite-scan.sh\"", "timeout": 5 },
           { "type": "command", "command": "bash \"./hooks/session-exit-checkpoint.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"./hooks/mem-audit.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"./hooks/mem-audit.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"./hooks/session-summary.sh\"", "timeout": 5 }
         ]
       }
     ]

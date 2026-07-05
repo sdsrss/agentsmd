@@ -27,7 +27,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>
 # deep config-dir traversal). Baselines + advisory queues are session-scoped, so a
 # session that ended without a final UserPromptSubmit would otherwise orphan its
 # files forever. 7-day floor keeps any resumable session's files safe.
-find "$STATE_DIR" -maxdepth 1 -type f \( -name 'pending-advisories-*' -o -name 'session-start-*.ref' -o -name 'tmp-baseline-*.txt' -o -name 'unvalidated-*.flag' -o -name 'mem-audit-*.stamp' \) -mtime +7 -delete 2>/dev/null || true
+find "$STATE_DIR" -maxdepth 1 -type f \( -name 'pending-advisories-*' -o -name 'session-start-*.ref' -o -name 'tmp-baseline-*.txt' -o -name 'unvalidated-*.flag' -o -name 'mem-audit-*.stamp' -o -name 'session-summary-*.json' \) -mtime +7 -delete 2>/dev/null || true
 # Drop advisories queued by a PREVIOUS session's Stop hooks — but ONLY on a fresh
 # start, never on `resume` (a resumed session continues, so a queued advisory from
 # its last turn must survive to be surfaced at the next UserPromptSubmit).
@@ -70,7 +70,36 @@ if [[ "$CP_FOUND" -gt 0 ]]; then
   CHECKPOINT=$'\n'"[agentsmd §7] A prior session left edits unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/commit ran after the last apply_patch). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
 
+# B2 cross-session self-awareness: surface the most-recent OTHER session's summary
+# (session-summary.sh writes one per session that had enforcement activity) once,
+# then delete every consumed summary. Same channel as CHECKPOINT — agent-facing
+# additionalContext, folded into the single banner below. Self is excluded by key.
+SUMMARY_BANNER=""
+SELF_SUMMARY="session-summary-$SKEY.json"
+LATEST=""; LATEST_MT=0
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  [[ "$(basename "$f")" == "$SELF_SUMMARY" ]] && continue
+  mt="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)"
+  [[ "$mt" -gt "$LATEST_MT" ]] && { LATEST_MT="$mt"; LATEST="$f"; }
+done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' 2>/dev/null)
+if [[ -n "$LATEST" && -r "$LATEST" ]]; then
+  D="$(jq -r '.denies // 0' "$LATEST" 2>/dev/null || echo 0)"
+  BP="$(jq -r '.bypasses // 0' "$LATEST" 2>/dev/null || echo 0)"
+  TSEC="$(jq -r '.top_section // ""' "$LATEST" 2>/dev/null || echo '')"
+  TNUM="$(jq -r '.top_count // 0' "$LATEST" 2>/dev/null || echo 0)"
+  TOPCLAUSE=""
+  [[ -n "$TSEC" && "$TNUM" -gt 0 ]] && TOPCLAUSE=", most-active ${TSEC} (${TNUM})"
+  SUMMARY_BANNER=$'\n'"[agentsmd §7] Previous session: ${D} enforcement denial(s), ${BP} bypass(es)${TOPCLAUSE} (agentsmd telemetry)."
+fi
+# Consume every non-self summary (surfaced or superseded) so the banner shows once.
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  [[ "$(basename "$f")" == "$SELF_SUMMARY" ]] && continue
+  rm -f "$f" 2>/dev/null || true
+done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' 2>/dev/null)
+
 hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
 hook_context \
-  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1.${CHECKPOINT}" \
+  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1.${CHECKPOINT}${SUMMARY_BANNER}" \
   "SessionStart"

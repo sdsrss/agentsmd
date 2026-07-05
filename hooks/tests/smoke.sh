@@ -144,6 +144,32 @@ B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { printf '%s\n' "$NEW" | grep -q '"spec_section":"§10-V"' && printf '%s\n' "$NEW" | grep -q '"spec_section":"§10-four-section-order"'; } && ok "report with both vocab+order → one row per section" || bad "both vocab+order → one row per section" "new=[$NEW]"
+# (c) iron-law-2 evidence-fingerprint: a fix claim with no evidence anchor → §6-iron-law-2.
+rm -f "$PENDING"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the login bug."}]}}' > "$TR"
+B="$(clog_count)"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && pending_has "iron-law-2" && printf '%s\n' "$NEW" | grep -q '"spec_section":"§6-iron-law-2"'; } && ok "fix claim w/o evidence → §6-iron-law-2 queued" || bad "fix claim w/o evidence → §6-iron-law-2" "out=[$OUT] new=[$NEW]"
+rm -f "$PENDING"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the login crash in auth.js:42 (3 tests passed)."}]}}' > "$TR"
+B="$(clog_count)"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && ! pending_has "iron-law-2" && ! printf '%s\n' "$NEW" | grep -q '"spec_section":"§6-iron-law-2"'; } && ok "fix claim WITH evidence (file:line + tests passed) → silent" || bad "fix claim with evidence → silent" "out=[$OUT] new=[$NEW]"
+# (d) uncertain-hedge: Uncertain section hedges without a because → §10-honesty.
+rm -f "$PENDING"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: shipped.\nUncertain: the cache may go stale under load."}]}}' > "$TR"
+B="$(clog_count)"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && pending_has "uncertain-hedge" && printf '%s\n' "$NEW" | grep -q '"spec_section":"§10-honesty"'; } && ok "uncertain hedge w/o because → §10-honesty queued" || bad "uncertain hedge → §10-honesty" "out=[$OUT] new=[$NEW]"
+rm -f "$PENDING"
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Uncertain: the cache may go stale because the TTL is unverified."}]}}' > "$TR"
+B="$(clog_count)"
+OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
+NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && ! pending_has "uncertain-hedge" && ! printf '%s\n' "$NEW" | grep -q '"spec_section":"§10-honesty"'; } && ok "uncertain hedge WITH because → silent" || bad "uncertain hedge with because → silent" "out=[$OUT] new=[$NEW]"
 
 echo "== convention-cite-scan.sh (Stop → cite telemetry) =="
 CONVPROJ="$SANDBOX/convproj"; mkdir -p "$CONVPROJ"
@@ -217,6 +243,35 @@ OUT="$(run_hook session-start-check.sh '{"session_id":"freshsess","hook_event_na
 AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 { printf '%s' "$AC" | grep -q 'prior session left edits unvalidated' && [[ ! -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart surfaces a prior session's unvalidated flag + clears it" || bad "SessionStart surfaces prior unvalidated flag" "ac=[$AC]"
 rm -f "$SECST_DIR"/unvalidated-*.flag
+
+echo "== session-summary.sh (Stop → per-session summary → SessionStart banner) =="
+SUMST_DIR="$CODEX_HOME/.agentsmd-state"; mkdir -p "$SUMST_DIR"; rm -f "$SUMST_DIR"/session-summary-*.json
+SUMLOG="$CODEX_HOME/logs/agentsmd.jsonl"; mkdir -p "$(dirname "$SUMLOG")"
+# Seed enforcement rows: sumsess gets a deny + bypass + advisory (all §8-secrets);
+# othersess gets an unrelated deny to prove per-session filtering.
+{ printf '%s\n' '{"session_id":"sumsess","event":"block","spec_section":"§8-secrets"}'
+  printf '%s\n' '{"session_id":"sumsess","event":"bypass","spec_section":"§8-secrets"}'
+  printf '%s\n' '{"session_id":"sumsess","event":"advisory","spec_section":"§8-secrets"}'
+  printf '%s\n' '{"session_id":"othersess","event":"block","spec_section":"§10-V"}'; } >> "$SUMLOG"
+# (a) Stop aggregates the current session's rows into a summary file (othersess filtered out).
+OUT="$(run_hook session-summary.sh '{"session_id":"sumsess","hook_event_name":"Stop"}')"
+SUMF="$SUMST_DIR/session-summary-sumsess.json"
+{ is_empty "$OUT" && [[ -r "$SUMF" ]] && [[ "$(jq -r '.denies' "$SUMF" 2>/dev/null)" == "1" ]] && [[ "$(jq -r '.bypasses' "$SUMF" 2>/dev/null)" == "1" ]] && [[ "$(jq -r '.top_section' "$SUMF" 2>/dev/null)" == "§8-secrets" ]]; } && ok "Stop writes session summary (denies=1/bypasses=1/top §8-secrets, othersess filtered)" || bad "Stop writes session summary" "out=[$OUT] sum=[$(cat "$SUMF" 2>/dev/null)]"
+# (b) a clean session (no enforcement rows) writes no summary file.
+rm -f "$SUMST_DIR"/session-summary-*.json
+OUT="$(run_hook session-summary.sh '{"session_id":"cleansess","hook_event_name":"Stop"}')"
+{ is_empty "$OUT" && [[ ! -e "$SUMST_DIR/session-summary-cleansess.json" ]]; } && ok "clean session → no summary written" || bad "clean session → no summary" "out=[$OUT]"
+# (c) next SessionStart surfaces a PRIOR session's summary once, then deletes it.
+printf '%s' '{"sid":"priorsess","denies":2,"bypasses":1,"top_section":"§8-secrets","top_count":3}' > "$SUMST_DIR/session-summary-priorsess.json"
+OUT="$(run_hook session-start-check.sh '{"session_id":"freshsum","hook_event_name":"SessionStart","source":"startup"}')"
+AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ printf '%s' "$AC" | grep -q 'Previous session: 2 enforcement denial' && [[ ! -f "$SUMST_DIR/session-summary-priorsess.json" ]]; } && ok "SessionStart surfaces a prior session's summary + deletes it" || bad "SessionStart surfaces prior summary" "ac=[$AC]"
+# (d) the current session's OWN summary is excluded (not surfaced, not deleted → resume-safe).
+printf '%s' '{"sid":"selfsum","denies":9,"bypasses":0,"top_section":"§10-V","top_count":9}' > "$SUMST_DIR/session-summary-selfsum.json"
+OUT="$(run_hook session-start-check.sh '{"session_id":"selfsum","hook_event_name":"SessionStart","source":"startup"}')"
+AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ ! printf '%s' "$AC" | grep -q 'Previous session' && [[ -f "$SUMST_DIR/session-summary-selfsum.json" ]]; } && ok "SessionStart excludes + preserves the session's own summary" || bad "SessionStart excludes own summary" "ac=[$AC]"
+rm -f "$SUMST_DIR"/session-summary-*.json
 
 echo "== mem-audit.sh (Stop → §7 memory-hygiene, 24h debounce) =="
 MA_STATE="$CODEX_HOME/.agentsmd-state"; mkdir -p "$MA_STATE"; rm -f "$MA_STATE"/mem-audit-*.stamp

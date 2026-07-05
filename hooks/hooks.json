@@ -37,7 +37,8 @@
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/transcript-structure-scan.sh\"", "timeout": 5 },
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/convention-cite-scan.sh\"", "timeout": 5 },
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/session-exit-checkpoint.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/mem-audit.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/mem-audit.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/session-summary.sh\"", "timeout": 5 }
         ]
       }
     ]

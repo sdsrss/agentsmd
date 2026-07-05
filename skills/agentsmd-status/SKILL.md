@@ -11,4 +11,4 @@ Report agentsmd's install footprint and confirm clean coexistence with any other
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/status.js"
 ```
 
-Key fields: `agentsmdHooksRegistered` (should be 14), `otherTenantHooksPreserved` (OMX / other plugins agentsmd left untouched — proves independence), `codexHooksFlag`, `specBlockInAgentsMd`, `telemetryRows`. If `installed` is false, run `node scripts/install.js` (a §5-hard action — confirm with the user first).
+Key fields: `agentsmdHooksRegistered` (should be 15), `otherTenantHooksPreserved` (OMX / other plugins agentsmd left untouched — proves independence), `codexHooksFlag`, `specBlockInAgentsMd`, `telemetryRows`. If `installed` is false, run `node scripts/install.js` (a §5-hard action — confirm with the user first).

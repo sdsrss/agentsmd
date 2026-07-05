@@ -11,6 +11,7 @@ const H = require('./lib/codex-hooks');
 const CT = require('./lib/config-toml');
 const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
+const B = require('./lib/backup');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 // Atomic write: write a sibling temp then rename (atomic on the same filesystem).
@@ -32,6 +33,7 @@ function install(nowIso) {
   const repo = P.repoRoot();
   const installDir = P.installDir();
   const hooksDir = P.installHooksDir();
+  const stamp = nowIso || new Date().toISOString();
 
   // 0. Abort BEFORE touching anything if the shared hooks.json is present but
   //    unparseable — it may hold other tenants' hooks we cannot see, and
@@ -40,6 +42,16 @@ function install(nowIso) {
   if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
     throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
   }
+
+  // 0a. Snapshot the 3 shared multi-tenant files (hooks.json / config.toml /
+  //     AGENTS.md) BEFORE any mutation — atomic-write makes a merge crash-safe, this
+  //     makes it reversible if a merge is logically wrong. Rotated (keep 5). Runs only
+  //     after the abort check (never back up a state we refuse to proceed from) and is
+  //     best-effort: a backup failure must NOT block the install (the shared files are
+  //     still mutated atomically). Backups live in agentsmd's own state dir. Roll back
+  //     with `agentsmd restore` (scripts/restore.js).
+  let backupInfo = null;
+  try { backupInfo = B.createBackup(stamp); B.pruneBackups(); } catch { backupInfo = null; }
 
   // 0b. Migrate away any prior codexmd install (agentsmd's former name) BEFORE we
   //     lay down our own entries — strip the legacy /codexmd/ hooks, AGENTS.md
@@ -118,7 +130,8 @@ function install(nowIso) {
   // 5. Record what we did, for an exact reversible uninstall.
   const manifest = {
     name: 'agentsmd',
-    installedAt: nowIso || new Date().toISOString(),
+    installedAt: stamp,
+    backup: backupInfo ? backupInfo.id : null,
     installDir, hooksDir,
     hookCount: H.countAgentsmdHooks(mergedHooks),
     installedSkills,
