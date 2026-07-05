@@ -24,6 +24,7 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agen
 - **Promotion**: only promote a rule into core (or advisory→enforced) after BOTH ≥3 real repros across distinct sessions AND ≥20 real L2+ tasks since the last HARD addition. Either missing → log-only, no promotion. Adding rules without invocation data is how specs bloat.
 - **Evidence-rebuttal shortcut**: an existing HARD rule shown (in session evidence) to produce wrong behavior → fix/remove that rule, do not wrap a new rule around it.
 - **Drift monitoring**: `node scripts/doctor.js` must stay green (jq/node present, hooks executable, `[features] hooks=true`, hard-rules anchors resolve). A red anchor means the spec text moved without updating the manifest — fix in the same commit.
+- **Keep the ledger clean**: exercise hooks against a sandbox `CODEX_HOME` (as `hooks/tests/smoke.sh` does), or export `AGENTSMD_TELEMETRY_TAG=test` so verification rows carry a `tag` and `audit`/`rules` drop them by default (`--include-test` to include). Untagged verify runs against the live `~/.codex` skew the promote/demote signal and the session-exposure count — treat a spike in `sessionCount` with no real work as sandbox leakage. The exposure gate (`rules.js` `MIN_EXPOSURE_SESSIONS`) already suppresses demotes on thin windows; tagging keeps the count itself honest. `audit --days=N` prints a `skipped:` line when it drops test-tagged or unparseable-ts rows.
 
 ## §O3 Size budget (the discovery-chain ceiling)
 
@@ -35,7 +36,8 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agen
 ## §O4 Release discipline
 
 - Let a minor version run through ≥20 real L2+ tasks before the next. Batch related patch fixes into one release rather than shipping each hotfix individually; reserve a same-day standalone patch for a live enforcement regression (a §8 hook broken on a platform), not for doc/telemetry polish.
-- Core + extended carry ONE shared version and move together (since v1.4.0). On any HARD-rule add/remove, update `hard-rules.json` in the same commit; the Phase-5 CI drift test asserts every `section_anchor` still resolves.
+- Core + extended carry ONE shared version and move together (since v1.4.0). On any HARD-rule add/remove, update `hard-rules.json` in the same commit; the Phase-5 CI drift test asserts every `section_anchor` still resolves — and (drift gate #5) that package.json, plugin.json, hard-rules `spec_version`, and BOTH spec headers (core + extended) match.
+- **Post-publish self-install (feed the loop)**: after `npm publish` + tag, run `node scripts/install.js` on your own machine and confirm `node scripts/doctor.js` is green — hook count matches the release, spec headers current. The telemetry closed loop starves when the operator's own Codex install lags the published version: a lagging install emits no field data for the new hooks, so `rules.js` sees 0 hits on sections that are simply not deployed yet and mislabels them dilution. Green doctor = the loop is actually running the version you shipped.
 
 ## §O5 Tooling quick reference
 
@@ -57,3 +59,10 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agen
 | operator | `OPERATOR.md` (this file) | **never auto-loaded** | human maintenance rules |
 
 Codex ships no built-in three-tier loader; agentsmd's SessionStart hook + the extended-load trigger in the core header approximate it, and the telemetry loop is what keeps Tier 0 honest. Putting operator content in Tier 1 would burn agent context on directives it can't execute — hence this dedicated, never-loaded home.
+
+## §O7 Measurement boundaries (what the loop can and can't see)
+
+Two honesty caveats on the telemetry, so promote/demote data is not over-trusted:
+
+- **Codex-only exposure.** Every hook fires inside Codex; the loop is blind to work done in other agents/IDEs. Ship-family rules (`§E3-ship-baseline`, `§7-memory-read`) fire only on a Codex-mediated `git push`/commit — a maintainer who ships mostly from another tool sees those rules read 0 hits (→ `insufficient-exposure`, or above the exposure floor a *false* `demote-candidate`) purely because Codex never observed the ship. Read a demote verdict as "dead weight *in Codex workflows*", not "everywhere"; corroborate ship-class rules against how you actually ship before demoting one.
+- **`@conv-*` measures citation, not adherence.** The adoption loop counts when your output NAMES a `@conv-<dim>` anchor — a proxy. The citation instruction can induce ceremonial naming (Goodhart), and following a convention WITHOUT citing it records nothing. So 0 cites → "nobody is visibly leaning on this dimension" (a sound prune signal — it isn't paying its context rent), but a high cite count does NOT prove the code follows it. Prune on the negative; never certify quality on the positive.

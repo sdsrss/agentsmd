@@ -8,7 +8,26 @@ const path = require('path');
 const { detect } = require('./lib/detect');
 const AM = require('./lib/agents-md');
 const { stampConventionAnchors, CONVENTIONS_CITE_NOTICE } = require('./lib/conventions-taxonomy');
-const { audit } = require('./audit');
+const { audit, MAX_DAYS } = require('./audit');
+const P = require('./lib/paths');
+const CT = require('./lib/config-toml');
+
+// Warn (never fail) when the project AGENTS.md + the global ~/.codex/AGENTS.md
+// together exceed Codex's project_doc_max_bytes — the discovery chain is silently
+// truncated past the cap, so a distilled convention block can quietly vanish.
+// The per-file 6 KiB / 32 KiB budget writeConventions enforces only sees the
+// project file; this catches the global+project SUM the chain actually loads.
+function warnChainBudget(projectAgentsMdPath) {
+  try {
+    let cfg = ''; try { cfg = fs.readFileSync(P.configTomlPath(), 'utf8'); } catch {}
+    const globalB = Buffer.byteLength(fs.readFileSync(P.agentsMdPath(), 'utf8'), 'utf8');
+    const projB = Buffer.byteLength(fs.readFileSync(projectAgentsMdPath, 'utf8'), 'utf8');
+    const b = CT.chainBudget(cfg, globalB, projB);
+    if (b.over > 0) {
+      console.error(`warning: global + project AGENTS.md = ${b.total}B exceeds project_doc_max_bytes (${b.cap}B) by ${b.over}B — Codex SILENTLY truncates the discovery chain past the cap. Trim conventions or raise the cap in ~/.codex/config.toml.`);
+    }
+  } catch { /* global spec / config unreadable → skip the advisory */ }
+}
 
 const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
@@ -151,7 +170,9 @@ function parseArgs(argv) {
     else if (/^--days=/.test(a)) {
       const v = a.slice('--days='.length);
       if (!/^[1-9][0-9]*$/.test(v)) return { error: `invalid --days value: ${v}` };
-      opts.days = Number(v);
+      const n = Number(v);
+      if (!Number.isSafeInteger(n) || n > MAX_DAYS) return { error: `invalid --days value: ${v}` }; // match audit/rules bound (no RangeError)
+      opts.days = n;
     }
     else if (/^--project=/.test(a)) {
       const v = a.slice('--project='.length);
@@ -175,6 +196,7 @@ if (require.main === module) {
     try {
       const r = writeConventions(process.cwd(), md);
       console.log(`written: ${r.target}`);
+      warnChainBudget(r.target);
     } catch (e) {
       console.error(e.message);
       process.exit(1);

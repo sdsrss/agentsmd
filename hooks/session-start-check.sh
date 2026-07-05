@@ -21,7 +21,13 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 # uses to detect THIS session's undisposed scratch dirs (§8.V4). Without this
 # refresh the reference would freeze at the first-ever Stop and grow stale.
 STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
-mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start.ref" 2>/dev/null || true
+SKEY="$(hook_session_key "$SID")"
+mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>/dev/null || true
+# GC stale per-session state from long-dead sessions (bounded depth-1 — §8 forbids
+# deep config-dir traversal). Baselines + advisory queues are session-scoped, so a
+# session that ended without a final UserPromptSubmit would otherwise orphan its
+# files forever. 7-day floor keeps any resumable session's files safe.
+find "$STATE_DIR" -maxdepth 1 -type f \( -name 'pending-advisories-*' -o -name 'session-start-*.ref' -o -name 'tmp-baseline-*.txt' \) -mtime +7 -delete 2>/dev/null || true
 # Drop advisories queued by a PREVIOUS session's Stop hooks — but ONLY on a fresh
 # start, never on `resume` (a resumed session continues, so a queued advisory from
 # its last turn must survive to be surfaced at the next UserPromptSubmit).

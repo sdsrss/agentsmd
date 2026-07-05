@@ -127,6 +127,31 @@ withSandbox((dir) => {
   t('uninstall leaves config.toml codex_hooks flag (§5)', () => assert.strictEqual(res.flagLeftEnabled, true));
 });
 
+// ── 3b. uninstall aborts on an unparseable shared hooks.json (mirror of install) ─
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const corrupt = '{ this is not valid json';
+  fs.writeFileSync(path.join(dir, 'hooks.json'), corrupt);
+  t('uninstall throws on an unparseable hooks.json (never edits it blind)', () => {
+    assert.throws(() => uninstall(), /not valid JSON/);
+  });
+  t('uninstall abort leaves the corrupt file byte-untouched', () => {
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), corrupt);
+  });
+});
+
+// ── 3c. install writes shared files atomically (temp+rename, no leftover temps) ─
+withSandbox((dir) => {
+  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  t('install leaves no .agentsmd-tmp-* files (atomic temp+rename cleaned up)', () => {
+    const leftovers = fs.readdirSync(dir).filter((f) => f.includes('.agentsmd-tmp-'));
+    assert.deepStrictEqual(leftovers, [], 'temp files: ' + leftovers.join(', '));
+  });
+});
+
 // ── 4. standalone: no OMX, no pre-existing files ────────────────────────────
 withSandbox((dir) => {
   const { install, uninstall, status, doctor, H } = loadModules();
@@ -158,6 +183,24 @@ withSandbox((dir) => {
   ].join('\n') + '\n');
   t('status telemetryRows counts parseable telemetry, not malformed lines', () => assert.strictEqual(status().telemetryRows, 1));
   t('doctor reports a healthy standalone install', () => assert.strictEqual(doctor().ok, true));
+  t('doctor flags a stale deployed spec version (install lags the source)', () => {
+    const p = path.join(dir, 'AGENTS.md');
+    const orig = fs.readFileSync(p, 'utf8');
+    fs.writeFileSync(p, orig.replace(/CODEX-CODING-SPEC v\d+\.\d+\.\d+/, 'CODEX-CODING-SPEC v1.0.0'));
+    const c = doctor().checks.find((x) => x.name === 'installed spec is current');
+    assert(c && c.ok === false && /re-run install/.test(c.detail), 'expected stale-spec fail; got: ' + JSON.stringify(c));
+    fs.writeFileSync(p, orig); // restore so later checks in this sandbox are unaffected
+  });
+  t('doctor reports discovery-chain headroom, and flags an over-tiny cap', () => {
+    const okCheck = doctor().checks.find((x) => x.name === 'discovery-chain headroom for project docs');
+    assert(okCheck && okCheck.ok === true && /left for project chains/.test(okCheck.detail), 'healthy headroom; got: ' + JSON.stringify(okCheck));
+    const cfgP = path.join(dir, 'config.toml');
+    const orig = fs.readFileSync(cfgP, 'utf8');
+    fs.writeFileSync(cfgP, 'project_doc_max_bytes = 10\n' + orig);
+    const bad = doctor().checks.find((x) => x.name === 'discovery-chain headroom for project docs');
+    assert(bad && bad.ok === false && /EXCEEDS/.test(bad.detail), 'expected over-budget fail; got: ' + JSON.stringify(bad));
+    fs.writeFileSync(cfgP, orig); // restore
+  });
   fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [broken\n');
   t('doctor fails on an unparseable tui.status_line', () => {
     const d = doctor();
@@ -365,6 +408,39 @@ withSandbox((dir) => {
     assert(CT.isCodexHooksEnabled('[features]\ncodex_hooks = true\n'));
     assert(!CT.isCodexHooksEnabled('[features]\nmulti_agent = true\n'));
   });
+  // Inline-table `features = { ... }` — must edit INSIDE the braces, never append
+  // a second [features] table. A duplicate table/key is invalid TOML → Codex's
+  // Rust parser fails closed for EVERY tenant sharing config.toml. (Regression:
+  // these two produced invalid TOML before the inline-table-aware scanner.)
+  t('config: inline features hooks=true → no-op, read as enabled (was: dup [features])', () => {
+    assert(CT.isCodexHooksEnabled('features = { hooks = true }\n'), 'inline hooks=true must read enabled');
+    assert.strictEqual(CT.ensureCodexHooksFlag('features = { hooks = true }\n').changed, false);
+  });
+  t('config: inline features hooks=false → flipped inside braces (no dup table)', () => {
+    const r = CT.ensureCodexHooksFlag('features = { hooks = false }\n');
+    assert.strictEqual(r.content, 'features = { hooks = true }\n');
+    assert(!/\[features\]/.test(r.content), 'no appended table: ' + r.content);
+  });
+  t('config: inline features codex_hooks=true → migrated inside braces', () => {
+    const r = CT.ensureCodexHooksFlag('features = { codex_hooks = true }\n');
+    assert.strictEqual(r.content, 'features = { hooks = true }\n');
+    assert(!/codex_hooks/.test(r.content), r.content);
+  });
+  t('config: inline features w/o hooks → inserted; siblings + comment preserved', () => {
+    const r = CT.ensureCodexHooksFlag('features = { web_search = true } # flags\n');
+    assert.strictEqual(r.content, 'features = { web_search = true, hooks = true } # flags\n');
+    assert.strictEqual((r.content.match(/features/g) || []).length, 1, 'single features def: ' + r.content);
+  });
+  t('config: inline empty features {} → hooks inserted', () => {
+    assert.strictEqual(CT.ensureCodexHooksFlag('features = {}\n').content, 'features = { hooks = true }\n');
+  });
+  t('config: features hooks=false + codex_hooks=true → single hooks=true (no dup key)', () => {
+    const r = CT.ensureCodexHooksFlag('[features]\nhooks = false\ncodex_hooks = true\n');
+    assert.strictEqual(r.reason, 'migrated-codex_hooks-dedup');
+    assert.strictEqual((r.content.match(/^\s*hooks\s*=/gm) || []).length, 1, 'exactly one hooks key: ' + r.content);
+    assert(!/codex_hooks/.test(r.content), 'codex_hooks dropped: ' + r.content);
+    assert(!/=\s*false/.test(r.content), 'no leftover false: ' + r.content);
+  });
   t('config: missing [tui] gets the agentsmd status line preset', () => {
     const r = CT.ensureTuiStatusLine('[features]\nhooks = true\n');
     assert.strictEqual(r.reason, 'appended-tui-table');
@@ -425,6 +501,35 @@ withSandbox((dir) => {
     const r = CT.ensureTuiStatusLine('[foo]\nstatus_line = ["model"]\n');
     assert.strictEqual(r.changed, true);
     assert(CT.isAgentsmdStatusLineEnabled(r.content), r.content);
+  });
+  // Inline-table `tui = { ... }` — same duplicate-table hazard as inline features.
+  t('config: inline tui with status_line → preserved (no duplicate [tui])', () => {
+    const input = 'tui = { status_line = ["git-branch"] }\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.content, input);
+    assert(!/\[tui\]/.test(r.content), 'no appended [tui] table: ' + r.content);
+  });
+  t('config: inline tui without status_line → inserted inside braces', () => {
+    const r = CT.ensureTuiStatusLine('tui = { theme = "dark" }\n');
+    assert.strictEqual(r.reason, 'inserted-into-inline-tui');
+    assert(!/\[tui\]/.test(r.content), 'no appended [tui] table: ' + r.content);
+    // preset written inside the braces, existing key preserved (items inside an
+    // inline table are intentionally not re-parsed, so assert on the text).
+    assert(/tui = \{ theme = "dark", status_line = \["model-with-reasoning"/.test(r.content), r.content);
+    // idempotent: a second run sees the inline status_line and no-ops.
+    assert.strictEqual(CT.ensureTuiStatusLine(r.content).changed, false, 're-run must no-op');
+  });
+  t('config: projectDocMaxBytes reads the cap, defaults to 32768', () => {
+    assert.strictEqual(CT.projectDocMaxBytes('project_doc_max_bytes = 65536\n'), 65536);
+    assert.strictEqual(CT.projectDocMaxBytes('model = "x"\n'), 32768);
+  });
+  t('config: chainBudget flags a global+project sum over the cap', () => {
+    const b = CT.chainBudget('project_doc_max_bytes = 100\n', 60, 50);
+    assert.strictEqual(b.cap, 100);
+    assert.strictEqual(b.total, 110);
+    assert.strictEqual(b.over, 10);
+    assert.strictEqual(b.headroom, -10);
   });
 }
 

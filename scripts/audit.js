@@ -12,6 +12,10 @@ const P = require('./lib/paths');
 // not inflate the "is this rule earning its keep" signal.
 const ENFORCEMENT_EVENTS = new Set(['block', 'deny', 'advisory', 'bypass']);
 const MAX_DAYS = 100000000;
+// Provenance tags whose rows are excluded from the ledger by default: a
+// verification / smoke run against a real CODEX_HOME (AGENTSMD_TELEMETRY_TAG=test)
+// must not skew promote/demote signals. --include-test opts them back in.
+const TEST_TAGS = new Set(['test']);
 
 function readRows(logPath) {
   let raw;
@@ -24,18 +28,33 @@ function readRows(logPath) {
   return rows;
 }
 
-function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = null } = {}) {
+function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = null, includeTest = false } = {}) {
+  // Last-line guard: clamp days into a safe range so no caller can drive
+  // `now - days*86400000` out of the valid Date range (→ RangeError at
+  // new Date(cutoff).toISOString() below). The CLI parsers reject bad values up
+  // front, but a programmatic caller with a looser parser (analyze --adoption)
+  // must not be able to crash the shared aggregator — the bound belongs here.
+  if (!Number.isSafeInteger(days) || days <= 0 || days > MAX_DAYS) days = 30;
   const rows = readRows(logPath);
   const cutoff = now - days * 86400000;
   const projNeedle = project ? String(project).toLowerCase() : null;
   const bySection = {}, byHook = {}, byEvent = {}, byProject = {};
-  let total = 0, enforcement = 0;
+  const sessions = new Set(); // distinct session_id in window — the exposure proxy
+  let total = 0, enforcement = 0, unparseable = 0, excludedTest = 0;
 
   for (const r of rows) {
+    // Drop tagged verification/sandbox rows from the ledger by default.
+    if (!includeTest && r && r.tag != null && TEST_TAGS.has(String(r.tag))) { excludedTest++; continue; }
     const ts = Date.parse(r && r.ts);
-    if (!Number.isNaN(ts) && (ts < cutoff || ts > now)) continue; // unparseable ts → keep (can't window it out)
+    // Unparseable ts can't be windowed → count it separately, keep it OUT of the
+    // aggregation (a single garbage-ts row must not sit permanently in-window,
+    // inflating bySection counts and flipping the noData / exposure guards).
+    if (Number.isNaN(ts)) { unparseable++; continue; }
+    if (ts < cutoff || ts > now) continue;
     if (projNeedle !== null && !String((r && r.project) || '').toLowerCase().includes(projNeedle)) continue;
     total++;
+    const sid = r && r.session_id;
+    if (sid) sessions.add(String(sid));
     const sec = (r && r.spec_section) || '(none)';
     const ev = (r && r.event) || 'unknown';
     const hook = (r && r.hook) || 'unknown';
@@ -65,6 +84,9 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     totalRows: rows.length,
     inWindow: total,
     enforcementEvents: enforcement,
+    sessionCount: sessions.size,
+    unparseableRows: unparseable,
+    excludedTestRows: excludedTest,
     bySection, byHook, byEvent, byProject,
   };
 }
@@ -72,7 +94,11 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
 function formatReport(a) {
   const lines = [];
   lines.push(`agentsmd audit — last ${a.days}d (since ${a.windowStartIso})`);
-  lines.push(`rows: ${a.inWindow} in window / ${a.totalRows} total · enforcement events: ${a.enforcementEvents}`);
+  lines.push(`rows: ${a.inWindow} in window / ${a.totalRows} total · enforcement events: ${a.enforcementEvents} · sessions: ${a.sessionCount}`);
+  const skips = [];
+  if (a.excludedTestRows) skips.push(`${a.excludedTestRows} test-tagged (excluded; --include-test to keep)`);
+  if (a.unparseableRows) skips.push(`${a.unparseableRows} unparseable-ts (excluded from window)`);
+  if (skips.length) lines.push(`skipped: ${skips.join(' · ')}`);
   lines.push('');
   lines.push('by spec_section (enforcement / total):');
   const secs = Object.keys(a.bySection).sort((x, y) => a.bySection[y].enforcement - a.bySection[x].enforcement);
@@ -100,10 +126,12 @@ function formatReport(a) {
 function parseDaysArg(argv, commandName = 'agentsmd-audit') {
   let days = 30;
   let project = null;
+  let includeTest = false;
   let sawDays = false;
   let sawProject = false;
   for (const arg of argv) {
     if (arg === '--help' || arg === '-h') return { help: true, days };
+    if (arg === '--include-test') { includeTest = true; continue; }
     const p = arg.match(/^--project=(.*)$/);
     if (p) {
       if (sawProject) return { error: 'duplicate option: --project', days };
@@ -127,20 +155,20 @@ function parseDaysArg(argv, commandName = 'agentsmd-audit') {
     }
     return { error: `unknown option: ${arg}`, days };
   }
-  return { days, project, usage: `Usage: ${commandName} [--days=N] [--project=SUBSTR]` };
+  return { days, project, includeTest, usage: `Usage: ${commandName} [--days=N] [--project=SUBSTR] [--include-test]` };
 }
 
 if (require.main === module) {
   const parsed = parseDaysArg(process.argv.slice(2));
   if (parsed.help) {
-    console.log('Usage: agentsmd-audit [--days=N] [--project=SUBSTR]');
+    console.log('Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test]');
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd audit: ${parsed.error}`);
-    console.error('Usage: agentsmd-audit [--days=N] [--project=SUBSTR]');
+    console.error('Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test]');
     process.exit(1);
   }
-  console.log(formatReport(audit({ days: parsed.days, project: parsed.project })));
+  console.log(formatReport(audit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }
-module.exports = { audit, formatReport, parseDaysArg, readRows, ENFORCEMENT_EVENTS, MAX_DAYS };
+module.exports = { audit, formatReport, parseDaysArg, readRows, ENFORCEMENT_EVENTS, MAX_DAYS, TEST_TAGS };

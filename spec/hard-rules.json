@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.9.0",
+  "spec_version": "v2.10.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -8,7 +8,8 @@
   "codex_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
   "_live_sections_doc": "spec_section values currently EMITTED by a built+registered hook. scripts/rules.js only treats a hook-enforced rule as a demote-candidate when its section is live (0 hits on a live section = dilution); a hook-enforced rule whose section is NOT live is 'hook-planned' (its hook is not built yet, so 0 hits is expected, not dilution). Update this array in the same commit a hook starts/stops emitting a section.",
-  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read"],
+  "_demote_policy_doc": "Optional per-rule governance policy (scripts/rules.js). Absent/'standard' = a live 0-hit rule with sufficient exposure is a core→extended demote-candidate. 'deterrence' = an immutable §8 SAFETY hook whose 0 hits mean the hazard never arose (deterrence working), NOT dilution — never flagged for demotion (consistent with §8 being immutable). Scope also matters independently: a hook rule already scoped 'extended' with 0 hits is 'hook-value-review' (nowhere to demote to), not 'demote-candidate'.",
+  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read"],
   "rules": [
     {
       "id": "§8-rm-rf-var",
@@ -18,6 +19,7 @@
       "enforcement": "hook",
       "codex_hook_event": "PreToolUse:Bash",
       "rule_hits_section": "§8-rm-rf-var",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
@@ -31,6 +33,7 @@
       "enforcement": "hook",
       "codex_hook_event": "PreToolUse:Bash",
       "rule_hits_section": "§8-unknown-script",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
@@ -44,6 +47,7 @@
       "enforcement": "both",
       "codex_hook_event": "PreToolUse:Bash",
       "rule_hits_section": "§8-secrets",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
@@ -70,6 +74,7 @@
       "enforcement": "both",
       "codex_hook_event": "PreToolUse:Bash",
       "rule_hits_section": "§8-home-traversal",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": null,
@@ -96,6 +101,7 @@
       "enforcement": "hook",
       "codex_hook_event": "Stop",
       "rule_hits_section": "§8.V4",
+      "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,

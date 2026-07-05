@@ -20,7 +20,9 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 
 TMP_DIR="${CODEX_HOME:-$HOME/.codex}/tmp"
 STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
-BASELINE="$STATE_DIR/tmp-baseline.txt"
+# Per-session baseline so concurrent sessions don't clobber each other's tmp count
+# (a shared file made parallel runs report false residue growth against each other).
+BASELINE="$STATE_DIR/tmp-baseline-$(hook_session_key "$SID").txt"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
 # Count immediate children of ~/.codex/tmp (depth 1; spec §8 forbids deep

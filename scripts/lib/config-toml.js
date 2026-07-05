@@ -39,16 +39,32 @@ function tableName(line) {
   return m ? m[1].trim() : null;
 }
 
-// Scan [features] (+ dotted features.*) for the hook flag state.
+// Scan [features] (header + dotted features.* + inline-table features = {...})
+// for the hook flag state. Recognizing the inline-table form is load-bearing:
+// without it, ensureCodexHooksFlag would append a SECOND [features] table to a
+// file that already defines `features`, which is a duplicate-key error rejected
+// by Codex's (Rust) TOML parser — fail-closed for every tenant sharing config.toml.
 function scanFeatures(content) {
   const lines = content.split('\n');
   let cur = ''; // current table; '' = top-level document scope
   let enabledNew = false, enabledOld = false;
   let oldTrueIdx = -1, falseIdx = -1, hasFeatures = false, featuresHeaderIdx = -1;
+  let inlineIdx = -1, inlineInner = null; // top-level `features = { ... }`
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const th = tableName(line);
     if (th !== null) { cur = th; if (cur === 'features') { hasFeatures = true; if (featuresHeaderIdx < 0) featuresHeaderIdx = i; } continue; }
+    if (cur === '') {
+      const inl = line.match(/^[ \t]*features[ \t]*=[ \t]*\{(.*)\}[ \t]*(?:#.*)?$/);
+      if (inl) {
+        inlineIdx = i; inlineInner = inl[1];
+        const hk = inl[1].match(/(?:^|[,{ \t])hooks[ \t]*=[ \t]*(true|false)\b/);
+        const ck = inl[1].match(/(?:^|[,{ \t])codex_hooks[ \t]*=[ \t]*(true|false)\b/);
+        if (hk && hk[1] === 'true') enabledNew = true;
+        if (ck && ck[1] === 'true') enabledOld = true;
+        continue;
+      }
+    }
     let m = cur === '' ? line.match(/^[ \t]*features\.(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/) : null;
     if (!m && cur === 'features') m = line.match(/^[ \t]*(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/);
     if (!m) continue;
@@ -57,7 +73,7 @@ function scanFeatures(content) {
       else { enabledOld = true; if (oldTrueIdx < 0) oldTrueIdx = i; }
     } else if (falseIdx < 0) falseIdx = i;
   }
-  return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, hasFeatures, featuresHeaderIdx, lines };
+  return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, hasFeatures, featuresHeaderIdx, inlineIdx, inlineInner, lines };
 }
 
 // True when the hook feature is enabled under [features] by EITHER name.
@@ -72,9 +88,37 @@ function ensureCodexHooksFlag(input) {
 
   if (s.enabledNew) return { content, changed: false, reason: 'already-enabled' };
 
+  // Inline-table `features = { ... }` (not already-enabled): edit INSIDE the braces
+  // — never append a second [features] table (duplicate-key error in a shared file).
+  // Reconstruct via the same anchored regex the scanner used, so an inline trailing
+  // comment and the closing brace are preserved verbatim.
+  if (s.inlineIdx >= 0) {
+    const inner = s.inlineInner;
+    let newInner;
+    if (/(?:^|[,{ \t])codex_hooks[ \t]*=[ \t]*true\b/.test(inner)) {
+      newInner = inner.replace(/((?:^|[,{ \t]))codex_hooks([ \t]*=[ \t]*true\b)/, '$1hooks$2'); // pure rename, no dup
+    } else if (/(?:^|[,{ \t])hooks[ \t]*=[ \t]*false\b/.test(inner)) {
+      newInner = inner.replace(/((?:^|[,{ \t])hooks[ \t]*=[ \t]*)false\b/, '$1true');
+    } else {
+      const trimmed = inner.trim();
+      newInner = trimmed.length ? `${inner.replace(/[ \t]*$/, '')}, hooks = true ` : ' hooks = true ';
+    }
+    const lines = s.lines.slice();
+    lines[s.inlineIdx] = lines[s.inlineIdx].replace(/^([ \t]*features[ \t]*=[ \t]*\{)(.*)(\}[ \t]*(?:#.*)?)$/, `$1${newInner}$3`);
+    return { content: lines.join('\n'), changed: true, reason: 'set-hooks-in-inline-features' };
+  }
+
   // Deprecated `codex_hooks = true` present → migrate it in place to `hooks`.
   if (s.enabledOld) {
     const lines = s.lines.slice();
+    // If a canonical `hooks = false` coexists in the same table, renaming
+    // codex_hooks→hooks would produce TWO `hooks` keys (duplicate-key error).
+    // Flip the existing hooks=false→true and drop the codex_hooks line instead.
+    if (s.falseIdx >= 0 && /^[ \t]*hooks\b/.test(lines[s.falseIdx])) {
+      lines[s.falseIdx] = lines[s.falseIdx].replace(/(\bhooks\b[ \t]*=[ \t]*)false/, '$1true');
+      lines.splice(s.oldTrueIdx, 1);
+      return { content: lines.join('\n'), changed: true, reason: 'migrated-codex_hooks-dedup' };
+    }
     lines[s.oldTrueIdx] = lines[s.oldTrueIdx].replace(/\bcodex_hooks\b/, 'hooks');
     return { content: lines.join('\n'), changed: true, reason: 'migrated-codex_hooks-to-hooks' };
   }
@@ -158,20 +202,34 @@ function scanTuiStatusLine(content) {
   const lines = (typeof content === 'string' ? content : '').split('\n');
   let cur = '';
   let hasTui = false, tuiHeaderIdx = -1, topLevelTuiDottedIdx = -1;
+  let inlineTuiIdx = -1, inlineTuiInner = null; // top-level `tui = { ... }`
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const th = tableName(line);
     if (th !== null) { cur = th; if (cur === 'tui') { hasTui = true; if (tuiHeaderIdx < 0) tuiHeaderIdx = i; } continue; }
-    if (cur === '' && /^[ \t]*tui\./.test(line)) topLevelTuiDottedIdx = i;
+    if (cur === '') {
+      const inl = line.match(/^[ \t]*tui[ \t]*=[ \t]*\{(.*)\}[ \t]*(?:#.*)?$/);
+      if (inl) {
+        inlineTuiIdx = i; inlineTuiInner = inl[1];
+        // An inline tui table that already carries status_line = the user's own
+        // footer → treat as existing so ensureTuiStatusLine no-ops (never appends
+        // a second [tui] table → duplicate-key TOML error in a shared file).
+        if (/(?:^|[,{ \t])status_line[ \t]*=/.test(inl[1])) {
+          return { exists: true, items: null, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
+        }
+        continue;
+      }
+      if (/^[ \t]*tui\./.test(line)) topLevelTuiDottedIdx = i;
+    }
     const m = cur === 'tui'
       ? line.match(/^[ \t]*status_line[ \t]*=[ \t]*(\[[^\n#]*(?:#.*)?)/)
       : (cur === '' ? line.match(/^[ \t]*tui\.status_line[ \t]*=[ \t]*(\[[^\n#]*(?:#.*)?)/) : null);
     if (!m) continue;
     const value = collectArrayValue(lines, i, m[1]).replace(/[ \t]+#.*$/, '').trim();
     const items = parseStatusLineItems(value);
-    return { exists: true, items, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, lines };
+    return { exists: true, items, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
   }
-  return { exists: false, items: null, line: '', index: -1, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, lines };
+  return { exists: false, items: null, line: '', index: -1, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
 }
 
 function getTuiStatusLine(input) {
@@ -195,6 +253,16 @@ function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
   }
 
   const statusLine = `status_line = ${formatTomlStringArray(items)}`;
+  // Inline `tui = { ... }` without status_line → insert inside the braces, never
+  // append a second [tui] table (duplicate-key error in a shared file).
+  if (s.inlineTuiIdx >= 0) {
+    const inner = s.inlineTuiInner;
+    const trimmed = inner.trim();
+    const newInner = trimmed.length ? `${inner.replace(/[ \t]*$/, '')}, ${statusLine} ` : ` ${statusLine} `;
+    const lines = s.lines.slice();
+    lines[s.inlineTuiIdx] = lines[s.inlineTuiIdx].replace(/^([ \t]*tui[ \t]*=[ \t]*\{)(.*)(\}[ \t]*(?:#.*)?)$/, `$1${newInner}$3`);
+    return { content: lines.join('\n'), changed: true, reason: 'inserted-into-inline-tui' };
+  }
   if (s.hasTui) {
     const lines = s.lines.slice();
     lines.splice(s.tuiHeaderIdx + 1, 0, statusLine);
@@ -210,11 +278,31 @@ function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
   return { content: `${content}${sep}[tui]\n${statusLine}\n`, changed: true, reason: 'appended-tui-table' };
 }
 
+// Codex's project_doc_max_bytes — the discovery-chain byte cap the GLOBAL
+// ~/.codex/AGENTS.md shares with every project's AGENTS.md chain. Truncation past
+// it is SILENT, so tooling should watch it. Default 32 KiB when unset.
+const DEFAULT_DOC_MAX_BYTES = 32768;
+function projectDocMaxBytes(input) {
+  const content = typeof input === 'string' ? input : '';
+  const m = content.match(/(?:^|\n)[ \t]*project_doc_max_bytes[ \t]*=[ \t]*([0-9]+)/);
+  return m ? Number(m[1]) : DEFAULT_DOC_MAX_BYTES;
+}
+
+// Budget the combined global + project AGENTS.md against the cap (bytes).
+function chainBudget(configContent, globalBytes, projectBytes) {
+  const cap = projectDocMaxBytes(configContent);
+  const g = globalBytes || 0, p = projectBytes || 0, total = g + p;
+  return { cap, globalBytes: g, projectBytes: p, total, over: total - cap, headroom: cap - total };
+}
+
 module.exports = {
   AGENTSMD_STATUS_LINE,
+  DEFAULT_DOC_MAX_BYTES,
   ensureCodexHooksFlag,
   ensureTuiStatusLine,
   getTuiStatusLine,
   isAgentsmdStatusLineEnabled,
   isCodexHooksEnabled,
+  projectDocMaxBytes,
+  chainBudget,
 };

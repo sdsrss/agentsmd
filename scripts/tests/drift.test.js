@@ -53,16 +53,22 @@ t('hooks: install-template and plugin-manifest wirings match', () => {
   assert.deepStrictEqual(a, b, 'install-template vs plugin-manifest wiring differ');
 });
 
-// 5. version is consistent across package.json / plugin.json / manifest / spec.
-t('version: package.json = plugin.json = hard-rules = spec header', () => {
+// 5. version is consistent across package.json / plugin.json / manifest / BOTH
+//    spec headers. Core + extended carry ONE shared version and move together
+//    (AGENTS-CHANGELOG.md, since v1.4.0) — the extended header must be asserted
+//    too, or it drifts silently (it sat at v2.3.0 through six releases because
+//    this gate only checked the core header).
+t('version: package.json = plugin.json = hard-rules = core + extended headers', () => {
   const norm = (v) => String(v).replace(/^v/, '');
   const pkg = norm(JSON.parse(read('package.json')).version);
   const plugin = norm(JSON.parse(read('.codex-plugin/plugin.json')).version);
   const manifest = norm(hr.spec_version);
   const specHeader = (specFiles.core.match(/CODEX-CODING-SPEC v([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1];
+  const extHeader = (specFiles.extended.match(/CODEX-CODING-SPEC v([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1];
   assert.strictEqual(pkg, plugin, `package(${pkg}) != plugin(${plugin})`);
   assert.strictEqual(pkg, manifest, `package(${pkg}) != manifest(${manifest})`);
-  assert.strictEqual(pkg, specHeader, `package(${pkg}) != spec header(${specHeader})`);
+  assert.strictEqual(pkg, specHeader, `package(${pkg}) != core spec header(${specHeader})`);
+  assert.strictEqual(pkg, extHeader, `package(${pkg}) != extended spec header(${extHeader})`);
 });
 
 // 6. plugin.json declares the skills dir and it exists with SKILL.md files.

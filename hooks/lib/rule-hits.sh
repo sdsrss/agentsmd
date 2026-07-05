@@ -48,17 +48,22 @@ rule_hits_append() {
     fi
   fi
 
-  local ts
+  local ts tag
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # Optional provenance tag (e.g. AGENTSMD_TELEMETRY_TAG=test for verification runs
+  # against a real CODEX_HOME). Written only when set; scripts/audit.js excludes
+  # tagged non-production rows by default so a smoke/verify run never skews the
+  # promote/demote ledger. Best practice remains sandboxing CODEX_HOME (OPERATOR §O4).
+  tag="${AGENTSMD_TELEMETRY_TAG:-}"
 
   if command -v jq >/dev/null 2>&1; then
     jq -cn \
       --arg ts "$ts" --arg hook "$hook" --arg event "$event" --arg project "$project" \
-      --arg session_id "$session_id" --arg section "$section" --argjson extra "$extra" \
+      --arg session_id "$session_id" --arg section "$section" --argjson extra "$extra" --arg tag "$tag" \
       '{ts:$ts, hook:$hook, event:$event, project:$project,
         session_id:(if $session_id=="" then null else $session_id end),
         spec_section:(if $section=="" then null else $section end),
-        extra:$extra}' \
+        extra:$extra} + (if $tag=="" then {} else {tag:$tag} end)' \
       2>/dev/null >> "$log_file" || return 0
   else
     # jq-less fallback: minimal hand-escaped row so telemetry survives without jq.
@@ -77,10 +82,12 @@ rule_hits_append() {
     ee="$(rule_hits_json_escape "$event")"
     ep="$(rule_hits_json_escape "$project")"
     esection="$(rule_hits_json_escape "$section")"
-    printf '{"ts":"%s","hook":"%s","event":"%s","project":"%s","session_id":%s,"spec_section":%s,"extra":%s}\n' \
+    local tagfrag=""
+    [[ -n "$tag" ]] && tagfrag=",\"tag\":\"$(rule_hits_json_escape "$tag")\""
+    printf '{"ts":"%s","hook":"%s","event":"%s","project":"%s","session_id":%s,"spec_section":%s,"extra":%s%s}\n' \
       "$ts" "$eh" "$ee" "$ep" \
       "$([[ -n "$es" ]] && printf '"%s"' "$es" || echo null)" \
       "$([[ -n "$esection" ]] && printf '"%s"' "$esection" || echo null)" \
-      "$extra" >> "$log_file" 2>/dev/null || return 0
+      "$extra" "$tagfrag" >> "$log_file" 2>/dev/null || return 0
   fi
 }

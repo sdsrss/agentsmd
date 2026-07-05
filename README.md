@@ -27,7 +27,7 @@ The point isn't saving tokens. **A rule nobody enforces and nobody triggers is p
 
 ## What it enforces
 
-Eleven native hooks across all five Codex events. The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
+Twelve native hooks across all five Codex events. The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
 
 | Hook | Event | Enforces |
 |---|---|---|
@@ -35,6 +35,7 @@ Eleven native hooks across all five Codex events. The blocking ones are hard gat
 | `banned-vocab-check` | PreToolUse:Bash | §10 — blocks unquantified value claims in `git commit` messages |
 | `ship-baseline-check` | PreToolUse:Bash | §E3 — blocks `git push` to a shared branch while its CI is red |
 | `memory-read-check` | PreToolUse:Bash | §7 — blocks a ship when a project `MEMORY.md` was not consulted |
+| `secrets-scan` | PreToolUse:Bash | §8 — blocks a `git commit` whose staged diff adds a high-confidence secret |
 | `session-start-check` | SessionStart | injects the active-spec banner; resets the advisory queue |
 | `surface-advisories` | UserPromptSubmit | surfaces advisories the Stop hooks queued last turn |
 | `memory-prompt-hint` | UserPromptSubmit | surfaces `MEMORY.md` entries matching the prompt |

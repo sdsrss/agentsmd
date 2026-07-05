@@ -267,7 +267,21 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
     assert.strictEqual(o.project, null);
   });
   t('parseArgs: rejects invalid --days value', () => assert.strictEqual(parseArgs(['--adoption', '--days=abc']).error, 'invalid --days value: abc'));
+  t('parseArgs: rejects oversized --days (mirrors audit/rules bound; no RangeError downstream)', () => {
+    const big = '999999999999999999999999999999';
+    assert.strictEqual(parseArgs(['--adoption', `--days=${big}`]).error, `invalid --days value: ${big}`);
+  });
   t('parseArgs: rejects empty --project=', () => assert.strictEqual(parseArgs(['--adoption', '--project=']).error, 'invalid --project value: (empty)'));
+  t('adoptionReport does not throw on a huge days (audit() clamps it)', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-clamp.'));
+    try {
+      require('../init').init({ projectRoot: cwd });
+      writeConventions(cwd, '## Conventions\n\n### Naming\n- camelCase\n');
+      assert.doesNotThrow(() => adoptionReport({ root: cwd, days: 1e30, now: ADOPT_NOW, logPath: path.join(cwd, 'nolog.jsonl') }));
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 
   // ── CLI end-to-end ────────────────────────────────────────────────────────
   t('analyze CLI --adoption runs end-to-end and exits 0', () => {

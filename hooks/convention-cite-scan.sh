@@ -57,8 +57,12 @@ TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 LAST="$(node -e '
 const fs=require("fs");
 const path=process.argv[1];
+const CAP=1<<19; // last 512 KiB only — the last assistant message is at the tail;
+                 // bounds this per-Stop hook to O(1), not O(transcript).
 let lines;
-try{ lines=fs.readFileSync(path,"utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
+try{ const fd=fs.openSync(path,"r"),sz=fs.fstatSync(fd).size,st=sz>CAP?sz-CAP:0,b=Buffer.alloc(sz-st);
+  fs.readSync(fd,b,0,sz-st,st); fs.closeSync(fd);
+  lines=b.toString("utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
 const texts=[];
 const pull=(v,out)=>{ if(v==null)return; if(typeof v==="string"){out.push(v);return;}
   if(Array.isArray(v)){for(const x of v)pull(x,out);return;}

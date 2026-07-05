@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.10.0 (2026-07-05) — secret-scan enforcement + governance exposure model (no core rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a package enforcement/governance batch. The pre-existing §8 rule "plaintext secrets in code/logs/commits" goes from self-enforced to hook-enforced (a new `secrets-scan` PreToolUse hook — `§8-secrets` added to `hard-rules.json` `live_sections`), and the promote/demote governance gains an exposure/deterrence model (`demote_policy` field on the immutable §8 rules; `MIN_EXPOSURE_SESSIONS` gate in `rules.js`). `OPERATOR.md` documents the Codex-only measurement boundary and the `@conv-*` citation-vs-adherence caveat. The `spec/AGENTS-extended.md` header, which had silently lagged since v2.4.0, is re-synced — the drift test now asserts both core and extended headers. `spec_version` → v2.10.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.9.0 (2026-07-05) — project-convention adoption telemetry (no rule-text changes)
 
 Spec rule text unchanged; the shared version moves to v2.9.0 in lockstep with a package feature — `agentsmd analyze` gains stable `@conv-<dim>` convention anchors, a `convention-cite-scan` Stop hook recording per-project adoption (`cite`) telemetry, and an `analyze --adoption` prune-candidate report. Advisory and independent of the global `§*` enforcement loop; a package/tooling feature, not a spec-rule change. `spec_version` → v2.9.0. Detail: repo `CHANGELOG.md`.

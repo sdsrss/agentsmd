@@ -11,6 +11,23 @@ const path = require('path');
 const { detect } = require('./lib/detect');
 const { renderProjectAgentsMd, renderConventionsSeed } = require('./lib/project-templates');
 const AM = require('./lib/agents-md');
+const P = require('./lib/paths');
+const CT = require('./lib/config-toml');
+
+// Warn (never fail) when the project AGENTS.md + global ~/.codex/AGENTS.md exceed
+// Codex's project_doc_max_bytes — the discovery chain silently truncates past the
+// cap. Fail-open on an unreadable global spec / config.
+function warnChainBudget(projectAgentsMdPath) {
+  try {
+    let cfg = ''; try { cfg = fs.readFileSync(P.configTomlPath(), 'utf8'); } catch {}
+    const globalB = Buffer.byteLength(fs.readFileSync(P.agentsMdPath(), 'utf8'), 'utf8');
+    const projB = Buffer.byteLength(fs.readFileSync(projectAgentsMdPath, 'utf8'), 'utf8');
+    const b = CT.chainBudget(cfg, globalB, projB);
+    if (b.over > 0) {
+      console.error(`agentsmd: global + project AGENTS.md = ${b.total}B exceeds project_doc_max_bytes (${b.cap}B) by ${b.over}B — Codex SILENTLY truncates the discovery chain. Trim the project doc or raise the cap in ~/.codex/config.toml.`);
+    }
+  } catch { /* global spec / config unreadable → skip */ }
+}
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -97,6 +114,7 @@ if (require.main === module) {
   }
   if (r.action === 'dry-run') { console.log(r.content); process.exit(0); }
   console.log(`${r.action}: ${r.target} (${r.detection.language}, ${r.detection.packageManager})`);
+  warnChainBudget(r.target);
   if (r.frontendFirstAdded) {
     const f = r.detection.frontend;
     const libs = f.uiLibs.length ? ' + ' + f.uiLibs.join(', ') : '';

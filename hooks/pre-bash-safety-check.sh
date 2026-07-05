@@ -47,8 +47,11 @@ cmd_has_rm_rf_var() {
   printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*r|--recursive([[:space:]=]|$)' || return 1
   # force flag: short (-f / -rf …) OR long --force.
   printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*f|--force([[:space:]=]|$)' || return 1
-  # target contains a variable expansion ($VAR / ${VAR} / "$VAR").
-  printf '%s' "$c" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*' && return 0
+  # target contains a variable/parameter expansion — $VAR / ${...} / $1 / $@ / $* /
+  # $(...). Positional ($1), special ($@ $*), and command-substitution ($(...))
+  # targets are just as unvalidated as a named var; the prior name-only pattern
+  # let `rm -rf $1`, `rm -rf "$@"`, `rm -rf $(cat f)` slip through.
+  printf '%s' "$c" | grep -qE '\$(\{|\(|[A-Za-z_0-9@*])' && return 0
   return 1
 }
 
@@ -64,8 +67,12 @@ fi
 cmd_pipes_to_shell() {
   local c="$1"
   [[ "$c" == *"[allow-remote-exec]"* ]] && return 1
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(ba)?(sh|zsh|dash|ksh|fish)([[:space:]]|$)' && return 0
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^|]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
+  # [^;]* (not [^|]*) so a MULTI-STAGE pipeline reaches the interpreter:
+  # `curl u | grep -v x | bash` / `curl u | tee f | bash`. Bounded by `;` so the
+  # match stays within one command segment (a later unrelated `| sh` after `;`
+  # is not attributed to the curl).
+  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(ba)?(sh|zsh|dash|ksh|fish)([[:space:]]|$)' && return 0
+  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
   return 1
 }
 

@@ -18,14 +18,17 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 const NOW = Date.parse('2026-07-02T12:00:00.000Z');
 const day = (n) => new Date(NOW - n * 86400000).toISOString();
 
+// session_id present + spread across ≥5 distinct in-window sessions so exposure
+// is sufficient for the demote/hook-value/deterrence signal branches to engage
+// (a thinner window would read 'insufficient-exposure' — covered separately).
 const rows = [
-  { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var' },
-  { ts: day(2), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var' },
-  { ts: day(3), hook: 'banned-vocab', event: 'block', spec_section: '§10-V' },
-  { ts: day(1), hook: 'pre-bash-safety', event: 'advisory', spec_section: '§8-unknown-script' },
-  { ts: day(1), hook: 'session-start', event: 'context', spec_section: null },     // lifecycle, NOT enforcement
-  { ts: day(1), hook: 'pre-bash-safety', event: 'bypass', spec_section: '§8-rm-rf-var' }, // bypass = rule fired
-  { ts: day(40), hook: 'ship-baseline', event: 'block', spec_section: '§E3-ship-baseline' }, // OUT of 30d window
+  { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'session-a' },
+  { ts: day(2), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'session-b' },
+  { ts: day(3), hook: 'banned-vocab', event: 'block', spec_section: '§10-V', session_id: 'session-c' },
+  { ts: day(1), hook: 'pre-bash-safety', event: 'advisory', spec_section: '§8-unknown-script', session_id: 'session-d' },
+  { ts: day(1), hook: 'session-start', event: 'context', spec_section: null, session_id: 'session-e' },     // lifecycle, NOT enforcement
+  { ts: day(1), hook: 'pre-bash-safety', event: 'bypass', spec_section: '§8-rm-rf-var', session_id: 'session-a' }, // bypass = rule fired
+  { ts: day(40), hook: 'ship-baseline', event: 'block', spec_section: '§E3-ship-baseline', session_id: 'session-f' }, // OUT of 30d window
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-audit-test.'));
@@ -35,6 +38,7 @@ try {
 
   const a = audit({ days: 30, now: NOW, logPath: log });
   t('window excludes rows older than N days', () => assert.strictEqual(a.inWindow, 6));
+  t('sessionCount = distinct in-window session_id (exposure proxy)', () => assert.strictEqual(a.sessionCount, 5));
   t('§8-rm-rf-var aggregates block+block+bypass = 3', () => { assert.strictEqual(a.bySection['§8-rm-rf-var'].total, 3); assert.strictEqual(a.bySection['§8-rm-rf-var'].enforcement, 3); });
   t('context (lifecycle) not counted as enforcement', () => assert.strictEqual(a.enforcementEvents, 5));
   t('byHook tallies pre-bash-safety = 4', () => assert.strictEqual(a.byHook['pre-bash-safety'], 4));
@@ -49,6 +53,43 @@ try {
     ].map((r) => JSON.stringify(r)).join('\n') + '\n');
     const b = audit({ days: 30, now: NOW, logPath: boundary });
     assert.deepStrictEqual(Object.keys(b.bySection).sort(), ['at-cutoff', 'now']);
+  });
+  t('test-tagged rows excluded by default; includeTest keeps them', () => {
+    const tagged = path.join(tmp, 'tagged.jsonl');
+    fs.writeFileSync(tagged, [
+      { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'real-session' },
+      { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'verify-session', tag: 'test' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const def = audit({ days: 30, now: NOW, logPath: tagged });
+    assert.strictEqual(def.inWindow, 1, 'tagged row excluded from window');
+    assert.strictEqual(def.excludedTestRows, 1);
+    assert.strictEqual(def.bySection['§8-rm-rf-var'].enforcement, 1, 'tagged hit not counted');
+    assert.strictEqual(def.sessionCount, 1, 'tagged session not counted toward exposure');
+    const inc = audit({ days: 30, now: NOW, logPath: tagged, includeTest: true });
+    assert.strictEqual(inc.inWindow, 2, 'includeTest keeps the tagged row');
+    assert.strictEqual(inc.excludedTestRows, 0);
+  });
+  t('unparseable-ts rows counted separately, kept OUT of window + aggregation', () => {
+    const bad = path.join(tmp, 'badts.jsonl');
+    fs.writeFileSync(bad, [
+      { ts: 'not-a-date', hook: 'h', event: 'block', spec_section: 'garbage', session_id: 'sx' },
+      { ts: day(1), hook: 'h', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'sy' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const a2 = audit({ days: 30, now: NOW, logPath: bad });
+    assert.strictEqual(a2.unparseableRows, 1);
+    assert.strictEqual(a2.inWindow, 1, 'only the valid-ts row is in window');
+    assert.ok(!('garbage' in a2.bySection), 'unparseable-ts row must not pollute bySection');
+  });
+  t('parseDaysArg accepts --include-test', () => {
+    const p = parseDaysArg(['--include-test']);
+    assert.strictEqual(p.includeTest, true);
+    assert.strictEqual(p.days, 30);
+  });
+  t('audit() clamps an out-of-range days (no RangeError for programmatic callers)', () => {
+    let a;
+    assert.doesNotThrow(() => { a = audit({ days: 1e30, now: NOW, logPath: log }); });
+    assert.strictEqual(a.days, 30, 'clamped to default');
+    assert.ok(a.windowStartIso, 'toISOString did not throw');
   });
 
   // --- Phase 3: byProject aggregation -------------------------------------
@@ -281,9 +322,41 @@ try {
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
-  t('rules: hook-enforced §E3-ship-baseline with 0 in-window hits = demote-candidate', () => { const r = ra.rules.find((x) => x.id === '§E3-ship-baseline'); assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal)); });
+  t('rules: extended-scope §E3-ship-baseline w/ 0 hits = hook-value-review, not demote (nowhere to demote to)', () => {
+    const r = ra.rules.find((x) => x.id === '§E3-ship-baseline');
+    assert(r && r.signal === 'hook-value-review', 'got ' + (r && r.signal));
+    assert(!ra.demoteCandidates.some((x) => x.id === '§E3-ship-baseline'), 'extended rule must not be a core demote-candidate');
+    assert(ra.hookValueReview.some((x) => x.id === '§E3-ship-baseline'));
+  });
+  t('rules: immutable §8.V4 w/ 0 hits + sufficient exposure = deterrence-ok (never dilution)', () => {
+    const r = ra.rules.find((x) => x.id === '§8.V4-sandbox-disposal');
+    assert(r && r.signal === 'deterrence-ok', 'got ' + (r && r.signal));
+    assert(!ra.demoteCandidates.some((x) => x.id === '§8.V4-sandbox-disposal'), '§8 immutable rule must never be a demote-candidate');
+  });
+  t('rules: a core standard-policy live rule w/ 0 hits + exposure IS a demote-candidate', () => {
+    const r = ra.rules.find((x) => x.id === '§10-four-section-order');
+    assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal));
+  });
   t('rules: self-enforced Iron Law #2 labeled self-enforced (never a demote-candidate)', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-2'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
   t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
+  // Thin window: telemetry present but < MIN_EXPOSURE_SESSIONS distinct sessions →
+  // a 0-hit live rule reads 'insufficient-exposure' (can't judge dilution yet), and
+  // nothing is demoted. A rule WITH hits still reads 'active' (exposure gates 0-hit only).
+  const thin = path.join(tmp, 'thin.jsonl');
+  fs.writeFileSync(thin, [
+    { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'only-one-session' },
+    { ts: day(2), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'only-one-session' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const raThin = rulesAudit({ days: 30, now: NOW, logPath: thin });
+  t('rules: thin window → 0-hit live rule = insufficient-exposure, no demotes', () => {
+    assert.strictEqual(raThin.sessionCount, 1);
+    assert.strictEqual(raThin.lowExposure, true);
+    assert.strictEqual(raThin.demoteCandidates.length, 0, 'no demote off thin exposure');
+    const r = raThin.rules.find((x) => x.id === '§10-four-section-order');
+    assert(r && r.signal === 'insufficient-exposure', 'got ' + (r && r.signal));
+    const r8 = raThin.rules.find((x) => x.id === '§8-rm-rf-var');
+    assert(r8 && r8.signal === 'active', 'active despite thin window: got ' + (r8 && r8.signal));
+  });
 
   // Empty window: a 0-hit live rule must read as 'no-data', never 'demote-candidate'
   // (an empty window is not evidence of dilution).

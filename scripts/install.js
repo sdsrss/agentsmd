@@ -13,7 +13,16 @@ const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
-const writeFile = (p, c) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, c); };
+// Atomic write: write a sibling temp then rename (atomic on the same filesystem).
+// A torn/partial fs.writeFileSync of a SHARED file (hooks.json / config.toml /
+// AGENTS.md) would corrupt other tenants too; with rename, a reader — or a crash —
+// sees either the whole old file or the whole new one, never a truncated one.
+const writeFile = (p, c) => {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.agentsmd-tmp-${process.pid}`;
+  try { fs.writeFileSync(tmp, c); fs.renameSync(tmp, p); }
+  catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+};
 const chmodShells = (dir) => {
   if (!fs.existsSync(dir)) return;
   for (const f of fs.readdirSync(dir)) if (f.endsWith('.sh')) { try { fs.chmodSync(path.join(dir, f), 0o755); } catch {} }

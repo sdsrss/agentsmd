@@ -3,6 +3,34 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.10.0 — 2026-07-05 — secret-scan gate, governance exposure model, safety + telemetry-integrity fixes
+
+The largest enforcement + governance batch since the closed loop landed. **User-visible default change (per the released-artifact rule): a new blocking hook `secrets-scan` gates `git commit`** — if the staged diff ADDS a line matching a high-confidence secret shape (AWS / GitHub / Slack / Google / Stripe keys, private-key headers), the commit is blocked (§8, immutable). Prefix-anchored patterns keep false positives low; bypass a documented example with `[allow-secret]`. This takes the hook count 11 → 12. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.9.0`.
+
+The governance loop (`agentsmd rules`) is now statistically honest: it no longer flags a rule as dilution off thin or misattributed data. And two latent safety/integrity defects are fixed — one that could fail a `git push` on the hook's own crash, and one that could write invalid TOML into the shared `config.toml`.
+
+### Added
+- **`secrets-scan` hook** (PreToolUse:Bash, §8): scans `git diff --cached` added lines against `hooks/secrets.patterns`; blocks a commit that stages a secret. Fail-open (jq/git missing, not a repo, empty diff), `[allow-secret]` bypass.
+- **Governance exposure model** (`agentsmd rules`): `demote_policy: "deterrence"` on the immutable §8 hooks (0 hits = the hazard never arose, never "dilution"); extended-scope hook rules with 0 hits now read `hook-value-review` (nowhere to demote to), not `demote-candidate`; and a `MIN_EXPOSURE_SESSIONS` distinct-session gate reads a thin window as `insufficient-exposure` instead of demoting off too little field data.
+- **Telemetry provenance tag**: `AGENTSMD_TELEMETRY_TAG=test` stamps a `tag` field; `audit`/`rules` exclude tagged rows by default (`audit --include-test` keeps them) so a verification run against a real `CODEX_HOME` can't skew the ledger.
+- **`doctor`** gains two checks: `installed spec is current` (deployed `~/.codex/AGENTS.md` version vs the source — catches a lagging install) and `discovery-chain headroom for project docs` (global spec bytes vs `project_doc_max_bytes`).
+- **Chain-budget warning** in `init` / `analyze --write`: warns when the global + project `AGENTS.md` would exceed `project_doc_max_bytes` (Codex silently truncates past it).
+
+### Fixed
+- **`memory-read-check` could fail CLOSED**: only a clean detector exit 1 now blocks the push; a crash/OOM/signal (exit 137/139/143) fails open. A tool malfunction no longer blocks a `git push`.
+- **`config-toml` wrote invalid TOML into the shared `config.toml`** on two valid inputs: the inline-table form `features = { hooks = true }` appended a duplicate `[features]` table, and `hooks = false` + `codex_hooks = true` produced a duplicate `hooks` key — both rejected by Codex's TOML parser (fail-closed for every tenant). The scanner is now inline-table-aware and the migration dedupes. Same fix for inline `[tui]`.
+- **Telemetry section mislabel**: `transcript-structure-scan` recorded banned-vocab hits under `§10-four-section-order`; they now record under `§10-V`, keeping the promote/demote ledger accurate.
+- **`pre-bash-safety` detection gaps**: `rm -rf` now also catches `$1` / `${1}` / `$@` / `$*` / `$(…)` targets; the remote-exec check catches multi-stage pipelines (`curl … | grep … | bash`).
+- **`ship-baseline`** now gates dash-suffixed shared branches (`release-1.2`, `prod-east`), previously unmatched; the run's `headSha` + `createdAt` are surfaced for freshness judgement.
+- **`analyze --adoption --days=<huge>`** threw an uncaught `RangeError`; the day bound now lives inside `audit()` so every caller is safe.
+- **Unparseable shared `hooks.json`**: `uninstall` now aborts (like `install`) instead of silently orphaning agentsmd's entries.
+
+### Changed
+- **Shared-file writes are atomic** (temp + rename) in `install` — a torn write can no longer corrupt the shared `hooks.json` / `config.toml` / `AGENTS.md`.
+- **Per-session state**: the sandbox-disposal reference and residue baseline are now keyed per session (`session-start-<sid>.ref`, `tmp-baseline-<sid>.txt`), so parallel sessions don't clobber each other's baseline; SessionStart GCs state files older than 7 days.
+- **Stop scans read only the transcript tail** (last 512 KiB) — the per-turn cost is now O(1), not O(transcript).
+- `spec/AGENTS-extended.md` header re-synced to the shared version (it had silently lagged); the drift test now asserts BOTH core and extended headers, and `OPERATOR.md` documents the Codex-only measurement boundary and the `@conv-*` citation-vs-adherence caveat.
+
 ## v2.9.0 — 2026-07-05 — project-convention adoption telemetry (cite-it-or-it-decays)
 
 A project's distilled `AGENTS.md` conventions become self-measuring. `agentsmd analyze --write` stamps each recognized convention-dimension heading with a stable `@conv-<dim>` anchor (the AI's wording changes every re-run; the anchor never does) plus a citation instruction; a new fail-open Stop hook `convention-cite-scan` records a `cite` telemetry event whenever a session's own output names one of that project's known anchors; and `agentsmd analyze --adoption` reports per-dimension cite counts, flagging 0-cite dimensions as prune candidates. Advisory-only — nothing is auto-deleted — and kept structurally independent of the global `§*` enforcement/demote loop. Additive; projects with no distilled conventions see no behavior change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.8.0`.

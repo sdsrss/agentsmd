@@ -26,8 +26,12 @@ TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 LAST="$(node -e '
 const fs=require("fs");
 const path=process.argv[1];
+const CAP=1<<19; // read only the last 512 KiB — the last assistant message (all we
+                 // need) lives at the tail; caps per-Stop cost to O(1), not O(transcript).
 let lines;
-try{ lines=fs.readFileSync(path,"utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
+try{ const fd=fs.openSync(path,"r"),sz=fs.fstatSync(fd).size,st=sz>CAP?sz-CAP:0,b=Buffer.alloc(sz-st);
+  fs.readSync(fd,b,0,sz-st,st); fs.closeSync(fd);
+  lines=b.toString("utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
 const texts=[];
 const pull=(v,out)=>{ if(v==null)return; if(typeof v==="string"){out.push(v);return;}
   if(Array.isArray(v)){for(const x of v)pull(x,out);return;}
@@ -84,7 +88,18 @@ fi
 
 [[ -n "$ISSUES" ]] || exit 0
 ISSUES="${ISSUES% }"
-hook_record "$HOOK" "advisory" "$(jq -cn --arg i "$ISSUES" '{issues:$i}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
+# Attribute each issue class to its OWN spec section so the promote/demote ledger
+# (scripts/rules.js bySection) counts banned-vocab hits under §10-V (Specificity)
+# and section-order hits under §10-four-section-order — not everything under the
+# latter. A report that trips both emits one row per section, each carrying only
+# its own issue in extra (distinct rows, never identical multi-emit — keeps
+# bySection aggregation and any future dup detector honest).
+if [[ "$ISSUES" == *banned-vocab:* ]]; then
+  vtok="${ISSUES#*banned-vocab:}"; vtok="banned-vocab:${vtok%%[[:space:]]*}"
+  hook_record "$HOOK" "advisory" "$(jq -cn --arg i "$vtok" '{issues:$i}' 2>/dev/null || echo null)" '§10-V' "$SID"
+fi
+[[ "$ISSUES" == *four-section-order* ]] && \
+  hook_record "$HOOK" "advisory" "$(jq -cn '{issues:"four-section-order"}' 2>/dev/null || echo null)" '§10-four-section-order' "$SID"
 hook_queue_advisory \
   "[agentsmd §10] Last report may violate: ${ISSUES}. §10 (HARD): quantify value claims (absolute number / baseline-anchored ratio, not adjectives) and order sections Done → Not done → Failed → Uncertain." \
   "$SID"

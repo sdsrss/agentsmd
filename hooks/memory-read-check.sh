@@ -59,7 +59,12 @@ CONSULTED=$?
 if [[ "$CONSULTED" -eq 0 ]]; then
   exit 0   # referenced this session → consider it consulted
 fi
-[[ "$CONSULTED" -eq 2 ]] && { hook_record_failopen "$HOOK" "transcript-read-failed"; exit 0; }
+# Fail-OPEN on anything but the detector's explicit "not consulted" (exit 1).
+# exit 2 is its own read-failure signal; any OTHER status is node dying
+# independently of this parent (OOM/SIGKILL/SIGSEGV/SIGTERM → 137/139/143), a
+# tool malfunction that must never fail-CLOSED onto a git push — the layer's
+# prime invariant. Only a clean exit 1 is evidence the file was not opened.
+[[ "$CONSULTED" -ne 1 ]] && { hook_record_failopen "$HOOK" "transcript-read-failed"; exit 0; }
 
 # The block text below refers to the file by its DIRECTORY, never the literal
 # "MEMORY.md" — otherwise, if Codex echoes this hook's own reason into the

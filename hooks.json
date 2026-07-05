@@ -16,7 +16,8 @@
           { "type": "command", "command": "bash \"./hooks/pre-bash-safety-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"./hooks/banned-vocab-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"./hooks/ship-baseline-check.sh\"", "timeout": 8 },
-          { "type": "command", "command": "bash \"./hooks/memory-read-check.sh\"", "timeout": 3 }
+          { "type": "command", "command": "bash \"./hooks/memory-read-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"./hooks/secrets-scan.sh\"", "timeout": 5 }
         ]
       }
     ],

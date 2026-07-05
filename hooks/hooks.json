@@ -16,7 +16,8 @@
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/pre-bash-safety-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/banned-vocab-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/ship-baseline-check.sh\"", "timeout": 8 },
-          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/memory-read-check.sh\"", "timeout": 3 }
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/memory-read-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/secrets-scan.sh\"", "timeout": 5 }
         ]
       }
     ],

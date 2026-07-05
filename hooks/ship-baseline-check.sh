@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # ship-baseline-check.sh — PreToolUse:Bash. Enforces spec §E3 ship-checklist
 # item 2: a `git push` to a shared branch requires the base-branch CI to be
-# green + fresh. If the latest CI run on the target branch concluded red, block
-# the push (spec/AGENTS.md §E3-ship-baseline). Bypass: [allow-red-ship] (records
-# a known-red baseline; the pusher takes responsibility).
+# green. If the latest CI run on the target branch concluded red, block the push
+# (spec/AGENTS.md §E3-ship-baseline). Bypass: [allow-red-ship] (records a
+# known-red baseline; the pusher takes responsibility).
 #
 # Branch resolution: prefer the branch named in the push command
 # (`git push <remote> <branch>`), else the current branch via git rev-parse.
-# Shared = main|master|develop|release*|prod* (local/feature branches skip).
+# Shared = main|master|develop|dev|release[/-]*|releases/*|prod[/-]*|production
+# (local/feature branches skip).
+# Freshness: the run's headSha + createdAt are captured and surfaced in the block
+# + telemetry so a human can judge whether a green is stale. Blocking a
+# stale-GREEN (base tip ahead of the last CI run) is intentionally NOT done here:
+# it needs the true remote tip, which a fast fail-open hook can't resolve reliably
+# without false positives — deferred to the pusher's §E3 gate.
 # Fail-open: gh missing / not a GitHub repo / no runs / timeout → exit 0.
 
 set -uo pipefail
@@ -49,25 +55,30 @@ fi
 [[ "$BRANCH" == refs/heads/* ]] && BRANCH="${BRANCH#refs/heads/}"
 [[ -n "$BRANCH" && "$BRANCH" != "HEAD" ]] || exit 0
 
-# Only gate shared branches.
+# Only gate shared branches. Cover the common release/prod naming shapes: bare,
+# slash-scoped (release/1.2), AND dash-suffixed (release-1.2, prod-east) — the
+# last was previously unmatched, so a red-CI push to `release-1.2` slipped through.
 case "$BRANCH" in
-  main|master|develop|dev|release|release/*|releases/*|prod|prod/*|production) : ;;
+  main|master|develop|dev|release|release/*|release-*|releases/*|prod|prod/*|prod-*|production) : ;;
   *) exit 0 ;;
 esac
 
 # Query the latest CI run conclusion on that branch (bounded).
-RUN_JSON="$(platform_timeout 5 gh run list --branch "$BRANCH" --limit 1 --json conclusion,status 2>/dev/null)" || RUN_JSON=""
+RUN_JSON="$(platform_timeout 5 gh run list --branch "$BRANCH" --limit 1 --json conclusion,status,headSha,createdAt 2>/dev/null)" || RUN_JSON=""
 [[ -n "$RUN_JSON" ]] || { hook_record_failopen "$HOOK" "gh-noreply"; exit 0; }
 CONCLUSION="$(printf '%s' "$RUN_JSON" | jq -r '.[0].conclusion // empty' 2>/dev/null)"
 STATUS="$(printf '%s' "$RUN_JSON" | jq -r '.[0].status // empty' 2>/dev/null)"
+HEADSHA="$(printf '%s' "$RUN_JSON" | jq -r '.[0].headSha // empty' 2>/dev/null)"
+CREATED="$(printf '%s' "$RUN_JSON" | jq -r '.[0].createdAt // empty' 2>/dev/null)"
 [[ -n "$CONCLUSION" || -n "$STATUS" ]] || exit 0   # no runs → nothing to gate
+SHORTSHA="${HEADSHA:0:12}"
 
 case "$CONCLUSION" in
   failure|cancelled|timed_out|startup_failure|action_required)
-    hook_record "$HOOK" "block" "$(jq -cn --arg b "$BRANCH" --arg c "$CONCLUSION" '{branch:$b,conclusion:$c}')" '§E3-ship-baseline' "$SID"
+    hook_record "$HOOK" "block" "$(jq -cn --arg b "$BRANCH" --arg c "$CONCLUSION" --arg s "$HEADSHA" --arg t "$CREATED" '{branch:$b,conclusion:$c,head_sha:$s,created_at:$t}')" '§E3-ship-baseline' "$SID"
     hook_block \
       "Blocked: pushing to '${BRANCH}' whose latest CI run concluded '${CONCLUSION}' ( spec §E3 ship-checklist item 2 )." \
-      "§E3 (ship gate): base-branch CI on '${BRANCH}' is red (latest run: ${CONCLUSION}). Options per spec: (a) fix the failure first, (b) record a known-red baseline in the commit body and append [allow-red-ship] to proceed, or (c) hold the push. Pushing onto a red baseline hides which change broke it." \
+      "§E3 (ship gate): base-branch CI on '${BRANCH}' is red (latest run: ${CONCLUSION}${SHORTSHA:+, commit ${SHORTSHA}}${CREATED:+, ${CREATED}}). Options per spec: (a) fix the failure first, (b) record a known-red baseline in the commit body and append [allow-red-ship] to proceed, or (c) hold the push. Pushing onto a red baseline hides which change broke it. If that run predates the branch's current tip, the red may be stale — re-run CI to confirm." \
       "PreToolUse" ;;
   *) exit 0 ;;   # success / neutral / skipped / in-progress → allow
 esac

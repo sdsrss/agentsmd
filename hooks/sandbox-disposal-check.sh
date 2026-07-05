@@ -18,7 +18,10 @@ EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
 STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
-REF="$STATE_DIR/session-start.ref"
+# Per-session reference (matches session-start-check.sh's key) so parallel sessions
+# never reset each other's baseline — a shared file let session B's SessionStart
+# void session A's residue reference.
+REF="$STATE_DIR/session-start-$(hook_session_key "$SID").ref"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 # No session reference yet → create one and skip (nothing to compare against).
 [[ -r "$REF" ]] || { : > "$REF" 2>/dev/null; exit 0; }

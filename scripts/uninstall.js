@@ -13,11 +13,20 @@ const M = require('./lib/migrate');
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 function uninstall() {
+  // 0. Pre-flight abort on an unparseable shared hooks.json (mirror of install's
+  //    step-0). It may hold other tenants' hooks we can't see; removeMarkedHooks
+  //    would silently no-op on it and ORPHAN agentsmd's own entries while claiming
+  //    success. Fail loudly so the user fixes it and gets a clean, full uninstall,
+  //    rather than a half-done one that reports done. Nothing has been touched yet.
+  const beforeHooks = readOrNull(P.hooksJsonPath());
+  if (beforeHooks !== null && beforeHooks.trim() !== '' && !H.parseHooksConfig(beforeHooks)) {
+    throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not edit it blind (it may hold other tenants' hooks). Fix or remove it, then re-run uninstall.`);
+  }
+
   const result = { hooksRemoved: 0, hooksJsonDeleted: false, agentsBlockRemoved: false, extendedMdRemoved: false, flagLeftEnabled: true };
 
   // 1. hooks.json — strip agentsmd entries, preserve others; delete file only if
   //    nothing else remains.
-  const beforeHooks = readOrNull(P.hooksJsonPath());
   if (beforeHooks !== null) {
     const r = H.removeAgentsmdHooks(beforeHooks);
     result.hooksRemoved = r.removed;

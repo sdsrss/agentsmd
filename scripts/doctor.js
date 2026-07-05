@@ -74,6 +74,38 @@ function doctor() {
     extTop === null ? 'missing — run install' : (extSrc === null ? 'not installed' : (extTop === extSrc ? 'ok' : 'stale — re-run install'))
   );
 
+  // Installed-spec freshness: the spec version deployed into ~/.codex/AGENTS.md vs
+  // the version this doctor's spec source carries. A lagging deploy (package bumped
+  // but `install` never re-run) means new hooks/rules aren't live and the telemetry
+  // loop starves (OPERATOR §O4). Only meaningful when doctor runs from a source
+  // newer than the deploy (repo / freshly-updated package); run from the installed
+  // copy the two match by construction, so this never false-fails there.
+  const srcVer = ((read(path.join(P.repoRoot(), 'spec', 'AGENTS.md')) || '').match(/CODEX-CODING-SPEC v(\d+\.\d+\.\d+)/) || [])[1];
+  const depVer = ((read(P.agentsMdPath()) || '').match(/CODEX-CODING-SPEC v(\d+\.\d+\.\d+)/) || [])[1];
+  if (srcVer) {
+    add(
+      'installed spec is current',
+      depVer === srcVer,
+      !depVer ? 'no CODEX-CODING-SPEC block in ~/.codex/AGENTS.md — run install.js'
+        : (depVer === srcVer ? `v${depVer}` : `deployed v${depVer} != source v${srcVer} — re-run install.js`)
+    );
+  }
+
+  // Discovery-chain budget: the global ~/.codex/AGENTS.md shares
+  // project_doc_max_bytes (default 32 KiB) with every project's AGENTS.md chain,
+  // and truncation past the cap is SILENT. Report the global spec's byte footprint
+  // and the headroom left for project docs. Only fails if the global ALONE exceeds
+  // the cap (thin-but-positive headroom is informational, never a false fail).
+  const globalBytes = Buffer.byteLength(read(P.agentsMdPath()) || '', 'utf8');
+  const budget = CT.chainBudget(cfg, globalBytes, 0);
+  add(
+    'discovery-chain headroom for project docs',
+    budget.headroom >= 0,
+    budget.headroom >= 0
+      ? `global AGENTS.md ${globalBytes}B / cap ${budget.cap}B — ${budget.headroom}B left for project chains`
+      : `global AGENTS.md ${globalBytes}B EXCEEDS cap ${budget.cap}B by ${-budget.headroom}B — raise project_doc_max_bytes in config.toml`
+  );
+
   return { ok: checks.every((c) => c.ok), checks };
 }
 
