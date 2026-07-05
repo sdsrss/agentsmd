@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.9.0 (2026-07-05) — project-convention adoption telemetry (no rule-text changes)
+
+Spec rule text unchanged; the shared version moves to v2.9.0 in lockstep with a package feature — `agentsmd analyze` gains stable `@conv-<dim>` convention anchors, a `convention-cite-scan` Stop hook recording per-project adoption (`cite`) telemetry, and an `analyze --adoption` prune-candidate report. Advisory and independent of the global `§*` enforcement loop; a package/tooling feature, not a spec-rule change. `spec_version` → v2.9.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.8.0 (2026-07-05) — frontend-aware project AGENTS.md (no rule-text changes)
 
 Spec rule text unchanged; the shared version moves to v2.8.0 in lockstep with a package feature — `agentsmd init` gains deterministic frontend stack detection and emits a `## Frontend` section (with a `--no-frontend` opt-out). A package/tooling feature, not a spec-rule change. `spec_version` → v2.8.0. Detail: repo `CHANGELOG.md`.

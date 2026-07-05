@@ -3,14 +3,14 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## [Unreleased]
+## v2.9.0 — 2026-07-05 — project-convention adoption telemetry (cite-it-or-it-decays)
+
+A project's distilled `AGENTS.md` conventions become self-measuring. `agentsmd analyze --write` stamps each recognized convention-dimension heading with a stable `@conv-<dim>` anchor (the AI's wording changes every re-run; the anchor never does) plus a citation instruction; a new fail-open Stop hook `convention-cite-scan` records a `cite` telemetry event whenever a session's own output names one of that project's known anchors; and `agentsmd analyze --adoption` reports per-dimension cite counts, flagging 0-cite dimensions as prune candidates. Advisory-only — nothing is auto-deleted — and kept structurally independent of the global `§*` enforcement/demote loop. Additive; projects with no distilled conventions see no behavior change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.8.0`.
 
 ### Added
 - `agentsmd analyze --write` now stamps a stable `@conv-<dim>` anchor onto each recognized convention-dimension heading (declaration style / naming / import order / error handling / request-API encapsulation / state management / comment style / git conventions — `scripts/lib/conventions-taxonomy.js`), plus a citation-instruction notice, so re-running analyze never breaks anchor continuity even though the AI's wording changes every run.
 - New Stop hook `convention-cite-scan` records a `cite` telemetry event whenever a session's own output names one of a project's known `@conv-*` anchors — the adoption signal for that project's distilled conventions. Advisory, fail-open, independent of the global `§*` enforcement/demote loop.
 - `agentsmd analyze --adoption [--days=N] [--project=SUBSTR]` — per-dimension cite counts and 0-cite prune candidates (advisory-only; nothing is auto-deleted from `AGENTS.md`).
-
-Opt-in / additive: projects with no distilled conventions yet see no behavior change. No version bump in this entry — ships with the next release.
 
 ## v2.8.0 — 2026-07-05 — frontend-aware project AGENTS.md
 
