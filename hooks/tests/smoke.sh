@@ -190,6 +190,73 @@ OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
 NEW="$(clog_new "$BEFORE")"
 { is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "invented anchor that PREFIXES a known one → no cite row" || bad "invented anchor that PREFIXES a known one → no cite row" "out=[$OUT] new=[$NEW]"
 
+echo "== session-exit-checkpoint.sh (Stop → §7 unvalidated-edit flag) =="
+SECST_DIR="$CODEX_HOME/.agentsmd-state"; mkdir -p "$SECST_DIR"; rm -f "$SECST_DIR"/unvalidated-*.flag
+SEC_TR="$SANDBOX/sec-transcript.jsonl"
+SECJSON() { jq -cn --arg p "$1" '{session_id:"secsess",transcript_path:$p,cwd:"/tmp/secproj",hook_event_name:"Stop"}'; }
+# (a) apply_patch since last user turn, no validating command → flag + §7 telemetry (once).
+printf '%s\n' \
+  '{"type":"user_message","payload":{"role":"user"}}' \
+  '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
+  > "$SEC_TR"
+B="$(clog_count)"
+OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
+NEW="$(clog_new "$B")"; FLAGF="$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null | head -1)"
+{ is_empty "$OUT" && [[ -n "$FLAGF" ]] && printf '%s\n' "$NEW" | grep -q '"spec_section":"§7-session-exit"'; } && ok "edited without validating → flag written + §7 telemetry" || bad "edited without validating → flag + telemetry" "out=[$OUT] flag=[$FLAGF] new=[$NEW]"
+# (b) a validating command after the edit → flag self-clears.
+printf '%s\n' \
+  '{"type":"user_message","payload":{"role":"user"}}' \
+  '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
+  '{"type":"function_call","payload":{"name":"exec_command","arguments":"{\"command\":[\"bash\",\"-lc\",\"npm test\"]}"}}' \
+  > "$SEC_TR"
+OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
+{ is_empty "$OUT" && [[ -z "$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null)" ]]; } && ok "validated after edit → flag self-clears" || bad "validated after edit → flag self-clears" "flags=[$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null)]"
+# (c) next SessionStart surfaces a PRIOR session's leftover flag once, then clears it.
+printf 'mutations=2\ncwd=/home/u/proj\n' > "$SECST_DIR/unvalidated-priorsess.flag"
+OUT="$(run_hook session-start-check.sh '{"session_id":"freshsess","hook_event_name":"SessionStart","source":"startup"}')"
+AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ printf '%s' "$AC" | grep -q 'prior session left edits unvalidated' && [[ ! -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart surfaces a prior session's unvalidated flag + clears it" || bad "SessionStart surfaces prior unvalidated flag" "ac=[$AC]"
+rm -f "$SECST_DIR"/unvalidated-*.flag
+
+echo "== mem-audit.sh (Stop → §7 memory-hygiene, 24h debounce) =="
+MA_STATE="$CODEX_HOME/.agentsmd-state"; mkdir -p "$MA_STATE"; rm -f "$MA_STATE"/mem-audit-*.stamp
+MAJSON() { jq -cn --arg cwd "$1" '{session_id:"smoke1",cwd:$cwd,hook_event_name:"Stop"}'; }
+# (a) index_orphan (index line → missing file) → surfaced advisory + §7-memory-hygiene telemetry + stamp.
+MA_ORPH="$SANDBOX/memorphan"; mkdir -p "$MA_ORPH/memory"; rm -f "$PENDING"
+printf '%s\n' '- [auth](memory/auth.md) — login flow' '- [gone](memory/gone.md) — deleted, index still points here' > "$MA_ORPH/MEMORY.md"
+printf '%s\n' 'verified: 2026-01-01 | source: PR #1' 'auth notes' > "$MA_ORPH/memory/auth.md"
+B="$(clog_count)"
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"
+NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && pending_has "index lists a missing file" && printf '%s\n' "$NEW" | grep -q '"spec_section":"§7-memory-hygiene"' && printf '%s\n' "$NEW" | grep -q '"surfaced":true'; } && ok "index_orphan → advisory queued + §7-memory-hygiene telemetry (surfaced)" || bad "index_orphan → advisory + telemetry" "out=[$OUT] new=[$NEW]"
+[[ -n "$(ls "$MA_STATE"/mem-audit-*.stamp 2>/dev/null)" ]] && ok "mem-audit writes a per-dir debounce stamp" || bad "mem-audit writes a debounce stamp" "(no stamp)"
+# (b) second Stop within 24h → debounced (silent, no re-scan / no new telemetry).
+rm -f "$PENDING"; B="$(clog_count)"
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && [[ -z "$NEW" ]] && [[ ! -f "$PENDING" ]]; } && ok "second Stop within 24h → debounced" || bad "debounce within 24h" "out=[$OUT] new=[$NEW]"
+# (c) stamp aged past 24h → audits again.
+touch -d '25 hours ago' "$MA_STATE"/mem-audit-*.stamp 2>/dev/null || touch "$MA_STATE"/mem-audit-*.stamp
+rm -f "$PENDING"; B="$(clog_count)"
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && pending_has "index lists a missing file" && printf '%s\n' "$NEW" | grep -q '§7-memory-hygiene'; } && ok "stamp >24h → re-audits" || bad "stamp >24h → re-audits" "out=[$OUT] new=[$NEW]"
+# (d) missing_header ONLY → telemetry recorded, NOT surfaced (用户无感: measured, not nagged).
+MA_HDR="$SANDBOX/memheader"; mkdir -p "$MA_HDR/memory"; rm -f "$PENDING"
+printf '%s\n' '- [notes](memory/notes.md) — some notes' > "$MA_HDR/MEMORY.md"
+printf '%s\n' 'a note missing the mandated verified/source header' > "$MA_HDR/memory/notes.md"
+B="$(clog_count)"
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_HDR")")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && [[ ! -f "$PENDING" ]] && printf '%s\n' "$NEW" | grep -q '"missing_header":1' && printf '%s\n' "$NEW" | grep -q '"surfaced":false'; } && ok "missing_header only → telemetry (surfaced:false), no queued nag" || bad "missing_header only → measured, not surfaced" "out=[$OUT] new=[$NEW] pending=$([[ -f "$PENDING" ]] && echo yes || echo no)"
+# (e) clean dir (indexed + on disk + verified/source header) → silent, nothing recorded.
+MA_CLEAN="$SANDBOX/memclean"; mkdir -p "$MA_CLEAN/memory"; rm -f "$PENDING"
+printf '%s\n' '- [ok](memory/ok.md) — clean entry' > "$MA_CLEAN/MEMORY.md"
+printf '%s\n' 'verified: 2026-02-02 | source: user correction' 'body' > "$MA_CLEAN/memory/ok.md"
+B="$(clog_count)"
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_CLEAN")")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && [[ -z "$NEW" ]] && [[ ! -f "$PENDING" ]]; } && ok "clean memory dir → silent, nothing recorded" || bad "clean memory dir → silent" "out=[$OUT] new=[$NEW]"
+# (f) no MEMORY.md anywhere → silent.
+OUT="$(run_hook mem-audit.sh "$(MAJSON "$SANDBOX/no-such-proj")")"; is_empty "$OUT" && ok "no MEMORY.md → silent" || bad "no MEMORY.md → silent" "$OUT"
+rm -f "$MA_STATE"/mem-audit-*.stamp
+
 echo "== surface-advisories.sh (UserPromptSubmit → surface + clear) =="
 UPS="$(jq -cn '{prompt:"next task",session_id:"smoke1",hook_event_name:"UserPromptSubmit"}')"
 printf '%s\n' "[agentsmd §9] queued advisory" > "$PENDING"
@@ -243,6 +310,8 @@ echo "== memory-prompt-hint.sh =="
 printf '%s\n' '- [auth-flow](memory/auth.md) — authentication and login handling' > "$PROJ/MEMORY.md"
 mk_ph() { jq -cn --arg p "$1" --arg cwd "$2" '{prompt:$p,cwd:$cwd,session_id:"smoke1",hook_event_name:"UserPromptSubmit"}'; }
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$PROJ")")"; is_context "$OUT" && ok "prompt matches MEMORY index → hint" || bad "prompt matches MEMORY index → hint" "$OUT"
+B="$(clog_count)"; run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$PROJ")" >/dev/null 2>&1; NEW="$(clog_new "$B")"
+{ printf '%s\n' "$NEW" | grep -q '"event":"suggest"' && printf '%s\n' "$NEW" | grep -q 'memory/auth.md'; } && ok "hint records a suggest event carrying surfaced filename(s) (A3 prereq)" || bad "suggest event carries filenames" "new=[$NEW]"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'bump the version number' "$PROJ")")"; is_empty "$OUT" && ok "prompt no match → silent" || bad "prompt no match → silent" "$OUT"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix the authentication bug' "$SANDBOX/noproj")")"; is_empty "$OUT" && ok "no MEMORY.md → silent" || bad "no MEMORY.md → silent" "$OUT"
 OUT="$(run_hook memory-prompt-hint.sh "$(mk_ph 'fix billing invoice bug' "$NONGIT/child")")"; is_context "$OUT" && ok "prompt matches parent MEMORY outside git → hint" || bad "prompt matches parent MEMORY outside git → hint" "$OUT"

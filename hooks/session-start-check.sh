@@ -27,7 +27,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>
 # deep config-dir traversal). Baselines + advisory queues are session-scoped, so a
 # session that ended without a final UserPromptSubmit would otherwise orphan its
 # files forever. 7-day floor keeps any resumable session's files safe.
-find "$STATE_DIR" -maxdepth 1 -type f \( -name 'pending-advisories-*' -o -name 'session-start-*.ref' -o -name 'tmp-baseline-*.txt' \) -mtime +7 -delete 2>/dev/null || true
+find "$STATE_DIR" -maxdepth 1 -type f \( -name 'pending-advisories-*' -o -name 'session-start-*.ref' -o -name 'tmp-baseline-*.txt' -o -name 'unvalidated-*.flag' -o -name 'mem-audit-*.stamp' \) -mtime +7 -delete 2>/dev/null || true
 # Drop advisories queued by a PREVIOUS session's Stop hooks — but ONLY on a fresh
 # start, never on `resume` (a resumed session continues, so a queued advisory from
 # its last turn must survive to be surfaced at the next UserPromptSubmit).
@@ -49,7 +49,28 @@ for spec in "${CODEX_HOME:-$HOME/.codex}/AGENTS.override.md" "${CODEX_HOME:-$HOM
   fi
 done
 
+# Cross-session §7 safety net: a PRIOR session that ran apply_patch with no
+# validation left an unvalidated-<key>.flag (session-exit-checkpoint.sh). The
+# queued-advisory channel is per-session and cleared on fresh start, so it can't
+# carry that signal across a session exit — surface it here instead, once, then
+# delete the flag. THIS session's own flag (still live on a resume) is excluded by
+# name. Merged into the single banner below: a second hook_context call would emit
+# a second JSON object on stdout, which Codex can't parse.
+CHECKPOINT=""
+SELF_FLAG="unvalidated-$SKEY.flag"
+CP_FOUND=0; CP_CWD=""
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  [[ "$(basename "$f")" == "$SELF_FLAG" ]] && continue
+  CP_FOUND=$((CP_FOUND+1))
+  c="$(grep -m1 '^cwd=' "$f" 2>/dev/null | cut -d= -f2-)"; [[ -n "$c" ]] && CP_CWD="$c"
+  rm -f "$f" 2>/dev/null || true
+done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'unvalidated-*.flag' 2>/dev/null)
+if [[ "$CP_FOUND" -gt 0 ]]; then
+  CHECKPOINT=$'\n'"[agentsmd §7] A prior session left edits unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/commit ran after the last apply_patch). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
+fi
+
 hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
 hook_context \
-  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1." \
+  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1.${CHECKPOINT}" \
   "SessionStart"

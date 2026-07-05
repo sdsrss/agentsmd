@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.11.0",
+  "spec_version": "v2.12.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -9,7 +9,7 @@
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
   "_live_sections_doc": "spec_section values currently EMITTED by a built+registered hook. scripts/rules.js only treats a hook-enforced rule as a demote-candidate when its section is live (0 hits on a live section = dilution); a hook-enforced rule whose section is NOT live is 'hook-planned' (its hook is not built yet, so 0 hits is expected, not dilution). Update this array in the same commit a hook starts/stops emitting a section.",
   "_demote_policy_doc": "Optional per-rule governance policy (scripts/rules.js). Absent/'standard' = a live 0-hit rule with sufficient exposure is a core→extended demote-candidate. 'deterrence' = an immutable §8 SAFETY hook whose 0 hits mean the hazard never arose (deterrence working), NOT dilution — never flagged for demotion (consistent with §8 being immutable). Scope also matters independently: a hook rule already scoped 'extended' with 0 hits is 'hook-value-review' (nowhere to demote to), not 'demote-candidate'.",
-  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read"],
+  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene"],
   "rules": [
     {
       "id": "§8-rm-rf-var",
@@ -199,12 +199,26 @@
       "name": "Session-exit mid-SPINE (HARD) — un-validated work is not 'Completed'",
       "scope": "core",
       "section_anchor": "**Session-exit mid-SPINE (HARD)**",
-      "enforcement": "self",
-      "codex_hook_event": null,
-      "rule_hits_section": null,
+      "enforcement": "both",
+      "codex_hook_event": "Stop",
+      "rule_hits_section": "§7-session-exit",
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": null
+      "last_demote_review": null,
+      "note": "Stop hook session-exit-checkpoint.sh records an advisory (once per unvalidated streak) when a turn ran apply_patch with no test/lint/typecheck/commit afterward, and drops a per-session state flag; session-start-check.sh surfaces a prior session's leftover flag at the next SessionStart. The paused-task file itself stays self-enforced (the hook observes + nudges, it never writes into the user's repo)."
+    },
+    {
+      "id": "§7-memory-hygiene",
+      "name": "Memory hygiene — index/file drift + missing verified-header (§7)",
+      "scope": "core",
+      "section_anchor": "Index hygiene: entry stale + un-re-verifiable after one refresh attempt",
+      "enforcement": "both",
+      "codex_hook_event": "Stop",
+      "rule_hits_section": "§7-memory-hygiene",
+      "added_version": "v2.12.0",
+      "confidence": "medium",
+      "last_demote_review": null,
+      "note": "Stop hook mem-audit.sh audits the resolved MEMORY.md (the same hook_find_memory_file the hint routes off): index_orphan (index line → missing memory/*.md) and file_orphan (memory/*.md with no index line) queue one advisory per memory-dir per 24h; missing_header (a memory/*.md lacking the mandated `verified: <date> | source:` line) records telemetry only, never surfaced — soft decay is measured, not nagged. Depth-1 dir read (§8); fail-open. The archival / re-verify actions themselves stay self-enforced."
     },
     {
       "id": "§E3-ship-baseline",
@@ -380,6 +394,19 @@
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": null
+    },
+    {
+      "id": "§E8-turn-yield",
+      "name": "Mid-SPINE turn-yield — silent mid-cycle stop + next-turn done-claim = Iron Law #2 evasion",
+      "scope": "extended",
+      "section_anchor": "MID-SPINE TURN-YIELD",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v2.12.0",
+      "confidence": "medium",
+      "last_demote_review": null,
+      "note": "Extended §E8. Per-turn analog of core §7 Session-exit mid-SPINE: yielding a turn mid-cycle (before VALIDATE) then claiming done next turn asserts unrun steps = Iron Law #2 violation. Self-enforced; the always-on protection is core Iron Law #2 + §7 session-exit, this elaborates the specific evasion. An optional retrospective Stop observer overlaps B1 (session-exit-checkpoint) + roadmap C4 (iron-law-2 evidence-fingerprint), so measurement is deferred there rather than adding a third overlapping Stop hook."
     }
   ]
 }

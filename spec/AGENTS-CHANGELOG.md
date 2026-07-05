@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.12.0 (2026-07-06) — first rule-text addition since v1.4.0: extended §E8 turn-yield; two §7 disciplines wired to Stop hooks
+
+Unlike v2.6–v2.11 (all "no rule-text changes"), this release adds an **extended** rule: **§E8 MID-SPINE TURN-YIELD** — the per-turn analog of core §7 Session-exit (a silent mid-cycle turn-yield + next-turn "done" claim = Iron Law #2 evasion; `<system-reminder>`/hook injections are not turn boundaries). It lives in extended, not core (the ~32 KiB discovery-chain budget; the always-on protection is already core Iron Law #2 + §7 session-exit). Core rule text is unchanged. Separately, two pre-existing §7 disciplines move from self-enforced to hook-observed: `§7-session-exit` (session-exit-checkpoint hook) and `§7-memory-hygiene` (mem-audit hook), both added to `hard-rules.json` `live_sections`. `spec_version` → v2.12.0. Detail: repo `CHANGELOG.md`.
+
 ## v2.11.0 (2026-07-05) — quieter convention citations + facts-only frontend section (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with two package refinements to what the plugin writes into a project's `AGENTS.md`: the convention-adoption citation instruction now directs a trailing `<!-- adopted-conventions: … -->` HTML comment instead of inline prose (the signal stops intruding on the user's answer; the `convention-cite-scan` hook is untouched), and `agentsmd init`'s `## Frontend` section is trimmed to the detected stack line (the generic per-stack guideline bullets, model-known boilerplate, are dropped). `OPERATOR.md` §O8 adds the convention-adoption review cadence. `spec_version` → v2.11.0. Detail: repo `CHANGELOG.md`.

@@ -25,6 +25,9 @@ const COMMANDS = {
   status: 'status.js',
   doctor: 'doctor.js',
   audit: 'audit.js',
+  'sampling-audit': 'sampling-audit.js',
+  'lesson-bypass-audit': 'lesson-bypass-audit.js',
+  sparkline: 'sparkline.js',
   rules: 'rules.js',
 };
 
@@ -49,6 +52,9 @@ function usage() {
     '  doctor             Run install health checks.',
     '  audit [--days=N] [--project=S]   Aggregate rule-hit telemetry by spec section (default 30d); --project scopes to a path-slug substring.',
     '  rules [--days=N] [--project=S]   Promote/demote signals vs the HARD-rules manifest; --project = informational lens (per-rule local hits; demote stays cross-project).',
+    '  sampling-audit [--days=N] [--limit=N]   Retrospective scan of the self-enforced §10 rules across Codex transcripts — the violation rate the live hook cannot measure.',
+    '  lesson-bypass-audit [--days=N]   Memory cite-recall: how often a surfaced memory hint was acted on vs bypassed (joins suggest-telemetry to transcripts).',
+    '  sparkline [--windows=N] [--bucket-days=D] [--markdown]   Multi-window rule-usage trend; flags a rule that silently stopped firing (--markdown = CHANGELOG block).',
     '',
     'Options:',
     '  -v, --version      Print the agentsmd version.',

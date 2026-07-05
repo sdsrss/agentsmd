@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
-const { audit, parseDaysArg, formatReport } = require('../audit');
+const { audit, parseDaysArg, formatReport, classifyProject } = require('../audit');
 const { rulesAudit } = require('../rules');
 const cp = require('child_process');
 
@@ -411,6 +411,80 @@ try {
         { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
       (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
     );
+  });
+
+  // --- Adopt from claudemd: byFailOpen + denyByProjectClass (A1) -----------
+  // fail-open = silently-skipped enforcement (jq/prereq missing): it leaves a
+  // row but has no enforcement effect, so exit code never reveals it.
+  // denyByProjectClass splits blocking denies into self-dogfood vs external so
+  // agentsmd's OWN repo traffic can't inflate apparent downstream enforcement.
+  const obsRows = path.join(tmp, 'observability.jsonl');
+  fs.writeFileSync(obsRows, [
+    { ts: day(1), hook: 'banned-vocab',    event: 'fail-open', spec_section: '§hooks-fail-open', extra: { reason: 'jq-missing' }, project: '-home-dev-agentsmd' },
+    { ts: day(2), hook: 'banned-vocab',    event: 'fail-open', spec_section: '§hooks-fail-open', extra: { reason: 'jq-missing' }, project: '-home-dev-agentsmd' },
+    { ts: day(1), hook: 'pre-bash-safety', event: 'fail-open', spec_section: '§hooks-fail-open', extra: { reason: 'not-a-repo' }, project: '-home-user-app' },
+    { ts: day(1), hook: 'memory-read',     event: 'fail-open', spec_section: '§hooks-fail-open' },                                                                 // no extra.reason → (unspecified)
+    { ts: day(1), hook: 'banned-vocab',    event: 'block',     spec_section: '§10-V',            project: '-mnt-data-ssd-dev-projects-agentsmd' },                 // self (trailing -agentsmd)
+    { ts: day(1), hook: 'banned-vocab',    event: 'block',     spec_section: '§10-V',            project: '-home-user-app' },                                      // external
+    { ts: day(2), hook: 'banned-vocab',    event: 'block',     spec_section: '§10-V',            project: '-home-user-myagentsmd' },                               // external, NOT self (guards the (^|-) anchor)
+    { ts: day(1), hook: 'pre-bash-safety', event: 'block',     spec_section: '§8-rm-rf-var' },                                                                     // no project → unknown
+    { ts: day(1), hook: 'banned-vocab',    event: 'advisory',  spec_section: '§10-V',            project: '-home-user-app' },                                      // advisory ≠ blocking deny → excluded
+    { ts: day(1), hook: 'banned-vocab',    event: 'bypass',    spec_section: '§10-V',            project: '-home-user-app' },                                      // bypass ≠ blocking deny → excluded
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const ao = audit({ days: 30, now: NOW, logPath: obsRows });
+
+  t('byFailOpen groups fail-open rows by (hook, reason)', () => {
+    assert.strictEqual(ao.byFailOpen['banned-vocab'].total, 2);
+    assert.strictEqual(ao.byFailOpen['banned-vocab'].byReason['jq-missing'], 2);
+    assert.strictEqual(ao.byFailOpen['pre-bash-safety'].total, 1);
+    assert.strictEqual(ao.byFailOpen['pre-bash-safety'].byReason['not-a-repo'], 1);
+  });
+  t('byFailOpen: missing extra.reason → (unspecified)', () => {
+    assert.strictEqual(ao.byFailOpen['memory-read'].byReason['(unspecified)'], 1);
+  });
+  t('byFailOpen keyed by hook, counts only fail-open (banned-vocab has 4 non-fail-open rows too)', () => {
+    assert.strictEqual(ao.byFailOpen['banned-vocab'].total, 2);
+    assert.ok(!('§10-V' in ao.byFailOpen));
+  });
+  t('denyByProjectClass splits blocking denies self/external/unknown; advisory+bypass excluded', () => {
+    const bv = ao.denyByProjectClass['banned-vocab'];
+    assert.strictEqual(bv.total, 3);    // 3 block rows only (advisory + bypass excluded)
+    assert.strictEqual(bv.self, 1);     // trailing -agentsmd
+    assert.strictEqual(bv.external, 2); // -home-user-app + -home-user-myagentsmd
+    assert.strictEqual(bv.unknown, 0);
+  });
+  t('denyByProjectClass: row without a project → unknown', () => {
+    const pb = ao.denyByProjectClass['pre-bash-safety'];
+    assert.strictEqual(pb.total, 1);
+    assert.strictEqual(pb.unknown, 1);
+    assert.strictEqual(pb.self, 0);
+    assert.strictEqual(pb.external, 0);
+  });
+  t('classifyProject: trailing -agentsmd = self; -myagentsmd = external; empty/(none)/null = unknown', () => {
+    assert.strictEqual(classifyProject('-mnt-data-ssd-dev-projects-agentsmd'), 'self');
+    assert.strictEqual(classifyProject('agentsmd'), 'self');
+    assert.strictEqual(classifyProject('-home-user-myagentsmd'), 'external');
+    assert.strictEqual(classifyProject('-home-user-app'), 'external');
+    assert.strictEqual(classifyProject(''), 'unknown');
+    assert.strictEqual(classifyProject('(none)'), 'unknown');
+    assert.strictEqual(classifyProject(null), 'unknown');
+  });
+  t('audit report includes fail-open + deny-by-class blocks, no trailing whitespace', () => {
+    const rep = formatReport(ao);
+    assert.ok(/fail-open events \(silent enforcement loss\) by hook:/.test(rep), 'missing fail-open header; got:\n' + rep);
+    assert.ok(/banned-vocab\s+2\s+jq-missing:2/.test(rep), 'missing fail-open banned-vocab line; got:\n' + rep);
+    assert.ok(/blocking denies by project class/.test(rep), 'missing deny-class header; got:\n' + rep);
+    assert.ok(/banned-vocab\s+3\s+ext:2 self:1/.test(rep), 'missing deny-class banned-vocab line; got:\n' + rep);
+    assert.ok(!/ +$/m.test(rep), 'report has a line with trailing whitespace:\n' + rep);
+  });
+  t('audit report: healthy empty fail-open state prints a reassuring line', () => {
+    const clean = path.join(tmp, 'clean.jsonl');
+    fs.writeFileSync(clean, [
+      { ts: day(1), hook: 'banned-vocab', event: 'block', spec_section: '§10-V', project: '-home-user-app' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const a = audit({ days: 30, now: NOW, logPath: clean });
+    assert.deepStrictEqual(a.byFailOpen, {});
+    assert.ok(/none in window — no silently-skipped enforcement/.test(formatReport(a)));
   });
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

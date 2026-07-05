@@ -16,6 +16,20 @@ const MAX_DAYS = 100000000;
 // verification / smoke run against a real CODEX_HOME (AGENTSMD_TELEMETRY_TAG=test)
 // must not skew promote/demote signals. --include-test opts them back in.
 const TEST_TAGS = new Set(['test']);
+// Blocking-deny family: events where a hook actually stopped the action (vs
+// advising, or being overridden via bypass). denyByProjectClass counts only
+// these — the real "did enforcement bite, and for whom" question.
+const BLOCKING_EVENTS = new Set(['block', 'deny']);
+
+// classifyProject — self-dogfood vs external, over the project slug rule-hits.sh
+// writes (cwd with every non-[a-zA-Z0-9-] char → '-'). `self` = the slug's
+// trailing segment is exactly `agentsmd` (this source repo); the (^|-) anchor
+// keeps a downstream repo like '…-myagentsmd' classified external. Empty /
+// (none) / null → unknown. Mirrors claudemd rule-hits-parse.js:classifyProject.
+function classifyProject(project) {
+  if (!project || project === '(none)') return 'unknown';
+  return /(^|-)agentsmd$/.test(String(project)) ? 'self' : 'external';
+}
 
 function readRows(logPath) {
   let raw;
@@ -39,6 +53,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
   const cutoff = now - days * 86400000;
   const projNeedle = project ? String(project).toLowerCase() : null;
   const bySection = {}, byHook = {}, byEvent = {}, byProject = {};
+  const byFailOpen = {}, denyByProjectClass = {};
   const sessions = new Set(); // distinct session_id in window — the exposure proxy
   let total = 0, enforcement = 0, unparseable = 0, excludedTest = 0;
 
@@ -76,6 +91,24 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
       byProject[proj].enforcement++;
       if (sec !== '(none)') byProject[proj].sections[sec] = (byProject[proj].sections[sec] || 0) + 1;
     }
+
+    // fail-open accountability: a silently-skipped hook (jq/prereq missing)
+    // leaves a row but no enforcement — group by (hook, reason) so the loss is
+    // visible, not indistinguishable from "the rule wasn't relevant".
+    if (ev === 'fail-open') {
+      byFailOpen[hook] = byFailOpen[hook] || { total: 0, byReason: {} };
+      byFailOpen[hook].total++;
+      const reason = (r.extra && r.extra.reason) || '(unspecified)';
+      byFailOpen[hook].byReason[reason] = (byFailOpen[hook].byReason[reason] || 0) + 1;
+    }
+    // blocking denies split by project origin so agentsmd's own dogfood repo
+    // can't be mistaken for downstream enforcement value.
+    if (BLOCKING_EVENTS.has(ev)) {
+      const cls = classifyProject(r.project);
+      denyByProjectClass[hook] = denyByProjectClass[hook] || { total: 0, self: 0, external: 0, unknown: 0 };
+      denyByProjectClass[hook].total++;
+      denyByProjectClass[hook][cls]++;
+    }
   }
 
   return {
@@ -88,6 +121,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     unparseableRows: unparseable,
     excludedTestRows: excludedTest,
     bySection, byHook, byEvent, byProject,
+    byFailOpen, denyByProjectClass,
   };
 }
 
@@ -119,6 +153,31 @@ function formatReport(a) {
     const top = projSecs.slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ');
     const more = projSecs.length > 3 ? ` +${projSecs.length - 3} more` : '';
     lines.push(`  ${label.padEnd(28)} ${String(b.enforcement).padStart(4)} / ${String(b.total).padStart(4)}   ${top}${more}`.trimEnd());
+  }
+  lines.push('');
+  lines.push('fail-open events (silent enforcement loss) by hook:');
+  const foHooks = Object.keys(a.byFailOpen).sort((x, y) => a.byFailOpen[y].total - a.byFailOpen[x].total);
+  if (!foHooks.length) {
+    lines.push('  none in window — no silently-skipped enforcement');
+  } else {
+    for (const h of foHooks) {
+      const b = a.byFailOpen[h];
+      const reasons = Object.entries(b.byReason).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k}:${v}`).join(' ');
+      lines.push(`  ${h.padEnd(26)} ${String(b.total).padStart(4)}   ${reasons}`);
+    }
+  }
+  lines.push('');
+  lines.push('blocking denies by project class (external = downstream value / self = dogfood):');
+  const dcHooks = Object.keys(a.denyByProjectClass).sort((x, y) => a.denyByProjectClass[y].total - a.denyByProjectClass[x].total);
+  if (!dcHooks.length) {
+    lines.push('  (no blocking denies in window)');
+  } else {
+    for (const h of dcHooks) {
+      const b = a.denyByProjectClass[h];
+      const parts = [`ext:${b.external}`, `self:${b.self}`];
+      if (b.unknown) parts.push(`unk:${b.unknown}`);
+      lines.push(`  ${h.padEnd(26)} ${String(b.total).padStart(4)}   ${parts.join(' ')}`);
+    }
   }
   return lines.join('\n');
 }
@@ -171,4 +230,4 @@ if (require.main === module) {
   }
   console.log(formatReport(audit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }
-module.exports = { audit, formatReport, parseDaysArg, readRows, ENFORCEMENT_EVENTS, MAX_DAYS, TEST_TAGS };
+module.exports = { audit, formatReport, parseDaysArg, readRows, classifyProject, ENFORCEMENT_EVENTS, BLOCKING_EVENTS, MAX_DAYS, TEST_TAGS };

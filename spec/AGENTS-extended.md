@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.11.0 — Extended
+# CODEX-CODING-SPEC v2.12.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -60,6 +60,14 @@ Core §4 routes common task-types to sp skills; this section is the setup + boun
 - **Config**: `dispatching-parallel-agents` / `subagent-driven-development` need `config.toml [features] multi_agent = true` (enables `spawn_agent` / `wait_agent` / `close_agent`; close spawned agents when their work is done). `brainstorming` / `systematic-debugging` / `test-driven-development` need only the install.
 - **Wider set**: sp ships more skills (plan writing/execution, code-review request/receive, git-worktrees, verification-before-completion, skill-authoring…); §4 names only the highest-frequency four — select any other by description per §4, not enumerated here to avoid budget cost + version staleness.
 - **Boundary**: a skill executes this spec's rules, never relaxes them — Iron Laws, §5 AUTH, §8 SAFETY bind inside a skill exactly as outside; sp's own 'MUST invoke' wording does not override core §4 level routing.
+
+## §E8 MID-SPINE TURN-YIELD (per-turn continuity, binds all levels)
+
+Core §7's Session-exit rule covers the SESSION ending mid-cycle; this covers yielding a single TURN. Once a turn has run ≥1 tool call inside an active SPINE cycle, carry the planned steps through VALIDATE in that turn — a mid-cycle turn boundary is not a stopping point.
+
+- **Not a turn boundary**: `<system-reminder>` / hook `additionalContext` injections · mid-turn tool results · PostToolUse flushes · a single Edit that "feels done". Running one tool call then stopping with planned steps unrun is a silent yield.
+- **Legitimate yields only**: `[AUTH REQUIRED]` (core §5 hard) · direction genuinely ambiguous (ASK) · context-pressure → paused-task file (core §7). Everything else → finish the cycle.
+- **The evasion**: a silent mid-cycle yield followed by a next-turn "done" claim asserts completion for steps that never ran = Iron Law #2 (no done without fresh evidence), not a reporting nicety. Tell — the next user message is `继续 / next / 怎么停了 / why did you stop`: a prior silent yield is confirmed; re-run VALIDATE before any "done".
 
 ## Changelog
 

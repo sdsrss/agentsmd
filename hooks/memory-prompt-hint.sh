@@ -59,7 +59,13 @@ done < "$MEM"
 
 [[ "$COUNT" -gt 0 ]] || exit 0
 
-hook_record "$HOOK" "hint" "$(jq -cn --argjson c "$COUNT" '{matches:$c}' 2>/dev/null || echo null)" '§7-memory-read' "$SID"
+# Emit the surfaced memory filenames (not just a count) as a `suggest` event, so
+# lesson-bypass-audit.js can later join this row against the session transcript and
+# measure cite-recall — was the hint acted on, or bypassed? extra.suggested = the
+# memory/*.md link targets pulled from the matched MEMORY.md index lines.
+SUGGESTED_JSON="$(printf '%s' "$MATCHES" | grep -oE '\]\([^)]+\)' | sed -E 's/^\]\(//; s/\)$//' | jq -R . | jq -cs . 2>/dev/null)"
+[[ -z "$SUGGESTED_JSON" ]] && SUGGESTED_JSON="[]"
+hook_record "$HOOK" "suggest" "$(jq -cn --argjson c "$COUNT" --argjson s "$SUGGESTED_JSON" '{count:$c, suggested:$s}' 2>/dev/null || echo null)" '§7-memory-read' "$SID"
 hook_context \
   "[agentsmd §7] Prior memory may be relevant to this task — read before acting:"$'\n'"${MATCHES%$'\n'}" \
   "UserPromptSubmit"

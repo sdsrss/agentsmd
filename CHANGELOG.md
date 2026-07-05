@@ -3,6 +3,25 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.12.0 — 2026-07-06 — observability + self-healing batch: two Stop-hook safety nets, three telemetry CLIs, and the mid-SPINE turn-yield rule
+
+The largest governance/observability batch since the closed loop landed — it makes the previously-invisible measurable (self-enforced rules, memory follow-through, rule-usage trend) and adds two quiet self-healing Stop hooks. **User-visible default change (per the released-artifact rule): two new fail-open Stop hooks, taking the hook count 12 → 14.** Neither blocks; both surface a queued advisory only when genuinely actionable. Revert the whole release by pinning `npm i -g @sdsrs/agentsmd@2.11.0`.
+
+### Added
+- **`session-exit-checkpoint` hook** (Stop, §7-session-exit): flags a turn that ran `apply_patch` with no test/lint/typecheck/commit afterward — one advisory per unvalidated streak + a per-session flag that the next SessionStart surfaces once from a prior session ("prior session left edits unvalidated"), then self-clears when a later turn validates. Targets Iron Law #2 ("ran" ≠ "verified"). Added to `hard-rules.json` `live_sections`.
+- **`mem-audit` hook** (Stop, §7-memory-hygiene): audits the resolved `MEMORY.md` for index_orphan / file_orphan / missing `verified:/source:` header. A surfaced advisory only for orphans (a broken pointer the memory hint routes off); missing headers are recorded to telemetry but never surfaced. 24h per-dir debounce; depth-1 read (§8); fail-open. New `§7-memory-hygiene` rule + `live_sections` entry.
+- **`agentsmd sampling-audit`**: retrospective scan of the self-enforced §10 rules (banned-vocab, four-section order) across Codex transcripts — the real violation rate the per-turn hook cannot measure. Shares the hook's exact detection (parity-tested).
+- **`agentsmd lesson-bypass-audit`**: memory cite-recall = applied / (applied + bypassed). `memory-prompt-hint` now emits a `suggest` event carrying the surfaced filenames to make the join possible.
+- **`agentsmd sparkline`**: multi-window rule-usage trend (↗/↘/≈ per section) with a went-silent flag catching a rule that silently stopped firing — which a single-window point count hides. `--markdown` emits a CHANGELOG block.
+- **`agentsmd audit`** gains `byFailOpen` (silent enforcement loss by hook/reason) and `denyByProjectClass` (self-dogfood vs external, so this repo's own traffic can't inflate enforcement value).
+- **Extended spec rule §E8 MID-SPINE TURN-YIELD** (self-enforced): the per-turn analog of core §7 Session-exit — a silent mid-cycle turn-yield + next-turn "done" claim is an Iron Law #2 evasion. In extended (byte budget); `§E8-turn-yield` in `hard-rules.json`.
+
+### Changed
+- **`memory-prompt-hint` telemetry**: records a `suggest` event with the surfaced `memory/*.md` filenames instead of a bare match count. The user-facing hint is unchanged; old `hint` rows stay under `§7-memory-read`.
+
+### Internal
+- `session-start-check` GC now sweeps `unvalidated-*.flag` + `mem-audit-*.stamp` (7-day floor). New suites: `sampling-audit` (18, incl. JS↔bash parity), `lesson-bypass-audit` (10), `sparkline` (22); smoke 82 → 94. `hard-rules.json` 29 → 31 rules. All additive, no breaking changes.
+
 ## v2.11.0 — 2026-07-05 — quieter convention telemetry + facts-only frontend section
 
 Two refinements to user-visible behaviors shipped in v2.8.0 / v2.9.0, from a cross-project review of the project-layer feature set. Both change what the plugin writes into a project's `AGENTS.md`; neither touches a spec rule or a CLI contract. Revert by pinning `npm i -g @sdsrs/agentsmd@2.10.0`.
