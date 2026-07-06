@@ -27,7 +27,7 @@ agentsmd 用「系统」而非「文档」的方式回应这一点:
 
 ## 它强制什么
 
-横跨全部 5 个 Codex 事件的十个原生 hook。阻断类是硬闸门;Stop 时刻的那些会排队成一条 advisory,在你下一次输入时呈现。
+横跨 4 个 Codex 事件(SessionStart、PreToolUse、UserPromptSubmit、Stop——无 PostToolUse)的十五个原生 hook。阻断类是硬闸门;Stop 时刻的那些会排队成一条 advisory,在你下一次输入时呈现。
 
 | Hook | 事件 | 强制内容 |
 |---|---|---|
@@ -40,7 +40,12 @@ agentsmd 用「系统」而非「文档」的方式回应这一点:
 | `memory-prompt-hint` | UserPromptSubmit | 呈现与本次 prompt 匹配的 `MEMORY.md` 条目 |
 | `residue-audit` | Stop | §7/§9——标记 `~/.codex/tmp` 增长 |
 | `sandbox-disposal-check` | Stop | §8.V4——标记未清理的临时目录 |
-| `transcript-structure-scan` | Stop | §10——检查上一份报告的四段式顺序 + 违禁词 |
+| `transcript-structure-scan` | Stop | §10/§6——检查上一份报告的四段式顺序、违禁词、证据锚点与对冲措辞 |
+| `secrets-scan` | PreToolUse:Bash | §8——阻断 staged diff 中新增高置信度密钥的 `git commit` |
+| `convention-cite-scan` | Stop | 追踪 `@conv-*` 项目约定引用,供 `analyze --adoption` |
+| `session-exit-checkpoint` | Stop | §7——标记会话退出时未验证的编辑(下次 SessionStart 呈现) |
+| `mem-audit` | Stop | §7——标记 `MEMORY.md` 索引/文件漂移 + 缺失 verified 头 |
+| `session-summary` | Stop | 记录本会话的强制计数(下次 SessionStart 呈现) |
 
 Stop hook 的 advisory 会排队,在下一次 `UserPromptSubmit` 通过已验证的 `additionalContext` 通道呈现,而非在 Stop 内联发出。每次命中都追加写入 `~/.codex/logs/agentsmd.jsonl`。
 
@@ -243,7 +248,7 @@ bin/         npm CLI 入口——`agentsmd` CLI 对 scripts/ 的 dispatcher
 spec/        正典规范(core、extended、changelog、hard-rules.json、OPERATOR.md)
 hooks/       L1 强制层——原生 hook + 共享 lib + 冒烟测试
 scripts/     L2 管理层——install/uninstall/status/doctor/audit/rules(+ migrate + 测试)
-skills/      L3 命令层——agentsmd-audit/rules/doctor/status
+skills/      L3 命令层——每个面向用户的脚本对应一个 agentsmd-* skill stub(见 skills/)
 .agents/     repo marketplace,用于 `codex plugin add agentsmd --marketplace agentsmd`
 .codex-plugin/plugin.json   Codex 插件清单
 hooks.json   插件根的 hook 接线(相对路径)

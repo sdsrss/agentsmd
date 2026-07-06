@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.15.4",
+  "spec_version": "v2.16.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -71,14 +71,13 @@
       "name": "No unbounded recursive traversal of home/config dirs (immutable)",
       "scope": "core",
       "section_anchor": "unbounded recursive traversal of home/config dirs",
-      "enforcement": "both",
-      "codex_hook_event": "PreToolUse:Bash",
-      "rule_hits_section": "§8-home-traversal",
-      "demote_policy": "deterrence",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": null,
-      "note": "Hook can flag unscoped rg/find/ls -R on ~/.codex ~/.claude ~ without -maxdepth; self-enforced for the general case."
+      "note": "Self-enforced — same rationale as §8-sql-no-where: reliable mechanical detection at the bash-hook layer is infeasible (legitimate recursive rg/find/ls -R commands are common). A narrow PreToolUse detector (unscoped traversal of ~/.codex ~/.claude ~ without -maxdepth) is a PLANNED addition, NOT yet built; the manifest must not claim a hook that does not exist. Flip to enforcement 'both' + add §8-home-traversal to live_sections only when that detector actually ships."
     },
     {
       "id": "§8-verify-before-claim",
@@ -156,7 +155,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Shares the banned-vocab pattern set with §10 Specificity; hook scans commit prose + Stop transcript."
+      "note": "Shares the banned-vocab pattern set AND the §10-V telemetry bucket with §10-specificity by design — the two are governed as one banned-vocab signal (per-rule attribution is intentionally merged; a §10-V hit is not split between bugfix-anchor vs specificity). Hook scans commit prose + Stop transcript."
     },
     {
       "id": "§6-destructive-smoke",
@@ -272,7 +271,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Hook enforces banned-vocab subset on git commit messages; Stop scan covers assistant prose; self-enforced elsewhere."
+      "note": "Hook enforces banned-vocab subset on git commit messages; Stop scan covers assistant prose; self-enforced elsewhere. Shares the §10-V telemetry bucket with §6-bugfix-anchor by design — a §10-V hit is governed as one merged banned-vocab signal, not attributed per-rule."
     },
     {
       "id": "§3-plan-before-execute",

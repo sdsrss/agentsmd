@@ -10,42 +10,17 @@ const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
+const B = require('./lib/backup');
+const R = require('./lib/hook-registry');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
-const FALLBACK_HOOK_SHIMS = [
-  'session-start-check.sh',
-  'pre-bash-safety-check.sh',
-  'banned-vocab-check.sh',
-  'ship-baseline-check.sh',
-  'memory-read-check.sh',
-  'secrets-scan.sh',
-  'surface-advisories.sh',
-  'memory-prompt-hint.sh',
-  'residue-audit.sh',
-  'sandbox-disposal-check.sh',
-  'transcript-structure-scan.sh',
-  'convention-cite-scan.sh',
-  'session-exit-checkpoint.sh',
-  'mem-audit.sh',
-  'session-summary.sh',
-];
-
-function hookShimNames() {
-  const names = new Set(FALLBACK_HOOK_SHIMS);
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(P.repoRoot(), 'hooks', 'hooks.json'), 'utf8'));
-    for (const groups of Object.values(cfg.hooks || {})) {
-      for (const group of groups || []) {
-        for (const hook of group.hooks || []) {
-          const m = String(hook.command || '').match(/\/([^/"\s]+\.sh)"/);
-          if (m) names.add(m[1]);
-        }
-      }
-    }
-  } catch {}
-  return [...names].sort();
-}
+// Shim names come from the single-source hook registry (hook-registry.test.js pins
+// it against BOTH wirings), not a hardcoded copy. The former fallback list could
+// silently miss a newly-added hook, and its dynamic hooks.json read was dead in the
+// installed self-uninstall path anyway (installDir — where repoRoot resolves — is
+// removed before the shims are written), so the stale copy was authoritative.
+function hookShimNames() { return [...R.HOOK_BASENAMES].sort(); }
 
 function writeUninstalledHookShims() {
   const hooksDir = P.installHooksDir();
@@ -82,6 +57,13 @@ function uninstall() {
 
   const result = { hooksRemoved: 0, hooksJsonDeleted: false, agentsBlockRemoved: false, extendedMdRemoved: false, flagLeftEnabled: true };
 
+  // 0a. Best-effort pre-mutation backup of the shared files (mirror of install
+  //     step 0a) so a logically-wrong removal is recoverable via `agentsmd restore`
+  //     and a crash mid-uninstall leaves the snapshot behind (the state dir — where
+  //     backups live — is only deleted on successful completion below). Never blocks
+  //     the uninstall: a backup failure must not stop the user removing agentsmd.
+  try { B.createBackup(new Date().toISOString()); B.pruneBackups(); } catch {}
+
   // 1. hooks.json — strip agentsmd entries, preserve others; delete file only if
   //    nothing else remains.
   if (beforeHooks !== null) {
@@ -89,7 +71,7 @@ function uninstall() {
     result.hooksRemoved = r.removed;
     if (r.removed > 0) {
       if (r.nextContent === null) { try { fs.unlinkSync(P.hooksJsonPath()); result.hooksJsonDeleted = true; } catch {} }
-      else { fs.writeFileSync(P.hooksJsonPath(), r.nextContent); }
+      else { B.writeFileAtomic(P.hooksJsonPath(), r.nextContent); } // atomic: torn write corrupts co-tenants (OMX)
     }
   }
 
@@ -101,7 +83,7 @@ function uninstall() {
     if (am.changed) {
       result.agentsBlockRemoved = true;
       if (am.content.trim() === '') { try { fs.unlinkSync(P.agentsMdPath()); } catch {} }
-      else fs.writeFileSync(P.agentsMdPath(), am.content);
+      else B.writeFileAtomic(P.agentsMdPath(), am.content); // atomic: AGENTS.md holds OMX/user content too
     }
   }
 

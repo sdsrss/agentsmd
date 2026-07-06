@@ -5,6 +5,7 @@
 // bySection is what scripts/rules.js cross-references against spec/hard-rules.json.
 
 const fs = require('fs');
+const path = require('path');
 const P = require('./lib/paths');
 
 // Enforcement events = a rule actually fired (or was overridden). Lifecycle
@@ -31,13 +32,33 @@ function classifyProject(project) {
   return /(^|-)agentsmd$/.test(String(project)) ? 'self' : 'external';
 }
 
+// Read the live log AND its rotated segments. rule-hits.sh rotates
+// agentsmd.jsonl → .1 → .2 at the size cap (default 5 MB); reading only the live
+// file means a window whose hits landed in a rotated segment counts 0 — turning a
+// BUSY period into a false "0-hit → demote" signal, the exact inverse of the
+// truth, and worst precisely when telemetry is richest. Merge chronologically
+// (oldest rotation → live) so windowing sees every row regardless of rotation.
 function readRows(logPath) {
-  let raw;
-  try { raw = fs.readFileSync(logPath, 'utf8'); } catch { return []; }
+  const dir = path.dirname(logPath);
+  const base = path.basename(logPath);
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const segs = names
+    .map((n) => {
+      if (n === base) return { n, seq: -1 };                        // live file = newest
+      const s = n.startsWith(base + '.') ? n.slice(base.length + 1) : '';
+      return /^\d+$/.test(s) ? { n, seq: Number(s) } : null;        // .1/.2/… numeric rotations only
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.seq - a.seq);                                 // higher seq = older; live (-1) read last
   const rows = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try { rows.push(JSON.parse(line)); } catch { /* skip malformed */ }
+  for (const { n } of segs) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(dir, n), 'utf8'); } catch { continue; }
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push(JSON.parse(line)); } catch { /* skip malformed */ }
+    }
   }
   return rows;
 }

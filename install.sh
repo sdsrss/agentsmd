@@ -246,11 +246,22 @@ fi
 case "$ACTION" in
   install)
     say "Installing/updating $NAME into $codex_home"
+    if ! command -v jq >/dev/null 2>&1; then
+      say "WARNING: jq was not found on PATH. agentsmd's hooks require jq; without it every"
+      say "         hook fails open (NO enforcement) — the silent non-enforcing install this"
+      say "         project exists to prevent. Install jq, then re-run: $0 --doctor"
+    fi
     run_node_script "$src" install.js
     say ""
-    say "Next checks:"
-    say "  node \"$codex_home/$NAME/scripts/status.js\""
-    say "  node \"$codex_home/$NAME/scripts/doctor.js\""
+    say "Verifying install (doctor):"
+    if run_node_script "$src" doctor.js; then
+      say ""
+      say "$NAME is installed and healthy (run scripts/status.js for details)."
+      say "Start a new Codex session to load it."
+    else
+      say ""
+      say "doctor reported issues above — fix them, then re-run: $0 --doctor"
+    fi
     ;;
   uninstall)
     say "Uninstalling $NAME from $codex_home"

@@ -44,12 +44,16 @@ t('C4 observer sections are implemented in transcript-structure-scan.sh', () => 
   }
 });
 
-t('§8-home-traversal reads as hook-planned, not an unimplemented gap', () => {
+t('§8-home-traversal is self-enforced (no reliable bash detector), not a false hook claim', () => {
+  // Relabeled from enforcement:"both" (which claimed a hook that was never built)
+  // to "self", matching the §8-sql-no-where precedent. It must therefore NOT appear
+  // among the hook-enforced rules, and must not read as an unimplemented gap.
   const r = R.ruleEnforcement.find((x) => x.id === '§8-home-traversal');
-  assert.ok(r, 'missing §8-home-traversal');
-  assert.strictEqual(r.status, 'hook-planned');
-  assert.strictEqual(r.live, false);
+  assert.ok(!r, '§8-home-traversal must not be a hook-enforced rule (it is self-enforced until a detector ships)');
   assert.ok(!R.summary.unimplementedRules.includes('§8-home-traversal'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'spec', 'hard-rules.json'), 'utf8'));
+  const rule = manifest.rules.find((x) => x.id === '§8-home-traversal');
+  assert.ok(rule && rule.enforcement === 'self', 'manifest must mark §8-home-traversal enforcement:"self"');
 });
 
 t('current hook tree is clean — zero gaps of every class', () => {

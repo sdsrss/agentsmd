@@ -105,5 +105,5 @@ function restoreBackup(id) {
 
 module.exports = {
   createBackup, listBackups, pruneBackups, planRestore, restoreBackup,
-  backupsDir, SHARED_FILES, DEFAULT_KEEP,
+  writeFileAtomic, backupsDir, SHARED_FILES, DEFAULT_KEEP,
 };

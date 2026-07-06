@@ -665,5 +665,31 @@ withSandbox((dir) => {
   t('migrate: re-install does not duplicate migrated rows', () => assert.strictEqual(fs.readFileSync(newLog, 'utf8').split('\n').filter(Boolean).length, 2));
 });
 
+// ── 10. Atomicity: a torn shared-file write during uninstall must leave the
+//    original intact (never truncated) and drop no tmp turd. uninstall/migrate
+//    now route shared-file writes through backup.writeFileAtomic (tmp+rename), so
+//    an ENOSPC/crash at the rename step aborts without corrupting a co-tenant's
+//    hooks.json. Simulate the crash by making renameSync throw for hooks.json only.
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  install('2026-07-02T00:00:00.000Z');
+  const hooksPath = path.join(dir, 'hooks.json');
+  const before = fs.readFileSync(hooksPath, 'utf8');   // post-install: OMX + agentsmd
+  const realRename = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    if (path.resolve(String(to)) === path.resolve(hooksPath)) throw new Error('simulated ENOSPC/crash at rename');
+    return realRename(from, to);
+  };
+  let threw = false;
+  try { uninstall(); } catch { threw = true; } finally { fs.renameSync = realRename; }
+  t('atomicity: torn hooks.json write during uninstall throws (crash simulated)', () => assert(threw));
+  t('atomicity: torn write leaves the shared hooks.json byte-intact (not truncated)', () => assert.strictEqual(fs.readFileSync(hooksPath, 'utf8'), before));
+  t('atomicity: torn write leaves no .agentsmd-tmp-* turd behind', () => {
+    const turds = fs.readdirSync(dir).filter((f) => f.includes('.agentsmd-tmp-'));
+    assert.strictEqual(turds.length, 0, 'tmp turds: ' + turds.join(','));
+  });
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

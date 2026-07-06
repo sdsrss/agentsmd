@@ -35,8 +35,9 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-# Only inspect git push.
-printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+push\b' || exit 0
+# Only inspect git push (consume git global options so `git -C <dir> push` is
+# gated the same as the bare form).
+hook_cmd_invokes_git 'push' "$CMD" || exit 0
 [[ "$CMD" == *"[allow-red-ship]"* ]] && { hook_record "$HOOK" "bypass" '{"token":"allow-red-ship"}' '§E3-ship-baseline' "$SID"; exit 0; }
 command -v gh >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "gh-missing"; exit 0; }
 
@@ -44,7 +45,9 @@ command -v gh >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "gh-missing"; ex
 # Strip push options whose values are separate argv tokens before the lightweight
 # parse, otherwise the option value is mistaken for the remote.
 PARSE_CMD="$(printf '%s' "$CMD" | sed -E 's/[[:space:]]--push-option[[:space:]]+[^[:space:]]+//g; s/[[:space:]]-o[[:space:]]+[^[:space:]]+//g')"
-BRANCH="$(printf '%s' "$PARSE_CMD" | grep -oiE 'git[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*' | awk '{print $NF}' | head -1)"
+# Consume git global options (HOOK_GIT_GLOBAL_OPTS) before `push` so a
+# `git -C <dir> push origin main` still yields `main`, not the -C value.
+BRANCH="$(printf '%s' "$PARSE_CMD" | grep -oiE "git${HOOK_GIT_GLOBAL_OPTS}[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*" | awk '{print $NF}' | head -1)"
 if [[ -z "$BRANCH" ]]; then
   BRANCH="$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 fi

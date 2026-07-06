@@ -29,8 +29,9 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 [[ -n "$CMD" ]] || exit 0
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
-# Only inspect git commit commands.
-printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+commit\b' || exit 0
+# Only inspect git commit commands (consume git global options so
+# `git -C <dir> commit -m …` is gated the same as the bare form).
+hook_cmd_invokes_git 'commit' "$CMD" || exit 0
 [[ "$CMD" == *"[allow-vocab]"* ]] && exit 0
 
 # Scan ONLY the inline message value(s), not the whole command line — otherwise a

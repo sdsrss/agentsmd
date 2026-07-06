@@ -26,6 +26,16 @@ is_block()    { [[ "$(printf '%s' "$1" | jq -r '.decision // empty' 2>/dev/null)
 is_advisory() { [[ -n "$(printf '%s' "$1" | jq -r '.systemMessage // empty' 2>/dev/null)" && -z "$(printf '%s' "$1" | jq -r '.decision // empty' 2>/dev/null)" ]]; }
 is_context()  { [[ -n "$(printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)" ]]; }
 is_empty()    { [[ -z "$(printf '%s' "$1" | tr -d '[:space:]')" ]]; }
+# A Codex block MUST carry all four fields: decision=block + reason + systemMessage +
+# hookSpecificOutput.hookEventName (Codex ROUTES the block by hookEventName — dropping
+# it ships a block Codex can't act on). is_block only checks .decision; this is stricter.
+is_full_block() {
+  local o="$1"
+  [[ "$(printf '%s' "$o" | jq -r '.decision // empty' 2>/dev/null)" == "block" ]] \
+    && [[ -n "$(printf '%s' "$o" | jq -r '.reason // empty' 2>/dev/null)" ]] \
+    && [[ -n "$(printf '%s' "$o" | jq -r '.systemMessage // empty' 2>/dev/null)" ]] \
+    && [[ -n "$(printf '%s' "$o" | jq -r '.hookSpecificOutput.hookEventName // empty' 2>/dev/null)" ]]
+}
 
 j() { jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}, session_id:"smoke1", cwd:"/tmp"}'; }
 
@@ -57,11 +67,21 @@ OUT="$(run_hook pre-bash-safety-check.sh "$(j 'ls -la && git status')")";  is_em
 OUT="$(run_hook pre-bash-safety-check.sh "$(j 'npx create-vite my-app')")"; is_advisory "$OUT" && ok "unpinned npx → advisory"        || bad "unpinned npx → advisory" "$OUT"
 OUT="$(run_hook pre-bash-safety-check.sh "$(j 'npx cowsay@1.5.0 hi')")";   is_empty "$OUT"   && ok "pinned npx → allow"               || bad "pinned npx → allow" "$OUT"
 
+echo "== block object shape (Codex contract) =="
+OUT="$(run_hook pre-bash-safety-check.sh "$(j 'rm -rf $VAR')")"
+is_full_block "$OUT" && ok "block carries decision+reason+systemMessage+hookEventName" || bad "full block shape (Codex routes by hookEventName)" "$OUT"
+
+echo "== kill switches suppress enforcement (before any side effect) =="
+OUT="$(DISABLE_AGENTSMD_HOOKS=1 run_hook pre-bash-safety-check.sh "$(j 'rm -rf $VAR')")"; is_empty "$OUT" && ok "DISABLE_AGENTSMD_HOOKS=1 → global off (rm -rf \$VAR allowed)" || bad "global kill switch" "$OUT"
+OUT="$(DISABLE_PRE_BASH_SAFETY_HOOK=1 run_hook pre-bash-safety-check.sh "$(j 'rm -rf $VAR')")"; is_empty "$OUT" && ok "DISABLE_PRE_BASH_SAFETY_HOOK=1 → this hook off" || bad "per-hook kill switch" "$OUT"
+OUT="$(DISABLE_SECRETS_SCAN_HOOK=1 run_hook pre-bash-safety-check.sh "$(j 'rm -rf $VAR')")"; is_block "$OUT" && ok "unrelated DISABLE_SECRETS_SCAN_HOOK does NOT disable pre-bash-safety" || bad "kill-switch isolation (wrong hook)" "$OUT"
+
 echo "== banned-vocab-check.sh =="
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -m "significantly faster parser"')")"; is_block "$OUT" && ok "commit banned-vocab → block" || bad "commit banned-vocab → block" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -am "significantly faster parser"')")"; is_block "$OUT" && ok "commit -am banned-vocab → block" || bad "commit -am banned-vocab → block" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -m"significantly faster parser"')")"; is_block "$OUT" && ok "commit -mno-space banned-vocab → block" || bad "commit -mno-space banned-vocab → block" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -m "显著提升解析速度"')")";            is_block "$OUT" && ok "commit 中文违禁词 → block"  || bad "commit 中文违禁词 → block" "$OUT"
+OUT="$(run_hook banned-vocab-check.sh "$(j 'git -C /repo commit -m "significantly faster parser"')")"; is_block "$OUT" && ok "commit via 'git -C <dir>' banned-vocab → block (no global-opt evasion)" || bad "git -C commit banned-vocab → block" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -m "fix: parse p99 580ms->140ms"')")"; is_empty "$OUT" && ok "commit quantified → allow"  || bad "commit quantified → allow" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'git commit -m "fix parser bug" -- significantly.txt')")"; is_empty "$OUT" && ok "clean msg + banned-word filename → allow (msg-only scan)" || bad "clean msg + banned-word filename → allow" "$OUT"
 OUT="$(run_hook banned-vocab-check.sh "$(j 'ls -la')")";                                       is_empty "$OUT" && ok "non-commit → allow"          || bad "non-commit → allow" "$OUT"
@@ -90,6 +110,8 @@ OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push
 OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push origin HEAD:refs/heads/main')")"; is_block "$OUT" && ok "push HEAD:refs/heads/main refspec + red → block" || bad "push HEAD:refs/heads/main refspec + red → block" "$OUT"
 OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push --push-option ci.skip origin main')")"; is_block "$OUT" && ok "push --push-option main + red CI → block" || bad "push --push-option main + red CI → block" "$OUT"
 OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git push -o ci.skip origin main')")"; is_block "$OUT" && ok "push -o main + red CI → block" || bad "push -o main + red CI → block" "$OUT"
+OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git -C /repo push origin main')")"; is_block "$OUT" && ok "push via 'git -C <dir>' main + red CI → block (no global-opt evasion)" || bad "git -C push main + red CI → block" "$OUT"
+OUT="$(FAKE_GH_CONCLUSION=failure run_hook ship-baseline-check.sh "$(j 'git -c http.sslVerify=false push origin main')")"; is_block "$OUT" && ok "push via 'git -c k=v' main + red CI → block (no global-opt evasion)" || bad "git -c push main + red CI → block" "$OUT"
 
 STOP='{"session_id":"smoke1","hook_event_name":"Stop"}'
 PENDING="$CODEX_HOME/.agentsmd-state/pending-advisories-smoke1"
@@ -357,6 +379,7 @@ OUT="$(run_hook memory-read-check.sh "$(mk_mr 'ls -la' "$PROJ" "$SANDBOX/tr-nore
 NONGIT="$SANDBOX/non-git-proj"; mkdir -p "$NONGIT/child"
 printf '%s\n' '- [billing](memory/billing.md) — billing invoice handling' > "$NONGIT/MEMORY.md"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$NONGIT/child" "$SANDBOX/tr-noread.jsonl")")"; is_block "$OUT" && ok "ship + parent MEMORY.md outside git → block" || bad "ship + parent MEMORY.md outside git → block" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git -C /repo push origin main' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_block "$OUT" && ok "ship via 'git -C <dir>' + MEMORY.md NOT consulted → block (no global-opt evasion)" || bad "git -C push + unread memory → block" "$OUT"
 # Fail-OPEN when the consult-detector node process dies abnormally (OOM/signal →
 # exit 137/139/143, not its own 0/1/2). A tool malfunction must never fail-closed
 # onto a git push. Stub node to exit 137 for this one call only.
@@ -393,6 +416,9 @@ if command -v git >/dev/null 2>&1; then
   printf '%s%s\n' '-----BEGIN ' 'PRIVATE KEY-----' > "$SECREPO/key.pem"; git -C "$SECREPO" add key.pem >/dev/null 2>&1
   OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git commit -m addkey' "$SECREPO")")"; is_block "$OUT" && ok "commit staging a private-key header → block" || bad "commit staging private key → block" "$OUT"
   OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git status' "$SECREPO")")"; is_empty "$OUT" && ok "non-commit git command → allow" || bad "non-commit git → allow" "$OUT"
+  # git -C <repo> from a NON-repo cwd (key.pem still staged in SECREPO): the gate
+  # must fire AND scan the -C target repo, not the event cwd (P0-1 + P1-5).
+  OUT="$(run_hook secrets-scan.sh "$(mk_sec "git -C $SECREPO commit -m viaC" "$SANDBOX")")"; is_block "$OUT" && ok "commit via 'git -C <repo>' from non-repo cwd → block (gate fires + scans right repo)" || bad "git -C commit staging secret → block" "$OUT"
 else
   ok "secrets-scan.sh skipped (git not on PATH)"
 fi

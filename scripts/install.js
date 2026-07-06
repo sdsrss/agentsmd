@@ -130,6 +130,9 @@ function install(nowIso) {
   // 5. Record what we did, for an exact reversible uninstall.
   const manifest = {
     name: 'agentsmd',
+    // Record the installed version so status/doctor can tell a lagging install from a
+    // current one, and a future SessionStart notifier can compare against the package.
+    version: (() => { try { return JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version; } catch { return null; } })(),
     installedAt: stamp,
     backup: backupInfo ? backupInfo.id : null,
     installDir, hooksDir,

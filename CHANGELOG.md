@@ -3,6 +3,69 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.16.0 — 2026-07-07 — fix: git-global-option hook evasion + config atomicity + telemetry rotation; new drift/doctor gates
+
+Minor release closing a batch of correctness, safety, and honesty findings from the
+2026-07-07 full-project audit. No new hooks (count stays 15). No core/extended spec
+rule-text change; the shared version moves in lockstep (`spec_version` → v2.16.0).
+One manifest change: `§8-home-traversal` relabeled from a false `enforcement:"both"`
+to the honest `"self"`. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.4`.
+
+### Fixed (correctness / safety)
+- **Git global options no longer evade the four git-gated hooks**
+  (`hooks/lib/hook-common.sh` + `secrets-scan` / `ship-baseline-check` /
+  `banned-vocab-check` / `memory-read-check`): the gate regex required the
+  subcommand to immediately follow `git`, so `git -C <dir> push`, `git -c k=v
+  commit`, and `git --git-dir=<d> merge` slipped past every gate — including the
+  immutable `§8-secrets` commit scan. A shared `hook_cmd_invokes_git` helper now
+  consumes optional git global options before the subcommand. `secrets-scan`
+  additionally diffs the `-C <dir>` target repo, not the event cwd.
+- **`uninstall` / `migrate` now write shared multi-tenant files atomically**
+  (`scripts/uninstall.js`, `scripts/lib/migrate.js` via `backup.writeFileAtomic`):
+  install already used tmp+rename; uninstall/migrate wrote `hooks.json` / `AGENTS.md`
+  raw, so an interrupt or ENOSPC mid-write could truncate a file holding another
+  tenant's (OMX's) hooks with no recovery. `uninstall` also takes a pre-mutation
+  backup.
+- **`audit` now reads rotated telemetry segments** (`scripts/audit.js` `readRows`):
+  it read only the live `agentsmd.jsonl`, so hits that rotated into `.1` / `.2` at
+  the size cap counted zero — inverting the demote signal exactly when telemetry was
+  richest. It now merges the live log with its rotations.
+- **`memory-read-check` bounds its transcript read to a 512 KiB tail**: an unbounded
+  `readFileSync` degraded the ship-memory gate to a timeout no-op on long sessions.
+
+### Changed (honesty / governance)
+- **`§8-home-traversal` relabeled `enforcement:"both"` → `"self"`** in
+  `spec/hard-rules.json`: no hook ever implemented it, so the manifest claimed a gate
+  that did not exist. Now matches the `§8-sql-no-where` precedent; a narrow detector
+  stays a documented, not-yet-built plan. `live_sections` unchanged (it was never live).
+- **`§10-V` shared bucket documented**: `§6-bugfix-anchor` and `§10-specificity`
+  deliberately share one telemetry section; both manifest notes now say so.
+
+### Added (observability / DX / drift-proofing)
+- **Three new `drift.test.js` gates**: core spec byte budget (`< 32768`, the
+  silent-truncation cap — previously ungated, and its manual `Sizing` backstop had
+  drifted +628 B), README EN+zh hook-table row count vs the wiring, and a
+  comment-stripped emission check so a `live_section` named only in a hook comment
+  can no longer green.
+- **Two new `doctor` checks**: `hooks.json parseable` (distinguishes an unparseable
+  shared file — which wedges install/uninstall — from "0 hooks registered"), and
+  `install state consistent` (names a partial install where hooks are live but the
+  manifest is missing, instead of printing "15/15 ok" alongside "not installed").
+- **`install.sh` warns on missing `jq` and auto-runs `doctor`** after install, so a
+  jq-less machine no longer reports success while every hook silently fails open.
+- **`manifest.version` recorded and surfaced as `status.installedVersion`.**
+- **README (EN + zh) + `CLAUDE.md` corrected**: the hook table listed 12 / 10 rows
+  and "five events" for a 15-hook / 4-event layer; the `npm test` suite count and
+  "version in 4 places" (now 5) claims were stale.
+- **`smoke.sh`**: full block-object-shape assertion (decision + reason +
+  systemMessage + hookEventName) and both-kill-switch coverage; `git -C` evasion
+  regression cases for all four git-gated hooks.
+
+### Deferred (tracked, not in this release)
+- `rules.js` exposure denominator by rule live-window and a bypass-vs-blocking demote
+  split (governance stays frozen until real Codex sessions accrue); a banned-vocab
+  spec⊆patterns coherence gate; the `§8-home-traversal` detector hook.
+
 ## v2.15.4 — 2026-07-07 — fix: remote-exec variants + status/doctor CLI help
 
 Patch release for two end-to-end defects found during a six-round real-user

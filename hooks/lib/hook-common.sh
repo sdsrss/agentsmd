@@ -162,6 +162,22 @@ hook_record_failopen() {
   rule_hits_append "$hook" "fail-open" "{\"reason\":\"$escaped\"}" '§hooks-fail-open'
 }
 
+# HOOK_GIT_GLOBAL_OPTS — ERE fragment matching optional git global options that
+# may sit between `git` and its subcommand. Without consuming these, common agent
+# idioms — `git -C <dir> push`, `git -c k=v commit`, `git --git-dir=<d> merge` —
+# slip past every git-gated hook (ship/secrets/vocab/memory), evading §8/§E3/§10.
+# Covers value-taking globals (-C/-c, --git-dir/--work-tree/--namespace/
+# --exec-path/--config-env, `=`- or space-separated) and valueless toggles.
+HOOK_GIT_GLOBAL_OPTS='([[:space:]]+(-[Cc][[:space:]]*[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env)[=[:space:]][^[:space:]]+|-p|--paginate|--no-pager|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks))*'
+
+# hook_cmd_invokes_git SUBCMD_ALT CMD — 0 if CMD invokes `git <SUBCMD>`, allowing
+# any global options in between. SUBCMD_ALT is an ERE alternation ('push' or
+# 'push|merge'). Case-insensitive; word-boundary-anchored on the subcommand.
+hook_cmd_invokes_git() {
+  local sub="$1" cmd="$2"
+  printf '%s' "$cmd" | grep -qiE "(^|[;&|]|[[:space:]])git${HOOK_GIT_GLOBAL_OPTS}[[:space:]]+(${sub})\b"
+}
+
 # hook_is_readonly_bash CMD — 0 if CMD is definitely read-only & side-effect
 # free (caller may skip heavy logic). Conservative: false negatives are free,
 # false positives could skip a real safety check → return 1 on any uncertainty.

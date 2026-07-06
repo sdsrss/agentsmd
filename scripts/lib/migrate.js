@@ -12,6 +12,7 @@ const path = require('path');
 const P = require('./paths');
 const H = require('./codex-hooks');
 const AM = require('./agents-md');
+const B = require('./backup');
 
 // The former identity. Kept HERE — the only place agentsmd still names the old
 // project — so the rest of the codebase stays free of it.
@@ -50,7 +51,7 @@ function removeLegacyCodexmd() {
     if (r.removed > 0) {
       report.hooksRemoved = r.removed; report.detected = true;
       if (r.nextContent === null) { try { fs.unlinkSync(hooksPath); } catch {} }
-      else fs.writeFileSync(hooksPath, r.nextContent);
+      else B.writeFileAtomic(hooksPath, r.nextContent); // atomic: a torn write of the SHARED hooks.json would corrupt OMX too
     }
   }
 
@@ -62,7 +63,7 @@ function removeLegacyCodexmd() {
     if (r.changed) {
       report.agentsBlockRemoved = true; report.detected = true;
       if (r.content.trim() === '') { try { fs.unlinkSync(amPath); } catch {} }
-      else fs.writeFileSync(amPath, r.content);
+      else B.writeFileAtomic(amPath, r.content); // atomic: AGENTS.md is shared with OMX/user content
     }
   }
 

@@ -27,7 +27,7 @@ The point isn't saving tokens. **A rule nobody enforces and nobody triggers is p
 
 ## What it enforces
 
-Twelve native hooks across all five Codex events. The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
+Fifteen native hooks across four Codex events (SessionStart, PreToolUse, UserPromptSubmit, Stop — no PostToolUse). The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
 
 | Hook | Event | Enforces |
 |---|---|---|
@@ -43,6 +43,9 @@ Twelve native hooks across all five Codex events. The blocking ones are hard gat
 | `sandbox-disposal-check` | Stop | §8.V4 — flags undisposed scratch dirs |
 | `transcript-structure-scan` | Stop | §10 — checks four-section order + banned vocab in the last report |
 | `convention-cite-scan` | Stop | tracks `@conv-*` project-convention citations for `analyze --adoption` |
+| `session-exit-checkpoint` | Stop | §7 — flags edits left unvalidated at session exit (surfaced next SessionStart) |
+| `mem-audit` | Stop | §7 — flags `MEMORY.md` index/file drift + missing verified headers |
+| `session-summary` | Stop | records the session's enforcement tally (surfaced next SessionStart) |
 
 Stop-hook advisories are queued and surfaced at the next `UserPromptSubmit` (the verified `additionalContext` channel), not emitted inline on Stop. Every hit is appended to `~/.codex/logs/agentsmd.jsonl`.
 
@@ -344,7 +347,7 @@ bin/         npm CLI entry — the `agentsmd` CLI dispatcher over scripts/
 spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATOR.md)
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
-skills/      L3 command layer — agentsmd-init/analyze/audit/rules/doctor/status
+skills/      L3 command layer — one agentsmd-* skill stub per user-facing script (see skills/)
 .agents/     repo marketplace metadata for Codex plugin browser/CLI installs
 .codex-plugin/plugin.json   Codex plugin manifest
 hooks.json   plugin-root hook wiring (relative paths)

@@ -43,6 +43,18 @@ try {
   t('context (lifecycle) not counted as enforcement', () => assert.strictEqual(a.enforcementEvents, 5));
   t('byHook tallies pre-bash-safety = 4', () => assert.strictEqual(a.byHook['pre-bash-safety'], 4));
   t('malformed lines are skipped, not fatal', () => { fs.appendFileSync(log, 'not json\n'); assert.strictEqual(audit({ days: 30, now: NOW, logPath: log }).inWindow, 6); });
+  t('readRows merges rotated segments (.1/.2) → a busy window is not a false 0-hit', () => {
+    // rule-hits.sh rotates agentsmd.jsonl → .1 → .2 at the size cap. Hits that
+    // landed in a rotated segment must still count, else the demote signal inverts.
+    const rotDir = fs.mkdtempSync(path.join(tmp, 'rot.'));
+    const rlog = path.join(rotDir, 'agentsmd.jsonl');
+    fs.writeFileSync(rlog, JSON.stringify({ ts: day(1), hook: 'h', event: 'block', spec_section: '§8-secrets', session_id: 's-live' }) + '\n');
+    fs.writeFileSync(rlog + '.1', JSON.stringify({ ts: day(2), hook: 'h', event: 'block', spec_section: '§8-secrets', session_id: 's-rot1' }) + '\n');
+    fs.writeFileSync(rlog + '.2', JSON.stringify({ ts: day(3), hook: 'h', event: 'block', spec_section: '§8-secrets', session_id: 's-rot2' }) + '\n');
+    const r = audit({ days: 30, now: NOW, logPath: rlog });
+    assert.strictEqual(r.bySection['§8-secrets'].enforcement, 3, 'rotated hits must count');
+    assert.strictEqual(r.sessionCount, 3, 'rotated sessions must count toward exposure');
+  });
   t('window includes the exact cutoff and excludes future rows', () => {
     const boundary = path.join(tmp, 'boundary.jsonl');
     fs.writeFileSync(boundary, [

@@ -25,8 +25,11 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-# Only ship-family commands (spec §5/§E3 ship intent).
-printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+(push|merge)\b|(npm|pnpm|yarn)[[:space:]]+publish\b|(^|[[:space:]])(gh[[:space:]]+release|cargo[[:space:]]+publish)\b' || exit 0
+# Only ship-family commands (spec §5/§E3 ship intent): git push/merge (with any
+# global options), or npm/pnpm/yarn publish / gh release / cargo publish.
+hook_cmd_invokes_git 'push|merge' "$CMD" \
+  || printf '%s' "$CMD" | grep -qiE '(npm|pnpm|yarn)[[:space:]]+publish\b|(^|[[:space:]])(gh[[:space:]]+release|cargo[[:space:]]+publish)\b' \
+  || exit 0
 [[ "$CMD" == *"[allow-unread-memory]"* ]] && { hook_record "$HOOK" "bypass" '{"token":"allow-unread-memory"}' '§7-memory-read' "$SID"; exit 0; }
 
 # Locate a MEMORY.md worth consulting: cwd, the enclosing git root (a ship command
@@ -43,8 +46,19 @@ TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 [[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || { hook_record_failopen "$HOOK" "no-transcript"; exit 0; }
 node -e '
 const fs = require("fs");
+const CAP = 1 << 19; // 512 KiB tail — bound the read on long sessions (mirror of the Stop hooks); an unbounded readFileSync here degraded the ship gate to a timeout no-op on the longest sessions.
 let lines;
-try { lines = fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/).filter(Boolean); } catch { process.exit(2); }
+try {
+  const fd = fs.openSync(process.argv[1], "r");
+  let buf;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const start = size > CAP ? size - CAP : 0;
+    buf = Buffer.alloc(size - start);
+    if (buf.length) fs.readSync(fd, buf, 0, buf.length, start);
+  } finally { fs.closeSync(fd); }
+  lines = buf.toString("utf8").split(/\r?\n/).filter(Boolean);
+} catch { process.exit(2); }
 for (const line of lines) {
   let o;
   try { o = JSON.parse(line); } catch { continue; }

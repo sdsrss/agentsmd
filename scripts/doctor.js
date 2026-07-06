@@ -34,12 +34,32 @@ function doctor() {
   // hook-registry.test.js asserts the registry never drifts from either hooks.json
   // wiring, so this stays equivalent to the old template-parse without re-reading it.
   const expectedHooks = REG.HOOK_REGISTRY.length;
-  const registeredHooks = H.countAgentsmdHooks(read(P.hooksJsonPath()) || '');
+  const rawHooks = read(P.hooksJsonPath());
+  // hooks.json parseable? countAgentsmdHooks returns 0 on an UNPARSEABLE file exactly
+  // as it does for "no agentsmd hooks" — but an unparseable SHARED hooks.json is a
+  // distinct, worse state: install AND uninstall both abort on it (they refuse to
+  // clobber a file that may hold other tenants' hooks), so every management command
+  // is wedged until it's fixed. Surface it instead of hiding it behind a bare 0/15.
+  const hooksParseable = rawHooks === null || rawHooks.trim() === '' || H.parseHooksConfig(rawHooks) !== null;
+  add('hooks.json parseable', hooksParseable, hooksParseable ? 'ok' : 'UNPARSEABLE — install/uninstall abort on this; fix or remove ~/.codex/hooks.json');
+  const registeredHooks = H.countAgentsmdHooks(rawHooks || '');
   const manifestInstalled = read(P.manifestPath()) !== null;
   add(
     'agentsmd hooks registered',
-    registeredHooks === expectedHooks,
-    `${registeredHooks}/${expectedHooks}`
+    hooksParseable && registeredHooks === expectedHooks,
+    hooksParseable ? `${registeredHooks}/${expectedHooks}` : `unknown — hooks.json unparseable`
+  );
+  // Install-state consistency: install writes the manifest LAST, so hooks live in the
+  // shared hooks.json with NO manifest means a crash between the hooks-merge and the
+  // manifest-write (or a manually-removed state dir). status.installed reads false off
+  // the manifest while the hooks actually run — a contradiction doctor must name, not
+  // report as two unrelated lines ("15/15 ok" + "not installed").
+  add(
+    'install state consistent (manifest vs live hooks)',
+    !(!manifestInstalled && registeredHooks > 0),
+    (!manifestInstalled && registeredHooks > 0)
+      ? `partial install — ${registeredHooks} hooks live in hooks.json but no manifest (crash mid-install or state dir removed) — re-run install.js`
+      : 'ok'
   );
 
   const hooksDir = P.installHooksDir();

@@ -2,6 +2,22 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.16.0 (2026-07-07) — git-evasion + atomicity + rotation fixes; new gates (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a
+package release (`spec_version` → v2.16.0). One manifest change: `§8-home-traversal`
+relabeled from `enforcement:"both"` (a hook that was never built) to `"self"`,
+matching `§8-sql-no-where`; `live_sections` unchanged (it was never live). Hook
+behavior hardened — git global-option evasion (`git -C`/`-c`/`--git-dir`) of the four
+git-gated hooks is now blocked and `secrets-scan` diffs the `-C` target repo; shared-
+file writes are atomic in uninstall/migrate; `audit` now reads rotated telemetry; new
+drift/doctor gates added. No new hooks (count stays 15). Detail: repo `CHANGELOG.md`.
+
+Sizing: core 24,121 → 24,749 B (+628, reconciling six releases whose `Sizing` line was
+not updated; 75.5% of the default 32,768 B combined cap, ~7.8 KB left for project
+chains). Extended 7,166 → 9,470 B (zero-budget, load-triggered). A `drift.test.js` gate
+now asserts core < 32,768 so this ceiling can no longer be crossed silently.
+
 ## v2.15.4 (2026-07-07) — remote-exec + CLI help bugfixes (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep

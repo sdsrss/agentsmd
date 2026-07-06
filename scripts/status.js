@@ -30,6 +30,7 @@ function status() {
   }
   return {
     installed: !!manifest,
+    installedVersion: (manifest && manifest.version) || null,
     installedAt: manifest && manifest.installedAt,
     agentsmdHooksRegistered: hooksContent ? H.countAgentsmdHooks(hooksContent) : 0,
     otherTenantHooksPreserved: other,

@@ -28,13 +28,18 @@ t('hard-rules: live_sections ⊆ manifest rule_hits_sections', () => {
   assert.strictEqual(orphan.length, 0, 'live_sections not in any rule: ' + orphan.join(', '));
 });
 
-// 3. every live_section is actually emitted by a hook script (honest claim).
-t('hard-rules: every live_section is emitted by some hook', () => {
+// 3. every live_section is actually EMITTED by a hook script, not merely named in
+//    a comment. Full-line shell comments are stripped first: a section mentioned
+//    only in a `# …` line but never in a hook_record call would otherwise green
+//    while telemetry silently never accrues (rules.js would then read it as a live
+//    0-hit demote-candidate). The real emission (`hook_record … '§x'`) survives.
+t('hard-rules: every live_section is emitted by some hook (comments stripped)', () => {
   const hooksDir = path.join(ROOT, 'hooks');
+  const stripLineComments = (src) => src.split('\n').map((l) => (/^\s*#/.test(l) ? '' : l)).join('\n');
   const allHookSrc = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh'))
-    .map((f) => fs.readFileSync(path.join(hooksDir, f), 'utf8')).join('\n');
+    .map((f) => stripLineComments(fs.readFileSync(path.join(hooksDir, f), 'utf8'))).join('\n');
   const missing = (hr.live_sections || []).filter((s) => !allHookSrc.includes(s));
-  assert.strictEqual(missing.length, 0, 'live_sections no hook emits: ' + missing.join(', '));
+  assert.strictEqual(missing.length, 0, 'live_sections no hook emits (in code, not comments): ' + missing.join(', '));
 });
 
 // 4. the two hook wirings (install template + plugin manifest) register the
@@ -96,6 +101,32 @@ t('skill: agentsmd-status hook count matches the wiring', () => {
   for (const groups of Object.values(wiring.hooks)) for (const g of groups || []) n += (g.hooks || []).length;
   const claim = (read('skills/agentsmd-status/SKILL.md').match(/agentsmdHooksRegistered`?\s*\(should be (\d+)\)/) || [])[1];
   assert.strictEqual(Number(claim), n, `SKILL.md claims ${claim} hooks, wiring registers ${n}`);
+});
+
+// 9. the core spec must stay under Codex's discovery-chain byte cap. Codex merges
+//    the AGENTS.md chain and SILENTLY truncates past project_doc_max_bytes (~32 KiB
+//    default) — a core spec over the cap loses its tail (e.g. §10 REPORT) every
+//    turn with no error. This is the single most consequential normalization
+//    invariant and was previously gated by nothing (only a hand-updated Sizing line).
+t('spec: core AGENTS.md stays under the 32 KiB discovery-chain cap', () => {
+  const CAP = 32768; // Codex project_doc_max_bytes default (bytes)
+  const bytes = Buffer.byteLength(specFiles.core, 'utf8');
+  assert(bytes < CAP, `core spec is ${bytes} B, at/over the ${CAP} B cap — Codex will silently truncate its tail`);
+  if (bytes > CAP * 0.9) console.log(`  warn spec/AGENTS.md at ${bytes} B — ${(100 * bytes / CAP).toFixed(1)}% of the ${CAP} B cap (keep headroom)`);
+});
+
+// 10. both READMEs' hook tables must list exactly as many hooks as the wiring
+//     registers — a hand-maintained table that lags the code (it drifted to 12/10
+//     rows while the wiring had 15) misleads the first-time reader about what runs.
+t('README: EN + zh hook-table row counts match the wiring', () => {
+  const wiring = JSON.parse(read('hooks/hooks.json'));
+  let n = 0;
+  for (const groups of Object.values(wiring.hooks)) for (const g of groups || []) n += (g.hooks || []).length;
+  const rowRe = /^\|\s*`[a-z0-9-]+`\s*\|\s*(SessionStart|PreToolUse|UserPromptSubmit|Stop)\b/gm;
+  for (const f of ['README.md', 'README.zh-CN.md']) {
+    const rows = (read(f).match(rowRe) || []).length;
+    assert.strictEqual(rows, n, `${f} lists ${rows} hook rows, wiring registers ${n}`);
+  }
 });
 
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);

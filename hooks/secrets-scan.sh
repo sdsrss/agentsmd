@@ -31,11 +31,18 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-# Only git commit — the staged diff is what we can scan pre-write.
-printf '%s' "$CMD" | grep -qiE '(^|[;&|]|[[:space:]])git[[:space:]]+commit\b' || exit 0
+# Only git commit — the staged diff is what we can scan pre-write. Consume git
+# global options so `git -C <dir> commit` / `git -c k=v commit` are gated too.
+hook_cmd_invokes_git 'commit' "$CMD" || exit 0
 [[ "$CMD" == *"[allow-secret]"* ]] && { hook_record "$HOOK" "bypass" '{"token":"allow-secret"}' '§8-secrets' "$SID"; exit 0; }
 
-DIFF="$(git -C "$CWD" diff --cached 2>/dev/null)" || { hook_record_failopen "$HOOK" "git-diff-failed"; exit 0; }
+# Diff the repo the commit actually targets: a `git -C <dir> commit` stages into
+# <dir>, not $CWD. Chain -C after $CWD so a relative <dir> resolves against it.
+# (--git-dir is git-plumbing-level and rare for commits; -C is the agent idiom.)
+GIT_C=(-C "$CWD")
+CDIR="$(printf '%s' "$CMD" | grep -oE '(^|[[:space:]])-C[[:space:]]*[^[:space:]]+' | head -1 | sed -E 's/^[[:space:]]*-C[[:space:]]*//')"
+[[ -n "$CDIR" ]] && GIT_C+=(-C "$CDIR")
+DIFF="$(git "${GIT_C[@]}" diff --cached 2>/dev/null)" || { hook_record_failopen "$HOOK" "git-diff-failed"; exit 0; }
 [[ -n "$DIFF" ]] || exit 0   # nothing staged → nothing to scan (e.g. `git commit --amend` with no staged Δ)
 
 # Scan only ADDED lines (leading '+', excluding the '+++' file header) — a secret
