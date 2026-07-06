@@ -255,12 +255,13 @@ withSandbox((dir) => {
   t('status CLI rejects unknown options instead of printing JSON', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'status.js'), '--wat'], { env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /unknown option: --wat/.test(String(e.stderr))
+      (e) => e.status === 2 && /unknown option: --wat/.test(String(e.stderr)) && /Usage: agentsmd status/.test(String(e.stderr))
     );
   });
-  t('doctor CLI --help prints usage without running checks', () => {
+  t('doctor CLI --help prints actionable usage without running checks', () => {
     const out = cp.execFileSync('node', [path.join(__dirname, '..', 'doctor.js'), '--help'], { env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8' });
-    assert.strictEqual(out.trim(), 'Usage: agentsmd-doctor');
+    assert(/Usage: agentsmd doctor/.test(out), out);
+    assert(/install health checks/.test(out), out);
   });
 });
 

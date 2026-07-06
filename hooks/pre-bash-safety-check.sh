@@ -63,7 +63,7 @@ if cmd_has_rm_rf_var "$CMD"; then
     "PreToolUse"
 fi
 
-# ── 2. curl|wget … | shell (immutable §8: unknown-origin script) ────────────
+# ── 2. remote download executed by an interpreter (immutable §8) ────────────
 cmd_pipes_to_shell() {
   local c="$1"
   [[ "$c" == *"[allow-remote-exec]"* ]] && return 1
@@ -73,6 +73,12 @@ cmd_pipes_to_shell() {
   # is not attributed to the curl).
   printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(ba)?(sh|zsh|dash|ksh|fish)([[:space:]]|$)' && return 0
   printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
+  # Process substitution: `bash <(curl …)` / `python <(wget …)`.
+  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?((ba)?(sh|zsh|dash|ksh|fish)|python[0-9.]*|node|ruby|perl)[[:space:]][^;]*<\([[:space:]]*(curl|wget)[[:space:]]' && return 0
+  # Command substitution passed to an interpreter: `sh -c "$(curl …)"`.
+  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?((ba)?(sh|zsh|dash|ksh|fish)|python[0-9.]*|node|ruby|perl)[[:space:]][^;]*-c[[:space:]]+["'\'']?\$\([[:space:]]*(curl|wget)[[:space:]]' && return 0
+  # Eval has the same effect without naming a shell binary.
+  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])eval[[:space:]]+["'\'']?\$\([[:space:]]*(curl|wget)[[:space:]]' && return 0
   return 1
 }
 

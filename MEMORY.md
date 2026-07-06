@@ -11,3 +11,4 @@
 - [Doctor config parseability](memory/reference_doctor-config-parseability.md) [doctor,config,status-line] — Health checks must fail on unparseable detected config values, not only missing values.
 - [Config status_line TOML strings](memory/reference_config-status-line-toml-strings.md) [config,status-line,toml,doctor] — `tui.status_line` parsing accepts double-quoted and single-quoted TOML strings.
 - [Audit time window](memory/reference_audit-time-window.md) [audit,rules,telemetry,time-window] — `audit --days=N` counts parseable timestamps only within `[cutoff, now]`.
+- [Remote exec variants](memory/reference_remote-exec-variants.md) [hooks,pretool,safety,remote-exec] — Unknown-origin script checks must cover process substitution, command substitution, and eval, not only `curl|wget ... | shell`.

@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.15.3",
+  "spec_version": "v2.15.4",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"

@@ -48,25 +48,41 @@ function status() {
   };
 }
 
-function parseNoArgs(argv, commandName) {
+function usage(commandName, description) {
+  return [
+    `Usage: ${commandName}`,
+    '',
+    description,
+    '',
+    'Options:',
+    '  -h, --help   Show this help.',
+  ].join('\n');
+}
+
+function parseNoArgs(argv, commandName, description) {
   for (const arg of argv) {
-    if (arg === '--help' || arg === '-h') return { help: true };
-    return { error: `unknown option: ${arg}` };
+    const text = usage(commandName, description);
+    if (arg === '--help' || arg === '-h') return { help: true, usage: text };
+    return { error: `unknown option: ${arg}`, usage: text };
   }
-  return { usage: `Usage: ${commandName}` };
+  return { usage: usage(commandName, description) };
 }
 
 if (require.main === module) {
-  const parsed = parseNoArgs(process.argv.slice(2), 'agentsmd-status');
+  const parsed = parseNoArgs(
+    process.argv.slice(2),
+    'agentsmd status',
+    'Print agentsmd install state as JSON: hooks, config, spec block, telemetry, and kill-switch state.'
+  );
   if (parsed.help) {
-    console.log('Usage: agentsmd-status');
+    console.log(parsed.usage);
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd status: ${parsed.error}`);
-    console.error('Usage: agentsmd-status');
-    process.exit(1);
+    console.error(parsed.usage);
+    process.exit(2);
   }
   console.log(JSON.stringify(status(), null, 2));
 }
-module.exports = { status, parseNoArgs };
+module.exports = { status, parseNoArgs, usage };

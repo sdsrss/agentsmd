@@ -113,15 +113,19 @@ function doctor() {
 }
 
 if (require.main === module) {
-  const parsed = parseNoArgs(process.argv.slice(2), 'agentsmd-doctor');
+  const parsed = parseNoArgs(
+    process.argv.slice(2),
+    'agentsmd doctor',
+    'Run agentsmd install health checks: dependencies, native hooks, spec freshness, and discovery-chain headroom.'
+  );
   if (parsed.help) {
-    console.log('Usage: agentsmd-doctor');
+    console.log(parsed.usage);
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd doctor: ${parsed.error}`);
-    console.error('Usage: agentsmd-doctor');
-    process.exit(1);
+    console.error(parsed.usage);
+    process.exit(2);
   }
   const r = doctor();
   for (const c of r.checks) console.log(`${c.ok ? '  ok  ' : '  FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);

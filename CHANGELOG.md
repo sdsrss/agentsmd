@@ -3,6 +3,32 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.15.4 — 2026-07-07 — fix: remote-exec variants + status/doctor CLI help
+
+Patch release for two end-to-end defects found during a six-round real-user
+exercise of the CLI, installer, hooks, telemetry, project-init, and release
+paths. No new hooks (count stays 15), no spec rule-text change, no breaking CLI
+contract. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.3`.
+
+### Fixed
+- **Remote script execution checks now cover non-pipe forms**
+  (`hooks/pre-bash-safety-check.sh`): the §8 unknown-origin script hook already
+  blocked `curl|wget ... | shell`, but allowed equivalent real-world forms such
+  as `bash <(curl ...)`, `sh -c "$(curl ...)"`, and `eval "$(wget ...)"`.
+  These now block under the same `§8-unknown-script` rule. Inspect-first flows
+  such as `curl -o file; cat file` remain allowed.
+- **`agentsmd status` and `agentsmd doctor` help/error output is actionable**
+  (`scripts/status.js`, `scripts/doctor.js`): `--help` now explains what each
+  command reports/checks, and unknown options exit 2 with the full usage instead
+  of a one-line usage or missing usage text.
+
+### Internal
+- Hook smoke coverage adds the three remote-exec variants above, taking the
+  smoke suite to 106 checks.
+- Regression tests cover the improved `status`/`doctor` CLI behavior.
+- A project memory note records the remote-exec variant class for future hook
+  work. `npm test`: 19 suites, 0 failed.
+
 ## v2.15.3 — 2026-07-06 — fix: cached-hook uninstall shims + analyze argv mode validation
 
 Patch release for two real end-to-end defects found while exercising the CLI and
