@@ -5,12 +5,69 @@
 // (removing it could break OMX's or the user's own hooks).
 
 const fs = require('fs');
+const path = require('path');
 const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+
+const FALLBACK_HOOK_SHIMS = [
+  'session-start-check.sh',
+  'pre-bash-safety-check.sh',
+  'banned-vocab-check.sh',
+  'ship-baseline-check.sh',
+  'memory-read-check.sh',
+  'secrets-scan.sh',
+  'surface-advisories.sh',
+  'memory-prompt-hint.sh',
+  'residue-audit.sh',
+  'sandbox-disposal-check.sh',
+  'transcript-structure-scan.sh',
+  'convention-cite-scan.sh',
+  'session-exit-checkpoint.sh',
+  'mem-audit.sh',
+  'session-summary.sh',
+];
+
+function hookShimNames() {
+  const names = new Set(FALLBACK_HOOK_SHIMS);
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(P.repoRoot(), 'hooks', 'hooks.json'), 'utf8'));
+    for (const groups of Object.values(cfg.hooks || {})) {
+      for (const group of groups || []) {
+        for (const hook of group.hooks || []) {
+          const m = String(hook.command || '').match(/\/([^/"\s]+\.sh)"/);
+          if (m) names.add(m[1]);
+        }
+      }
+    }
+  } catch {}
+  return [...names].sort();
+}
+
+function writeUninstalledHookShims() {
+  const hooksDir = P.installHooksDir();
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const body = [
+    '#!/usr/bin/env bash',
+    '# agentsmd uninstalled compatibility shim.',
+    '# A Codex session may cache hook commands until restart; exit 0 so stale',
+    '# commands do not fail with bash exit 127 after agentsmd uninstall.',
+    'exit 0',
+    '',
+  ].join('\n');
+  let written = 0;
+  for (const name of hookShimNames()) {
+    const p = path.join(hooksDir, name);
+    fs.writeFileSync(p, body);
+    try { fs.chmodSync(p, 0o755); } catch {}
+    written++;
+  }
+  fs.writeFileSync(path.join(P.installDir(), '.uninstalled-shims'), `${new Date().toISOString()}\n`);
+  return written;
+}
 
 function uninstall() {
   // 0. Pre-flight abort on an unparseable shared hooks.json (mirror of install's
@@ -70,9 +127,15 @@ function uninstall() {
     }
   } catch {}
 
-  // 4. Remove the self-contained install dir + agentsmd state.
+  // 4. Remove the self-contained install dir + agentsmd state. Then leave tiny
+  //    no-op hook shims at the old command paths: Codex may keep the current
+  //    session's hook command list cached until restart, and `bash "missing.sh"`
+  //    exits 127. The shims are not registered and no manifest remains, so
+  //    agentsmd is still uninstalled; they only keep stale in-memory commands
+  //    quiet until the session refreshes.
   try { fs.rmSync(P.installDir(), { recursive: true, force: true }); } catch {}
   try { fs.rmSync(P.stateDir(), { recursive: true, force: true }); } catch {}
+  result.compatibilityShimsWritten = writeUninstalledHookShims();
 
   // 5. Belt-and-suspenders: sweep any leftover pre-rename codexmd footprint too,
   //    so a clean uninstall leaves no trace of either name (marker-scoped).

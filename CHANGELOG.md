@@ -3,6 +3,42 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.15.3 — 2026-07-06 — fix: cached-hook uninstall shims + analyze argv mode validation
+
+Patch release for two real end-to-end defects found while exercising the CLI and
+install lifecycle like a user. No new hooks (count stays 15), no spec rule-text
+change, no breaking CLI contract. Revert by pinning
+`npm i -g @sdsrs/agentsmd@2.15.2`.
+
+### Fixed
+- **Uninstall no longer leaves the current Codex session with exit-127 hook
+  failures** (`scripts/uninstall.js`): after unregistering agentsmd and removing
+  the real install/state/spec footprint, uninstall now leaves tiny unregistered
+  no-op shell shims at the old `$CODEX_HOME/agentsmd/hooks/*.sh` command paths.
+  Codex can keep a session's hook command list cached until restart; before this
+  fix, those stale commands ran `bash "missing-hook.sh"` and failed with exit
+  127 after uninstall. A later install overwrites the shims with the real hooks.
+- **`doctor` distinguishes shim-only state from an install**
+  (`scripts/doctor.js`): a leftover compatibility shim directory is reported as
+  "not installed" when the agentsmd manifest is gone, so health checks stay
+  honest.
+- **`agentsmd analyze` rejects misleading argv combinations**
+  (`scripts/analyze.js`): `--days` / `--project` now require `--adoption`,
+  `--from` requires `--write`, and explicit modes (`--gather`, `--write`,
+  `--adoption`) are mutually exclusive. Previously `analyze --days=7` and
+  `analyze --adoption --gather` exited 0 while silently running gather.
+- **`secrets-scan` handles private-key patterns correctly**
+  (`hooks/secrets-scan.sh`): regexes that begin with `-`, such as
+  private-key PEM headers, are now passed to `grep` after `--` so they are
+  treated as patterns rather than options. The hook now blocks staged private-key
+  headers as intended without adding a secret-shaped literal to the release notes.
+
+### Docs / Internal
+- README uninstall docs now describe the unregistered compatibility shims.
+- Regression tests cover shim execution after uninstall, shim-only status/doctor
+  behavior, analyze argv rejection paths, and private-key header blocking.
+  `npm test`: 19 suites, 0 failed.
+
 ## v2.15.2 — 2026-07-06 — fix: parser robustness (strings / comments / parens) + argv-gate coverage, from a second code review
 
 Second bugfix patch, from a code review of the v2.15.1 release. Hardens the `agentsmd design` token parser against string / comment / paren edge cases (each previously emitting a wrong or dropped "fact"), widens the `lint-argv` gate to `findIndex`/`filter`, and fixes two Minor correctness notes. No new hooks (count stays 15), no spec rule-text change. Revert by pinning `npm i -g @sdsrs/agentsmd@2.15.1`.

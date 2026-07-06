@@ -229,6 +229,19 @@ withSandbox((dir) => {
   t('standalone uninstall removes hooks.json (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'hooks.json'))));
   t('standalone uninstall removes AGENTS.md (was ours-only)', () => assert(!fs.existsSync(path.join(dir, 'AGENTS.md'))));
   t('standalone uninstall removes AGENTS-extended.md', () => assert(!fs.existsSync(path.join(dir, 'AGENTS-extended.md'))));
+  t('standalone uninstall removes the install manifest', () => assert(!fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json'))));
+  t('standalone uninstall leaves stale-session hook shims that exit 0', () => {
+    const hook = path.join(dir, 'agentsmd', 'hooks', 'pre-bash-safety-check.sh');
+    assert(fs.existsSync(hook), 'compatibility shim missing');
+    fs.accessSync(hook, fs.constants.X_OK);
+    const r = cp.spawnSync('bash', [hook], { input: '{}', encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+  });
+  t('status reports uninstalled even while compatibility shims remain', () => {
+    const st = status();
+    assert.strictEqual(st.installed, false);
+    assert.strictEqual(st.agentsmdHooksRegistered, 0);
+  });
   t('doctor fails after standalone uninstall', () => {
     const d = doctor();
     assert.strictEqual(d.ok, false);

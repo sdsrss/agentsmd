@@ -190,7 +190,7 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-卸载只 strip agentsmd 自己的条目(hook、skills、`AGENTS.md` 块、install 与 state 目录),并且按 §5 **保留 `config.toml` 的 hook/status-line 设置**(删掉它们可能会断掉 oh-my-codex、你自己的 hook 或你偏好的 footer)。
+卸载只 strip agentsmd 自己的条目(已注册 hook、skills、`AGENTS.md` 块、install manifest、state 与 extended spec),并且按 §5 **保留 `config.toml` 的 hook/status-line 设置**(删掉它们可能会断掉 oh-my-codex、你自己的 hook 或你偏好的 footer)。它还会在 `$CODEX_HOME/agentsmd/hooks/` 留下很小的、未注册的 no-op hook 兼容 shim:如果当前 Codex 会话已经缓存了旧 hook 命令,这些 shim 会让旧命令干净退出,而不是报 `bash` exit 127;之后重新 install 会用真实 hook 覆盖这些 shim。
 
 对于 npm 安装,先卸载 agentsmd 的 Codex 足迹,再移除全局包:
 

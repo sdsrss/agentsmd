@@ -47,7 +47,7 @@ HIT=""
 if [[ -r "$PATTERNS_FILE" ]]; then
   while IFS= read -r pat; do
     [[ -z "$pat" || "$pat" == \#* ]] && continue
-    if printf '%s' "$ADDED" | grep -qE "$pat"; then HIT="$pat"; break; fi
+    if printf '%s' "$ADDED" | grep -qE -- "$pat"; then HIT="$pat"; break; fi
   done < "$PATTERNS_FILE"
 fi
 [[ -n "$HIT" ]] || exit 0

@@ -2,6 +2,10 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.15.3 (2026-07-06) — uninstall/runtime + analyze argv bugfixes (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep with a package bugfix — `uninstall` now leaves unregistered no-op hook shims so current Codex sessions with cached hook commands do not fail with bash exit 127, `doctor` treats shim-only state as uninstalled, `agentsmd analyze` rejects misleading argv combinations instead of silently running gather, and `secrets-scan` now handles private-key regexes that begin with `-`. No new hooks (count stays 15), no `live_sections`/manifest change. `spec_version` → v2.15.3. Detail: repo `CHANGELOG.md`.
+
 ## v2.15.2 (2026-07-06) — parser & tooling robustness bugfix (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a package bugfix from a second code review — the `agentsmd design` token parser is now string / comment / paren aware (a `;` inside `url(…)` or quotes no longer truncates a value; a `:root{` inside a string value is no longer read as a block), the `lint-argv` gate catches `findIndex`/`filter`, and two Minor correctness notes (version-cascade token boundary, perf-baseline even-N median) are fixed. No new hooks (count stays 15), no `live_sections`/manifest change. `spec_version` → v2.15.2. Detail: repo `CHANGELOG.md`.

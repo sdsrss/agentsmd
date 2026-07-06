@@ -35,6 +35,7 @@ function doctor() {
   // wiring, so this stays equivalent to the old template-parse without re-reading it.
   const expectedHooks = REG.HOOK_REGISTRY.length;
   const registeredHooks = H.countAgentsmdHooks(read(P.hooksJsonPath()) || '');
+  const manifestInstalled = read(P.manifestPath()) !== null;
   add(
     'agentsmd hooks registered',
     registeredHooks === expectedHooks,
@@ -42,7 +43,9 @@ function doctor() {
   );
 
   const hooksDir = P.installHooksDir();
-  if (fs.existsSync(hooksDir)) {
+  if (!manifestInstalled) {
+    add('installed hooks executable', false, 'not installed');
+  } else if (fs.existsSync(hooksDir)) {
     let execOk = true, bad = '';
     for (const f of fs.readdirSync(hooksDir)) if (f.endsWith('.sh')) {
       try { fs.accessSync(path.join(hooksDir, f), fs.constants.X_OK); } catch { execOk = false; bad = f; }

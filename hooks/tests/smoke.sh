@@ -386,6 +386,9 @@ if command -v git >/dev/null 2>&1; then
   printf 'aws = "AKIAIOSFODNN7EXAMPLE"\n' >> "$SECREPO/app.js"; git -C "$SECREPO" add app.js >/dev/null 2>&1
   OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git commit -m addkey' "$SECREPO")")"; is_block "$OUT" && ok "commit staging an AWS-key-shaped secret → block" || bad "commit staging AWS key → block" "$OUT"
   OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git commit -m addkey [allow-secret]' "$SECREPO")")"; is_empty "$OUT" && ok "commit secret + [allow-secret] bypass → allow" || bad "commit secret + bypass → allow" "$OUT"
+  git -C "$SECREPO" reset -q >/dev/null 2>&1
+  printf '%s%s\n' '-----BEGIN ' 'PRIVATE KEY-----' > "$SECREPO/key.pem"; git -C "$SECREPO" add key.pem >/dev/null 2>&1
+  OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git commit -m addkey' "$SECREPO")")"; is_block "$OUT" && ok "commit staging a private-key header → block" || bad "commit staging private key → block" "$OUT"
   OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git status' "$SECREPO")")"; is_empty "$OUT" && ok "non-commit git command → allow" || bad "non-commit git → allow" "$OUT"
 else
   ok "secrets-scan.sh skipped (git not on PATH)"

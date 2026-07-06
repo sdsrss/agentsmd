@@ -220,7 +220,14 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-Uninstall strips only agentsmd's own entries (hooks, skills, the `AGENTS.md` block, the install + state dirs) and, per §5, **leaves `config.toml` hook/status-line settings enabled** (removing them could break oh-my-codex, your own hooks, or your preferred footer).
+Uninstall strips only agentsmd's own entries (registered hooks, skills, the
+`AGENTS.md` block, install manifest, state, and extended spec) and, per §5,
+**leaves `config.toml` hook/status-line settings enabled** (removing them could
+break oh-my-codex, your own hooks, or your preferred footer). It also leaves
+tiny unregistered no-op hook shims under `$CODEX_HOME/agentsmd/hooks/` so a
+currently running Codex session that cached the old hook commands exits cleanly
+instead of failing with `bash` exit 127; a later install overwrites those shims
+with the real hooks.
 
 For npm installs, uninstall agentsmd's Codex footprint before removing the
 global package:

@@ -160,14 +160,23 @@ const USAGE = 'Usage: agentsmd-analyze [--gather] | agentsmd-analyze --write --f
 
 function parseArgs(argv) {
   const opts = { mode: 'gather', from: null, days: 30, project: null };
+  let sawAdoptionOnlyOption = false;
+  let modeFlag = null;
+  const setMode = (flag, mode) => {
+    if (modeFlag !== null) return `choose only one mode: --gather, --write, or --adoption`;
+    modeFlag = flag;
+    opts.mode = mode;
+    return null;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') return { help: true };
-    else if (a === '--gather') opts.mode = 'gather';
-    else if (a === '--write') opts.mode = 'write';
-    else if (a === '--adoption') opts.mode = 'adoption';
+    else if (a === '--gather') { const err = setMode(a, 'gather'); if (err) return { error: err }; }
+    else if (a === '--write') { const err = setMode(a, 'write'); if (err) return { error: err }; }
+    else if (a === '--adoption') { const err = setMode(a, 'adoption'); if (err) return { error: err }; }
     else if (a === '--from') opts.from = argv[++i];
     else if (/^--days=/.test(a)) {
+      sawAdoptionOnlyOption = true;
       const v = a.slice('--days='.length);
       if (!/^[1-9][0-9]*$/.test(v)) return { error: `invalid --days value: ${v}` };
       const n = Number(v);
@@ -175,6 +184,7 @@ function parseArgs(argv) {
       opts.days = n;
     }
     else if (/^--project=/.test(a)) {
+      sawAdoptionOnlyOption = true;
       const v = a.slice('--project='.length);
       if (!v) return { error: 'invalid --project value: (empty)' };
       opts.project = v;
@@ -182,6 +192,8 @@ function parseArgs(argv) {
     else return { error: `unknown option: ${a}` };
   }
   if (opts.mode === 'write' && !opts.from) return { error: '--write requires --from <file>' };
+  if (opts.mode !== 'adoption' && sawAdoptionOnlyOption) return { error: '--days and --project require --adoption' };
+  if (opts.mode !== 'write' && opts.from) return { error: '--from requires --write' };
   return opts;
 }
 

@@ -266,12 +266,27 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
     assert.strictEqual(o.days, 30);
     assert.strictEqual(o.project, null);
   });
+  t('parseArgs: rejects multiple explicit modes', () => {
+    const msg = 'choose only one mode: --gather, --write, or --adoption';
+    assert.strictEqual(parseArgs(['--adoption', '--gather']).error, msg);
+    assert.strictEqual(parseArgs(['--write', '--adoption']).error, msg);
+    assert.strictEqual(parseArgs(['--gather', '--gather']).error, msg);
+  });
   t('parseArgs: rejects invalid --days value', () => assert.strictEqual(parseArgs(['--adoption', '--days=abc']).error, 'invalid --days value: abc'));
   t('parseArgs: rejects oversized --days (mirrors audit/rules bound; no RangeError downstream)', () => {
     const big = '999999999999999999999999999999';
     assert.strictEqual(parseArgs(['--adoption', `--days=${big}`]).error, `invalid --days value: ${big}`);
   });
   t('parseArgs: rejects empty --project=', () => assert.strictEqual(parseArgs(['--adoption', '--project=']).error, 'invalid --project value: (empty)'));
+  t('parseArgs: rejects adoption-only filters outside --adoption', () => {
+    assert.strictEqual(parseArgs(['--days=7']).error, '--days and --project require --adoption');
+    assert.strictEqual(parseArgs(['--gather', '--project=foo']).error, '--days and --project require --adoption');
+    assert.strictEqual(parseArgs(['--write', '--from', 'x.md', '--days=7']).error, '--days and --project require --adoption');
+  });
+  t('parseArgs: rejects --from outside --write', () => {
+    assert.strictEqual(parseArgs(['--from', 'x.md']).error, '--from requires --write');
+    assert.strictEqual(parseArgs(['--adoption', '--from', 'x.md']).error, '--from requires --write');
+  });
   t('adoptionReport does not throw on a huge days (audit() clamps it)', () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-adopt-clamp.'));
     try {
@@ -298,6 +313,16 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
       fs.rmSync(cwd, { recursive: true, force: true });
       fs.rmSync(cliHome, { recursive: true, force: true });
     }
+  });
+  t('analyze CLI rejects adoption-only filters in gather mode', () => {
+    const r = cp.spawnSync('node', [path.join(__dirname, '..', 'analyze.js'), '--days=7'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 1);
+    assert.ok(r.stderr.includes('--days and --project require --adoption'), r.stderr);
+  });
+  t('analyze CLI rejects multiple explicit modes', () => {
+    const r = cp.spawnSync('node', [path.join(__dirname, '..', 'analyze.js'), '--adoption', '--gather'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 1);
+    assert.ok(r.stderr.includes('choose only one mode'), r.stderr);
   });
 }
 
