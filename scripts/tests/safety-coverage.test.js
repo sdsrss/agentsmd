@@ -18,7 +18,7 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 const R = auditSafetyCoverage({ root: ROOT });
 
 t('audit runs on real hooks and returns a structured report', () => {
-  assert.ok(R.spec_version.startsWith('v2.'), 'spec_version: ' + R.spec_version);
+  assert.match(R.spec_version, /^v\d+\.\d+\.\d+$/, 'spec_version: ' + R.spec_version);
   assert.ok(R.summary.hooksAudited >= 13, 'hooksAudited: ' + R.summary.hooksAudited);
   assert.ok(Array.isArray(R.ruleEnforcement) && Array.isArray(R.claimSites));
 });

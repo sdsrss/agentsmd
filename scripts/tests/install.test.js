@@ -76,6 +76,31 @@ withSandbox((dir) => {
   });
 });
 
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  fs.rmSync(path.join(dir, '.agentsmd-state', 'backups'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(dir, '.agentsmd-state', 'backups'), 'not a directory');
+  const result = uninstall();
+  t('uninstall surfaces a pre-uninstall backup failure while completing removal', () => {
+    assert.match(result.backupWarning || '', /pre-uninstall backup failed/i);
+    assert(!fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.mkdirSync(path.join(dir, '.agentsmd-state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.agentsmd-state', 'backups'), 'not a directory');
+  const before = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
+  const { install } = loadModules();
+  t('install fails before mutation when its recovery backup cannot be created', () => {
+    assert.throws(() => install('2026-07-02T00:00:00.000Z'), /backup|not a directory|ENOTDIR/i);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), before);
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'failed backup must abort before deploy');
+  });
+});
+
 // Existing private config must not be widened by temp-file + rename. New files
 // managed under CODEX_HOME carry private defaults because config can contain env
 // and MCP credentials and state/manifest data describes the local installation.

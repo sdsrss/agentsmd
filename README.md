@@ -126,9 +126,10 @@ npm/npx versions fail to resolve):
 npx --package @sdsrs/agentsmd agentsmd install
 ```
 
-`agentsmd --help` lists every subcommand: `init` · `analyze` · `install` ·
-`update` · `uninstall` · `status` · `doctor` · `audit` · `rules`. A bare
-`agentsmd` prints help and installs nothing.
+`agentsmd --help` is the authoritative list of project, lifecycle, diagnostic,
+and governance subcommands. A bare `agentsmd` prints that help and installs
+nothing. `install` and `update` print a concise result by default; pass `--json`
+when automation needs the full install manifest.
 
 ### Codex plugin marketplace
 
@@ -287,7 +288,7 @@ agentsmd installs the **global** discipline spec into `~/.codex/AGENTS.md` (the 
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js"   # or the agentsmd-init skill
 ```
 
-It detects Node/Rust/Python/Go, writes a sentinel-delimited managed block, and re-running updates it in place while preserving your own edits. `--check` reports drift; `--dry-run` previews.
+It detects Node/Rust/Python/Go, writes a sentinel-delimited managed block, and re-running updates it in place while preserving your own edits. `--check` reports drift; `--dry-run` previews. `--check`, `--dry-run`, and `--local` are mutually exclusive execution modes.
 
 Add `--local` to also scaffold a git-ignored `AGENTS.local.md` for personal preferences (e.g. `AUTONOMY_LEVEL`) that never leave your machine:
 

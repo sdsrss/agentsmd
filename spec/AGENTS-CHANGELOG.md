@@ -2,6 +2,19 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v3.0.0 (2026-07-10) — lifecycle, safety-parser, and CLI contract fixes (no rule-text changes)
+
+Core + extended rule text is unchanged; the shared version moves in lockstep
+with a package major release (default lifecycle stdout changes from the prior
+manifest-shaped output to a concise summary, with `--json` for structured output).
+The existing §8 safety hook gains a quote-aware,
+bounded command parser for wrapper/substitution/download-to-interpreter variants
+while preserving inspection modes; lifecycle restore becomes state-compatible
+and transactional; CLI flags reject silent fallbacks and add
+`rules --include-test`. No hooks, manifest rules, or `live_sections` changed.
+`spec_version` → v3.0.0. Detail: repo `CHANGELOG.md`. Sizing: core 16,301 B;
+extended 13,084 B (version-only header change keeps both byte counts unchanged).
+
 ## v2.17.0 (2026-07-10) — audit remediation
 
 Core keeps safety, authorization, evidence and execution gates while expanded

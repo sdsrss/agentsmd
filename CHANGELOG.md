@@ -3,6 +3,50 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v3.0.0 — 2026-07-10 — change: safe lifecycle recovery, shell-aware safety checks, and strict CLI contracts
+
+### Changed
+
+- `agentsmd install` / `update` now print a one-line result by default; `--json`
+  emits the complete install manifest for automation. Help and invalid options
+  are parsed before any lifecycle mutation, and the `update` alias retains its
+  own command name in help and errors.
+- `init --check`, `--dry-run`, and `--local` are explicit mutually exclusive
+  modes instead of silently ignoring a later mode.
+
+### Added
+
+- `agentsmd rules --include-test` now includes test-tagged telemetry in both the
+  global governance signal and the project-scoped lens. Top-level help documents
+  the flag and the complete command surface.
+
+### Fixed
+
+- Restore snapshots record lifecycle purpose and their derived agentsmd
+  hooks/spec footprint. Default and explicit restores reject state mismatches,
+  legacy snapshots are classified from their bytes, multi-file restore failures
+  roll back earlier writes, and failed backup creation leaves no partial snapshot.
+- The §8 safety parser now binds `rm -rf` expansions to actual targets and covers
+  bounded shell/eval command strings, quoted or escaped command words, `env -S`,
+  versioned interpreters, process/command/backtick substitution, and clustered
+  curl/wget output flags. Inspection paths such as `bash -n` and
+  `python -m json.tool` remain allowed.
+- `sampling-audit` rejects unsafe-integer limits; `analyze` rejects duplicate
+  `--days` / `--project` / `--from` values and no longer consumes an option as a
+  missing `--from` path.
+- The shell smoke suite uses `fs.utimesSync` instead of GNU-only `touch -d` for
+  its aged fixture.
+
+No hooks were added or removed (15 remain), and no core/extended rule text
+changed. Release validation: backup 18/18, distribution 31/31, hook smoke
+169/169, with every other `npm test` suite at 0 failures. This is a major
+release because changing the default lifecycle stdout can break callers that
+parsed the prior manifest-shaped output. Rollback an npm install with
+`npm install -g @sdsrs/agentsmd@2.17.0 && agentsmd install`; standalone/plugin
+users must select the `v2.17.0` source and reinstall its managed footprint.
+Revert the `v3.0.0` release commit for source rollback. npm versions are
+immutable, so a published `3.0.0` can only be deprecated.
+
 ## v2.17.0 — 2026-07-10 — change: transactional lifecycle, bounded governance telemetry, and 16 KiB core
 
 - Added quote-aware Git invocation parsing and `commit -a/--all` secret scanning.

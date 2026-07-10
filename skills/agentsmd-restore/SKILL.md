@@ -8,13 +8,14 @@ description: Restore hooks.json, config.toml, and AGENTS.md from an agentsmd pre
 `install`/`update` mutate three files shared with oh-my-codex and other tenants. The write is atomic (crash-safe), and now also **reversible**: install snapshots all three into `.agentsmd-state/backups/<id>/` before touching them (rotated — the newest 5 kept). If a merge came out logically wrong, restore the prior bytes:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --list          # what snapshots exist
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js"                 # DRY-RUN — preview newest
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --confirm       # apply the newest
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --list          # snapshots + purpose
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js"                 # DRY-RUN — newest compatible snapshot
+node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --confirm       # apply compatible snapshot
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --id=<id> --confirm
 ```
 
 - **Dry-run by default** — a bare `restore` prints what it *would* overwrite and writes nothing; `--confirm` performs the write.
+- Backups are labeled `pre-install` or `pre-uninstall`. A bare restore selects the newest compatible `pre-install` snapshot. Both default and explicit `--id` restores reject a snapshot whose agentsmd hooks/spec footprint does not match the current install manifest, because restoring only the shared files would create a partial install. Legacy snapshots without these labels are classified from their actual hooks/spec contents and accepted only when that derived state matches.
 - Restore **overwrites the live files with the snapshot**, discarding any change made since that backup — by every tenant, not just agentsmd. That is the point (full rollback of a bad merge), but it is why it is dry-run-first.
 - Only files that **existed at backup time** are restored; a file that was absent then is left alone (never deleted).
 - To remove **just agentsmd's own entries** and preserve everyone else, use `agentsmd uninstall` instead — it is marker-scoped and multi-tenant-safe. Restore is the cruder "give me the exact prior bytes" tool for when a merge misbehaved.

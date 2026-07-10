@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
+const cp = require('child_process');
 
 let PASS = 0, FAIL = 0;
 const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
@@ -107,6 +108,142 @@ try {
     try {
       assert.deepStrictEqual(B.listBackups(), []);
       assert.throws(() => B.planRestore(null), /no backups/);
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('default restore selects the newest pre-install backup, not a newer pre-uninstall backup', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-purpose-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'before-install');
+      const installBackup = B.createBackup('2026-07-06T00:00:00.000Z', 'pre-install');
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'installed');
+      const uninstallBackup = B.createBackup('2026-07-06T01:00:00.000Z', 'pre-uninstall');
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'after-uninstall');
+      const plan = B.planRestore(null);
+      assert.strictEqual(plan.id, installBackup.id);
+      assert.strictEqual(B.listBackups()[0].id, uninstallBackup.id);
+      B.restoreBackup();
+      assert.strictEqual(fs.readFileSync(path.join(SB, 'hooks.json'), 'utf8'), 'before-install');
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('restore rejects a declared-present snapshot file that is missing', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-corrupt-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'before');
+      const backup = B.createBackup('corrupt', 'pre-install');
+      fs.unlinkSync(path.join(backup.dir, 'hooks.json'));
+      assert.throws(() => B.planRestore(backup.id), /declared-present.*hooks\.json|hooks\.json.*missing/i);
+      assert.throws(() => B.restoreBackup(backup.id), /declared-present.*hooks\.json|hooks\.json.*missing/i);
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('legacy snapshots without purpose/state metadata are selected only when their derived footprint matches current install state', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-legacy-state-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), '{"hooks":{}}');
+      fs.writeFileSync(path.join(SB, 'AGENTS.md'), '# tenant\n');
+      const safe = B.createBackup('legacy-safe', 'pre-install');
+      fs.writeFileSync(path.join(SB, 'hooks.json'), JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash "${path.join(SB, 'agentsmd', 'hooks', 'stop.sh')}"` }] }] },
+      }));
+      fs.writeFileSync(path.join(SB, 'AGENTS.md'), '# >>> agentsmd >>>\nspec\n# <<< agentsmd <<<\n');
+      const unsafe = B.createBackup('legacy-unsafe', 'pre-install');
+      for (const backup of [safe, unsafe]) {
+        const manifestPath = path.join(backup.dir, 'backup-manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        delete manifest.purpose;
+        delete manifest.agentsmdSharedState;
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+      }
+      assert.strictEqual(B.planRestore().id, safe.id);
+      assert.throws(() => B.planRestore(unsafe.id), /unsafe restore.*partial install/i);
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('restore rolls back the first shared file when writing the second file fails', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-restore-rollback-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'backup-hooks');
+      fs.writeFileSync(path.join(SB, 'config.toml'), 'backup-config');
+      fs.writeFileSync(path.join(SB, 'AGENTS.md'), 'backup-agents');
+      const backup = B.createBackup('rollback', 'pre-install');
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'live-hooks');
+      fs.writeFileSync(path.join(SB, 'config.toml'), 'live-config');
+      fs.writeFileSync(path.join(SB, 'AGENTS.md'), 'live-agents');
+      let writes = 0;
+      const write = (file, content, options) => {
+        writes++;
+        if (writes === 2) throw new Error('injected second-file failure');
+        B.writeFileAtomic(file, content, options);
+      };
+      assert.throws(() => B.restoreBackup(backup.id, { write }), /injected second-file failure/);
+      assert.strictEqual(fs.readFileSync(path.join(SB, 'hooks.json'), 'utf8'), 'live-hooks');
+      assert.strictEqual(fs.readFileSync(path.join(SB, 'config.toml'), 'utf8'), 'live-config');
+      assert.strictEqual(fs.readFileSync(path.join(SB, 'AGENTS.md'), 'utf8'), 'live-agents');
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('restore CLI reports filesystem failures without a Node stack trace or partial write', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-restore-cli-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'backup-hooks');
+      fs.writeFileSync(path.join(SB, 'config.toml'), 'backup-config');
+      fs.writeFileSync(path.join(SB, 'AGENTS.md'), 'backup-agents');
+      const backup = B.createBackup('cli-error', 'pre-install');
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'live-hooks');
+      fs.unlinkSync(path.join(SB, 'config.toml'));
+      fs.mkdirSync(path.join(SB, 'config.toml'));
+      const run = cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'restore.js'), `--id=${backup.id}`, '--confirm'], {
+        env: { ...process.env, CODEX_HOME: SB }, encoding: 'utf8',
+      });
+      assert.strictEqual(run.status, 1, run.stdout + run.stderr);
+      assert.match(run.stderr, /^agentsmd restore: /);
+      assert(!/\n\s+at\s/.test(run.stderr), run.stderr);
+      assert.strictEqual(fs.readFileSync(path.join(SB, 'hooks.json'), 'utf8'), 'live-hooks');
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('createBackup removes a new partial snapshot when a later source read fails', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-create-cleanup-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'hooks-first');
+      fs.mkdirSync(path.join(SB, 'config.toml'));
+      assert.throws(() => B.createBackup('partial-read', 'pre-install'), /EISDIR|directory/i);
+      assert(!fs.existsSync(path.join(B.backupsDir(), 'partial-read')), 'partial backup directory survived');
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('createBackup removes a new partial snapshot when a later snapshot write fails', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-create-write-cleanup-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.writeFileSync(path.join(SB, 'hooks.json'), 'hooks-first');
+      fs.writeFileSync(path.join(SB, 'config.toml'), 'config-second');
+      let writes = 0;
+      const write = (file, content, options) => {
+        writes++;
+        if (writes === 2) throw new Error('injected backup write failure');
+        B.writeFileAtomic(file, content, options);
+      };
+      assert.throws(() => B.createBackup('partial-write', 'pre-install', { write }), /injected backup write failure/);
+      assert(!fs.existsSync(path.join(B.backupsDir(), 'partial-write')), 'partial backup directory survived');
+    } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('listBackups returns [] only for ENOENT and propagates other filesystem errors', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-list-error-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      fs.mkdirSync(path.join(SB, '.agentsmd-state'), { recursive: true });
+      fs.writeFileSync(B.backupsDir(), 'not a directory');
+      assert.throws(() => B.listBackups(), /ENOTDIR|not a directory/i);
     } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
   });
 

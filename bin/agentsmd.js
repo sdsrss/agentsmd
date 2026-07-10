@@ -52,17 +52,17 @@ function usage() {
     '  init               Generate/refresh this project\'s AGENTS.md (current directory).',
     '  analyze            Distill this project\'s conventions into its AGENTS.md (current dir); --adoption reports @conv-* cite counts / prune candidates.',
     '  design [--write]   Extract this project\'s design tokens (:root / Tailwind @theme) into a facts-only DESIGN.md + AGENTS.md pointer (current dir; preview unless --write).',
-    '  install            Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent.',
-    '  update             Alias for install — re-run to refresh to this version.',
+    '  install [--json]   Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent; --json prints the full manifest.',
+    '  update [--json]    Alias for install — re-run to refresh to this version.',
     "  uninstall          Remove agentsmd's own entries; every other tenant is preserved.",
     '  restore [--list] [--id=<id>] [--confirm]   Roll the 3 shared files back to a pre-install backup (dry-run without --confirm).',
     '  status             Print what agentsmd registered, as JSON.',
     '  doctor             Run install health checks.',
-    '  audit [--days=N] [--project=S]   Aggregate rule-hit telemetry by spec section (default 30d); --project scopes to a path-slug substring.',
-    '  rules [--days=N] [--project=S]   Promote/demote signals vs the HARD-rules manifest; --project = informational lens (per-rule local hits; demote stays cross-project).',
+    '  audit [--days=N] [--project=S] [--include-test]   Aggregate rule-hit telemetry by spec section (default 30d); --project scopes to a path-slug substring.',
+    '  rules [--days=N] [--project=S] [--include-test]   Promote/demote signals vs the HARD-rules manifest; --project = informational lens (per-rule local hits; demote stays cross-project).',
     '  sampling-audit [--days=N] [--limit=N]   Retrospective scan of the self-enforced §10 rules across Codex transcripts — the violation rate the live hook cannot measure.',
     '  lesson-bypass-audit [--days=N]   Memory cite-recall: how often a surfaced memory hint was acted on vs bypassed (joins suggest-telemetry to transcripts).',
-    '  sparkline [--windows=N] [--bucket-days=D] [--markdown]   Multi-window rule-usage trend; flags a rule that silently stopped firing (--markdown = CHANGELOG block).',
+    '  sparkline [--windows=N] [--bucket-days=D] [--markdown] [--include-test]   Multi-window rule-usage trend; flags a rule that silently stopped firing (--markdown = CHANGELOG block).',
     '  safety-coverage-audit [--json] [--hook=<name>]   Static §8/§10/§7 doc-vs-code gap check: arrow-claims, manifest cross-ref, bypass-token + orphan-emission coverage.',
     '  version-cascade [--json]   Free-text version-drift gate: scans the READMEs for a stale same-major version token (complements the structured drift test).',
     '  perf-baseline [--runs=N] [--event=E] [--json]   Measure the wall-clock latency each hook adds (OFF kill-switch floor vs ON), grouped by Codex event.',
@@ -99,7 +99,10 @@ function main(argv) {
   }
 
   // Spawn the script, inheriting stdio so its output/prompts/exit code are ours.
-  const res = cp.spawnSync(process.execPath, [path.join(SCRIPTS, script), ...rest], { stdio: 'inherit' });
+  const childEnv = (cmd === 'install' || cmd === 'update')
+    ? { ...process.env, AGENTSMD_CLI_COMMAND: cmd }
+    : process.env;
+  const res = cp.spawnSync(process.execPath, [path.join(SCRIPTS, script), ...rest], { stdio: 'inherit', env: childEnv });
   if (res.error) {
     console.error(`agentsmd: could not run ${cmd}: ${res.error.message}`);
     return 1;

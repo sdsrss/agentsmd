@@ -191,6 +191,7 @@ function parseArgs(argv) {
       sawLimit = true;
       if (!/^[1-9][0-9]*$/.test(m[1])) return { error: `invalid --limit value: ${m[1]}` };
       limit = Number(m[1]);
+      if (!Number.isSafeInteger(limit)) return { error: `invalid --limit value: ${m[1]}` };
       continue;
     }
     return { error: `unknown option: ${arg}` };

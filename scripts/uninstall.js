@@ -13,6 +13,7 @@ const M = require('./lib/migrate');
 const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
+const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
 
@@ -233,7 +234,15 @@ function uninstall() {
   //     and a crash mid-uninstall leaves the snapshot behind (the state dir — where
   //     backups live — is only deleted on successful completion below). Never blocks
   //     the uninstall: a backup failure must not stop the user removing agentsmd.
-  if (manifest) { try { B.createBackup(new Date().toISOString()); B.pruneBackups(); } catch {} }
+  if (manifest) {
+    try {
+      const backup = B.createBackup(new Date().toISOString(), 'pre-uninstall');
+      B.pruneBackups();
+      result.backup = backup.id;
+    } catch (error) {
+      result.backupWarning = `pre-uninstall backup failed: ${error.message}`;
+    }
+  }
   const beforeAgents = readOrNull(P.agentsMdPath());
   const hooksRemoval = beforeHooks === null ? null : H.removeAgentsmdHooks(beforeHooks);
   const agentsRemoval = beforeAgents === null ? null : AM.removeSpecBlock(beforeAgents);
@@ -318,8 +327,28 @@ function uninstall() {
   }
 }
 
+const UNINSTALL_USAGE = [
+  'Usage: agentsmd uninstall',
+  '',
+  "Remove agentsmd's owned entries while preserving other tenants.",
+  '',
+  'Options:',
+  '  -h, --help   Show this help without changing any files.',
+].join('\n');
+
 if (require.main === module) {
-  try { console.log('agentsmd uninstalled:\n' + JSON.stringify(uninstall(), null, 2)); }
-  catch (e) { console.error('agentsmd uninstall failed:', e.message); process.exit(1); }
+  const argv = process.argv.slice(2);
+  printHelpAndExit(argv, UNINSTALL_USAGE);
+  try { parseStrict(argv); }
+  catch (error) {
+    console.error(`agentsmd uninstall: ${error.message}`);
+    console.error(UNINSTALL_USAGE);
+    process.exit(2);
+  }
+  try {
+    const result = uninstall();
+    if (result.backupWarning) console.error(`agentsmd uninstall warning: ${result.backupWarning}`);
+    console.log('agentsmd uninstalled:\n' + JSON.stringify(result, null, 2));
+  } catch (e) { console.error('agentsmd uninstall failed:', e.message); process.exit(1); }
 }
-module.exports = { uninstall };
+module.exports = { uninstall, UNINSTALL_USAGE };

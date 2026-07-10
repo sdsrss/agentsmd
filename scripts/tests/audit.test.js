@@ -233,6 +233,20 @@ try {
     assert.strictEqual(p.includeTest, true);
     assert.strictEqual(p.days, 30);
   });
+  t('rulesAudit --include-test includes test-tagged telemetry in governance signals', () => {
+    const tagged = path.join(tmp, 'rules-include-test.jsonl');
+    fs.writeFileSync(tagged, JSON.stringify({
+      ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var',
+      session_id: 'tagged-session', project: 'tagged-project', tag: 'test',
+    }) + '\n');
+    const without = rulesAudit({ days: 30, now: NOW, logPath: tagged });
+    const withTest = rulesAudit({ days: 30, now: NOW, logPath: tagged, includeTest: true });
+    const scoped = rulesAudit({ days: 30, now: NOW, logPath: tagged, project: 'tagged', includeTest: true });
+    const hits = (r) => r.rules.find((x) => x.section === '§8-rm-rf-var').hits;
+    assert.strictEqual(hits(without), 0);
+    assert.strictEqual(hits(withTest), 1);
+    assert.strictEqual(scoped.rules.find((x) => x.section === '§8-rm-rf-var').localHits, 1);
+  });
   t('audit() clamps an out-of-range days (no RangeError for programmatic callers)', () => {
     let a;
     assert.doesNotThrow(() => { a = audit({ days: 1e30, now: NOW, logPath: log }); });
@@ -669,6 +683,24 @@ try {
         { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
       (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
     );
+  });
+  t('rules CLI --include-test is documented and includes tagged telemetry end-to-end', () => {
+    const cliHome = path.join(tmp, 'rules-include-test-home');
+    fs.mkdirSync(path.join(cliHome, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(cliHome, 'logs', 'agentsmd.jsonl'), JSON.stringify({
+      ts: new Date().toISOString(), hook: 'pre-bash-safety', event: 'block',
+      spec_section: '§8-rm-rf-var', session_id: 'tagged-cli', tag: 'test',
+    }) + '\n');
+    const script = path.join(__dirname, '..', 'rules.js');
+    const dispatcher = path.join(__dirname, '..', '..', 'bin', 'agentsmd.js');
+    const help = cp.execFileSync('node', [script, '--help'], { encoding: 'utf8' });
+    const topHelp = cp.execFileSync('node', [dispatcher, '--help'], { encoding: 'utf8' });
+    const out = cp.execFileSync('node', [script, '--include-test'], {
+      env: { ...process.env, CODEX_HOME: cliHome }, encoding: 'utf8',
+    });
+    assert.match(help, /--include-test/);
+    assert.match(topHelp, /rules \[--days=N\] \[--project=S\] \[--include-test\]/);
+    assert.match(out, /§8-rm-rf-var\s+hits:1\b/);
   });
 
   // --- Adopt from claudemd: byFailOpen + denyByProjectClass (A1) -----------

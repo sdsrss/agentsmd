@@ -4,17 +4,16 @@
 #   1. `rm -rf $VAR` — recursive+force delete targeting an unvalidated variable
 #      expansion (spec §8: "rm -rf $VAR without validating VAR"). Bypass token:
 #      [allow-rm-rf-var].
-#   2. `curl|wget … | sh/bash/python/…` — unknown-origin remote script execution
+#   2. `curl`/`wget` output executed by an interpreter through a pipeline,
+#      substitution, or downloaded file — unknown-origin remote script execution
 #      (spec §8: "execute unknown-origin scripts"). Bypass token: [allow-remote-exec].
 # Advises (non-blocking):
 #   3. Unpinned `npx <pkg>` dependency-hygiene advice. Bypass: [allow-npx-unpinned].
 #
 # Fail-open: any missing prerequisite (jq, unreadable stdin) exits 0 silently
 # (recorded via hook_record_failopen) so a broken hook never wedges the session.
-# Phase-1 scope: direct command forms. String-literal / eval / `bash -c` wrapper
-# unwrapping (claudemd parity) is Phase-2 hardening — until then, an rm-rf-var
-# inside a string literal may over-block, which is the fail-safe direction for a
-# §8 immutable rule.
+# The shared quote-aware lexer distinguishes executable command positions from
+# strings passed as data, and preserves expansion metadata for rm targets.
 
 set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
@@ -24,6 +23,7 @@ source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
 HOOK="pre-bash-safety"
 hook_kill_switch "PRE_BASH_SAFETY" || exit 0
 hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
+command -v node >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "node-missing"; exit 0; }
 
 EVENT="$(hook_read_event)" || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
 [[ -n "$EVENT" ]] || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
@@ -37,33 +37,23 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 # Fast-path: obviously read-only command → nothing to enforce.
 hook_is_readonly_bash "$CMD" && exit 0
 
+# Parse command positions, quotes, escapes, wrappers, expansions, and pipelines
+# once. The shared lexer is also used by commit/ship hooks, avoiding whole-string
+# matches that mistake data passed to echo/printf for executable shell syntax.
+SAFETY="$(node "$LIB_DIR/command-parse.js" --safety "$CMD" 2>/dev/null)" || {
+  hook_record_failopen "$HOOK" "command-parse-failed"
+  exit 0
+}
+printf '%s' "$SAFETY" | jq -e 'type == "object"' >/dev/null 2>&1 || {
+  hook_record_failopen "$HOOK" "command-parse-invalid"
+  exit 0
+}
+
 # ── 1. rm -rf $VAR (immutable §8) ───────────────────────────────────────────
-cmd_is_rm_rf_candidate() {
-  local c="$1"
-  # rm invoked as a command — bare `rm` or path-qualified (`/bin/rm`, `/usr/bin/rm`).
-  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])([^[:space:];&|`()]*/)?rm([[:space:]]|$)' || return 1
-  # recursive flag: short (-r / -rf / -Rf …) OR long --recursive.
-  printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*r|--recursive([[:space:]=]|$)' || return 1
-  # force flag: short (-f / -rf …) OR long --force.
-  printf '%s' "$c" | grep -qiE '(^|[[:space:]])-[a-z]*f|--force([[:space:]=]|$)' || return 1
-  return 0
-}
-
-cmd_has_rm_rf_var() {
-  local c="$1"
-  [[ "$c" == *"[allow-rm-rf-var]"* ]] && return 1
-  cmd_is_rm_rf_candidate "$c" || return 1
-  # target contains a variable/parameter expansion — $VAR / ${...} / $1 / $@ / $* /
-  # $(...). Positional ($1), special ($@ $*), and command-substitution ($(...))
-  # targets are just as unvalidated as a named var; the prior name-only pattern
-  # let `rm -rf $1`, `rm -rf "$@"`, `rm -rf $(cat f)` slip through.
-  printf '%s' "$c" | grep -qE '\$(\{|\(|[A-Za-z_0-9@*])' && return 0
-  return 1
-}
-
-if cmd_is_rm_rf_candidate "$CMD"; then
+if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfCandidate // false')" == "true" ]]; then
   hook_observe "$HOOK" '§8-rm-rf-var' "$SID" true true '{"candidate":"rm-rf"}'
-  if cmd_has_rm_rf_var "$CMD"; then
+  if [[ "$CMD" != *"[allow-rm-rf-var]"* ]] \
+    && [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]]; then
     hook_record "$HOOK" "block" '{"pattern":"rm-rf-var"}' '§8-rm-rf-var' "$SID"
     hook_block \
       "Blocked: rm -rf on an unvalidated variable ( spec/AGENTS.md §8, immutable )." \
@@ -73,35 +63,12 @@ if cmd_is_rm_rf_candidate "$CMD"; then
 fi
 
 # ── 2. remote download executed by an interpreter (immutable §8) ────────────
-cmd_is_remote_exec_candidate() {
-  local c="$1"
-  # [^;]* (not [^|]*) so a MULTI-STAGE pipeline reaches the interpreter:
-  # `curl u | grep -v x | bash` / `curl u | tee f | bash`. Bounded by `;` so the
-  # match stays within one command segment (a later unrelated `| sh` after `;`
-  # is not attributed to the curl).
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(ba)?(sh|zsh|dash|ksh|fish)([[:space:]]|$)' && return 0
-  printf '%s' "$c" | grep -qiE '(curl|wget)[[:space:]][^;]*\|[[:space:]]*(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?(python[0-9.]*|node|ruby|perl)([[:space:]]|$)' && return 0
-  # Process substitution: `bash <(curl …)` / `python <(wget …)`.
-  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?((ba)?(sh|zsh|dash|ksh|fish)|python[0-9.]*|node|ruby|perl)[[:space:]][^;]*<\([[:space:]]*(curl|wget)[[:space:]]' && return 0
-  # Command substitution passed to an interpreter: `sh -c "$(curl …)"`.
-  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])(sudo[[:space:]]+)?(([^[:space:];|&]*/)?env[[:space:]]+)?([^[:space:];|&]*/)?((ba)?(sh|zsh|dash|ksh|fish)|python[0-9.]*|node|ruby|perl)[[:space:]][^;]*-c[[:space:]]+["'\'']?\$\([[:space:]]*(curl|wget)[[:space:]]' && return 0
-  # Eval has the same effect without naming a shell binary.
-  printf '%s' "$c" | grep -qiE '(^|[;&|`(]|[[:space:]])eval[[:space:]]+["'\'']?\$\([[:space:]]*(curl|wget)[[:space:]]' && return 0
-  return 1
-}
-
-cmd_pipes_to_shell() {
-  local c="$1"
-  [[ "$c" == *"[allow-remote-exec]"* ]] && return 1
-  cmd_is_remote_exec_candidate "$c"
-}
-
-if cmd_is_remote_exec_candidate "$CMD"; then
+if [[ "$(printf '%s' "$SAFETY" | jq -r '.remoteExec // false')" == "true" ]]; then
   hook_observe "$HOOK" '§8-unknown-script' "$SID" true true '{"candidate":"remote-exec"}'
-  if cmd_pipes_to_shell "$CMD"; then
-    hook_record "$HOOK" "block" '{"pattern":"pipe-to-shell"}' '§8-unknown-script' "$SID"
+  if [[ "$CMD" != *"[allow-remote-exec]"* ]]; then
+    hook_record "$HOOK" "block" '{"pattern":"remote-exec"}' '§8-unknown-script' "$SID"
     hook_block \
-      "Blocked: piping a remote download straight into a shell/interpreter ( spec/AGENTS.md §8, immutable )." \
+      "Blocked: executing an uninspected remote download ( spec/AGENTS.md §8, immutable )." \
       "§8 SAFETY (immutable): 'execute unknown-origin scripts' is banned. Download to a file, inspect it, then run it — or append [allow-remote-exec] if the source is trusted and pinned. Command: ${CMD}" \
       "PreToolUse"
   fi

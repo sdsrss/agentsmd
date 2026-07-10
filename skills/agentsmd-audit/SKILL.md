@@ -13,4 +13,8 @@ Run:
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/audit.js" --days=30
 ```
 
+Use `--project=SUBSTR` for a case-insensitive project-slug lens. Verification
+rows tagged with `AGENTSMD_TELEMETRY_TAG=test` stay excluded unless
+`--include-test` is explicitly passed.
+
 Report the `by spec_section` table, including eligible/evaluated sessions when present. Raw zero hits alone are not a demotion signal; use `agentsmd-rules` for governance. From a checkout, run `node scripts/audit.js`.

@@ -278,6 +278,16 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
     assert.strictEqual(parseArgs(['--adoption', `--days=${big}`]).error, `invalid --days value: ${big}`);
   });
   t('parseArgs: rejects empty --project=', () => assert.strictEqual(parseArgs(['--adoption', '--project=']).error, 'invalid --project value: (empty)'));
+  t('parseArgs: rejects duplicate --days instead of silently taking the last value', () =>
+    assert.strictEqual(parseArgs(['--adoption', '--days=7', '--days=30']).error, 'duplicate option: --days'));
+  t('parseArgs: rejects duplicate --project instead of silently taking the last value', () =>
+    assert.strictEqual(parseArgs(['--adoption', '--project=a', '--project=b']).error, 'duplicate option: --project'));
+  t('parseArgs: rejects duplicate --from instead of silently taking the last value', () =>
+    assert.strictEqual(parseArgs(['--write', '--from', 'a.md', '--from', 'b.md']).error, 'duplicate option: --from'));
+  t('parseArgs: --from cannot consume a following option as its value', () =>
+    assert.strictEqual(parseArgs(['--write', '--from', '--adoption']).error, '--from requires a file path value'));
+  t('parseArgs: --from without a following value is rejected at the option', () =>
+    assert.strictEqual(parseArgs(['--write', '--from']).error, '--from requires a file path value'));
   t('parseArgs: rejects adoption-only filters outside --adoption', () => {
     assert.strictEqual(parseArgs(['--days=7']).error, '--days and --project require --adoption');
     assert.strictEqual(parseArgs(['--gather', '--project=foo']).error, '--days and --project require --adoption');

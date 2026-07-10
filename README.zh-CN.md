@@ -119,8 +119,9 @@ npm/npx 版本无法解析后者):
 npx --package @sdsrs/agentsmd agentsmd install
 ```
 
-`agentsmd --help` 会列出全部子命令:`install` · `update` · `uninstall` ·
-`status` · `doctor` · `audit` · `rules`。裸调用 `agentsmd` 只打印帮助,不安装任何东西。
+`agentsmd --help` 是项目、生命周期、诊断和治理子命令的权威清单。裸调用
+`agentsmd` 只打印这份帮助,不安装任何东西。`install` 和 `update` 默认输出简洁结果;
+自动化需要完整安装 manifest 时传入 `--json`。
 
 ### Codex plugin marketplace
 

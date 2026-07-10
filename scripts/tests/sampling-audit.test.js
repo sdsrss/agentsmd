@@ -12,6 +12,7 @@ const assert = require('assert');
 const cp = require('child_process');
 const {
   samplingAudit, scanVocab, scanOrder, loadVocabPatterns, extractAssistantTurns, RULE_KEYS,
+  parseArgs,
 } = require('../sampling-audit');
 
 let PASS = 0, FAIL = 0;
@@ -46,6 +47,10 @@ t('scanOrder: out-of-order four-section report is flagged', () => {
 });
 t('scanOrder: fewer than 2 trailing markers is not judged (not clearly a report)', () => {
   assert.strictEqual(scanOrder('Done: shipped the fix.'), false);
+});
+t('parseArgs rejects an unsafe --limit integer instead of disabling the cap downstream', () => {
+  const raw = '999999999999999999999999999999';
+  assert.strictEqual(parseArgs([`--limit=${raw}`]).error, `invalid --limit value: ${raw}`);
 });
 
 // --- unit: transcript extraction + window aggregation -----------------------

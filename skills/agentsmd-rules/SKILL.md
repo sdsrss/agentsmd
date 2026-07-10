@@ -13,4 +13,8 @@ Run:
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/rules.js" --days=30
 ```
 
+Use `--project=SUBSTR` for the informational local-hits lens; governance verdicts
+remain cross-project. `--include-test` explicitly folds test-tagged telemetry
+into both global and scoped calculations.
+
 Surface opportunity/evaluation counts, demote candidates, and self-enforced rules. Per `OPERATOR.md §O2`, demotion needs sufficient rule-specific evaluated sessions with zero enforcement; promotion needs repeated real repros. The operator decides; never edit the spec automatically.

@@ -161,6 +161,7 @@ const USAGE = 'Usage: agentsmd-analyze [--gather] | agentsmd-analyze --write --f
 function parseArgs(argv) {
   const opts = { mode: 'gather', from: null, days: 30, project: null };
   let sawAdoptionOnlyOption = false;
+  let sawFrom = false, sawDays = false, sawProject = false;
   let modeFlag = null;
   const setMode = (flag, mode) => {
     if (modeFlag !== null) return `choose only one mode: --gather, --write, or --adoption`;
@@ -174,9 +175,18 @@ function parseArgs(argv) {
     else if (a === '--gather') { const err = setMode(a, 'gather'); if (err) return { error: err }; }
     else if (a === '--write') { const err = setMode(a, 'write'); if (err) return { error: err }; }
     else if (a === '--adoption') { const err = setMode(a, 'adoption'); if (err) return { error: err }; }
-    else if (a === '--from') opts.from = argv[++i];
+    else if (a === '--from') {
+      if (sawFrom) return { error: 'duplicate option: --from' };
+      sawFrom = true;
+      const value = argv[i + 1];
+      if (!value || value.startsWith('-')) return { error: '--from requires a file path value' };
+      opts.from = value;
+      i++;
+    }
     else if (/^--days=/.test(a)) {
       sawAdoptionOnlyOption = true;
+      if (sawDays) return { error: 'duplicate option: --days' };
+      sawDays = true;
       const v = a.slice('--days='.length);
       if (!/^[1-9][0-9]*$/.test(v)) return { error: `invalid --days value: ${v}` };
       const n = Number(v);
@@ -185,6 +195,8 @@ function parseArgs(argv) {
     }
     else if (/^--project=/.test(a)) {
       sawAdoptionOnlyOption = true;
+      if (sawProject) return { error: 'duplicate option: --project' };
+      sawProject = true;
       const v = a.slice('--project='.length);
       if (!v) return { error: 'invalid --project value: (empty)' };
       opts.project = v;

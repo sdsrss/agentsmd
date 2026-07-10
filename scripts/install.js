@@ -13,6 +13,7 @@ const M = require('./lib/migrate');
 const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
+const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
 
@@ -269,8 +270,8 @@ function install(nowIso) {
     const staleSkillNames = [...new Set(priorNames)].filter((name) => name.startsWith('agentsmd-') && !skillNames.includes(name));
     for (const name of staleSkillNames) verifyOwnedSkill(priorManifest, name, path.join(P.codexSkillsDir(), name));
 
-    let backupInfo = null;
-    try { backupInfo = B.createBackup(stamp); B.pruneBackups(); } catch { backupInfo = null; }
+    const backupInfo = B.createBackup(stamp, 'pre-install');
+    B.pruneBackups();
 
     const legacy = M.legacyArtifacts();
     transaction = {
@@ -365,9 +366,37 @@ function install(nowIso) {
   }
 }
 
-if (require.main === module) {
-  try { console.log('agentsmd installed:\n' + JSON.stringify(install(), null, 2)); }
-  catch (error) { console.error('agentsmd install failed:', error.message); process.exit(1); }
+function installUsage(command = 'install') {
+  return [
+  `Usage: agentsmd ${command} [--json]`,
+  '',
+  'Install or update agentsmd in $CODEX_HOME.',
+  '',
+  'Options:',
+  '  --json       Print the full install manifest as JSON.',
+  '  -h, --help   Show this help without changing any files.',
+  ].join('\n');
 }
 
-module.exports = { install };
+const INSTALL_USAGE = installUsage();
+
+if (require.main === module) {
+  const command = process.env.AGENTSMD_CLI_COMMAND === 'update' ? 'update' : 'install';
+  const usage = installUsage(command);
+  const argv = process.argv.slice(2);
+  printHelpAndExit(argv, usage);
+  let parsed;
+  try { parsed = parseStrict(argv, { bools: ['json'] }); }
+  catch (error) {
+    console.error(`agentsmd ${command}: ${error.message}`);
+    console.error(usage);
+    process.exit(2);
+  }
+  try {
+    const manifest = install();
+    if (parsed.bools.has('json')) console.log(JSON.stringify(manifest, null, 2));
+    else console.log(`agentsmd installed: v${manifest.version || 'unknown'}, ${manifest.hookCount} hooks, ${manifest.installedSkills.length} skills (backup ${manifest.backup})`);
+  } catch (error) { console.error(`agentsmd ${command} failed:`, error.message); process.exit(1); }
+}
+
+module.exports = { install, installUsage, INSTALL_USAGE };

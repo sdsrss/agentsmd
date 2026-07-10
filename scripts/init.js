@@ -98,10 +98,12 @@ function parseArgs(argv) {
     else if (a === '--help' || a === '-h') return { help: true };
     else return { error: `unknown option: ${a}` };
   }
+  const exclusiveModes = [opts.check, opts.dryRun, opts.local].filter(Boolean).length;
+  if (exclusiveModes > 1) return { error: '--check, --dry-run, and --local cannot be combined' };
   return opts;
 }
 
-const USAGE = 'Usage: agentsmd-init [--check] [--dry-run] [--local] [--no-frontend]';
+const USAGE = 'Usage: agentsmd-init [--check | --dry-run | --local] [--no-frontend]';
 
 if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));

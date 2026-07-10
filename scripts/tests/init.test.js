@@ -236,6 +236,12 @@ withProject({ 'package.json': JSON.stringify({ name: 'loc' }) }, (dir) => {
   });
 });
 t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));
+t('parseArgs rejects --check with --dry-run instead of silently ignoring --dry-run', () =>
+  assert.match(require('../init').parseArgs(['--check', '--dry-run']).error, /cannot be combined/));
+t('parseArgs rejects --local with --check instead of silently ignoring --local', () =>
+  assert.match(require('../init').parseArgs(['--check', '--local']).error, /cannot be combined/));
+t('parseArgs rejects --local with --dry-run instead of silently ignoring --local', () =>
+  assert.match(require('../init').parseArgs(['--dry-run', '--local']).error, /cannot be combined/));
 
 // ── frontend detection (detect.js) ───────────────────────────────────────────
 const { detectFrontend } = require('../lib/detect');

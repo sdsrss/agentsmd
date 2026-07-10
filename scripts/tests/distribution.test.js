@@ -32,6 +32,13 @@ const cli = (args, env) => cp.execFileSync('node', [path.join(ROOT, 'bin', 'agen
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
+const cliResult = (args, env) => cp.spawnSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), ...args], {
+  cwd: ROOT,
+  env: { ...process.env, ...env },
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
 const withSandbox = (fn) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-distribution-test.'));
   try { fn(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -133,9 +140,15 @@ t('agentsmd --version prints the package version', () => {
 
 t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
   const out = cli(['--help'], { CODEX_HOME: dir });
-  for (const c of ['init', 'analyze', 'design', 'install', 'update', 'uninstall', 'status', 'doctor', 'audit', 'rules']) {
+  for (const c of [
+    'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore',
+    'status', 'doctor', 'audit', 'sampling-audit', 'lesson-bypass-audit',
+    'sparkline', 'safety-coverage-audit', 'version-cascade', 'perf-baseline',
+    'lint-argv', 'rules',
+  ]) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
+  assert.match(out, /sparkline .*--include-test/, 'top-level help must expose sparkline --include-test');
   assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
 }));
 
@@ -208,6 +221,84 @@ t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) 
   cli(['install'], env);
   assert(cli(['update'], env).includes('agentsmd installed:'));
   assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 15);
+}));
+
+for (const command of ['install', 'update']) {
+  t(`agentsmd ${command} --help is read-only`, () => withSandbox((dir) => {
+    const run = cliResult([command, '--help'], { CODEX_HOME: dir });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert(run.stdout.startsWith(`Usage: agentsmd ${command}`), run.stdout);
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')), `${command} --help mutated CODEX_HOME`);
+  }));
+
+  t(`agentsmd ${command} rejects unknown options without installing`, () => withSandbox((dir) => {
+    const run = cliResult([command, '--bogus'], { CODEX_HOME: dir });
+    assert.strictEqual(run.status, 2, run.stdout + run.stderr);
+    assert(new RegExp(`^agentsmd ${command}: .*unknown`, 'im').test(run.stderr), run.stderr);
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')), `${command} --bogus mutated CODEX_HOME`);
+  }));
+}
+
+t('agentsmd update runtime failures retain update command identity', () => withSandbox((dir) => {
+  fs.mkdirSync(path.join(dir, 'agentsmd'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'agentsmd', 'foreign'), 'owned elsewhere');
+  const run = cliResult(['update'], { CODEX_HOME: dir });
+  assert.strictEqual(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stderr, /^agentsmd update failed:/);
+}));
+
+for (const option of ['--help', '--bogus']) {
+  t(`agentsmd uninstall ${option} does not uninstall`, () => withSandbox((dir) => {
+    const env = { CODEX_HOME: dir };
+    cli(['install'], env);
+    const run = cliResult(['uninstall', option], env);
+    assert.strictEqual(run.status, option === '--help' ? 0 : 2, run.stdout + run.stderr);
+    assert.strictEqual(JSON.parse(cli(['status'], env)).installed, true);
+  }));
+}
+
+t('agentsmd install is concise by default and --json emits the full manifest', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  const concise = cli(['install'], env);
+  assert(concise.startsWith('agentsmd installed:'), concise);
+  assert(!concise.includes('ownedArtifacts'), concise);
+  assert(concise.trim().split('\n').length <= 2, concise);
+  const manifest = JSON.parse(cli(['update', '--json'], env));
+  assert.strictEqual(manifest.name, 'agentsmd');
+  assert.strictEqual(manifest.hookCount, 15);
+  assert(manifest.ownedArtifacts && manifest.ownedArtifacts.deploy);
+}));
+
+t('default restore after install → update → uninstall does not reactivate agentsmd shared entries', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  fs.writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify({
+    hooks: { SessionStart: [{ matcher: '', hooks: [{ type: 'command', command: 'echo tenant' }] }] },
+  }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# tenant\n');
+  cli(['install'], env);
+  cli(['update'], env);
+  cli(['uninstall'], env);
+  cli(['restore', '--confirm'], env);
+  const status = JSON.parse(cli(['status'], env));
+  assert.strictEqual(status.installed, false);
+  assert.strictEqual(status.agentsmdHooksRegistered, 0);
+  assert.strictEqual(status.otherTenantHooksPreserved, 1);
+  assert.strictEqual(status.specBlockInAgentsMd, false);
+}));
+
+t('explicit restore rejects an update snapshot after uninstall', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  cli(['install'], env);
+  cli(['update'], env);
+  cli(['uninstall'], env);
+  const list = cli(['restore', '--list'], env);
+  const updateBackup = (list.match(/^  (\S+) \[pre-install\]$/gm) || [])[0];
+  assert(updateBackup, list);
+  const id = updateBackup.trim().split(' ')[0];
+  const run = cliResult(['restore', `--id=${id}`, '--confirm'], env);
+  assert.strictEqual(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stderr, /partial install|install state|unsafe/i);
+  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 0);
 }));
 
 t('agentsmd audit forwards --days to audit.js (invalid value rejected there)', () => withSandbox((dir) => {

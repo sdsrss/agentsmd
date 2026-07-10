@@ -17,7 +17,7 @@ const { audit, parseDaysArg } = require('./audit');
 // value of the commit secret gate.
 const MIN_EXPOSURE_SESSIONS = 5; // rule-specific eligible/evaluated sessions
 
-function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null } = {}) {
+function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null, includeTest = false } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
   const liveSections = new Set(hr.live_sections || []);
   // Demote/active/self-enforced signals MUST be computed over ALL telemetry,
@@ -26,10 +26,10 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   // that project never happened to exercise it. --project is purely an
   // informational lens layered on top (see projectFilter/matchedSlugs below
   // and formatReport) — it must never change what "active" means.
-  const a = audit({ days, now, logPath });
+  const a = audit({ days, now, logPath, includeTest });
   // Filtered audit for the informational scoped lens ONLY: feeds matchedSlugs
   // (header) and the per-rule local-hits annotation. Never feeds rule signals.
-  const scoped = project ? audit({ days, now, logPath, project }) : null;
+  const scoped = project ? audit({ days, now, logPath, project, includeTest }) : null;
   // With zero telemetry in the window, a 0-hit live rule is NOT dilution — there is
   // simply no data to judge it. Distinguish 'no-data' from 'demote-candidate' so the
   // governance surface never recommends demotion off an empty window (e.g. a fresh
@@ -175,14 +175,14 @@ function formatReport(ra) {
 if (require.main === module) {
   const parsed = parseDaysArg(process.argv.slice(2), 'agentsmd-rules');
   if (parsed.help) {
-    console.log('Usage: agentsmd-rules [--days=N] [--project=SUBSTR]');
+    console.log('Usage: agentsmd-rules [--days=N] [--project=SUBSTR] [--include-test]');
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd rules: ${parsed.error}`);
-    console.error('Usage: agentsmd-rules [--days=N] [--project=SUBSTR]');
+    console.error('Usage: agentsmd-rules [--days=N] [--project=SUBSTR] [--include-test]');
     process.exit(1);
   }
-  console.log(formatReport(rulesAudit({ days: parsed.days, project: parsed.project })));
+  console.log(formatReport(rulesAudit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }
 module.exports = { rulesAudit, formatReport, MIN_EXPOSURE_SESSIONS };

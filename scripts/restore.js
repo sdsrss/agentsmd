@@ -26,12 +26,14 @@ const USAGE = [
   'Roll the 3 shared files (hooks.json / config.toml / AGENTS.md) back to a snapshot',
   'taken before an agentsmd install. Dry-run by default — pass --confirm to write.',
   '',
-  '  --list          List available backups (newest first) and exit.',
-  '  --id=<id>       Restore this backup id (default: the newest).',
+  '  --list          List all backups with their purpose (newest first) and exit.',
+  '  --id=<id>       Restore this backup id (default: newest compatible snapshot).',
   '  --confirm       Actually overwrite the live files (otherwise dry-run).',
   '',
   'Only files that existed at backup time are restored; files absent then are left',
-  "alone. To remove agentsmd's own entries, use `agentsmd uninstall` (multi-tenant-safe).",
+  'alone. Restore refuses a snapshot whose agentsmd shared footprint does not match',
+  'the current manifest state, because shared-file-only rollback would be partial.',
+  "To remove agentsmd's own entries, use `agentsmd uninstall` (multi-tenant-safe).",
 ].join('\n');
 
 function main(argv) {
@@ -39,11 +41,13 @@ function main(argv) {
   if (p.help) { console.log(USAGE); return 0; }
   if (p.error) { console.error(`agentsmd restore: ${p.error}`); console.error(USAGE); return 2; }
 
-  const backups = B.listBackups();
+  let backups;
+  try { backups = B.listBackups(); }
+  catch (e) { console.error(`agentsmd restore: cannot list backups: ${e.message}`); return 1; }
   if (p.list) {
     if (!backups.length) { console.log('No agentsmd backups found.'); return 0; }
     console.log(`agentsmd backups (${backups.length}, newest first):`);
-    for (const b of backups) console.log(`  ${b.id}`);
+    for (const b of backups) console.log(`  ${b.id} [${b.purpose}]`);
     return 0;
   }
   if (!backups.length) { console.error('agentsmd restore: no backups found (none taken yet).'); return 1; }
@@ -61,7 +65,9 @@ function main(argv) {
     console.log('use `agentsmd uninstall`.');
     return 0;
   }
-  const res = B.restoreBackup(p.id);
+  let res;
+  try { res = B.restoreBackup(p.id); }
+  catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
   console.log(`Restored backup '${res.id}': overwrote ${res.restored.join(', ') || '(none)'}${res.left.length ? `; left ${res.left.join(', ')}` : ''}.`);
   return 0;
 }

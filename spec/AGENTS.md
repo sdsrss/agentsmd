@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.17.0 — Global
+# CODEX-CODING-SPEC v3.0.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with `AGENTS.override.md` precedence. The combined `project_doc_max_bytes` cap defaults to 32 KiB and truncates silently, so core keeps half for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: `~/.codex/AGENTS-extended.md` — not auto-loaded; MUST `cat` it on: **L3** · **ship intent** (= `git push` to shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**. This line is the single source for these triggers; extended does not restate them.
