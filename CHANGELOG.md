@@ -14,12 +14,13 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 - Project stack detection honors the `packageManager` declaration and modern
   `bun.lock`; project scanners delegate ignore decisions to Git for anchored,
   nested, glob, and negation semantics.
-- The Codex plugin manifest includes a bounded starter prompt, while the repo
-  marketplace pins the published npm artifact. npm and standalone deployment
-  omit source-only hook/script test trees.
+- The Codex plugin manifest includes a bounded starter prompt.
 
 ### Changed
 
+- The repo marketplace replaces its local checkout source with the pinned
+  published npm artifact. npm and standalone deployment omit source-only
+  hook/script test trees.
 - All 15 skills resolve scripts from the selected `SKILL.md` path first and use
   the standalone `CODEX_HOME/agentsmd` tree only as a fallback, covering plugin
   cache, repository checkout, and standalone layouts.
