@@ -13,7 +13,13 @@ const readText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { ret
 const exists = (root, rel) => fs.existsSync(path.join(root, rel));
 const isDir = (root, rel) => { try { return fs.statSync(path.join(root, rel)).isDirectory(); } catch { return false; } };
 
-function detectNodePackageManager(root) {
+function detectNodePackageManager(root, packageJson = null) {
+  const pkg = packageJson || readJson(path.join(root, 'package.json'));
+  const declared = pkg && typeof pkg.packageManager === 'string'
+    ? pkg.packageManager.trim().match(/^(npm|pnpm|yarn|bun)(?:@[^\s]+)?$/)
+    : null;
+  if (declared) return declared[1];
+  if (exists(root, 'bun.lock')) return 'bun';
   if (exists(root, 'bun.lockb')) return 'bun';
   if (exists(root, 'pnpm-lock.yaml')) return 'pnpm';
   if (exists(root, 'yarn.lock')) return 'yarn';
@@ -29,7 +35,7 @@ function detectNode(root) {
   const pkg = readJson(path.join(root, 'package.json'));
   if (!pkg) return null;
   const scripts = pkg.scripts || {};
-  const pm = detectNodePackageManager(root);
+  const pm = detectNodePackageManager(root, pkg);
   const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);
   const hasTs = exists(root, 'tsconfig.json') || !!deps.typescript;
   const run = (name) => (scripts[name] ? `${pm} run ${name}` : null);

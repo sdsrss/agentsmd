@@ -79,6 +79,47 @@ try {
       assert.ok(r.count >= 1 && r.tokens.color.some((x) => x.name === '--color-ok'), 'malformed block still parsed');
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
+  t('parseDesignTokens: non-Git fallback keeps simple dir and suffix ignores', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt-ignore-fallback-'));
+    try {
+      fs.writeFileSync(path.join(s, '.gitignore'), 'secret/\n*.gen.css\n');
+      fs.mkdirSync(path.join(s, 'secret'), { recursive: true });
+      fs.writeFileSync(path.join(s, 'secret', 'hidden.css'), ':root { --color-secret: #111; }');
+      fs.writeFileSync(path.join(s, 'hidden.gen.css'), ':root { --color-generated: #222; }');
+      fs.writeFileSync(path.join(s, 'visible.css'), ':root { --color-visible: #333; }');
+      const r = D.parseDesignTokens(s);
+      assert.deepStrictEqual(r.sources, ['visible.css']);
+      assert.strictEqual(r.count, 1);
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
+  t('parseDesignTokens: real Git ignore semantics honor anchors, nested rules, globs, and negation', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt-ignore-git-'));
+    const put = (rel, body) => {
+      const file = path.join(s, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+    };
+    try {
+      put('.gitignore', '/root-only.css\n*.gen.css\nignored/*\n!ignored/keep.css\n');
+      put('root-only.css', ':root { --color-root-ignored: #111; }');
+      put('nested/root-only.css', ':root { --color-nested-root: #222; }');
+      put('nested/.gitignore', '*.tmp.css\n!keep.tmp.css\n');
+      put('nested/drop.tmp.css', ':root { --color-nested-ignored: #333; }');
+      put('nested/keep.tmp.css', ':root { --color-nested-kept: #444; }');
+      put('nested/generated.gen.css', ':root { --color-glob-ignored: #555; }');
+      put('ignored/drop.css', ':root { --color-dir-ignored: #666; }');
+      put('ignored/keep.css', ':root { --color-negated-kept: #777; }');
+      const result = require('child_process').spawnSync('git', ['init', '-q'], { cwd: s, encoding: 'utf8' });
+      assert.strictEqual(result.status, 0, result.stderr);
+      const r = D.parseDesignTokens(s);
+      assert(r.sources.includes(path.join('nested', 'root-only.css')), r.sources.join(', '));
+      assert(r.sources.includes(path.join('nested', 'keep.tmp.css')), r.sources.join(', '));
+      assert(r.sources.includes(path.join('ignored', 'keep.css')), r.sources.join(', '));
+      for (const ignored of ['root-only.css', path.join('nested', 'drop.tmp.css'), path.join('nested', 'generated.gen.css'), path.join('ignored', 'drop.css')]) {
+        assert(!r.sources.includes(ignored), `${ignored} leaked: ${r.sources.join(', ')}`);
+      }
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
   t('extractBlocks: a } inside a /* comment */ does not prematurely close the block (no silent token loss)', () => {
     const bodies = D.extractBlocks(':root { --a: 1; /* a } here */ --b: 2; }');
     assert.strictEqual(bodies.length, 1);

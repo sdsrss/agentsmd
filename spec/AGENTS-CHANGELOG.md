@@ -2,6 +2,15 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v3.2.0 (2026-07-11) — package capability sync (no rule-text changes)
+
+Core and extended rule text is unchanged. The shared version moves in lockstep
+with an additive package release that strengthens lifecycle transactions,
+shell/Git safety parsing, target-bound memory evidence, project writers,
+diagnostics, plugin/npm distribution, and skill routing. No hard rule, hook
+section anchor, registered event, or authorization policy changed.
+`spec_version` → v3.2.0. Detail: repo `CHANGELOG.md`.
+
 ## v3.1.0 (2026-07-10) — risk-based workflow and authorization
 
 LEVEL now follows reversibility and behavioral blast radius instead of LOC/file

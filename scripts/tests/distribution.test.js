@@ -102,29 +102,54 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
   assert.strictEqual(statusAfter.installed, false);
 }));
 
+t('install.sh exits non-zero when doctor fails because jq is missing', () => withSandbox((dir) => {
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const result = cp.spawnSync('/bin/sh', [path.join(ROOT, 'install.sh'), '--source', ROOT], {
+    cwd: ROOT,
+    env: { ...process.env, CODEX_HOME: path.join(dir, 'codex-home'), PATH: bin },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /jq.*not found|FAIL jq present|doctor reported issues/i);
+}));
+
 t('repo marketplace exposes the root agentsmd plugin with install policy metadata', () => {
   const marketplace = JSON.parse(read('.agents/plugins/marketplace.json'));
+  const pkg = JSON.parse(read('package.json'));
+  const plugin = JSON.parse(read('.codex-plugin/plugin.json'));
   assert.strictEqual(marketplace.name, 'agentsmd');
   assert.strictEqual(marketplace.interface.displayName, 'agentsmd');
   assert.strictEqual(marketplace.plugins.length, 1);
 
   const entry = marketplace.plugins[0];
   assert.strictEqual(entry.name, 'agentsmd');
-  assert.deepStrictEqual(entry.source, { source: 'local', path: './' });
+  assert.deepStrictEqual(entry.source, {
+    source: 'npm',
+    package: pkg.name,
+    version: pkg.version,
+  });
   assert.deepStrictEqual(entry.policy, { installation: 'AVAILABLE', authentication: 'ON_INSTALL' });
   assert.strictEqual(entry.category, 'Coding');
-
-  const pluginRoot = path.resolve(ROOT, entry.source.path);
-  const plugin = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
   assert.strictEqual(plugin.name, entry.name);
-  assert(fs.existsSync(path.join(pluginRoot, 'hooks.json')), 'plugin-root hooks.json missing');
-  assert(fs.existsSync(path.join(pluginRoot, 'skills', 'agentsmd-status', 'SKILL.md')), 'skills dir missing');
+  assert.strictEqual(plugin.version, pkg.version);
+  assert.strictEqual(entry.source.package, pkg.name);
+  assert.strictEqual(entry.source.version, plugin.version);
+  assert(Array.isArray(plugin.interface.defaultPrompt));
+  assert(plugin.interface.defaultPrompt.length > 0);
+  assert(plugin.interface.defaultPrompt.every((prompt) => (
+    typeof prompt === 'string' && prompt.trim().length > 0
+  )));
 });
 
 t('package files include curl installer and repo marketplace metadata', () => {
   const files = JSON.parse(read('package.json')).files;
   assert(files.includes('install.sh'));
   assert(files.includes('.agents'));
+  assert(files.includes('!hooks/tests'));
+  assert(files.includes('!scripts/tests'));
 });
 
 // ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
@@ -323,18 +348,28 @@ t('package.json carries repository, homepage, and bugs metadata', () => {
   assert(/github\.com\/sdsrss\/agentsmd\/issues/.test(bugs));
 });
 
-t('npm pack + global install links a runnable agentsmd bin (packaging E2E)', () => withSandbox((dir) => {
+t('npm tarball excludes tests/state and linked bin completes install lifecycle (packaging E2E)', () => withSandbox((dir) => {
   // The `node bin/agentsmd.js` tests above cannot catch bin-resolution / packaging
   // regressions — the failure class behind v2.2.1. Pack the real tarball, install
   // it globally into a sandbox prefix, and run the LINKED bin. POSIX-only (this
   // project targets bash-hook platforms); no deps, so the install is offline.
   const packDir = path.join(dir, 'pack');
   fs.mkdirSync(packDir, { recursive: true });
-  const packed = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
+  const packResult = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
     cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-  }))[0].filename;
-  const tarball = path.join(packDir, packed);
+  }))[0];
+  const tarball = path.join(packDir, packResult.filename);
   assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
+  const packedPaths = packResult.files.map((entry) => entry.path);
+  const forbidden = [
+    /^hooks\/tests(?:\/|$)/,
+    /^scripts\/tests(?:\/|$)/,
+    /^(?:tasks|tmp|memory|logs|\.git|\.agentsmd-state)(?:\/|$)/,
+    /^MEMORY\.md$/,
+  ];
+  for (const packedPath of packedPaths) {
+    assert(!forbidden.some((pattern) => pattern.test(packedPath)), `tarball contains local/test state: ${packedPath}`);
+  }
 
   const prefix = path.join(dir, 'prefix');
   cp.execFileSync('npm', ['install', '-g', '--prefix', prefix, '--no-audit', '--no-fund', tarball], {
@@ -342,8 +377,24 @@ t('npm pack + global install links a runnable agentsmd bin (packaging E2E)', () 
   });
   const binLink = path.join(prefix, 'bin', 'agentsmd');
   assert(fs.existsSync(binLink), 'global install did not link the agentsmd bin');
-  const version = cp.execFileSync(binLink, ['--version'], { encoding: 'utf8' }).trim();
-  assert.strictEqual(version, JSON.parse(read('package.json')).version);
+  const codexHome = path.join(dir, 'codex-home');
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  const installedCli = (args) => cp.execFileSync(binLink, args, {
+    env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.strictEqual(installedCli(['--version']).trim(), JSON.parse(read('package.json')).version);
+
+  const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
+  assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));
+  assert(!fs.existsSync(path.join(installedRoot, 'scripts', 'tests')));
+
+  assert(installedCli(['install']).includes('agentsmd installed:'));
+  const status = JSON.parse(installedCli(['status']));
+  assert.strictEqual(status.installed, true);
+  assert.strictEqual(status.agentsmdHooksRegistered, 15);
+  assert.match(installedCli(['doctor']), /agentsmd doctor: all checks passed/);
+  assert(installedCli(['uninstall']).includes('agentsmd uninstalled:'));
+  assert.strictEqual(JSON.parse(installedCli(['status'])).installed, false);
 }));
 
 t('README (EN + zh) leads with global install, not the flaky bare npx form', () => {

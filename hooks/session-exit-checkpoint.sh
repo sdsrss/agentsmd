@@ -4,9 +4,9 @@
 # NO validating command (test / lint / typecheck / commit / push) run afterward,
 # and (a) records telemetry so the otherwise self-enforced, invisible rule becomes
 # measurable, and (b) drops a silent per-session state flag under the agentsmd
-# state dir. session-start-check.sh surfaces a leftover flag from a PRIOR session
-# at the next SessionStart — the cross-session safety net (a queued advisory can't
-# cross a session boundary; the queue is per-session and cleared on fresh start).
+# state dir. Stop is a turn checkpoint, NOT reliable evidence that a session
+# ended: Codex may emit many Stops before a later resume. session-start-check.sh
+# therefore surfaces only expired flags, never every OTHER session key.
 #
 # Never blocks. Never writes into the user's repo (the paused-task file itself
 # stays the agent's §7 responsibility; this hook only observes + nudges). The flag
@@ -63,8 +63,19 @@ let mut=0,val=0;
 for(let i=start;i<lines.length;i++){
   let o;try{o=JSON.parse(lines[i]);}catch{continue;}
   const pl=o&&o.payload!=null?o.payload:o,name=(pl&&pl.name)||o.name;
-  if(name==="apply_patch")mut++;
-  if(name==="exec_command"){const a=typeof pl.arguments==="string"?pl.arguments:JSON.stringify(pl.arguments||"");if(VAL.test(a))val=1;}
+  // Validation counts only after the most-recent edit. A test before a later
+  // apply_patch characterizes old bytes; it cannot validate the new bytes.
+  if(name==="apply_patch"){mut++;val=0;continue;}
+  if(name==="exec_command"){
+    let a=pl&&pl.arguments;
+    if(typeof a==="string"){try{a=JSON.parse(a);}catch{a=null;}}
+    // Inspect only executable command fields. workdir/justification and other
+    // JSON metadata may contain words such as "test" but execute nothing.
+    const raw=a&&typeof a==="object"?(a.cmd!==undefined?a.cmd:a.command):null;
+    const cmd=typeof raw==="string"?raw
+      :(Array.isArray(raw)&&raw.every(x=>typeof x==="string")?raw.join(" "):"");
+    if(mut>0&&VAL.test(cmd))val=1;
+  }
 }
 process.stdout.write(mut+" "+val);
 ' "$TRANSCRIPT" 2>/dev/null)" || exit 0

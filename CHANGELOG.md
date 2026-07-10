@@ -3,6 +3,62 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v3.2.0 — 2026-07-11 — additive audit remediation, safety routing, and distribution integrity
+
+### Added
+
+- `status` validates the ownership manifest identity, semver, timestamp, and
+  complete deploy/extended/skill inventory. Its JSON now exposes
+  `manifestValid` and `manifestError` instead of treating arbitrary JSON as an
+  installed release.
+- Project stack detection honors the `packageManager` declaration and modern
+  `bun.lock`; project scanners delegate ignore decisions to Git for anchored,
+  nested, glob, and negation semantics.
+- The Codex plugin manifest includes a bounded starter prompt, while the repo
+  marketplace pins the published npm artifact. npm and standalone deployment
+  omit source-only hook/script test trees.
+
+### Changed
+
+- All 15 skills resolve scripts from the selected `SKILL.md` path first and use
+  the standalone `CODEX_HOME/agentsmd` tree only as a fallback, covering plugin
+  cache, repository checkout, and standalone layouts.
+- Install/update/uninstall, migration, analyze/init/design writers, and
+  multi-file design updates use snapshot-checked atomic writes and conditional
+  rollback. Documentation states the remaining portable POSIX
+  check-to-rename/unlink boundary instead of claiming an atomic filesystem CAS.
+- Session checkpoint and summary state is preserved for resumable sessions and
+  surfaced only after the seven-day expiry boundary; validation evidence counts
+  only commands executed after the final edit.
+
+### Fixed
+
+- TOML mutation handles quoted/dotted tables, inline tables, nested delimiters,
+  trailing comments, deprecated `codex_hooks`, and dual-false legacy/canonical
+  keys without producing duplicate shared configuration.
+- Hook ownership is derived from the executed Bash script operand rather than a
+  path substring. Shell/Git parsing now covers bounded nested shell/eval forms,
+  here strings, interpreter code substitution, redirected download execution,
+  explicit current-directory `PATH`, multi-ref pushes, and exact target repos.
+- Secret scanning models staged, `--all`, `--include`, `--only`, bare pathspec,
+  and pathspec-file commit content without mutating the real index. Ship and
+  memory gates bind CI and consultation evidence to every target repository.
+- Legacy telemetry migration is retry-safe across append/delete failures;
+  sampling excludes future mtimes; missing safety-coverage hook filters fail
+  with a clean nonzero result; doctor failures propagate through `install.sh`.
+- `init --local` rolls back a newly-created local preferences file when its
+  `.gitignore` update loses a concurrent-write check, and design's two-file
+  writer preserves third-party bytes on rollback conflicts.
+
+Release validation: `npm run check` exited 0 (install 195/195, init 96/96,
+safety coverage 12/12, distribution 32/32, hook smoke 206/206, ShellCheck
+clean); version cascade and argv lint passed; all 15 skills and the plugin
+manifest validated; npm publish dry-run packed 86 files as 3.2.0; outgoing diff
+secret signature scan found 0 hits. Roll back npm/live consumers with
+`npm install -g @sdsrs/agentsmd@3.1.0 && agentsmd update`; source/plugin users
+select `v3.1.0` and reinstall. Revert the v3.2.0 release commit for source
+rollback. Published npm versions are immutable and can only be deprecated.
+
 ## v3.1.0 — 2026-07-10 — change: risk-based workflow, operation-scoped AUTH, and a smaller core
 
 ### Changed

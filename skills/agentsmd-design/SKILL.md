@@ -5,11 +5,19 @@ description: Extract CSS :root and Tailwind v4 @theme tokens into DESIGN.md plus
 
 # agentsmd-design
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/design.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Turns a frontend project's design tokens into a **facts-only `DESIGN.md`** the agent can read when doing UI work — colors, spacing, typography, radii, shadows — extracted deterministically from the project's own CSS. Keeps `AGENTS.md` lean (a one-line pointer, not the tokens).
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/design.js"           # preview — writes nothing
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/design.js" --write   # commit DESIGN.md + the AGENTS.md pointer
+node "$AGENTSMD_ROOT/scripts/design.js"           # preview — writes nothing
+node "$AGENTSMD_ROOT/scripts/design.js" --write   # commit DESIGN.md + the AGENTS.md pointer
 ```
 
 - **Deterministic, not AI**: tokens are facts, so this parses them directly (unlike `agentsmd-analyze`, which distills conventions with an AI step). Sources: `:root { --x: … }` custom properties and Tailwind v4 `@theme { --x: … }`.

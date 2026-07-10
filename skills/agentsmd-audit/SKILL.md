@@ -5,12 +5,20 @@ description: Aggregate agentsmd rule-hit telemetry by section (遥测命中统�
 
 # agentsmd-audit
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/audit.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Aggregate the agentsmd enforcement telemetry (`~/.codex/logs/agentsmd.jsonl`) over a window and report activity by spec section and hook.
 
 Run:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/audit.js" --days=30
+node "$AGENTSMD_ROOT/scripts/audit.js" --days=30
 ```
 
 Use `--project=SUBSTR` for a case-insensitive project-slug lens. Verification

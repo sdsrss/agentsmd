@@ -5,6 +5,7 @@
 // (removing it could break OMX's or the user's own hooks).
 
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
@@ -18,7 +19,7 @@ const { parseStrict, printHelpAndExit } = require('./lib/argv');
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
 
 function validateOwnership(manifest) {
-  const ownership = { deploy: false, extended: false, skills: [] };
+  const ownership = { deploy: null, extended: null, skills: [] };
   if (manifest && manifest.name !== 'agentsmd') throw new Error('ownership collision: install manifest identity is not agentsmd');
   const owned = manifest && manifest.ownedArtifacts;
   if (!owned) {
@@ -38,7 +39,7 @@ function validateOwnership(manifest) {
     let actual = null;
     try { actual = F.sha256Tree(P.installDir()); } catch {}
     if (actual !== deploy.sha256) throw new Error('ownership collision: deploy tree differs from manifest hash');
-    ownership.deploy = true;
+    ownership.deploy = { target: P.installDir(), sha256: deploy.sha256 };
   }
 
   const extended = owned.extended;
@@ -46,10 +47,10 @@ function validateOwnership(manifest) {
     if (!extended || path.resolve(extended.path || '') !== path.resolve(P.agentsExtendedMdPath())) {
       throw new Error('ownership collision: AGENTS-extended.md has no exact manifest record');
     }
-    let actual = null;
-    try { actual = F.sha256File(P.agentsExtendedMdPath()); } catch {}
+    const snapshot = F.snapshotFile(P.agentsExtendedMdPath());
+    const actual = snapshot.present ? crypto.createHash('sha256').update(snapshot.content).digest('hex') : null;
     if (actual !== extended.sha256) throw new Error('ownership collision: AGENTS-extended.md differs from manifest hash');
-    ownership.extended = true;
+    ownership.extended = { target: P.agentsExtendedMdPath(), sha256: extended.sha256, snapshot };
   }
 
   if (!Array.isArray(owned.skills)) throw new Error('ownership collision: manifest skill inventory is invalid');
@@ -63,7 +64,7 @@ function validateOwnership(manifest) {
     let actual = null;
     try { actual = F.sha256Tree(target); } catch {}
     if (actual !== record.sha256) throw new Error(`ownership collision: installed skill ${record.name} differs from manifest hash`);
-    ownership.skills.push(target);
+    ownership.skills.push({ target, sha256: record.sha256, name: record.name });
   }
   return ownership;
 }
@@ -110,12 +111,15 @@ function transactionFile(transaction, file) {
 
 function mutateFile(transaction, file, action) {
   const record = transactionFile(transaction, file);
-  try { action(); }
-  finally { record.after = F.snapshotFile(record.file); }
+  action();
+  record.after = F.snapshotFile(record.file);
 }
 
-function quarantineDirectory(transaction, target) {
+function quarantineDirectory(transaction, target, expectedHash, label) {
   if (!F.pathExists(target)) return null;
+  let actual = null;
+  try { actual = F.sha256Tree(target); } catch {}
+  if (actual !== expectedHash) throw new Error(`ownership collision: ${label} changed before quarantine`);
   const backup = path.join(transaction.stageRoot, 'quarantine', String(transaction.swaps.length));
   fs.mkdirSync(path.dirname(backup), { recursive: true });
   fs.renameSync(target, backup);
@@ -208,13 +212,15 @@ function uninstall() {
   //    would silently no-op on it and ORPHAN agentsmd's own entries while claiming
   //    success. Fail loudly so the user fixes it and gets a clean, full uninstall,
   //    rather than a half-done one that reports done. Nothing has been touched yet.
-  const beforeHooks = readOrNull(P.hooksJsonPath());
+  const beforeHooksSnapshot = F.snapshotFile(P.hooksJsonPath());
+  const beforeHooks = beforeHooksSnapshot.present ? beforeHooksSnapshot.content.toString('utf8') : null;
   if (beforeHooks !== null && beforeHooks.trim() !== '' && !H.parseHooksConfig(beforeHooks)) {
     throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not edit it blind (it may hold other tenants' hooks). Fix or remove it, then re-run uninstall.`);
   }
 
   let manifest = null;
-  const manifestRaw = readOrNull(P.manifestPath());
+  const manifestSnapshot = F.snapshotFile(P.manifestPath());
+  const manifestRaw = manifestSnapshot.present ? manifestSnapshot.content.toString('utf8') : null;
   if (manifestRaw !== null) {
     try { manifest = JSON.parse(manifestRaw); }
     catch { throw new Error(`${P.manifestPath()} manifest is not valid JSON; ownership cannot be verified, so uninstall made no changes`); }
@@ -243,7 +249,8 @@ function uninstall() {
       result.backupWarning = `pre-uninstall backup failed: ${error.message}`;
     }
   }
-  const beforeAgents = readOrNull(P.agentsMdPath());
+  const beforeAgentsSnapshot = F.snapshotFile(P.agentsMdPath());
+  const beforeAgents = beforeAgentsSnapshot.present ? beforeAgentsSnapshot.content.toString('utf8') : null;
   const hooksRemoval = beforeHooks === null ? null : H.removeAgentsmdHooks(beforeHooks);
   const agentsRemoval = beforeAgents === null ? null : AM.removeSpecBlock(beforeAgents);
   const stateFiles = ownedStateFiles(manifest);
@@ -262,35 +269,40 @@ function uninstall() {
     if (hooksRemoval && hooksRemoval.removed > 0) {
       result.hooksRemoved = hooksRemoval.removed;
       if (hooksRemoval.nextContent === null) {
-        mutateFile(transaction, P.hooksJsonPath(), () => fs.unlinkSync(P.hooksJsonPath()));
+        mutateFile(transaction, P.hooksJsonPath(), () => F.unlinkFileIfUnchanged(P.hooksJsonPath(), beforeHooksSnapshot));
         result.hooksJsonDeleted = true;
       } else {
-        mutateFile(transaction, P.hooksJsonPath(), () => B.writeFileAtomic(P.hooksJsonPath(), hooksRemoval.nextContent));
+        mutateFile(transaction, P.hooksJsonPath(), () => F.writeFileAtomic(P.hooksJsonPath(), hooksRemoval.nextContent, { expectedSnapshot: beforeHooksSnapshot }));
       }
     }
     if (agentsRemoval && agentsRemoval.changed) {
       result.agentsBlockRemoved = true;
-      if (agentsRemoval.content.trim() === '') mutateFile(transaction, P.agentsMdPath(), () => fs.unlinkSync(P.agentsMdPath()));
-      else mutateFile(transaction, P.agentsMdPath(), () => B.writeFileAtomic(P.agentsMdPath(), agentsRemoval.content));
+      if (agentsRemoval.content.trim() === '') mutateFile(transaction, P.agentsMdPath(), () => F.unlinkFileIfUnchanged(P.agentsMdPath(), beforeAgentsSnapshot));
+      else mutateFile(transaction, P.agentsMdPath(), () => F.writeFileAtomic(P.agentsMdPath(), agentsRemoval.content, { expectedSnapshot: beforeAgentsSnapshot }));
     }
 
     if (ownership.extended) {
-      mutateFile(transaction, P.agentsExtendedMdPath(), () => fs.unlinkSync(P.agentsExtendedMdPath()));
+      mutateFile(transaction, P.agentsExtendedMdPath(), () => F.unlinkFileIfUnchanged(P.agentsExtendedMdPath(), ownership.extended.snapshot));
       result.extendedMdRemoved = true;
     }
 
     // 2. Quarantine owned directories instead of deleting them in place. They
     //    remain recoverable until every later uninstall phase succeeds.
     result.skillsRemoved = 0;
-    for (const target of ownership.skills) {
-      quarantineDirectory(transaction, target);
+    for (const record of ownership.skills) {
+      quarantineDirectory(transaction, record.target, record.sha256, `installed skill ${record.name}`);
       result.skillsRemoved++;
     }
-    const deploySwap = ownership.deploy ? quarantineDirectory(transaction, P.installDir()) : null;
+    const deploySwap = ownership.deploy
+      ? quarantineDirectory(transaction, ownership.deploy.target, ownership.deploy.sha256, 'deploy tree')
+      : null;
 
     // 3. Remove only manifest/session files; backups and unknown state survive.
     for (const file of stateFiles) {
-      if (F.pathExists(file)) mutateFile(transaction, file, () => fs.unlinkSync(file));
+      if (F.pathExists(file)) {
+        const expected = path.resolve(file) === path.resolve(P.manifestPath()) ? manifestSnapshot : transactionFile(transaction, file).before;
+        mutateFile(transaction, file, () => F.unlinkFileIfUnchanged(file, expected));
+      }
     }
     try { fs.rmdirSync(P.stateDir()); result.stateDirRemoved = true; }
     catch (error) {

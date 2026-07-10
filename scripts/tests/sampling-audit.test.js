@@ -79,6 +79,9 @@ try {
     asst('Done: fixed the crash (12/12 tests passed).'), // clean
     asst('Another comprehensive rewrite here.'),         // §10-V ("comprehensive")
   ], day(2));
+  mk('2026/07/03/rollout-future.jsonl', [
+    user('future'), asst('This significantly improves a future result.'),
+  ], day(-1));
   mk('2026/01/01/rollout-old.jsonl', [
     user('old'), asst('significantly better, trust me'),  // OUT of 30d window
   ], day(120));
@@ -92,6 +95,9 @@ try {
   const r = samplingAudit({ sessionsDir: sdir, days: 30, now: NOW });
   t('samplingAudit windows out transcripts older than N days', () => {
     assert.strictEqual(r.transcripts, 2, 'the 120d-old transcript is excluded');
+  });
+  t('samplingAudit excludes transcripts whose mtime is after now', () => {
+    assert.strictEqual(r.transcripts, 2, 'the future-dated transcript is excluded');
   });
   t('samplingAudit counts assistant turns scanned', () => {
     assert.strictEqual(r.turns, 4);

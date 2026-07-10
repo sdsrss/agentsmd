@@ -1,4 +1,4 @@
-verified: 2026-07-03 | source: `scripts/audit.js`, `scripts/rules.js`, `scripts/tests/audit.test.js`
+verified: 2026-07-11 | source: `scripts/audit.js`, `scripts/rules.js`, `scripts/status.js`, `scripts/doctor.js`, and their tests
 
 # CLI Argument Validation
 
@@ -11,8 +11,10 @@ Observed failures:
 
 Current policy:
 
-- `audit.js` and `rules.js` accept no args, `--days=N`, `--help`, and `-h`.
+- `audit.js` and `rules.js` accept no args, `--days=N`,
+  `--project=SUBSTR`, `--include-test`, `--help`, and `-h`.
 - `--days` must be a positive safe integer and no greater than `MAX_DAYS` in `scripts/audit.js`.
 - Repeating `--days` is invalid; CLIs must not silently let the later value overwrite the earlier one.
 - `status.js` and `doctor.js` accept no args, `--help`, and `-h`.
-- Unknown options exit 1 with usage text.
+- `audit.js` and `rules.js` exit 1 on invalid arguments; `status.js` and
+  `doctor.js` exit 2. All print usage text for invalid arguments.

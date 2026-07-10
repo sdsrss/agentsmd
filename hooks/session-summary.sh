@@ -3,7 +3,9 @@
 # (denials / bypasses / most-active spec section) from the log tail and writes a
 # per-session summary file. session-start-check.sh surfaces the most-recent OTHER
 # session's summary ONCE at the next SessionStart as a one-line self-awareness
-# banner (§7 cross-session lens) — agent-facing additionalContext, zero user action.
+# banner (§7 cross-session lens) after it expires — agent-facing additionalContext,
+# zero user action. Stop is a turn checkpoint, NOT evidence of SessionEnd; this
+# file may be refreshed repeatedly while the same session remains resumable.
 #
 # Cost: reads only the last 512 KiB of the log (windowed → O(1) per Stop, not
 # O(log)); a session's rows cluster at the tail, so the window captures them for any

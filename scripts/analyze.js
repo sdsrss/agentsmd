@@ -11,6 +11,8 @@ const { stampConventionAnchors, CONVENTIONS_CITE_NOTICE } = require('./lib/conve
 const { audit, MAX_DAYS } = require('./audit');
 const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
+const F = require('./lib/fs-atomic');
+const { createIgnoreMatcher } = require('./lib/git-ignore');
 
 // Warn (never fail) when the project AGENTS.md + the global ~/.codex/AGENTS.md
 // together exceed Codex's project_doc_max_bytes — the discovery chain is silently
@@ -33,35 +35,20 @@ const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
 const SRC_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|rs|go|rb|java|kt|php|vue|svelte)$/;
 
-function gitignorePatterns(root) {
-  const dirs = new Set(); const extGlobs = [];
-  try {
-    for (let line of fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split('\n')) {
-      line = line.trim();
-      if (!line || line.startsWith('#')) continue;
-      const m = line.match(/^\*(\.[A-Za-z0-9.]+)$/);   // *.log, *.gen.ts
-      if (m) { extGlobs.push(m[1]); continue; }
-      const bare = line.replace(/\/$/, '').replace(/^\//, '');
-      if (bare && !bare.includes('/') && !bare.includes('*')) dirs.add(bare);
-    }
-  } catch { /* no .gitignore */ }
-  return { dirs, extGlobs };
-}
-
 function gather(root) {
   const base = root || process.cwd();
-  const { dirs, extGlobs } = gitignorePatterns(base);
-  const skip = new Set([...HARD_SKIP, ...dirs]);
+  const ignore = createIgnoreMatcher(base);
   const files = []; let bytes = 0, truncated = false;
   const walk = (dir) => {
     if (truncated) return;
     let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (truncated) return;
       if (e.name.startsWith('.') && e.name !== '.') { if (e.isDirectory()) continue; }
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!skip.has(e.name)) walk(full); continue; }
-      if (extGlobs.some((ext) => e.name.endsWith(ext))) continue;
+      if (ignored.has(path.resolve(full))) continue;
+      if (e.isDirectory()) { if (!HARD_SKIP.has(e.name)) walk(full); continue; }
       if (!SRC_RE.test(e.name)) continue;
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
       if (files.length >= MAX_FILES || bytes + sz > MAX_BYTES) { truncated = true; return; }
@@ -82,11 +69,12 @@ function writeConventions(root, md) {
   const body = `${CONVENTIONS_CITE_NOTICE}\n\n${stamped}`;
   if (Buffer.byteLength(body, 'utf8') > MAX_CONVENTIONS_BYTES)
     throw new Error(`conventions block ${Buffer.byteLength(body, 'utf8')}B exceeds ${MAX_CONVENTIONS_BYTES}B budget — distill fewer, higher-signal conventions`);
-  const existing = readOrNull(target) || '';
+  const before = F.snapshotFile(target);
+  const existing = before.present ? before.content.toString('utf8') : '';
   const { content } = AM.injectBlockBetween(existing, body, AM.CONVENTIONS_BEGIN, AM.CONVENTIONS_END);
   if (Buffer.byteLength(content, 'utf8') > MAX_AGENTS_MD_BYTES)
     throw new Error(`AGENTS.md would be ${Buffer.byteLength(content, 'utf8')}B, past the ~32 KiB discovery budget — trim facts or conventions`);
-  fs.writeFileSync(target, content);
+  F.writeFileAtomic(target, content, { expectedSnapshot: before });
   return { action: 'written', target, bytes: Buffer.byteLength(content, 'utf8') };
 }
 

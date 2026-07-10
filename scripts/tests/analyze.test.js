@@ -51,6 +51,38 @@ withProject({
   t('gather: honors *.ext gitignore globs — glob-matched file excluded', () => assert(!g.files.some(f => f.path.endsWith('foo.gen.js'))));
 });
 
+// Git is the source of truth inside a worktree: root anchors, nested ignore
+// files, globbing, and negation must match `git check-ignore`, not a partial
+// home-grown parser.
+withProject({
+  'package.json': JSON.stringify({ name: 'ggit' }),
+  '.gitignore': '/root-only.js\n*.gen.js\nignored/*\n!ignored/keep.js\n',
+  'root-only.js': 'IGNORED_ROOT',
+  'nested/root-only.js': 'const nestedRoot = true',
+  'nested/.gitignore': '*.tmp.js\n!keep.tmp.js\n',
+  'nested/drop.tmp.js': 'IGNORED_NESTED',
+  'nested/keep.tmp.js': 'const keptByNegation = true',
+  'nested/generated.gen.js': 'IGNORED_GLOB',
+  'ignored/drop.js': 'IGNORED_DIR_GLOB',
+  'ignored/keep.js': 'const kept = true',
+  'src/main.js': 'const main = true',
+}, (dir) => {
+  const result = require('child_process').spawnSync('git', ['init', '-q'], { cwd: dir, encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const relative = gather(dir).files.map((file) => path.relative(dir, file.path)).sort();
+  t('gather: real Git ignore semantics honor anchors, nested rules, globs, and negation', () => {
+    assert(relative.includes(path.join('nested', 'root-only.js')), relative.join(', '));
+    assert(relative.includes(path.join('nested', 'keep.tmp.js')), relative.join(', '));
+    assert(relative.includes(path.join('ignored', 'keep.js')), relative.join(', '));
+    for (const ignored of [
+      'root-only.js',
+      path.join('nested', 'drop.tmp.js'),
+      path.join('nested', 'generated.gen.js'),
+      path.join('ignored', 'drop.js'),
+    ]) assert(!relative.includes(ignored), `${ignored} leaked: ${relative.join(', ')}`);
+  });
+});
+
 // ── writeConventions ────────────────────────────────────────────────────────
 const { writeConventions } = require('../analyze');
 const AM = require('../lib/agents-md');
@@ -68,6 +100,28 @@ withProject({ 'package.json': JSON.stringify({ name: 'w' }) }, (dir) => {
   });
   t('write: refuses oversize conventions (no truncation)', () =>
     assert.throws(() => writeConventions(dir, '## Conventions\n\n' + 'x'.repeat(7 * 1024)), /exceeds|budget|size/i));
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'wcas' }) }, (dir) => {
+  require('../init').init({ projectRoot: dir });
+  const target = path.join(dir, 'AGENTS.md');
+  const external = '# concurrent conventions tenant\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target)) {
+      injected = true;
+      fs.writeFileSync(target, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { writeConventions(dir, '## Conventions\n\n- prefer const\n'); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('write: conventions CAS rejects a concurrent AGENTS.md replacement', () => assert(error && /concurrent change detected/i.test(error.message)));
+  t('write: conventions CAS preserves concurrent third-party bytes', () => assert.strictEqual(fs.readFileSync(target, 'utf8'), external));
 });
 
 // ── writeConventions: 32 KiB whole-file refuse ──────────────────────────────

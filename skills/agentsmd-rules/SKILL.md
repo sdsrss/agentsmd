@@ -5,12 +5,20 @@ description: Review agentsmd rule promotion/demotion signals (规则升降级治
 
 # agentsmd-rules
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/rules.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Cross-reference `spec/hard-rules.json` with rule-specific eligible/evaluated telemetry. A rule without enough evaluated opportunities is not a demotion candidate.
 
 Run:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/rules.js" --days=30
+node "$AGENTSMD_ROOT/scripts/rules.js" --days=30
 ```
 
 Use `--project=SUBSTR` for the informational local-hits lens; governance verdicts

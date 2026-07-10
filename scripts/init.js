@@ -13,6 +13,7 @@ const { renderProjectAgentsMd, renderConventionsSeed } = require('./lib/project-
 const AM = require('./lib/agents-md');
 const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
+const F = require('./lib/fs-atomic');
 
 // Warn (never fail) when the project AGENTS.md + global ~/.codex/AGENTS.md exceed
 // Codex's project_doc_max_bytes — the discovery chain silently truncates past the
@@ -29,7 +30,6 @@ function warnChainBudget(projectAgentsMdPath) {
   } catch { /* global spec / config unreadable → skip */ }
 }
 
-const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const LOCAL_SKELETON = [
@@ -44,17 +44,36 @@ const LOCAL_SKELETON = [
 
 function ensureGitignore(root, line) {
   const p = path.join(root, '.gitignore');
-  const cur = readOrNull(p) || '';
+  const before = F.snapshotFile(p);
+  const cur = before.present ? before.content.toString('utf8') : '';
   if (cur.split('\n').some((l) => l.trim() === line)) return false;
-  fs.writeFileSync(p, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n');
+  F.writeFileAtomic(p, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n', { expectedSnapshot: before });
   return true;
 }
 
 function writeLocal(root) {
   const localPath = path.join(root, 'AGENTS.local.md');
   let created = false;
-  if (!fs.existsSync(localPath)) { fs.writeFileSync(localPath, LOCAL_SKELETON); created = true; }
-  const gitignore = ensureGitignore(root, 'AGENTS.local.md');
+  let createdSnapshot = null;
+  try {
+    fs.writeFileSync(localPath, LOCAL_SKELETON, { flag: 'wx', mode: 0o600 });
+    created = true;
+    createdSnapshot = F.snapshotFile(localPath);
+  } catch (error) {
+    if (!error || error.code !== 'EEXIST') throw error;
+  }
+  let gitignore;
+  try {
+    gitignore = ensureGitignore(root, 'AGENTS.local.md');
+  } catch (error) {
+    if (created) {
+      try { F.unlinkFileIfUnchanged(localPath, createdSnapshot); }
+      catch (rollbackError) {
+        throw new Error(`${error.message}; AGENTS.local.md rollback failed: ${rollbackError.message}`);
+      }
+    }
+    throw error;
+  }
   return { path: localPath, created, gitignore };
 }
 
@@ -64,7 +83,8 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
   const detection = detect(root);
   const includeFrontend = !!detection.frontend && !noFrontend;
   const blockContent = renderProjectAgentsMd(detection, { includeFrontend });
-  const existing = readOrNull(target);
+  const before = F.snapshotFile(target);
+  const existing = before.present ? before.content.toString('utf8') : null;
   // Computed pre-injection so an upgrader (existing PROJECT block, no prior
   // Frontend section) is caught even though the run's action is 'updated'.
   const frontendFirstAdded = includeFrontend && !/##\s*Frontend/.test(existing || '');
@@ -82,7 +102,7 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
 
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
-  fs.writeFileSync(target, content);
+  F.writeFileAtomic(target, content, { expectedSnapshot: before });
   const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend, frontendFirstAdded };
   if (local) result.local = writeLocal(root);
   return result;

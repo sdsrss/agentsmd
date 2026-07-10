@@ -36,6 +36,13 @@ CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 # later commit in the same Bash tool call.
 INVOCATIONS="$(hook_git_invocations_json 'commit' "$CMD")"
 [[ -n "$INVOCATIONS" && "$INVOCATIONS" != "[]" ]] || exit 0
+[[ "$CMD" == *"[allow-secret]"* ]] && { hook_observe "$HOOK" '§8-secrets' "$SID" true false '{"reason":"bypass"}'; hook_record "$HOOK" "bypass" '{"token":"allow-secret"}' '§8-secrets' "$SID"; exit 0; }
+
+TEMP_INDEX=""
+cleanup_index() {
+  [[ -z "$TEMP_INDEX" ]] || rm -f -- "$TEMP_INDEX" "$TEMP_INDEX.lock"
+  TEMP_INDEX=""
+}
 secret_failopen() {
   local reason="$1"
   cleanup_index
@@ -43,36 +50,84 @@ secret_failopen() {
     "$(jq -cn --arg r "$reason" '{reason:$r}' 2>/dev/null || echo null)"
   hook_record_failopen "$HOOK" "$reason"
 }
-[[ "$CMD" == *"[allow-secret]"* ]] && { hook_observe "$HOOK" '§8-secrets' "$SID" true false '{"reason":"bypass"}'; hook_record "$HOOK" "bypass" '{"token":"allow-secret"}' '§8-secrets' "$SID"; exit 0; }
-
-TEMP_INDEX=""
-cleanup_index() { [[ -z "$TEMP_INDEX" ]] || rm -f -- "$TEMP_INDEX"; }
 trap cleanup_index EXIT
 
 scan_commit_invocation() {
-  local invocation="$1" commit_all git_dir diff added hit pat repo_arg
+  local invocation="$1" mode pathspec_from_file pathspec_file_nul unsupported
+  local index_tree head_tree diff added hit pat repo_arg tracked_path
   local -a git_repo=(-C "$CWD")
+  local -a pathspecs=() pathspec_file_args=() tracked_paths=()
   while IFS= read -r repo_arg; do
     [[ -n "$repo_arg" ]] && git_repo+=("$repo_arg")
   done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
 
-  commit_all="$(printf '%s' "$invocation" | jq -r '.commitAll // false' 2>/dev/null)"
+  mode="$(printf '%s' "$invocation" | jq -r '.commitContent.mode // "unsupported"' 2>/dev/null)"
+  unsupported="$(printf '%s' "$invocation" | jq -r '.commitContent.unsupported | join(",")' 2>/dev/null)"
+  if [[ "$mode" == "unsupported" || -n "$unsupported" ]]; then
+    secret_failopen "commit-content-unsupported${unsupported:+:$unsupported}"
+    return 0
+  fi
+  while IFS= read -r repo_arg; do
+    pathspecs+=("$repo_arg")
+  done < <(printf '%s' "$invocation" | jq -r '.commitContent.pathspecs[]' 2>/dev/null)
+  pathspec_from_file="$(printf '%s' "$invocation" | jq -r '.commitContent.pathspecFromFile // empty' 2>/dev/null)"
+  pathspec_file_nul="$(printf '%s' "$invocation" | jq -r '.commitContent.pathspecFileNul // false' 2>/dev/null)"
+  if [[ -n "$pathspec_from_file" ]]; then
+    pathspec_file_args=("--pathspec-from-file=$pathspec_from_file")
+    [[ "$pathspec_file_nul" == "true" ]] && pathspec_file_args+=(--pathspec-file-nul)
+  fi
+
   TEMP_INDEX=""
-  if [[ "$commit_all" == "true" ]]; then
-    git_dir="$(git "${git_repo[@]}" rev-parse --absolute-git-dir 2>/dev/null)" \
-      || { secret_failopen "git-dir-failed"; return 0; }
+  if [[ "$mode" != "staged" ]]; then
     TEMP_INDEX="$(mktemp "${TMPDIR:-/tmp}/agentsmd-secret-index.XXXXXX")" \
       || { secret_failopen "temp-index-failed"; return 0; }
-    if [[ -r "$git_dir/index" ]]; then
-      cp "$git_dir/index" "$TEMP_INDEX" 2>/dev/null \
+    rm -f -- "$TEMP_INDEX"
+
+    if [[ "$mode" == "all" || "$mode" == "include" ]]; then
+      index_tree="$(git "${git_repo[@]}" write-tree 2>/dev/null)" \
+        || { secret_failopen "index-tree-failed"; return 0; }
+      GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" read-tree "$index_tree" 2>/dev/null \
         || { secret_failopen "index-copy-failed"; return 0; }
     else
-      rm -f -- "$TEMP_INDEX"
-      GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" read-tree --empty 2>/dev/null \
-        || { secret_failopen "index-init-failed"; return 0; }
+      if head_tree="$(git "${git_repo[@]}" rev-parse --verify 'HEAD^{tree}' 2>/dev/null)"; then
+        GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" read-tree "$head_tree" 2>/dev/null \
+          || { secret_failopen "head-index-init-failed"; return 0; }
+      else
+        GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" read-tree --empty 2>/dev/null \
+          || { secret_failopen "empty-index-init-failed"; return 0; }
+      fi
     fi
-    GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" add -u -- 2>/dev/null \
-      || { secret_failopen "index-update-failed"; return 0; }
+
+    if [[ "$mode" == "all" ]]; then
+      GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" add -u -- 2>/dev/null \
+        || { secret_failopen "index-update-all-failed"; return 0; }
+    elif [[ -n "$pathspec_from_file" ]]; then
+      # Let Git parse magic and NUL/LF pathspec-file formats. A staged addition
+      # cannot be recreated from a HEAD-based index with `add -u`; refuse that
+      # rare ambiguous combination rather than scan an incomplete commit set.
+      if [[ "$mode" == "only" ]] \
+        && ! git "${git_repo[@]}" diff --cached --quiet --diff-filter=A -- 2>/dev/null; then
+        secret_failopen "only-pathspec-file-with-staged-addition"
+        return 0
+      fi
+      GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" add -u "${pathspec_file_args[@]}" 2>/dev/null \
+        || { secret_failopen "index-update-pathspec-file-failed"; return 0; }
+    else
+      GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" add -u -- "${pathspecs[@]}" 2>/dev/null \
+        || { secret_failopen "index-update-pathspec-failed"; return 0; }
+      if [[ "$mode" == "only" ]]; then
+        # `commit --only <path>` can include a newly-added path already known to
+        # the real index. Enumerate matches through Git (including pathspec
+        # magic), then refresh those exact names in the HEAD-based temp index.
+        while IFS= read -r -d '' tracked_path; do
+          tracked_paths+=("$tracked_path")
+        done < <(git "${git_repo[@]}" ls-files -z -- "${pathspecs[@]}" 2>/dev/null)
+        for tracked_path in "${tracked_paths[@]}"; do
+          GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" add -A -- "$tracked_path" 2>/dev/null \
+            || { secret_failopen "index-update-selected-file-failed"; return 0; }
+        done
+      fi
+    fi
     diff="$(GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" diff --cached 2>/dev/null)" \
       || { secret_failopen "git-diff-failed"; return 0; }
   else

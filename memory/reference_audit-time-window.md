@@ -1,4 +1,4 @@
-verified: 2026-07-03 | source: scripts/audit.js boundary fixture + scripts/tests/audit.test.js
+verified: 2026-07-11 | source: scripts/audit.js boundary fixture + scripts/tests/audit.test.js
 
 # Audit Time Window
 
@@ -8,4 +8,6 @@ For parseable telemetry timestamps, the review window is inclusive of the exact 
 
 Rows dated after `now` must be excluded from the current window, because `audit --days=N` is a past-window report. Counting future timestamps can skew `rules.js` promote/demote signals.
 
-Rows with unparseable timestamps are still retained by policy because they cannot be safely windowed.
+Rows with unparseable timestamps are counted separately and excluded from the
+window. Retaining them in aggregation would make a garbage timestamp permanent
+and could distort exposure and governance signals.

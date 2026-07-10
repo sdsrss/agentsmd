@@ -34,9 +34,147 @@ function formatTomlStringArray(values) {
   return `[${values.map(quoteTomlString).join(', ')}]`;
 }
 
+function parseTomlKey(input) {
+  const parts = [];
+  let i = 0;
+  const text = String(input);
+  const ws = () => { while (/[ \t]/.test(text[i] || '')) i++; };
+  ws();
+  while (i < text.length) {
+    let part = '';
+    if (text[i] === '"') {
+      const start = i++;
+      let escaped = false;
+      while (i < text.length) {
+        const ch = text[i++];
+        if (escaped) { escaped = false; continue; }
+        if (ch === '\\') { escaped = true; continue; }
+        if (ch === '"') break;
+      }
+      if (text[i - 1] !== '"') return null;
+      try { part = JSON.parse(text.slice(start, i)); } catch { return null; }
+    } else if (text[i] === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end < 0) return null;
+      part = text.slice(i + 1, end);
+      i = end + 1;
+    } else {
+      const m = text.slice(i).match(/^[A-Za-z0-9_-]+/);
+      if (!m) return null;
+      part = m[0];
+      i += m[0].length;
+    }
+    parts.push(part);
+    ws();
+    if (i === text.length) return parts;
+    if (text[i] !== '.') return null;
+    i++;
+    ws();
+  }
+  return parts.length ? parts : null;
+}
+
 function tableName(line) {
-  const m = line.match(/^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/);
-  return m ? m[1].trim() : null;
+  const m = line.match(/^\s*(?:\[\[(.*?)\]\]|\[(.*?)\])\s*(?:#.*)?$/);
+  if (!m) return null;
+  const parts = parseTomlKey(m[1] === undefined ? m[2] : m[1]);
+  return parts ? parts.join('.') : null;
+}
+
+function assignment(line) {
+  let inDouble = false, inSingle = false, escaped = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inDouble) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) { if (ch === "'") inSingle = false; continue; }
+    if (ch === '"') { inDouble = true; continue; }
+    if (ch === "'") { inSingle = true; continue; }
+    if (ch !== '=') continue;
+    const keys = parseTomlKey(line.slice(0, i).trim());
+    return keys ? { keys, value: line.slice(i + 1).trim(), equalsIdx: i } : null;
+  }
+  return null;
+}
+
+function inlineTableBounds(text, start = 0) {
+  let inDouble = false, inSingle = false, escaped = false, depth = 0;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inDouble) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) { if (ch === "'") inSingle = false; continue; }
+    if (ch === '"') { inDouble = true; continue; }
+    if (ch === "'") { inSingle = true; continue; }
+    if (ch === '#' && depth > 0) return null;
+    if (ch === '{') { if (depth++ === 0) start = i; }
+    else if (ch === '}' && depth > 0 && --depth === 0) return { open: start, close: i };
+  }
+  return null;
+}
+
+function inlineTableInner(value) {
+  const text = String(value);
+  if (!text.startsWith('{')) return null;
+  const bounds = inlineTableBounds(text);
+  if (!bounds || !/^\s*(?:#.*)?$/.test(text.slice(bounds.close + 1))) return null;
+  return text.slice(bounds.open + 1, bounds.close);
+}
+
+function replaceInlineTableInner(line, inner) {
+  const a = assignment(line);
+  const bounds = inlineTableBounds(line, a ? a.equalsIdx + 1 : 0);
+  return bounds ? `${line.slice(0, bounds.open + 1)}${inner}${line.slice(bounds.close)}` : line;
+}
+
+function splitInlineFields(inner) {
+  const fields = [];
+  let start = 0, square = 0, curly = 0, inDouble = false, inSingle = false, escaped = false;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (inDouble) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) { if (ch === "'") inSingle = false; continue; }
+    if (ch === '"') { inDouble = true; continue; }
+    if (ch === "'") { inSingle = true; continue; }
+    if (ch === '[') square++;
+    else if (ch === ']') square--;
+    else if (ch === '{') curly++;
+    else if (ch === '}') curly--;
+    else if (ch === ',' && square === 0 && curly === 0) { fields.push(inner.slice(start, i)); start = i + 1; }
+  }
+  fields.push(inner.slice(start));
+  return fields;
+}
+
+function inlineField(inner, name) {
+  for (const field of splitInlineFields(inner)) {
+    const a = assignment(field);
+    if (a && a.keys.length === 1 && a.keys[0] === name) return a.value.trim();
+  }
+  return null;
+}
+
+function rewriteInlineBoolean(inner, fromName, toName, value) {
+  return splitInlineFields(inner).map((field) => {
+    const a = assignment(field);
+    if (!a || a.keys.length !== 1 || a.keys[0] !== fromName) return field;
+    const lhs = field.slice(0, a.equalsIdx).replace(fromName, toName);
+    const rhs = field.slice(a.equalsIdx + 1).replace(/^([ \t]*)(?:true|false)\b/, `$1${value}`);
+    return `${lhs}=${rhs}`;
+  }).join(',');
 }
 
 // Scan [features] (header + dotted features.* + inline-table features = {...})
@@ -49,31 +187,38 @@ function scanFeatures(content) {
   let cur = ''; // current table; '' = top-level document scope
   let enabledNew = false, enabledOld = false;
   let oldTrueIdx = -1, falseIdx = -1, hasFeatures = false, featuresHeaderIdx = -1;
+  const falseEntries = [];
   let inlineIdx = -1, inlineInner = null; // top-level `features = { ... }`
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const th = tableName(line);
     if (th !== null) { cur = th; if (cur === 'features') { hasFeatures = true; if (featuresHeaderIdx < 0) featuresHeaderIdx = i; } continue; }
+    const a = assignment(line);
     if (cur === '') {
-      const inl = line.match(/^[ \t]*features[ \t]*=[ \t]*\{(.*)\}[ \t]*(?:#.*)?$/);
-      if (inl) {
-        inlineIdx = i; inlineInner = inl[1];
-        const hk = inl[1].match(/(?:^|[,{ \t])hooks[ \t]*=[ \t]*(true|false)\b/);
-        const ck = inl[1].match(/(?:^|[,{ \t])codex_hooks[ \t]*=[ \t]*(true|false)\b/);
-        if (hk && hk[1] === 'true') enabledNew = true;
-        if (ck && ck[1] === 'true') enabledOld = true;
+      const inl = a && a.keys.length === 1 && a.keys[0] === 'features' ? inlineTableInner(a.value) : null;
+      if (inl !== null) {
+        inlineIdx = i; inlineInner = inl;
+        const hk = inlineField(inl, 'hooks');
+        const ck = inlineField(inl, 'codex_hooks');
+        if (/^true\b/.test(hk || '')) enabledNew = true;
+        if (/^true\b/.test(ck || '')) enabledOld = true;
         continue;
       }
     }
-    let m = cur === '' ? line.match(/^[ \t]*features\.(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/) : null;
-    if (!m && cur === 'features') m = line.match(/^[ \t]*(hooks|codex_hooks)[ \t]*=[ \t]*(true|false)\b/);
-    if (!m) continue;
-    if (m[2] === 'true') {
-      if (m[1] === 'hooks') enabledNew = true;
+    let name = null;
+    if (a && cur === '' && a.keys.length === 2 && a.keys[0] === 'features') name = a.keys[1];
+    if (a && cur === 'features' && a.keys.length === 1) name = a.keys[0];
+    if (!a || !['hooks', 'codex_hooks'].includes(name) || !/^(true|false)\b/.test(a.value)) continue;
+    const value = a.value.match(/^(true|false)\b/)[1];
+    if (value === 'true') {
+      if (name === 'hooks') enabledNew = true;
       else { enabledOld = true; if (oldTrueIdx < 0) oldTrueIdx = i; }
-    } else if (falseIdx < 0) falseIdx = i;
+    } else {
+      falseEntries.push({ index: i, name });
+      if (falseIdx < 0) falseIdx = i;
+    }
   }
-  return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, hasFeatures, featuresHeaderIdx, inlineIdx, inlineInner, lines };
+  return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, falseEntries, hasFeatures, featuresHeaderIdx, inlineIdx, inlineInner, lines };
 }
 
 // True when the hook feature is enabled under [features] by EITHER name.
@@ -95,16 +240,33 @@ function ensureCodexHooksFlag(input) {
   if (s.inlineIdx >= 0) {
     const inner = s.inlineInner;
     let newInner;
-    if (/(?:^|[,{ \t])codex_hooks[ \t]*=[ \t]*true\b/.test(inner)) {
-      newInner = inner.replace(/((?:^|[,{ \t]))codex_hooks([ \t]*=[ \t]*true\b)/, '$1hooks$2'); // pure rename, no dup
-    } else if (/(?:^|[,{ \t])hooks[ \t]*=[ \t]*false\b/.test(inner)) {
-      newInner = inner.replace(/((?:^|[,{ \t])hooks[ \t]*=[ \t]*)false\b/, '$1true');
+    const oldTrue = /^true\b/.test(inlineField(inner, 'codex_hooks') || '');
+    const oldFalse = /^false\b/.test(inlineField(inner, 'codex_hooks') || '');
+    const canonicalFalse = /^false\b/.test(inlineField(inner, 'hooks') || '');
+    if (oldTrue && canonicalFalse) {
+      const withoutOld = splitInlineFields(inner).filter((field) => {
+        const a = assignment(field);
+        return !(a && a.keys.length === 1 && a.keys[0] === 'codex_hooks');
+      }).join(',');
+      newInner = rewriteInlineBoolean(withoutOld, 'hooks', 'hooks', 'true');
+    } else if (oldTrue) {
+      newInner = rewriteInlineBoolean(inner, 'codex_hooks', 'hooks', 'true');
+    } else if (oldFalse && canonicalFalse) {
+      const withoutOld = splitInlineFields(inner).filter((field) => {
+        const a = assignment(field);
+        return !(a && a.keys.length === 1 && a.keys[0] === 'codex_hooks');
+      }).join(',');
+      newInner = rewriteInlineBoolean(withoutOld, 'hooks', 'hooks', 'true');
+    } else if (oldFalse) {
+      newInner = rewriteInlineBoolean(inner, 'codex_hooks', 'hooks', 'true');
+    } else if (canonicalFalse) {
+      newInner = rewriteInlineBoolean(inner, 'hooks', 'hooks', 'true');
     } else {
       const trimmed = inner.trim();
       newInner = trimmed.length ? `${inner.replace(/[ \t]*$/, '')}, hooks = true ` : ' hooks = true ';
     }
     const lines = s.lines.slice();
-    lines[s.inlineIdx] = lines[s.inlineIdx].replace(/^([ \t]*features[ \t]*=[ \t]*\{)(.*)(\}[ \t]*(?:#.*)?)$/, `$1${newInner}$3`);
+    lines[s.inlineIdx] = replaceInlineTableInner(lines[s.inlineIdx], newInner);
     return { content: lines.join('\n'), changed: true, reason: 'set-hooks-in-inline-features' };
   }
 
@@ -114,8 +276,9 @@ function ensureCodexHooksFlag(input) {
     // If a canonical `hooks = false` coexists in the same table, renaming
     // codex_hooks→hooks would produce TWO `hooks` keys (duplicate-key error).
     // Flip the existing hooks=false→true and drop the codex_hooks line instead.
-    if (s.falseIdx >= 0 && /^[ \t]*hooks\b/.test(lines[s.falseIdx])) {
-      lines[s.falseIdx] = lines[s.falseIdx].replace(/(\bhooks\b[ \t]*=[ \t]*)false/, '$1true');
+    const falseAssignment = s.falseIdx >= 0 ? assignment(lines[s.falseIdx]) : null;
+    if (falseAssignment && falseAssignment.keys.at(-1) === 'hooks') {
+      lines[s.falseIdx] = lines[s.falseIdx].replace(/false\b/, 'true');
       lines.splice(s.oldTrueIdx, 1);
       return { content: lines.join('\n'), changed: true, reason: 'migrated-codex_hooks-dedup' };
     }
@@ -126,7 +289,19 @@ function ensureCodexHooksFlag(input) {
   // A features-scoped `(codex_)hooks = false` → set the canonical `hooks = true`.
   if (s.falseIdx >= 0) {
     const lines = s.lines.slice();
-    lines[s.falseIdx] = lines[s.falseIdx].replace(/\b(?:codex_hooks|hooks)\b([ \t]*=[ \t]*)false/, 'hooks$1true');
+    const canonicalFalse = s.falseEntries.find((entry) => entry.name === 'hooks');
+    const legacyFalse = s.falseEntries.filter((entry) => entry.name === 'codex_hooks');
+    if (canonicalFalse && legacyFalse.length) {
+      lines[canonicalFalse.index] = lines[canonicalFalse.index].replace(/false\b/, 'true');
+      for (const entry of legacyFalse.sort((a, b) => b.index - a.index)) lines.splice(entry.index, 1);
+      return { content: lines.join('\n'), changed: true, reason: 'set-hooks-true-dedup' };
+    }
+    const a = assignment(lines[s.falseIdx]);
+    let lhs = lines[s.falseIdx].slice(0, a.equalsIdx);
+    if (a.keys.at(-1) === 'codex_hooks') {
+      lhs = lhs.replace(/(["']?)codex_hooks\1([ \t]*)$/, '$1hooks$1$2');
+    }
+    lines[s.falseIdx] = `${lhs}=${lines[s.falseIdx].slice(a.equalsIdx + 1).replace(/false\b/, 'true')}`;
     return { content: lines.join('\n'), changed: true, reason: 'set-hooks-true' };
   }
 
@@ -207,25 +382,26 @@ function scanTuiStatusLine(content) {
     const line = lines[i];
     const th = tableName(line);
     if (th !== null) { cur = th; if (cur === 'tui') { hasTui = true; if (tuiHeaderIdx < 0) tuiHeaderIdx = i; } continue; }
+    const a = assignment(line);
     if (cur === '') {
-      const inl = line.match(/^[ \t]*tui[ \t]*=[ \t]*\{(.*)\}[ \t]*(?:#.*)?$/);
-      if (inl) {
-        inlineTuiIdx = i; inlineTuiInner = inl[1];
+      const inl = a && a.keys.length === 1 && a.keys[0] === 'tui' ? inlineTableInner(a.value) : null;
+      if (inl !== null) {
+        inlineTuiIdx = i; inlineTuiInner = inl;
         // An inline tui table that already carries status_line = the user's own
         // footer → treat as existing so ensureTuiStatusLine no-ops (never appends
         // a second [tui] table → duplicate-key TOML error in a shared file).
-        if (/(?:^|[,{ \t])status_line[ \t]*=/.test(inl[1])) {
-          return { exists: true, items: null, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
+        const statusValue = inlineField(inl, 'status_line');
+        if (statusValue !== null) {
+          return { exists: true, items: parseStatusLineItems(statusValue), line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
         }
         continue;
       }
-      if (/^[ \t]*tui\./.test(line)) topLevelTuiDottedIdx = i;
+      if (a && a.keys.length > 1 && a.keys[0] === 'tui') topLevelTuiDottedIdx = i;
     }
-    const m = cur === 'tui'
-      ? line.match(/^[ \t]*status_line[ \t]*=[ \t]*(\[[^\n#]*(?:#.*)?)/)
-      : (cur === '' ? line.match(/^[ \t]*tui\.status_line[ \t]*=[ \t]*(\[[^\n#]*(?:#.*)?)/) : null);
-    if (!m) continue;
-    const value = collectArrayValue(lines, i, m[1]).replace(/[ \t]+#.*$/, '').trim();
+    const statusAssignment = a && ((cur === 'tui' && a.keys.length === 1 && a.keys[0] === 'status_line')
+      || (cur === '' && a.keys.length === 2 && a.keys[0] === 'tui' && a.keys[1] === 'status_line'));
+    if (!statusAssignment || !/^\[/.test(a.value)) continue;
+    const value = collectArrayValue(lines, i, a.value).replace(/[ \t]+#.*$/, '').trim();
     const items = parseStatusLineItems(value);
     return { exists: true, items, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
   }
@@ -260,7 +436,7 @@ function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
     const trimmed = inner.trim();
     const newInner = trimmed.length ? `${inner.replace(/[ \t]*$/, '')}, ${statusLine} ` : ` ${statusLine} `;
     const lines = s.lines.slice();
-    lines[s.inlineTuiIdx] = lines[s.inlineTuiIdx].replace(/^([ \t]*tui[ \t]*=[ \t]*\{)(.*)(\}[ \t]*(?:#.*)?)$/, `$1${newInner}$3`);
+    lines[s.inlineTuiIdx] = replaceInlineTableInner(lines[s.inlineTuiIdx], newInner);
     return { content: lines.join('\n'), changed: true, reason: 'inserted-into-inline-tui' };
   }
   if (s.hasTui) {

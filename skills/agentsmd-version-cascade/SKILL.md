@@ -5,11 +5,19 @@ description: Scan README prose for stale same-major version tokens. Use before r
 
 # agentsmd-version-cascade
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/version-cascade-check.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 `drift.test.js` gate #5 asserts the version matches across the 5 **structured** places (named JSON fields + the two `CODEX-CODING-SPEC vX.Y.Z` headers). It cannot see a version token embedded in **narrative** text. This scans the prose READMEs for a current-major token whose minor has drifted:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/version-cascade-check.js"
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/version-cascade-check.js" --json
+node "$AGENTSMD_ROOT/scripts/version-cascade-check.js"
+node "$AGENTSMD_ROOT/scripts/version-cascade-check.js" --json
 ```
 
 - Compares each `vMAJOR.MINOR(.patch)` token against `hard-rules.json` `spec_version` at **minor** granularity (patch-insensitive). The major-token regex is derived per run, so it keeps working after a major bump instead of going silently blind.

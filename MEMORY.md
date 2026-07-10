@@ -3,7 +3,7 @@
 - [Transcript evidence boundaries](memory/reference_transcript-evidence-boundaries.md) [hooks,transcript,memory-read,ship-gate] [转录 证据] — User prompt text is not evidence that an agent action happened; memory-read ship gate ignores user-only `MEMORY.md` mentions.
 - [PreTool command variants](memory/reference_pretool-command-variants.md) [hooks,pretool,safety,commit] [安全 命令] — Safety and commit-message hooks must cover common shell/Git variants such as `env bash`, path-qualified interpreters, and `git commit -am`.
 - [CLI argument validation](memory/reference_cli-argument-validation.md) [cli,audit,rules,args] [命令行 参数] — CLI tools must reject invalid options instead of silently falling back to defaults.
-- [Memory lookup](memory/reference_memory-lookup.md) [hooks,memory,subdir,lookup] [记忆 查找] — Memory hooks use shared lookup: cwd, git root, parent walk, then global memory.
+- [Memory lookup](memory/reference_memory-lookup.md) [hooks,memory,subdir,lookup,ship] [记忆 查找] — Prompt hints check cwd/git/parents/global; Git ship gates bind memory to each invocation's target repository.
 - [Transcript scan scope](memory/reference_transcript-scan-scope.md) [hooks,transcript,report,banned-vocab] [转录 扫描] — Stop transcript scanning strips fenced code blocks before banned-vocab checks.
 - [Installer cleanup](memory/reference_installer-cleanup.md) [installer,cleanup,tmpdir,posix-sh] [安装 更新 清理] — Installer cleanup state must be set in the parent shell, not inside command substitution.
 - [Telemetry row counting](memory/reference_telemetry-row-counting.md) [telemetry,status,audit,jsonl] [遥测 计数] — User-facing telemetry counts reuse the JSONL parser and skip malformed rows.

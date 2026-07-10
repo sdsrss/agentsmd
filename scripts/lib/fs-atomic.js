@@ -27,6 +27,11 @@ function readFileOptional(file, encoding = null) {
   }
 }
 
+function sameSnapshot(left, right) {
+  return !!left && !!right && left.present === right.present
+    && (!left.present || (left.mode === right.mode && left.content.equals(right.content)));
+}
+
 function writeFileAtomic(file, content, options = {}) {
   const existingMode = options.preserveMode === false ? null : fileMode(file);
   const mode = options.mode == null ? (existingMode == null ? 0o600 : existingMode) : options.mode;
@@ -40,12 +45,26 @@ function writeFileAtomic(file, content, options = {}) {
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = undefined;
+    if (options.expectedSnapshot && !sameSnapshot(snapshotFile(file), options.expectedSnapshot)) {
+      const error = new Error(`concurrent change detected for ${file}; refusing to overwrite newer bytes`);
+      error.code = 'AGENTSMD_CONCURRENT_CHANGE';
+      throw error;
+    }
     fs.renameSync(tmp, file);
   } catch (error) {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     try { fs.unlinkSync(tmp); } catch {}
     throw error;
   }
+}
+
+function unlinkFileIfUnchanged(file, expectedSnapshot) {
+  if (!sameSnapshot(snapshotFile(file), expectedSnapshot)) {
+    const error = new Error(`concurrent change detected for ${file}; refusing to delete newer bytes`);
+    error.code = 'AGENTSMD_CONCURRENT_CHANGE';
+    throw error;
+  }
+  fs.unlinkSync(file);
 }
 
 function sha256File(file) {
@@ -102,9 +121,11 @@ module.exports = {
   pathExists,
   readFileOptional,
   restoreFile,
+  sameSnapshot,
   sha256File,
   sha256Tree,
   snapshotFile,
   treeEntries,
+  unlinkFileIfUnchanged,
   writeFileAtomic,
 };

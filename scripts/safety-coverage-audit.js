@@ -125,6 +125,9 @@ function auditSafetyCoverage({ root = ROOT, hookFilter = null } = {}) {
   if (!fs.existsSync(hooksDir)) throw new Error(`safety-coverage-audit: hooks dir not found: ${hooksDir}`);
 
   const allHookFiles = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh')).sort();
+  if (hookFilter && !allHookFiles.includes(hookFilter)) {
+    throw new Error(`hook ${hookFilter} not found`);
+  }
   const auditedHookFiles = hookFilter ? allHookFiles.filter((f) => f === hookFilter) : allHookFiles;
   const allHookSources = {};
   for (const f of allHookFiles) allHookSources[f] = fs.readFileSync(path.join(hooksDir, f), 'utf8');
@@ -272,7 +275,9 @@ if (require.main === module) {
   const usage = 'Usage: agentsmd-safety-coverage-audit [--json] [--hook=<basename.sh>]';
   if (parsed.help) { console.log(usage); process.exit(0); }
   if (parsed.error) { console.error(`agentsmd safety-coverage-audit: ${parsed.error}`); console.error(usage); process.exit(2); }
-  const r = auditSafetyCoverage({ hookFilter: parsed.hookFilter });
+  let r;
+  try { r = auditSafetyCoverage({ hookFilter: parsed.hookFilter }); }
+  catch (error) { console.error(`agentsmd safety-coverage-audit: ${error.message}`); process.exit(2); }
   console.log(parsed.json ? JSON.stringify(r, null, 2) : formatReport(r));
   process.exit(r.summary.gapCount > 0 ? 3 : 0);
 }

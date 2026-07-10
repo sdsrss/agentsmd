@@ -7,8 +7,9 @@
     {
       "name": "agentsmd",
       "source": {
-        "source": "local",
-        "path": "./"
+        "source": "npm",
+        "package": "@sdsrs/agentsmd",
+        "version": "3.2.0"
       },
       "policy": {
         "installation": "AVAILABLE",

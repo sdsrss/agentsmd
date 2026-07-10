@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
+const cp = require('child_process');
 const { auditSafetyCoverage, clauseCoverage, splitClauses, findArrowClaimSites } = require('../safety-coverage-audit');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -74,6 +75,15 @@ t('--hook filter restricts the audit to a single hook', () => {
   const one = auditSafetyCoverage({ root: ROOT, hookFilter: 'pre-bash-safety-check.sh' });
   assert.strictEqual(one.summary.hooksAudited, 1);
   assert.ok(one.claimSites.every((s) => s.hook.endsWith('pre-bash-safety-check.sh')));
+});
+
+t('--hook=nonexistent.sh exits non-zero with a clean error, never zero gaps', () => {
+  const cli = path.join(ROOT, 'scripts', 'safety-coverage-audit.js');
+  const result = cp.spawnSync(process.execPath, [cli, '--hook=nonexistent.sh'], { encoding: 'utf8' });
+  assert.notStrictEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /hook.*nonexistent\.sh.*not found/i);
+  assert.doesNotMatch(result.stderr, /\n\s+at\s/);
+  assert.doesNotMatch(result.stdout, /TOTAL GAPS:\s*0/);
 });
 
 // ── B. detector teeth: pure-function unit checks ─────────────────────────────

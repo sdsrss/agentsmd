@@ -54,7 +54,9 @@ Stop hook 的 advisory 会排队,在下一次 `UserPromptSubmit` 通过已验证
 - **Codex CLI** 且启用原生 hook——`config.toml` → `[features] hooks = true`。安装器会设置它,并自动迁移 0.142 之前的旧名 `codex_hooks`。如果用户还没有配置 `[tui] status_line`,安装器也会恢复一组有用的 Codex 内置 footer 字段。
 - `PATH` 上要有 **`jq`** 和 **`node` ≥ 18**。
 
-一切都尊重 `$CODEX_HOME`(默认 `~/.codex`)。
+已安装 artifact、运行时状态、日志与 standalone 生命周期命令尊重 `$CODEX_HOME`
+(默认 `~/.codex`)。`init`、`analyze`、`design` 等项目命令作用于当前工作目录;
+Codex 自行管理 plugin cache。
 
 ## 安装
 
@@ -126,7 +128,8 @@ npx --package @sdsrs/agentsmd agentsmd install
 ### Codex plugin marketplace
 
 如果你希望 Codex 把 agentsmd 当作插件安装,并由 Codex 的 plugin cache 管理 bundle,使用这条路径。
-仓库自带 `.agents/plugins/marketplace.json`,marketplace 名称是 `agentsmd`。
+仓库自带 `.agents/plugins/marketplace.json`,marketplace 名称是 `agentsmd`;其中条目固定指向
+已发布的 `@sdsrs/agentsmd` npm artifact,不会把整个仓库 checkout 当成 plugin payload。
 
 > **plugin bundle 声明什么、仓库验证什么。** bundle 声明 agentsmd 的 hooks 与
 > skills;仓库 drift test 证明其 wiring 与 standalone template 一致,但没有对每个
@@ -197,7 +200,7 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-卸载先验证 ownership,再以 transaction 移除已注册 hook、skills、`AGENTS.md` 块、install manifest、known session runtime state 与 extended spec;compare-and-swap rollback 不覆盖并发外部写入。`.agentsmd-state/backups/` recovery snapshot 与 unknown/foreign state entry 会保留,因此 state dir 通常仍存在。按 §5 **保留 `config.toml` 的 hook/status-line 设置**。卸载还会在 `$CODEX_HOME/agentsmd/hooks/` 留下未注册的 no-op shim,避免当前会话缓存的旧命令报 exit 127;之后 install 会覆盖这些 shim。
+卸载先验证 ownership,再以 transaction 移除已注册 hook、skills、`AGENTS.md` 块、install manifest、known session runtime state 与 extended spec。快照检查与 rollback 会拒绝覆盖在最终文件系统操作前已观察到的外部修改;POSIX 没有可移植的 compare-and-replace 原语,因此不承诺排除 check 与 rename/unlink 之间的非协作写入。`.agentsmd-state/backups/` recovery snapshot 与 unknown/foreign state entry 会保留,因此 state dir 通常仍存在。按 §5 **保留 `config.toml` 的 hook/status-line 设置**。卸载还会在 `$CODEX_HOME/agentsmd/hooks/` 留下未注册的 no-op shim,避免当前会话缓存的旧命令报 exit 127;之后 install 会覆盖这些 shim。
 
 对于 npm 安装,先卸载 agentsmd 的 Codex 足迹,再移除全局包:
 
@@ -222,7 +225,7 @@ codex plugin marketplace remove agentsmd --json
 
 ## 它如何独立于 oh-my-codex?
 
-agentsmd 用当前 `CODEX_HOME/agentsmd` 命令路径识别自己的 `hooks.json` 条目,用 sentinel 识别 `AGENTS.md` 块;deploy、extended spec 与 skills 要求 manifest exact path + content hash。install/update 与 uninstall 都先 preflight,并用 compare-and-swap rollback 保留并发外部写入。旧 manifest 在 hash baseline 前持久备份到 owner-only `.agentsmd-legacy-backup-*`。`config.toml` 只补缺失值且卸载不删;共享文件不可解析或 owned artifact hash 不匹配时操作中止。fixture 覆盖 OMX 共存、ownership collision、故障注入、mode preservation 与并发写入。
+agentsmd 用当前 `CODEX_HOME/agentsmd` 命令路径识别自己的 `hooks.json` 条目,用 sentinel 识别 `AGENTS.md` 块;deploy、extended spec 与 skills 要求 manifest exact path + content hash。install/update 与 uninstall 都先 preflight;快照检查覆盖最终文件系统操作前已观察到的并发修改,但不把可移植 POSIX 无法消除的 check-to-rename/unlink 间隔描述为原子 CAS。旧 manifest 在 hash baseline 前持久备份到 owner-only `.agentsmd-legacy-backup-*`。`config.toml` 只补缺失值且卸载不删;共享文件不可解析或 owned artifact hash 不匹配时操作中止。fixture 覆盖 OMX 共存、ownership collision、故障注入、mode preservation 与并发写入。
 
 OMX(若在)是编排框架,agentsmd 是纪律/执行力层。二者互补——且 agentsmd **不依赖** OMX。
 
@@ -251,7 +254,7 @@ spec/        正典规范(core、extended、changelog、hard-rules.json、OPERAT
 hooks/       L1 强制层——原生 hook + 共享 lib + 冒烟测试
 scripts/     L2 管理层——install/uninstall/status/doctor/audit/rules(+ migrate + 测试)
 skills/      L3 命令层——每个面向用户的脚本对应一个 agentsmd-* skill stub(见 skills/)
-.agents/     repo marketplace,用于 `codex plugin add agentsmd --marketplace agentsmd`
+.agents/     repo marketplace metadata,固定指向 npm artifact
 .codex-plugin/plugin.json   Codex 插件清单
 hooks.json   插件根的 hook 接线(相对路径)
 install.sh   适合 curl 的独立安装/更新/卸载入口

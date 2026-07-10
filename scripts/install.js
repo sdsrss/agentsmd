@@ -16,6 +16,7 @@ const S = require('./lib/uninstalled-shims');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
+const snapshotText = (snapshot) => snapshot.present ? snapshot.content.toString('utf8') : null;
 
 function sameSnapshot(left, right) {
   return left.present === right.present
@@ -31,8 +32,8 @@ function markTransactionFile(transaction, file) {
   if (record) record.after = F.snapshotFile(file);
 }
 
-function writeTracked(transaction, file, content) {
-  F.writeFileAtomic(file, content);
+function writeTracked(transaction, file, content, expectedSnapshot = null) {
+  F.writeFileAtomic(file, content, expectedSnapshot ? { expectedSnapshot } : {});
   markTransactionFile(transaction, file);
 }
 
@@ -45,8 +46,8 @@ function chmodShells(dir) {
   }
 }
 
-function parsePriorManifest() {
-  const raw = readOrNull(P.manifestPath());
+function parsePriorManifest(snapshot = F.snapshotFile(P.manifestPath())) {
+  const raw = snapshotText(snapshot);
   if (raw === null) return null;
   let manifest;
   try { manifest = JSON.parse(raw); }
@@ -147,12 +148,23 @@ function migrateLegacyAgentsmdManifest(manifest, stamp) {
   return { manifest: { ...manifest, ownedArtifacts }, backup };
 }
 
+function includeStandaloneDeploySource(repo, source) {
+  const relative = path.relative(repo, source);
+  const segments = relative.split(path.sep);
+  return !(segments.length >= 2
+    && segments[1] === 'tests'
+    && (segments[0] === 'hooks' || segments[0] === 'scripts'));
+}
+
 function stageSources(repo, stageRoot) {
   const deploy = path.join(stageRoot, 'deploy');
   fs.mkdirSync(deploy, { recursive: true });
   for (const name of ['hooks', 'spec', 'scripts', 'skills']) {
     const source = path.join(repo, name);
-    if (fs.existsSync(source)) fs.cpSync(source, path.join(deploy, name), { recursive: true });
+    if (fs.existsSync(source)) fs.cpSync(source, path.join(deploy, name), {
+      recursive: true,
+      filter: (entry) => includeStandaloneDeploySource(repo, entry),
+    });
   }
   const packageJson = path.join(repo, 'package.json');
   if (fs.existsSync(packageJson)) fs.copyFileSync(packageJson, path.join(deploy, 'package.json'));
@@ -246,7 +258,8 @@ function install(nowIso) {
     if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
       throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
     }
-    let priorManifest = parsePriorManifest();
+    const priorManifestBaseline = F.snapshotFile(P.manifestPath());
+    let priorManifest = parsePriorManifest(priorManifestBaseline);
     const legacyAgentsmd = migrateLegacyAgentsmdManifest(priorManifest, stamp);
     priorManifest = legacyAgentsmd.manifest;
     const stagedDeploy = stageSources(repo, stageRoot);
@@ -258,6 +271,7 @@ function install(nowIso) {
       .sort();
 
     verifyOwnedDeploy(priorManifest, P.installDir());
+    const extendedBaseline = F.snapshotFile(P.agentsExtendedMdPath());
     verifyOwnedExtended(priorManifest, P.agentsExtendedMdPath());
     for (const name of skillNames) {
       const target = path.join(P.codexSkillsDir(), name);
@@ -300,13 +314,16 @@ function install(nowIso) {
       record.afterHash = record.afterPresent ? F.sha256Tree(record.target) : null;
     }
 
+    const hooksBaseline = F.snapshotFile(P.hooksJsonPath());
+    const configBaseline = F.snapshotFile(P.configTomlPath());
+    const agentsBaseline = F.snapshotFile(P.agentsMdPath());
     const hooksDir = P.installHooksDir();
     const managed = H.buildManagedConfig(hooksDir, path.join(stagedDeploy, 'hooks', 'hooks.json'));
-    const mergedHooks = H.mergeAgentsmdHooks(readOrNull(P.hooksJsonPath()), managed);
-    const cfg = CT.ensureCodexHooksFlag(readOrNull(P.configTomlPath()));
+    const mergedHooks = H.mergeAgentsmdHooks(snapshotText(hooksBaseline), managed);
+    const cfg = CT.ensureCodexHooksFlag(snapshotText(configBaseline));
     const statusLine = CT.ensureTuiStatusLine(cfg.content);
     const specText = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS.md'), 'utf8');
-    const am = AM.injectSpecBlock(readOrNull(P.agentsMdPath()), specText);
+    const am = AM.injectSpecBlock(snapshotText(agentsBaseline), specText);
     const extendedSrc = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md'), 'utf8');
     const packageInfo = (() => { try { return JSON.parse(fs.readFileSync(path.join(stagedDeploy, 'package.json'), 'utf8')); } catch { return {}; } })();
 
@@ -343,18 +360,25 @@ function install(nowIso) {
     };
 
     // Commit directories first; all hook commands already point at the final path.
+    verifyOwnedDeploy(priorManifest, P.installDir());
     swapDirectory(stagedDeploy, P.installDir(), transaction);
-    for (const name of skillNames) swapDirectory(path.join(stagedSkillsDir, name), path.join(P.codexSkillsDir(), name), transaction);
+    for (const name of skillNames) {
+      const target = path.join(P.codexSkillsDir(), name);
+      verifyOwnedSkill(priorManifest, name, target);
+      swapDirectory(path.join(stagedSkillsDir, name), target, transaction);
+    }
     for (const name of staleSkillNames) if (F.pathExists(path.join(P.codexSkillsDir(), name))) {
-      swapDirectory(null, path.join(P.codexSkillsDir(), name), transaction);
+      const target = path.join(P.codexSkillsDir(), name);
+      verifyOwnedSkill(priorManifest, name, target);
+      swapDirectory(null, target, transaction);
     }
 
-    writeTracked(transaction, P.hooksJsonPath(), mergedHooks);
-    if (cfg.changed || statusLine.changed) writeTracked(transaction, P.configTomlPath(), statusLine.content);
-    writeTracked(transaction, P.agentsMdPath(), am.content);
-    writeTracked(transaction, P.agentsExtendedMdPath(), extendedSrc);
+    writeTracked(transaction, P.hooksJsonPath(), mergedHooks, hooksBaseline);
+    if (cfg.changed || statusLine.changed) writeTracked(transaction, P.configTomlPath(), statusLine.content, configBaseline);
+    writeTracked(transaction, P.agentsMdPath(), am.content, agentsBaseline);
+    writeTracked(transaction, P.agentsExtendedMdPath(), extendedSrc, extendedBaseline);
     F.ensurePrivateDir(P.stateDir());
-    writeTracked(transaction, P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n');
+    writeTracked(transaction, P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n', priorManifestBaseline);
 
     cleanupTransaction(transaction, stageRoot);
     return manifest;

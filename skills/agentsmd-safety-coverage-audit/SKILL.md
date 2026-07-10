@@ -5,12 +5,20 @@ description: Check hook claims, bypass tokens, emitters, and hard-rules wiring f
 
 # agentsmd-safety-coverage-audit
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/safety-coverage-audit.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Header comments and deny/advisory strings are **documentation, not proof**. This audit cross-references the hook layer against its own claims and the manifest, four ways:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/safety-coverage-audit.js"      # human report
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/safety-coverage-audit.js" --json
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/safety-coverage-audit.js" --hook=pre-bash-safety-check.sh
+node "$AGENTSMD_ROOT/scripts/safety-coverage-audit.js"      # human report
+node "$AGENTSMD_ROOT/scripts/safety-coverage-audit.js" --json
+node "$AGENTSMD_ROOT/scripts/safety-coverage-audit.js" --hook=pre-bash-safety-check.sh
 ```
 
 - **Arrow-claim sweep** — every `→` claim (header block or deny/advisory string) is split on `→`/`;` and each clause keyword-grepped against the hook's code body (header stripped). A clause with zero hits = a **partial-impl candidate**: the header promises a link the code never implements (the failure this audit exists to catch).

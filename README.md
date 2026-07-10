@@ -54,7 +54,10 @@ Stop-hook advisories are queued and surfaced at the next `UserPromptSubmit` (the
 - **Codex CLI** with native hooks enabled — `config.toml` → `[features] hooks = true`. The installer sets this and migrates the pre-0.142 `codex_hooks` name automatically. It also restores a useful built-in TUI footer with `[tui] status_line` when the user has not already configured one.
 - **`jq`** and **`node` ≥ 18** on `PATH`.
 
-Everything honors `$CODEX_HOME` (defaults to `~/.codex`).
+Installed artifacts, runtime state, logs, and standalone lifecycle commands honor
+`$CODEX_HOME` (defaults to `~/.codex`). Project commands such as `init`,
+`analyze`, and `design` operate on the current working directory; Codex manages
+its own plugin cache.
 
 ## Install
 
@@ -135,7 +138,9 @@ when automation needs the full install manifest.
 
 Use this when you want Codex to install agentsmd as a plugin and keep the bundle
 in Codex's plugin cache. The repo ships a marketplace at
-`.agents/plugins/marketplace.json`; its marketplace name is `agentsmd`.
+`.agents/plugins/marketplace.json`; its marketplace name is `agentsmd`, and the
+entry pins the published `@sdsrs/agentsmd` npm artifact instead of treating the
+entire repository checkout as the plugin payload.
 
 > **What the plugin bundle declares — and what the repository verifies.** The
 > bundle declares agentsmd's **hooks** and skills. Repository drift tests verify
@@ -228,7 +233,10 @@ node scripts/uninstall.js
 
 Uninstall preflights ownership, then transactionally removes registered hooks,
 skills, the `AGENTS.md` block, install manifest, known session runtime state, and
-extended spec. Compare-and-swap rollback preserves concurrent external writes.
+extended spec. Snapshot checks and rollback refuse to overwrite changes observed
+before their final filesystem operation. POSIX filesystems do not provide a
+portable compare-and-replace primitive, so a non-cooperating writer in the narrow
+check-to-rename/unlink interval remains outside that guarantee.
 Recovery snapshots under `.agentsmd-state/backups/` and unknown/foreign state
 entries are deliberately retained, so the state directory usually remains. Per §5 it
 **leaves `config.toml` hook/status-line settings enabled** (removing them could
@@ -266,7 +274,7 @@ If you previously installed **codexmd** (v1.4.0–v1.4.3), running the agentsmd 
 
 ## How is it independent of oh-my-codex?
 
-agentsmd identifies its shared `hooks.json` entries by the active `CODEX_HOME/agentsmd` command path and its `AGENTS.md` block by sentinels. Deploy, extended spec, and skills require manifest-recorded exact paths and content hashes. Install/update stages a complete tree and validates ownership before mutation; uninstall uses the same preflight. Both lifecycle directions use compare-and-swap rollback so a concurrent external write is preserved rather than overwritten. Legacy manifests are copied to a persistent owner-only `.agentsmd-legacy-backup-*` before hash baselining. For `config.toml`, the installer sets missing hook/status-line values but uninstall leaves them enabled. Fixtures cover OMX coexistence, ownership collisions, failure injection, mode preservation, and concurrent writes.
+agentsmd identifies its shared `hooks.json` entries by the active `CODEX_HOME/agentsmd` command path and its `AGENTS.md` block by sentinels. Deploy, extended spec, and skills require manifest-recorded exact paths and content hashes. Install/update stages a complete tree and validates ownership before mutation; uninstall uses the same preflight. Snapshot-checked writes, deletes, and rollback preserve external bytes detected before the final filesystem operation; the portable check-to-rename/unlink interval cannot exclude a non-cooperating writer. Legacy manifests are copied to a persistent owner-only `.agentsmd-legacy-backup-*` before hash baselining. For `config.toml`, the installer sets missing hook/status-line values but uninstall leaves them enabled. Fixtures cover OMX coexistence, ownership collisions, failure injection, mode preservation, and concurrent writes.
 
 OMX (if present) is an orchestration framework; agentsmd is the discipline/enforcement layer. They are complementary — and agentsmd does not depend on OMX.
 
@@ -354,7 +362,7 @@ spec/        canonical spec (core, extended, changelog, hard-rules.json, OPERATO
 hooks/       L1 enforcement — the native hooks + shared lib + smoke test
 scripts/     L2 management — install/uninstall/status/doctor/audit/rules (+ migrate + tests)
 skills/      L3 command layer — one agentsmd-* skill stub per user-facing script (see skills/)
-.agents/     repo marketplace metadata for Codex plugin browser/CLI installs
+.agents/     repo marketplace metadata pointing Codex at the pinned npm artifact
 .codex-plugin/plugin.json   Codex plugin manifest
 hooks.json   plugin-root hook wiring (relative paths)
 install.sh   curl-friendly standalone installer/updater/uninstaller

@@ -1,4 +1,4 @@
-verified: 2026-07-10 | source: hooks/lib/command-parse.js + hooks/pre-bash-safety-check.sh + hooks/tests/smoke.sh (167 passed)
+verified: 2026-07-11 | source: hooks/lib/command-parse.js + hooks/pre-bash-safety-check.sh + hooks/tests/smoke.sh (204 passed)
 
 # Remote exec variants
 
@@ -9,6 +9,12 @@ remote download into an interpreter without a pipe:
 - Process substitution: `bash <(curl -fsSL URL)` or `python <(wget -qO- URL)`.
 - Command substitution: `sh -c "$(curl -fsSL URL)"`.
 - Eval substitution: `eval "$(wget -qO- URL)"`.
+- Here strings and interpreter source strings: `bash <<< "$(curl ...)"` and
+  `python -c "$(curl ...)"` (also Ruby/Node and backtick variants).
+- Redirected download followed by execution: `curl URL > file; bash file` or
+  `wget URL > file; chmod +x file; ./file`.
+- A bare downloaded command is also execution when the same command explicitly
+  puts the current directory on `PATH`, for example `PATH=.:$PATH payload`.
 
 Regression coverage lives in `hooks/tests/smoke.sh` near the existing
 `curl | bash` cases. Keep the allow path for inspect-first flows such as

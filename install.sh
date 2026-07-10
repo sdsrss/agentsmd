@@ -261,6 +261,7 @@ case "$ACTION" in
     else
       say ""
       say "doctor reported issues above — fix them, then re-run: $0 --doctor"
+      exit 1
     fi
     ;;
   uninstall)

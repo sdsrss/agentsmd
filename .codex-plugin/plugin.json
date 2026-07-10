@@ -1,6 +1,6 @@
 {
   "name": "agentsmd",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "CODEX-CODING-SPEC — global Codex workflow and evidence guidance, with native hooks for selected safety/report checks and rule-specific opportunity telemetry. Installs independently of oh-my-codex.",
   "author": {
     "name": "agentsmd"
@@ -23,6 +23,9 @@
     "longDescription": "agentsmd combines a global SPINE/evidence spec with bounded native hooks. Hooks block selected dangerous shell, secret-commit, vocabulary, and known-red CI patterns; Stop observers report detectable structure issues. Telemetry records rule-specific opportunities and outcomes for operator review. Manifest-backed ownership keeps standalone lifecycle changes scoped to agentsmd artifacts.",
     "developerName": "agentsmd",
     "category": "Coding",
+    "defaultPrompt": [
+      "Review this coding task against the repository's AGENTS.md instructions and report evidence-backed findings."
+    ],
     "capabilities": [
       "Read",
       "Write"

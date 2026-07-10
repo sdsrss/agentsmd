@@ -5,18 +5,17 @@
 // command-only, consent-gated (default PREVIEWS; --write commits), stateless. D1 /
 // the detect.js:6 "Phase 2" module. Reuses detect + the agents-md inject machinery.
 
-const fs = require('fs');
 const path = require('path');
 const { detect } = require('./lib/detect');
 const { parseDesignTokens } = require('./lib/design-tokens');
 const AM = require('./lib/agents-md');
+const F = require('./lib/fs-atomic');
 const { ArgvError, printHelpAndExit, parseStrict } = require('./lib/argv');
 
 const MAX_DESIGN_BLOCK_BYTES = 12 * 1024; // budget cap on the managed block (refuse, never truncate — like writeConventions)
 const CATEGORY_TITLES = { color: 'Colors', spacing: 'Spacing', typography: 'Typography', radius: 'Radii', shadow: 'Shadows', 'z-index': 'Z-index', breakpoint: 'Breakpoints', other: 'Other' };
 const POINTER_LINE = 'Design tokens: see [`DESIGN.md`](./DESIGN.md) (facts extracted by `agentsmd design`).';
 const TRUNC_NOTE = '_(token scan hit its file/byte cap — some CSS was not read, so results may be incomplete.)_';
-const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 function designReport(root) {
   const base = root || process.cwd();
@@ -65,9 +64,12 @@ function writeDesign(root, { commit = false } = {}) {
 
   const designPath = path.join(base, 'DESIGN.md');
   const agentsPath = path.join(base, 'AGENTS.md');
-  const design = AM.injectBlockBetween(readOrNull(designPath), body, AM.DESIGN_BEGIN, AM.DESIGN_END);
+  const designBefore = F.snapshotFile(designPath);
+  const designExisting = designBefore.present ? designBefore.content.toString('utf8') : null;
+  const design = AM.injectBlockBetween(designExisting, body, AM.DESIGN_BEGIN, AM.DESIGN_END);
   // Pointer only when AGENTS.md already exists — creating it is `agentsmd init`'s job.
-  const agentsExisting = readOrNull(agentsPath);
+  const agentsBefore = F.snapshotFile(agentsPath);
+  const agentsExisting = agentsBefore.present ? agentsBefore.content.toString('utf8') : null;
   const pointer = agentsExisting !== null
     ? AM.injectBlockBetween(agentsExisting, POINTER_LINE, AM.DESIGN_POINTER_BEGIN, AM.DESIGN_POINTER_END)
     : null;
@@ -79,8 +81,36 @@ function writeDesign(root, { commit = false } = {}) {
     agentsPath: pointer ? agentsPath : null, pointerAdded: !!pointer,
   };
   if (commit) {
-    fs.writeFileSync(designPath, design.content.endsWith('\n') ? design.content : design.content + '\n');
-    if (pointer) fs.writeFileSync(agentsPath, pointer.content);
+    const designContent = design.content.endsWith('\n') ? design.content : design.content + '\n';
+    let designAfter = null;
+    try {
+      F.writeFileAtomic(designPath, designContent, { expectedSnapshot: designBefore });
+      designAfter = {
+        present: true,
+        content: Buffer.from(designContent),
+        mode: designBefore.present ? designBefore.mode : 0o600,
+      };
+      if (pointer) F.writeFileAtomic(agentsPath, pointer.content, { expectedSnapshot: agentsBefore });
+    } catch (error) {
+      if (designAfter) {
+        try {
+          if (designBefore.present) {
+            F.writeFileAtomic(designPath, designBefore.content, {
+              expectedSnapshot: designAfter,
+              mode: designBefore.mode,
+              preserveMode: false,
+            });
+          } else {
+            F.unlinkFileIfUnchanged(designPath, designAfter);
+          }
+        } catch (rollbackError) {
+          const combined = new Error(`${error.message}; DESIGN.md rollback conflict: ${rollbackError.message}`);
+          combined.cause = error;
+          throw combined;
+        }
+      }
+      throw error;
+    }
   }
   return plan;
 }

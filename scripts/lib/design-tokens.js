@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createIgnoreMatcher } = require('./git-ignore');
 
 const MAX_CSS_FILES = 40, MAX_CSS_BYTES = 400 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', '.svelte-kit', 'coverage', 'vendor', '.code-graph']);
@@ -15,14 +16,17 @@ const CSS_RE = /\.(css|pcss|postcss)$/;
 
 // ignore-aware .css walk (capped like analyze.js gather).
 function findCssFiles(root) {
+  const ignore = createIgnoreMatcher(root);
   const files = []; let bytes = 0, truncated = false;
   const walk = (dir) => {
     if (truncated) return;
     let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (truncated) return;
       if (e.name.startsWith('.') && e.isDirectory()) continue; // skip dotdirs
       const full = path.join(dir, e.name);
+      if (ignored.has(path.resolve(full))) continue;
       if (e.isDirectory()) { if (!HARD_SKIP.has(e.name)) walk(full); continue; }
       if (!CSS_RE.test(e.name)) continue;
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }

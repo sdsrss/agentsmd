@@ -150,6 +150,7 @@ function lexSafetyCommands(source) {
       } else {
         word.value += ch;
         if (beginsExpansion(i)) word.expands = true;
+        if (ch === "`") word.expands = true;
       }
       started = true;
       continue;
@@ -187,6 +188,7 @@ function lexSafetyCommands(source) {
     } else {
       append(ch);
       if (beginsExpansion(i)) word.expands = true;
+      if (ch === "`") word.expands = true;
     }
   }
   if (quote !== null || substitutionDepth !== 0) return [];
@@ -300,6 +302,32 @@ function shellCommandSourceIndex(name, args) {
   return -1;
 }
 
+function interpreterCodeSource(name, args) {
+  const specs = name === "python" || /^python[0-9]/.test(name)
+    ? new Set(["-c"])
+    : name === "ruby" || /^ruby[0-9]/.test(name)
+      ? new Set(["-e"])
+      : name === "node" || /^node[0-9]/.test(name)
+        ? new Set(["-e", "--eval", "-p", "--print"])
+        : null;
+  if (!specs) return null;
+  for (let i = 0; i < args.length; i += 1) {
+    const value = args[i].value;
+    if (specs.has(value)) return args[i + 1] || null;
+    for (const flag of specs) {
+      if (flag.startsWith("--") && value.startsWith(`${flag}=`)) {
+        const offset = args[i].raw.indexOf("=") + 1;
+        return { ...args[i], value: value.slice(flag.length + 1), raw: args[i].raw.slice(offset) };
+      }
+      if (!flag.startsWith("--") && value.startsWith(flag) && value.length > flag.length) {
+        const offset = args[i].raw.indexOf(flag) + flag.length;
+        return { ...args[i], value: value.slice(flag.length), raw: args[i].raw.slice(offset) };
+      }
+    }
+  }
+  return null;
+}
+
 function nestedShellSources(commands) {
   const sources = [];
   for (const command of commands) {
@@ -375,24 +403,68 @@ function hasDownloader(source) {
   return lexSafetyCommands(source).some((command) => DOWNLOADERS.has(safetyExecutable(command).name));
 }
 
+function expandedSubstitutionHasDownloader(word) {
+  if (!word || !word.expands) return false;
+  return extractParenBodies(word.raw, "$(").some(hasDownloader)
+    || extractBacktickBodies(word.raw).some(hasDownloader);
+}
+
+function hereStringHasDownloader(args) {
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i].value === "<<<") {
+      if (expandedSubstitutionHasDownloader(args[i + 1])) return true;
+      i += 1;
+      continue;
+    }
+    if (args[i].value.startsWith("<<<") && args[i].value.length > 3) {
+      const rawOffset = args[i].raw.indexOf("<<<") + 3;
+      const source = {
+        ...args[i],
+        value: args[i].value.slice(3),
+        raw: args[i].raw.slice(rawOffset),
+      };
+      if (expandedSubstitutionHasDownloader(source)) return true;
+    }
+  }
+  return false;
+}
+
 function downloaderOutput(command) {
   const { name, args: commandArgs } = safetyExecutable(command);
   if (!DOWNLOADERS.has(name)) return "";
   const args = commandArgs.map((word) => word.value);
+  let explicitOutput = null;
+  let curlRemoteName = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (name === "curl" && (arg === "-o" || arg === "--output")) return args[i + 1] || "";
-    if (name === "wget" && (arg === "-O" || arg === "--output-document")) return args[i + 1] || "";
-    if (name === "curl" && arg.startsWith("--output=")) return arg.slice("--output=".length);
-    if (name === "wget" && arg.startsWith("--output-document=")) return arg.slice("--output-document=".length);
+    if (name === "curl" && (arg === "-o" || arg === "--output")) explicitOutput = args[i + 1] || "";
+    else if (name === "wget" && (arg === "-O" || arg === "--output-document")) explicitOutput = args[i + 1] || "";
+    else if (name === "curl" && arg.startsWith("--output=")) explicitOutput = arg.slice("--output=".length);
+    else if (name === "wget" && arg.startsWith("--output-document=")) explicitOutput = arg.slice("--output-document=".length);
+    if (name === "curl" && (arg === "-O" || arg === "--remote-name")) curlRemoteName = true;
     const shortOption = name === "curl" ? "o" : "O";
     if (/^-[^-]/.test(arg)) {
+      if (name === "curl" && arg.slice(1).includes("O")) curlRemoteName = true;
       const optionIndex = arg.slice(1).indexOf(shortOption);
       if (optionIndex >= 0) {
         const attached = arg.slice(optionIndex + 2);
-        return attached || args[i + 1] || "";
+        explicitOutput = attached || args[i + 1] || "";
       }
     }
+  }
+  if (explicitOutput !== null && explicitOutput !== "-") return explicitOutput;
+
+  // curl writes the response body to stdout unless an output/remote-name option
+  // redirects it. wget does so only with an explicit stdout output document.
+  const stdoutIsPayload = name === "curl"
+    ? !curlRemoteName && (explicitOutput === null || explicitOutput === "-")
+    : explicitOutput === "-";
+  if (!stdoutIsPayload) return "";
+  for (let i = 0; i < args.length; i += 1) {
+    const redirect = args[i].match(/^(?:1)?(?:>>|>\||>)(.*)$/);
+    if (!redirect) continue;
+    const target = redirect[1] || args[i + 1] || "";
+    if (target && !target.startsWith("&")) return target;
   }
   return "";
 }
@@ -402,6 +474,24 @@ function interpreterReadsFile(command, file) {
   if (!(name === "source" || name === ".") && !interpreterExecutesInput(command)) return false;
   const normalized = file.replace(/^\.\//, "");
   return args.some((word) => word.value.replace(/^\.\//, "") === normalized);
+}
+
+function commandExecutesFile(command, file) {
+  const { index } = safetyExecutable(command);
+  if (index < 0) return false;
+  const executable = command.words[index]?.value || "";
+  const normalize = (value) => value.replace(/^\.\//, "");
+  if (!executable.includes("/")) {
+    // A bare name is normally ambiguous, but an explicit command-local PATH
+    // component of `.` (or an empty component) deterministically searches the
+    // current directory. Correlate that bounded form with the downloaded file.
+    const currentDirOnPath = command.words.slice(0, index).some((word) => {
+      if (!word.value.startsWith("PATH=")) return false;
+      return word.value.slice("PATH=".length).split(":").some((part) => part === "" || part === ".");
+    });
+    return currentDirOnPath && executable === normalize(file);
+  }
+  return normalize(executable) === normalize(file);
 }
 
 function remoteExecState(commands, depth = 0) {
@@ -420,6 +510,9 @@ function remoteExecState(commands, depth = 0) {
     const executesInput = interpreterExecutesInput(command);
     const processConsumer = executesInput || name === "source" || name === ".";
     const interpreterCommand = executesInput && shellCommandSourceIndex(name, args) >= 0;
+    if (executesInput && hereStringHasDownloader(args)) return true;
+    const codeSource = interpreterCodeSource(name, args);
+    if (codeSource && expandedSubstitutionHasDownloader(codeSource)) return true;
     for (const arg of args) {
       if (processConsumer && extractParenBodies(arg.raw, "<(").some(hasDownloader)) return true;
       // eval reparses its complete argument, so any nested download can become
@@ -441,7 +534,7 @@ function remoteExecState(commands, depth = 0) {
     const output = downloaderOutput(commands[i]);
     if (!output) continue;
     for (let j = i + 1; j < commands.length; j += 1) {
-      if (interpreterReadsFile(commands[j], output)) return true;
+      if (interpreterReadsFile(commands[j], output) || commandExecutesFile(commands[j], output)) return true;
     }
   }
   if (depth < MAX_SAFETY_RECURSION) {
@@ -578,6 +671,188 @@ function commitUsesAll(args) {
   return false;
 }
 
+const COMMIT_LONG_VALUE_OPTIONS = new Set([
+  "--author",
+  "--cleanup",
+  "--date",
+  "--file",
+  "--fixup",
+  "--message",
+  "--reedit-message",
+  "--reuse-message",
+  "--squash",
+  "--template",
+  "--trailer",
+]);
+const COMMIT_LONG_FLAGS = new Set([
+  "--ahead-behind",
+  "--allow-empty",
+  "--allow-empty-message",
+  "--amend",
+  "--branch",
+  "--dry-run",
+  "--edit",
+  "--long",
+  "--no-ahead-behind",
+  "--no-edit",
+  "--no-post-rewrite",
+  "--no-status",
+  "--no-verify",
+  "--null",
+  "--porcelain",
+  "--quiet",
+  "--reset-author",
+  "--short",
+  "--signoff",
+  "--status",
+  "--verbose",
+]);
+
+// Model the content set selected by `git commit` without executing it. Unknown
+// syntax is returned explicitly so enforcement hooks can record an eligible,
+// unevaluated opportunity instead of scanning the wrong set and reporting green.
+function commitContent(args) {
+  const pathspecs = [];
+  const unsupported = [];
+  let all = false;
+  let include = false;
+  let only = false;
+  let pathspecFromFile = null;
+  let pathspecFileNul = false;
+  let afterDashDash = false;
+
+  function takeValue(index, option) {
+    if (index + 1 >= args.length) {
+      unsupported.push(`${option}:missing-value`);
+      return index;
+    }
+    return index + 1;
+  }
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (afterDashDash) {
+      pathspecs.push(arg);
+      continue;
+    }
+    if (arg === "--") {
+      afterDashDash = true;
+      continue;
+    }
+    if (!arg.startsWith("-") || arg === "-") {
+      pathspecs.push(arg);
+      continue;
+    }
+    if (arg === "--all") {
+      all = true;
+      continue;
+    }
+    if (arg === "--no-all") {
+      all = false;
+      continue;
+    }
+    if (arg === "--include") {
+      include = true;
+      continue;
+    }
+    if (arg === "--no-include") {
+      include = false;
+      continue;
+    }
+    if (arg === "--only") {
+      only = true;
+      continue;
+    }
+    if (arg === "--no-only") {
+      only = false;
+      continue;
+    }
+    if (arg === "--interactive" || arg === "--patch") {
+      unsupported.push(arg);
+      continue;
+    }
+    if (arg === "--no-interactive" || arg === "--no-patch") continue;
+    if (arg === "--pathspec-file-nul") {
+      pathspecFileNul = true;
+      continue;
+    }
+    if (arg === "--no-pathspec-file-nul") {
+      pathspecFileNul = false;
+      continue;
+    }
+    if (arg === "--pathspec-from-file") {
+      i = takeValue(i, arg);
+      if (i < args.length) pathspecFromFile = args[i];
+      continue;
+    }
+    if (arg.startsWith("--pathspec-from-file=")) {
+      pathspecFromFile = arg.slice("--pathspec-from-file=".length);
+      if (!pathspecFromFile) unsupported.push("--pathspec-from-file:missing-value");
+      continue;
+    }
+    if (COMMIT_LONG_VALUE_OPTIONS.has(arg)) {
+      i = takeValue(i, arg);
+      continue;
+    }
+    if ([...COMMIT_LONG_VALUE_OPTIONS].some((option) => arg.startsWith(`${option}=`))
+      || /^(?:--gpg-sign|--untracked-files)=/.test(arg)
+      || arg === "--gpg-sign"
+      || arg === "--no-gpg-sign"
+      || arg === "--untracked-files"
+      || (arg.startsWith("--no-") && COMMIT_LONG_FLAGS.has(`--${arg.slice(5)}`))
+      || COMMIT_LONG_FLAGS.has(arg)) {
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      unsupported.push(arg);
+      continue;
+    }
+
+    // Parse clustered short flags. Value-taking options consume the remainder
+    // of their token, so `-madd` is one message option and never `-m -a -d -d`.
+    const cluster = arg.slice(1);
+    for (let j = 0; j < cluster.length; j += 1) {
+      const option = cluster[j];
+      if (option === "a") all = true;
+      else if (option === "i") include = true;
+      else if (option === "o") only = true;
+      else if (option === "p") unsupported.push("-p");
+      else if ("mFCct".includes(option)) {
+        if (j + 1 === cluster.length) i = takeValue(i, `-${option}`);
+        break;
+      } else if (option === "S" || option === "u") {
+        // Both accept an optional attached value; neither consumes the next
+        // token, which may be a pathspec.
+        break;
+      } else if (!"qvsne".includes(option)) {
+        unsupported.push(`-${option}`);
+      }
+    }
+  }
+
+  if (pathspecFileNul && pathspecFromFile === null) unsupported.push("--pathspec-file-nul:without-file");
+  if (pathspecFromFile === "-") unsupported.push("--pathspec-from-file=-");
+  if (pathspecs.some((pathspec) => /[\r\n]/.test(pathspec))
+    || (pathspecFromFile !== null && /[\r\n]/.test(pathspecFromFile))) {
+    unsupported.push("newline-in-pathspec-argument");
+  }
+  if (pathspecFromFile !== null && pathspecs.length) unsupported.push("mixed-pathspec-sources");
+  if (include && only) unsupported.push("include-and-only");
+  if (all && (include || only || pathspecs.length || pathspecFromFile !== null)) unsupported.push("all-with-pathspec-mode");
+
+  let mode = "staged";
+  if (unsupported.length) mode = "unsupported";
+  else if (all) mode = "all";
+  else if (include) mode = "include";
+  else if (only || pathspecs.length || pathspecFromFile !== null) mode = "only";
+  if ((mode === "include" || mode === "only") && pathspecs.length === 0 && pathspecFromFile === null) {
+    unsupported.push(`${mode}:missing-pathspec`);
+    mode = "unsupported";
+  }
+
+  return { mode, pathspecs, pathspecFromFile, pathspecFileNul, unsupported };
+}
+
 function parseGit(words, wanted) {
   const executableIndex = commandStart(words);
   if (executableIndex < 0) return null;
@@ -627,6 +902,7 @@ function parseGit(words, wanted) {
   const subcommand = words[i] || "";
   if (!wanted.has(subcommand.toLowerCase())) return null;
   const args = words.slice(i + 1);
+  const isCommit = subcommand.toLowerCase() === "commit";
   return {
     executable: words[executableIndex],
     globalArgs,
@@ -634,9 +910,23 @@ function parseGit(words, wanted) {
     cwd,
     subcommand,
     args,
-    commitAll: subcommand.toLowerCase() === "commit" && commitUsesAll(args),
-    messages: subcommand.toLowerCase() === "commit" ? commitMessages(args) : [],
+    commitAll: isCommit && commitUsesAll(args),
+    commitContent: isCommit ? commitContent(args) : null,
+    messages: isCommit ? commitMessages(args) : [],
   };
+}
+
+function collectGitMatches(source, wanted, depth = 0) {
+  const matches = [];
+  for (const words of lexCommands(source)) {
+    const parsed = parseGit(words, wanted);
+    if (parsed) matches.push(parsed);
+  }
+  if (depth >= MAX_SAFETY_RECURSION) return matches;
+  for (const nested of nestedShellSources(lexSafetyCommands(source))) {
+    matches.push(...collectGitMatches(nested, wanted, depth + 1));
+  }
+  return matches;
 }
 
 function main() {
@@ -646,11 +936,7 @@ function main() {
   }
   const wanted = new Set((process.argv[2] || "").toLowerCase().split("|").filter(Boolean));
   const source = process.argv[3] || "";
-  const matches = [];
-  for (const words of lexCommands(source)) {
-    const parsed = parseGit(words, wanted);
-    if (parsed) matches.push(parsed);
-  }
+  const matches = collectGitMatches(source, wanted);
   process.stdout.write(JSON.stringify(matches));
 }
 

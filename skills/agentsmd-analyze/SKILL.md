@@ -5,10 +5,18 @@ description: Distill coding conventions from source into AGENTS.md (提炼代码
 
 # agentsmd-analyze
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/analyze.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Read a sample of the project's own source and distill the *implicit* conventions agentsmd-init can't detect, because they aren't stack facts. Gathering and writing are deterministic; the distillation is the one AI step. Run it from the project root, after `agentsmd-init`.
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --gather
+node "$AGENTSMD_ROOT/scripts/analyze.js" --gather
 ```
 
 Prints the detected stack plus a capped, ignore-aware source map (≤40 files, ≤200 KiB total; skips `node_modules`/`.git`/`dist`/`build`/`target`/`.next`/`.nuxt`/`coverage`/`__pycache__`/`vendor`/`.code-graph` plus any bare directory named in `.gitignore`) — operates on `process.cwd()`, not `$CODEX_HOME`. Read a representative sample of the listed files, not necessarily all of them.
@@ -18,7 +26,7 @@ Distill conventions from what you actually read: only include one with **≥2 in
 Write the distilled markdown to a temp file, then inject it:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --write --from <tmp-file>
+node "$AGENTSMD_ROOT/scripts/analyze.js" --write --from <tmp-file>
 ```
 
 Merges into the `# >>> agentsmd:conventions >>>` block of `./AGENTS.md`, preserving everything outside it, and refuses — never truncates — once the conventions block exceeds 6 KiB or the whole file would exceed ~32 KiB; if it refuses, distill fewer, higher-signal conventions rather than fighting the cap. Conventions the user hand-tuned themselves live outside the managed block — never move or absorb them into it.
@@ -28,7 +36,7 @@ Merges into the `# >>> agentsmd:conventions >>>` block of `./AGENTS.md`, preserv
 **Citation discipline:** the written block also carries a citation instruction at its top. When you (in this session or a later one) apply one of these conventions, record its `@conv-<dim>` anchor in a single trailing HTML comment — `<!-- adopted-conventions: @conv-naming @conv-error-handling -->` (real slugs, on the last line of your message), never inline in the prose the user reads (the signal must not intrude on your answer). That comment is this project's only adoption signal, recorded automatically by the `convention-cite-scan` Stop hook. A dimension nobody ever cites decays toward a prune candidate. Check the current standing:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption [--days=N] [--project=SUBSTR]
+node "$AGENTSMD_ROOT/scripts/analyze.js" --adoption [--days=N] [--project=SUBSTR]
 ```
 
 Reports each known anchor's cite count over the window and flags 0-cite dimensions as prune candidates. Advisory and read-only — it never edits `AGENTS.md` itself; a human decides whether to actually drop a dimension.

@@ -12,7 +12,6 @@ const path = require('path');
 const P = require('./paths');
 const H = require('./codex-hooks');
 const AM = require('./agents-md');
-const B = require('./backup');
 const F = require('./fs-atomic');
 
 // The former identity. Kept HERE — the only place agentsmd still names the old
@@ -26,9 +25,8 @@ const LEGACY_STATE_DIRNAME = '.codexmd-state';
 // A command hook belongs to the legacy codexmd install iff its path carries a
 // path under the old codexmd install dir in the active CODEX_HOME.
 const isLegacyCommand = (command) => {
-  if (typeof command !== 'string') return false;
-  const legacyInstallDir = path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME).replace(/\\/g, '/').replace(/\/+$/, '');
-  return command.replace(/\\/g, '/').includes(`${legacyInstallDir}/`);
+  const legacyHooksDir = path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME, 'hooks');
+  return H.isHookScriptCommand(command, legacyHooksDir);
 };
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -58,25 +56,27 @@ function removeLegacyCodexmd() {
   //    preserve all others (OMX, the user's own, any tenant) exactly as
   //    agentsmd's own remove does.
   const hooksPath = P.hooksJsonPath();
-  const hooksContent = readOrNull(hooksPath);
+  const hooksSnapshot = F.snapshotFile(hooksPath);
+  const hooksContent = hooksSnapshot.present ? hooksSnapshot.content.toString('utf8') : null;
   if (hooksContent !== null) {
     const r = H.removeMarkedHooks(hooksContent, isLegacyCommand);
     if (r.removed > 0) {
       report.hooksRemoved = r.removed; report.detected = true;
-      if (r.nextContent === null) { try { fs.unlinkSync(hooksPath); } catch {} }
-      else B.writeFileAtomic(hooksPath, r.nextContent); // atomic: a torn write of the SHARED hooks.json would corrupt OMX too
+      if (r.nextContent === null) F.unlinkFileIfUnchanged(hooksPath, hooksSnapshot);
+      else F.writeFileAtomic(hooksPath, r.nextContent, { expectedSnapshot: hooksSnapshot });
     }
   }
 
   // 2. AGENTS.md — drop the legacy sentinel block; keep all surrounding content.
   const amPath = P.agentsMdPath();
-  const amContent = readOrNull(amPath);
+  const amSnapshot = F.snapshotFile(amPath);
+  const amContent = amSnapshot.present ? amSnapshot.content.toString('utf8') : null;
   if (amContent !== null) {
     const r = AM.removeBlockBetween(amContent, LEGACY_BEGIN, LEGACY_END);
     if (r.changed) {
       report.agentsBlockRemoved = true; report.detected = true;
-      if (r.content.trim() === '') { try { fs.unlinkSync(amPath); } catch {} }
-      else B.writeFileAtomic(amPath, r.content); // atomic: AGENTS.md is shared with OMX/user content
+      if (r.content.trim() === '') F.unlinkFileIfUnchanged(amPath, amSnapshot);
+      else F.writeFileAtomic(amPath, r.content, { expectedSnapshot: amSnapshot });
     }
   }
 
@@ -141,23 +141,73 @@ function removeLegacyCodexmd() {
 // the promote/demote window (the whole point of the closed loop, ARCHITECTURE.md §4)
 // survives the upgrade instead of restarting from zero. NOT folded into
 // removeLegacyCodexmd(): that runs on uninstall too, where preserving telemetry is
-// wrong. Append (never overwrite — agentsmd.jsonl may already exist) and one-shot
-// (the legacy file is consumed, so a re-install is a no-op). Best-effort: a failure
-// here must never break install. Returns { migrated: <row count> }.
+// wrong. The current log update + legacy consumption form a recoverable two-file
+// transaction: CAS-write current, then CAS-delete legacy; a delete failure restores
+// current exactly before stopping. Returns { migrated: <row count> }.
+function restoreTelemetrySnapshot(file, before, after) {
+  if (before.present) {
+    F.writeFileAtomic(file, before.content, {
+      expectedSnapshot: after,
+      mode: before.mode,
+      preserveMode: false,
+    });
+  } else {
+    F.unlinkFileIfUnchanged(file, after);
+  }
+}
+
 function migrateLegacyTelemetry() {
   const legacy = path.join(P.codexHome(), 'logs', 'codexmd.jsonl');
   const current = P.logPath(); // logs/agentsmd.jsonl — the single file audit.js reads
+  const legacyBefore = F.snapshotFile(legacy);
+  if (!legacyBefore.present) return { migrated: 0 };
+
+  let data = legacyBefore.content;
+  const migrated = data.toString('utf8').split('\n').filter(Boolean).length;
+  if (migrated === 0) {
+    // Even an empty source must be consumed truthfully. A failed delete is an
+    // incomplete migration, not a successful zero-row no-op.
+    F.unlinkFileIfUnchanged(legacy, legacyBefore);
+    return { migrated: 0 };
+  }
+
+  const currentBefore = F.snapshotFile(current);
+  const prefix = currentBefore.present ? currentBefore.content : Buffer.alloc(0);
+  const separator = prefix.length > 0 && prefix[prefix.length - 1] !== 0x0a ? Buffer.from('\n') : Buffer.alloc(0);
+  if (data.length === 0 || data[data.length - 1] !== 0x0a) data = Buffer.concat([data, Buffer.from('\n')]);
+  const next = Buffer.concat([prefix, separator, data]);
+  F.writeFileAtomic(current, next, { expectedSnapshot: currentBefore });
+  const currentAfter = F.snapshotFile(current);
+
   try {
-    if (!fs.existsSync(legacy)) return { migrated: 0 };
-    let data = fs.readFileSync(legacy, 'utf8');
-    const migrated = data.split('\n').filter(Boolean).length;
-    if (migrated === 0) { try { fs.unlinkSync(legacy); } catch {} return { migrated: 0 }; }
-    if (!data.endsWith('\n')) data += '\n';
-    fs.mkdirSync(path.dirname(current), { recursive: true });
-    fs.appendFileSync(current, data);
-    fs.unlinkSync(legacy); // consumed → idempotent
-    return { migrated };
-  } catch { return { migrated: 0 }; }
+    F.unlinkFileIfUnchanged(legacy, legacyBefore); // consumed → retry is a no-op
+  } catch (unlinkError) {
+    const rollbackErrors = [];
+    try { restoreTelemetrySnapshot(current, currentBefore, currentAfter); }
+    catch (error) { rollbackErrors.push(`current rollback failed: ${error.message}`); }
+
+    // unlinkSync should not delete and then fail, but injected/filesystem edge
+    // cases can. Restore an absent legacy file only if it is still absent; never
+    // overwrite concurrently replaced legacy bytes.
+    const legacyNow = F.snapshotFile(legacy);
+    if (!F.sameSnapshot(legacyNow, legacyBefore)) {
+      if (!legacyNow.present) {
+        try {
+          F.writeFileAtomic(legacy, legacyBefore.content, {
+            expectedSnapshot: legacyNow,
+            mode: legacyBefore.mode,
+            preserveMode: false,
+          });
+        } catch (error) { rollbackErrors.push(`legacy restore failed: ${error.message}`); }
+      } else {
+        rollbackErrors.push('legacy rollback conflict: source changed concurrently');
+      }
+    }
+
+    const detail = rollbackErrors.length ? `; ${rollbackErrors.join('; ')}` : '; current log restored';
+    throw new Error(`legacy telemetry unlink failed: ${unlinkError.code || ''} ${unlinkError.message}${detail}`);
+  }
+  return { migrated };
 }
 
 // Exact paths mutated by the legacy migration. The transactional installer uses

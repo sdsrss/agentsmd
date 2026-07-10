@@ -50,6 +50,27 @@ withProject({ 'package.json': JSON.stringify({ name: 'plain', scripts: {} }) }, 
   t('node: missing scripts yield null commands', () => assert.strictEqual(d.commands.build, null));
 });
 
+for (const packageManager of ['npm', 'pnpm', 'yarn', 'bun']) withProject({
+  'package.json': JSON.stringify({
+    name: `${packageManager}-declared`,
+    packageManager: `${packageManager}@1.2.3`,
+    scripts: { test: 'runner' },
+  }),
+  'bun.lock': '',
+  'pnpm-lock.yaml': '',
+  'yarn.lock': '',
+}, (dir) => {
+  const d = detect(dir);
+  t(`node: packageManager declaration wins over conflicting locks (${packageManager})`, () => {
+    assert.strictEqual(d.packageManager, packageManager);
+    assert.strictEqual(d.commands.test, `${packageManager} run test`);
+  });
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'bun-modern' }), 'bun.lock': '' }, (dir) => {
+  t('node: modern bun.lock selects bun', () => assert.strictEqual(detect(dir).packageManager, 'bun'));
+});
+
 withProject({ 'Cargo.toml': '[package]\nname = "krate"\n' }, (dir) => {
   const d = detect(dir);
   t('rust: detected from Cargo.toml', () => assert.strictEqual(d.language, 'Rust'));
@@ -233,6 +254,96 @@ withProject({ 'package.json': JSON.stringify({ name: 'loc' }) }, (dir) => {
   t('--local: gitignore append is idempotent', () => {
     const gi = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
     assert.strictEqual(gi.match(/AGENTS\.local\.md/g).length, 1);
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'init-cas' }), 'AGENTS.md': '# original\n' }, (dir) => {
+  const target = path.join(dir, 'AGENTS.md');
+  const external = '# concurrent project tenant\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target)) {
+      injected = true;
+      fs.writeFileSync(target, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('init: AGENTS.md CAS rejects a concurrent replacement', () => assert(error && /concurrent change detected/i.test(error.message)));
+  t('init: AGENTS.md CAS preserves concurrent third-party bytes', () => assert.strictEqual(fs.readFileSync(target, 'utf8'), external));
+});
+withProject({
+  'package.json': JSON.stringify({ name: 'gitignore-cas' }),
+  'AGENTS.local.md': 'MINE',
+  '.gitignore': '# existing\n',
+}, (dir) => {
+  const target = path.join(dir, '.gitignore');
+  const external = '# concurrent ignore tenant\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target)) {
+      injected = true;
+      fs.writeFileSync(target, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('--local: .gitignore CAS rejects a concurrent replacement', () => assert(error && /concurrent change detected/i.test(error.message)));
+  t('--local: .gitignore CAS preserves concurrent third-party bytes', () => assert.strictEqual(fs.readFileSync(target, 'utf8'), external));
+});
+withProject({
+  'package.json': JSON.stringify({ name: 'gitignore-cas-new-local' }),
+  '.gitignore': '# existing\n',
+}, (dir) => {
+  const ignoreTarget = path.join(dir, '.gitignore');
+  const localTarget = path.join(dir, 'AGENTS.local.md');
+  const external = '# concurrent ignore tenant\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(ignoreTarget)) {
+      injected = true;
+      fs.writeFileSync(ignoreTarget, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('--local: gitignore failure rolls back a newly-created local file', () => {
+    assert(error && /concurrent change detected/i.test(error.message));
+    assert.strictEqual(fs.existsSync(localTarget), false);
+    assert.strictEqual(fs.readFileSync(ignoreTarget, 'utf8'), external);
+  });
+});
+withProject({ 'package.json': JSON.stringify({ name: 'local-race' }) }, (dir) => {
+  const target = path.join(dir, 'AGENTS.local.md');
+  const realWrite = fs.writeFileSync;
+  let injected = false;
+  fs.writeFileSync = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target) && options && options.flag === 'wx') {
+      injected = true;
+      realWrite(target, 'CONCURRENT LOCAL');
+    }
+    return realWrite(file, content, options);
+  };
+  let result;
+  try { result = init({ projectRoot: dir, local: true }); }
+  finally { fs.writeFileSync = realWrite; }
+  t('--local: exclusive create preserves a file won by a concurrent creator', () => {
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'CONCURRENT LOCAL');
+    assert.strictEqual(result.local.created, false);
   });
 });
 t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));

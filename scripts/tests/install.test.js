@@ -135,11 +135,13 @@ withSandbox((dir) => {
 withSandbox((dir) => {
   const retiredAgentsmd = `bash "${path.join(dir, 'agentsmd', 'hooks', 'retired-notification.sh')}"`;
   const unrelatedProjectHook = 'node "/home/user/projects/agentsmd/custom-hook.js"';
+  const agentsmdPathAsArgument = `node "/other/tenant.js" --log "${path.join(dir, 'agentsmd', 'hooks', 'session-start-check.sh')}"`;
   fs.writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify({
     hooks: {
       Notification: [{ hooks: [
         { type: 'command', command: retiredAgentsmd },
         { type: 'command', command: unrelatedProjectHook },
+        { type: 'command', command: agentsmdPathAsArgument },
         { type: 'command', command: OMX_CMD },
       ] }],
     },
@@ -152,7 +154,19 @@ withSandbox((dir) => {
     assert(!after.includes('retired-notification.sh'));
   });
   t('update preserves unrelated hooks in a project named agentsmd', () => assert.strictEqual(countCmd(after, (c) => c === unrelatedProjectHook), 1));
+  t('update preserves another tenant whose argument mentions an agentsmd hook path', () => assert.strictEqual(countCmd(after, (c) => c === agentsmdPathAsArgument), 1));
   t('update preserves other tenants in retired events', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 1));
+  t('hook ownership rejects path traversal outside the hooks root', () => {
+    assert.strictEqual(H.isAgentsmdCommand(`bash "${path.join(dir, 'agentsmd', 'hooks', '..', 'foreign.sh')}"`), false);
+  });
+  t('hook ownership rejects dynamically expanded script paths', () => {
+    const root = path.join(dir, 'agentsmd', 'hooks');
+    for (const command of [
+      `bash "${root}/$(printf session-start-check.sh)"`,
+      `bash "${root}/\`printf session-start-check.sh\`"`,
+      'bash "$CODEX_HOME/agentsmd/hooks/session-start-check.sh"',
+    ]) assert.strictEqual(H.isAgentsmdCommand(command), false, command);
+  });
 });
 
 // ── 3. round-trip: install → uninstall restores OMX byte-for-byte ───────────
@@ -168,6 +182,77 @@ withSandbox((dir) => {
   t('uninstall preserves OMX entries', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 3));
   t('round-trip is byte-identical to the OMX seed', () => assert.strictEqual(after, seed));
   t('uninstall leaves config.toml codex_hooks flag (§5)', () => assert.strictEqual(res.flagLeftEnabled, true));
+});
+
+// A successful commit must compare the shared-file bytes it merged against.
+// Inject a tenant edit immediately before agentsmd's hooks.json commit: the
+// update must abort and preserve the injected bytes instead of replacing them.
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const hooks = path.join(dir, 'hooks.json');
+  const external = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo concurrent-tenant' }] }] } }, null, 2) + '\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(hooks)) {
+      injected = true;
+      fs.writeFileSync(hooks, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { F.writeFileAtomic = realWrite; }
+  t('install CAS aborts when hooks.json changes after merge', () => assert(error && /concurrent.*hooks\.json|hooks\.json.*concurrent/i.test(error.message)));
+  t('install CAS preserves the concurrent hooks tenant bytes', () => assert.strictEqual(fs.readFileSync(hooks, 'utf8'), external));
+});
+
+for (const [name, relative, prepare, external] of [
+  ['config.toml', 'config.toml', (file) => fs.writeFileSync(file, '[features]\nhooks = false\n'), '# concurrent config tenant\n[features]\nhooks = false\n'],
+  ['AGENTS.md', 'AGENTS.md', () => {}, '# concurrent AGENTS tenant\n'],
+  ['AGENTS-extended.md', 'AGENTS-extended.md', () => {}, '# concurrent extended tenant\n'],
+  ['manifest.json', '.agentsmd-state/manifest.json', () => {}, '{"concurrent":"manifest-tenant"}\n'],
+]) withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const target = path.join(dir, relative);
+  prepare(target);
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target)) {
+      injected = true;
+      fs.writeFileSync(target, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { F.writeFileAtomic = realWrite; }
+  t(`install CAS aborts when ${name} changes after merge`, () => assert(error && /concurrent change detected/i.test(error.message)));
+  t(`install CAS preserves concurrent ${name} bytes`, () => assert.strictEqual(fs.readFileSync(target, 'utf8'), external));
+});
+
+for (const [name, relative] of [
+  ['deploy', 'agentsmd'],
+  ['skill', 'skills/agentsmd-audit'],
+]) withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const target = path.join(dir, relative);
+  const foreign = path.join(target, 'concurrent-tenant.txt');
+  const F = require('../lib/fs-atomic');
+  const realHash = F.sha256Tree;
+  let targetHashes = 0;
+  F.sha256Tree = (root) => {
+    if (path.resolve(String(root)) === path.resolve(target) && ++targetHashes === 2) fs.writeFileSync(foreign, 'concurrent owned-artifact replacement\n');
+    return realHash(root);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { F.sha256Tree = realHash; }
+  t(`install revalidates ${name} immediately before replacement`, () => assert(error && /ownership collision/i.test(error.message)));
+  t(`install preserves concurrently changed ${name}`, () => assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'concurrent owned-artifact replacement\n'));
 });
 
 // ── 3b. uninstall aborts on an unparseable shared hooks.json (mirror of install) ─
@@ -291,8 +376,22 @@ withSandbox((dir) => {
     assert(ext.includes('CODEX-CODING-SPEC') && ext.includes('Extended'), 'extended header missing');
     assert.strictEqual(ext, fs.readFileSync(path.join(dir, 'agentsmd', 'spec', 'AGENTS-extended.md'), 'utf8'), 'top-level extended must match the install-dir copy');
   });
+  t('standalone deploy excludes source-only hook and script tests', () => {
+    assert(!fs.existsSync(path.join(dir, 'agentsmd', 'hooks', 'tests')), 'hooks/tests leaked into deploy');
+    assert(!fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'tests')), 'scripts/tests leaked into deploy');
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'hooks', 'lib')), 'runtime hooks/lib missing');
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'lib')), 'runtime scripts/lib missing');
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.agentsmd-state', 'manifest.json'), 'utf8'));
+    assert(!manifest.deployedFiles.some((entry) => /^(?:hooks|scripts)[\\/]tests(?:[\\/]|$)/.test(entry.path)), 'manifest inventories source tests');
+    assert.strictEqual(
+      manifest.ownedArtifacts.deploy.sha256,
+      require('../lib/fs-atomic').sha256Tree(path.join(dir, 'agentsmd')),
+      'manifest deploy hash does not match filtered tree'
+    );
+  });
   const st = status();
   t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert.strictEqual(st.agentsmdHooksRegistered, EXPECTED_HOOKS); });
+  t('status reports a valid ownership manifest', () => { assert.strictEqual(st.manifestValid, true); assert.strictEqual(st.manifestError, null); });
   t('status reports the agentsmd status line preset', () => { assert.strictEqual(st.tuiStatusLineConfigured, true); assert.strictEqual(st.agentsmdStatusLinePreset, true); });
   fs.mkdirSync(path.join(dir, 'logs'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'logs', 'agentsmd.jsonl'), [
@@ -425,6 +524,34 @@ withSandbox((dir) => {
     assert(/Usage: agentsmd doctor/.test(out), out);
     assert(/install health checks/.test(out), out);
   });
+});
+
+withSandbox((dir) => {
+  const state = path.join(dir, '.agentsmd-state');
+  fs.mkdirSync(state, { recursive: true });
+  const manifestPath = path.join(state, 'manifest.json');
+  const { status } = loadModules();
+  const invalidManifests = [
+    ['malformed JSON', '{'],
+    ['JSON null', 'null'],
+    ['JSON array', '[]'],
+    ['missing identity', '{}'],
+    ['wrong identity', JSON.stringify({ name: 'other', version: '3.1.0', installedAt: '2026-07-02T00:00:00.000Z', ownedArtifacts: {} })],
+    ['invalid version', JSON.stringify({ name: 'agentsmd', version: true, installedAt: '2026-07-02T00:00:00.000Z', ownedArtifacts: {} })],
+    ['invalid installedAt', JSON.stringify({ name: 'agentsmd', version: '3.1.0', installedAt: 'not-a-date', ownedArtifacts: {} })],
+    ['invalid ownedArtifacts', JSON.stringify({ name: 'agentsmd', version: '3.1.0', installedAt: '2026-07-02T00:00:00.000Z', ownedArtifacts: [] })],
+  ];
+  for (const [label, body] of invalidManifests) {
+    fs.writeFileSync(manifestPath, body);
+    const st = status();
+    t(`status rejects ${label} as an installed manifest`, () => {
+      assert.strictEqual(st.installed, false);
+      assert.strictEqual(st.manifestValid, false);
+      assert.match(st.manifestError, /manifest/i);
+      assert.strictEqual(st.installedVersion, null);
+      assert.strictEqual(st.installedAt, null);
+    });
+  }
 });
 
 // ── 4b. doctor catches a broken registration even if files remain installed ─
@@ -760,11 +887,33 @@ withSandbox((dir) => {
     const r = CT.ensureCodexHooksFlag('[features]\nhooks = false\n');
     assert(/hooks = true/.test(r.content) && !/=\s*false/.test(r.content));
   });
+  t('config: deprecated codex_hooks=false migrates to canonical hooks=true', () => {
+    const table = CT.ensureCodexHooksFlag('[features]\ncodex_hooks = false\n');
+    const inline = CT.ensureCodexHooksFlag('features = { codex_hooks = false }\n');
+    for (const r of [table, inline]) {
+      assert(/\bhooks\s*=\s*true/.test(r.content), r.content);
+      assert(!/codex_hooks/.test(r.content), r.content);
+    }
+  });
   t('config: [features] table with inline comment is recognized', () => {
     const r = CT.ensureCodexHooksFlag('[features] # Codex feature flags\nmulti_agent = true\n');
     assert.strictEqual(r.reason, 'inserted-under-features');
     assert(!/\n\[features\]\n/.test(r.content), 'must not append a duplicate [features] table: ' + r.content);
     assert(/\[features\] # Codex feature flags\nhooks = true\nmulti_agent = true/.test(r.content), 'hooks inserted under existing table: ' + r.content);
+  });
+  t('config: quoted ["features"] table is recognized without appending a duplicate', () => {
+    const input = '["features"]\nmulti_agent = true\n';
+    const r = CT.ensureCodexHooksFlag(input);
+    assert.strictEqual(r.reason, 'inserted-under-features');
+    assert.strictEqual((r.content.match(/features/g) || []).length, 1, r.content);
+    assert(CT.isCodexHooksEnabled(r.content), r.content);
+  });
+  t('config: quoted hooks key under ["features"] is enabled in place', () => {
+    const input = '["features"]\n"hooks" = false\n';
+    const r = CT.ensureCodexHooksFlag(input);
+    assert(!/=\s*false/.test(r.content), r.content);
+    assert.strictEqual((r.content.match(/features/g) || []).length, 1, r.content);
+    assert(CT.isCodexHooksEnabled(r.content), r.content);
   });
   t('config: commented [features] hooks=false → set true in place', () => {
     const r = CT.ensureCodexHooksFlag('[features] # Codex feature flags\nhooks = false\n');
@@ -795,6 +944,12 @@ withSandbox((dir) => {
     assert.strictEqual(r.content, 'features = { hooks = true }\n');
     assert(!/codex_hooks/.test(r.content), r.content);
   });
+  t('config: inline hooks=false plus codex_hooks=true deduplicates to one hooks=true', () => {
+    const r = CT.ensureCodexHooksFlag('features = { hooks = false, codex_hooks = true }\n');
+    assert.strictEqual((r.content.match(/\bhooks\s*=/g) || []).length, 1, r.content);
+    assert(!/codex_hooks/.test(r.content), r.content);
+    assert(/hooks\s*=\s*true/.test(r.content), r.content);
+  });
   t('config: inline features w/o hooks → inserted; siblings + comment preserved', () => {
     const r = CT.ensureCodexHooksFlag('features = { web_search = true } # flags\n');
     assert.strictEqual(r.content, 'features = { web_search = true, hooks = true } # flags\n');
@@ -810,6 +965,17 @@ withSandbox((dir) => {
     assert(!/codex_hooks/.test(r.content), 'codex_hooks dropped: ' + r.content);
     assert(!/=\s*false/.test(r.content), 'no leftover false: ' + r.content);
   });
+  t('config: dual false legacy/canonical flags collapse to one canonical true key', () => {
+    const table = CT.ensureCodexHooksFlag('[features]\ncodex_hooks = false\nhooks = false\n');
+    const inline = CT.ensureCodexHooksFlag('features = { codex_hooks = false, hooks = false }\n');
+    assert.strictEqual((table.content.match(/^\s*hooks\s*=/gm) || []).length, 1, table.content);
+    assert.strictEqual((inline.content.match(/\bhooks\s*=/g) || []).length, 1, inline.content);
+    for (const r of [table, inline]) {
+      assert(!/codex_hooks/.test(r.content), r.content);
+      assert(/\bhooks\s*=\s*true/.test(r.content), r.content);
+      assert(!/=\s*false/.test(r.content), r.content);
+    }
+  });
   t('config: missing [tui] gets the agentsmd status line preset', () => {
     const r = CT.ensureTuiStatusLine('[features]\nhooks = true\n');
     assert.strictEqual(r.reason, 'appended-tui-table');
@@ -820,6 +986,13 @@ withSandbox((dir) => {
     assert.strictEqual(r.reason, 'inserted-under-tui');
     assert(!/\n\[tui\]\n/.test(r.content), 'must not append a duplicate [tui] table: ' + r.content);
     assert(/\[tui\] # display\nstatus_line = \["model-with-reasoning"/.test(r.content), r.content);
+  });
+  t('config: quoted ["tui"] table is recognized without appending a duplicate', () => {
+    const input = '["tui"]\nnotifications = true\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.strictEqual(r.reason, 'inserted-under-tui');
+    assert.strictEqual((r.content.match(/tui/g) || []).length, 1, r.content);
+    assert(CT.isAgentsmdStatusLineEnabled(r.content), r.content);
   });
   t('config: existing user status_line is preserved', () => {
     const input = '[tui]\nstatus_line = ["model"]\nnotifications = true\n';
@@ -878,6 +1051,7 @@ withSandbox((dir) => {
     assert.strictEqual(r.changed, false);
     assert.strictEqual(r.content, input);
     assert(!/\[tui\]/.test(r.content), 'no appended [tui] table: ' + r.content);
+    assert.deepStrictEqual(CT.getTuiStatusLine(input).items, ['git-branch']);
   });
   t('config: inline tui without status_line → inserted inside braces', () => {
     const r = CT.ensureTuiStatusLine('tui = { theme = "dark" }\n');
@@ -888,6 +1062,12 @@ withSandbox((dir) => {
     assert(/tui = \{ theme = "dark", status_line = \["model-with-reasoning"/.test(r.content), r.content);
     // idempotent: a second run sees the inline status_line and no-ops.
     assert.strictEqual(CT.ensureTuiStatusLine(r.content).changed, false, 're-run must no-op');
+  });
+  t('config: inline tui insertion ignores a closing brace in the trailing comment', () => {
+    const input = 'tui = { theme = "dark" } # tenant comment } stays\n';
+    const r = CT.ensureTuiStatusLine(input);
+    assert.match(r.content, /^tui = \{ theme = "dark", status_line = \[/);
+    assert(r.content.endsWith(' } # tenant comment } stays\n'), r.content);
   });
   t('config: projectDocMaxBytes reads the cap, defaults to 32768', () => {
     assert.strictEqual(CT.projectDocMaxBytes('project_doc_max_bytes = 65536\n'), 65536);
@@ -963,6 +1143,74 @@ withSandbox((dir) => {
     assert.strictEqual(m.agentsBlockRemoved, true);
     assert.strictEqual(m.installDirRemoved, true);
   });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  fs.writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo initial-uninstall-tenant' }] }] },
+  }, null, 2) + '\n');
+  install('2026-07-03T00:00:00.000Z');
+  const hooks = path.join(dir, 'hooks.json');
+  const external = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo concurrent-uninstall-tenant' }] }] } }, null, 2) + '\n';
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(hooks)) {
+      injected = true;
+      fs.writeFileSync(hooks, external);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { F.writeFileAtomic = realWrite; }
+  t('uninstall CAS aborts when hooks.json changes after removal was computed', () => assert(error && /concurrent.*hooks\.json|hooks\.json.*concurrent/i.test(error.message)));
+  t('uninstall CAS preserves the concurrent hooks tenant bytes', () => assert.strictEqual(fs.readFileSync(hooks, 'utf8'), external));
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-03T00:00:00.000Z');
+  const target = path.join(dir, 'agentsmd');
+  const foreign = path.join(target, 'concurrent-uninstall-tenant.txt');
+  const F = require('../lib/fs-atomic');
+  const realHash = F.sha256Tree;
+  let targetHashes = 0;
+  F.sha256Tree = (root) => {
+    if (path.resolve(String(root)) === path.resolve(target) && ++targetHashes === 2) fs.writeFileSync(foreign, 'concurrent uninstall replacement\n');
+    return realHash(root);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { F.sha256Tree = realHash; }
+  t('uninstall revalidates deploy immediately before quarantine', () => assert(error && /ownership collision.*deploy/i.test(error.message)));
+  t('uninstall preserves concurrently changed deploy and manifest', () => {
+    assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'concurrent uninstall replacement\n');
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+for (const [name, relative, external] of [
+  ['extended', 'AGENTS-extended.md', '# concurrent uninstall extended\n'],
+  ['manifest', '.agentsmd-state/manifest.json', '{"concurrent":"uninstall-manifest"}\n'],
+]) withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-03T00:00:00.000Z');
+  const target = path.join(dir, relative);
+  const F = require('../lib/fs-atomic');
+  const realUnlink = F.unlinkFileIfUnchanged;
+  let injected = false;
+  F.unlinkFileIfUnchanged = (file, expected) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(target)) {
+      injected = true;
+      fs.writeFileSync(target, external);
+    }
+    return realUnlink(file, expected);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { F.unlinkFileIfUnchanged = realUnlink; }
+  t(`uninstall refuses to unlink concurrently replaced ${name}`, () => assert(error && /concurrent change detected/i.test(error.message)));
+  t(`uninstall preserves concurrently replaced ${name}`, () => assert.strictEqual(fs.readFileSync(target, 'utf8'), external));
 });
 
 withSandbox((dir) => {
@@ -1055,6 +1303,79 @@ withSandbox((dir) => {
   // idempotent: a second install must not double-append (legacy file already gone).
   install('2026-07-03T00:00:00.000Z');
   t('migrate: re-install does not duplicate migrated rows', () => assert.strictEqual(fs.readFileSync(newLog, 'utf8').split('\n').filter(Boolean).length, 2));
+});
+
+withSandbox((dir) => {
+  const legacyLog = path.join(dir, 'logs', 'codexmd.jsonl');
+  const currentLog = path.join(dir, 'logs', 'agentsmd.jsonl');
+  fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+  fs.writeFileSync(legacyLog, '{"legacy":"once"}\n');
+  fs.writeFileSync(currentLog, '{"current":"seed"}\n');
+  const beforeCurrent = fs.readFileSync(currentLog);
+  const { M } = loadModules();
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (path.resolve(String(file)) === path.resolve(legacyLog)) {
+      const error = new Error('injected legacy unlink failure'); error.code = 'EACCES'; throw error;
+    }
+    return realUnlink(file);
+  };
+  let error;
+  try { M.migrateLegacyTelemetry(); } catch (e) { error = e; } finally { fs.unlinkSync = realUnlink; }
+  t('migrate telemetry: legacy unlink failure is surfaced', () => assert(error && /legacy.*unlink|unlink.*legacy|EACCES/i.test(error.message)));
+  t('migrate telemetry: unlink failure restores exact pre-append current bytes and retains legacy', () => {
+    assert(fs.readFileSync(currentLog).equals(beforeCurrent));
+    assert.strictEqual(fs.readFileSync(legacyLog, 'utf8'), '{"legacy":"once"}\n');
+  });
+  const retry = M.migrateLegacyTelemetry();
+  t('migrate telemetry: retry after unlink failure appends the legacy row exactly once', () => {
+    assert.strictEqual(retry.migrated, 1);
+    assert.deepStrictEqual(fs.readFileSync(currentLog, 'utf8').trim().split('\n'), ['{"current":"seed"}', '{"legacy":"once"}']);
+    assert(!fs.existsSync(legacyLog));
+  });
+});
+
+withSandbox((dir) => {
+  const legacyLog = path.join(dir, 'logs', 'codexmd.jsonl');
+  fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+  fs.writeFileSync(legacyLog, '');
+  const { M } = loadModules();
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (path.resolve(String(file)) === path.resolve(legacyLog)) throw new Error('injected empty legacy unlink failure');
+    return realUnlink(file);
+  };
+  let error;
+  try { M.migrateLegacyTelemetry(); } catch (e) { error = e; } finally { fs.unlinkSync = realUnlink; }
+  t('migrate telemetry: empty legacy unlink failure is not reported as success', () => {
+    assert(error && /empty legacy unlink failure/.test(error.message));
+    assert(fs.existsSync(legacyLog));
+  });
+});
+
+withSandbox((dir) => {
+  const legacyLog = path.join(dir, 'logs', 'codexmd.jsonl');
+  const currentLog = path.join(dir, 'logs', 'agentsmd.jsonl');
+  fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+  fs.writeFileSync(legacyLog, '{"legacy":"conflict"}\n');
+  fs.writeFileSync(currentLog, '{"current":"seed"}\n');
+  const concurrent = '{"current":"concurrent-tenant"}\n';
+  const { M } = loadModules();
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (path.resolve(String(file)) === path.resolve(legacyLog)) {
+      fs.writeFileSync(currentLog, concurrent);
+      throw new Error('injected unlink plus rollback conflict');
+    }
+    return realUnlink(file);
+  };
+  let error;
+  try { M.migrateLegacyTelemetry(); } catch (e) { error = e; } finally { fs.unlinkSync = realUnlink; }
+  t('migrate telemetry: unsafe rollback conflict is surfaced and concurrent current bytes survive', () => {
+    assert(error && /rollback|concurrent/i.test(error.message));
+    assert.strictEqual(fs.readFileSync(currentLog, 'utf8'), concurrent);
+    assert(fs.existsSync(legacyLog));
+  });
 });
 
 // Uninstall is a multi-artifact transaction too. A failure after shared files

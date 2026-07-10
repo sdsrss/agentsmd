@@ -65,6 +65,62 @@ t('preview (default) writes NOTHING; --write creates DESIGN.md block + AGENTS.md
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
 });
 
+t('two-file write rolls DESIGN.md back when the AGENTS.md CAS fails', () => {
+  const agentsOriginal = '# Project\n\nOriginal tenant notes.\n';
+  const designOriginal = '# Existing design notes\n\nKeep exactly.\n';
+  const agentsExternal = '# concurrent AGENTS tenant\n';
+  const sb = frontendFixture({ agentsMd: agentsOriginal });
+  const designPath = path.join(sb, 'DESIGN.md');
+  const agentsPath = path.join(sb, 'AGENTS.md');
+  fs.writeFileSync(designPath, designOriginal);
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  let injected = false;
+  F.writeFileAtomic = (file, content, options) => {
+    if (!injected && path.resolve(String(file)) === path.resolve(agentsPath)) {
+      injected = true;
+      fs.writeFileSync(agentsPath, agentsExternal);
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { DZ.writeDesign(sb, { commit: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  try {
+    assert(error && /concurrent change detected/i.test(error.message), error && error.message);
+    assert.strictEqual(fs.readFileSync(designPath, 'utf8'), designOriginal, 'first file was not rolled back');
+    assert.strictEqual(fs.readFileSync(agentsPath, 'utf8'), agentsExternal, 'concurrent second-file bytes were overwritten');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
+t('rollback CAS preserves concurrent third-party DESIGN.md bytes', () => {
+  const designOriginal = '# Original design tenant\n';
+  const designExternal = '# concurrent DESIGN tenant\n';
+  const sb = frontendFixture({ agentsMd: '# Project\n' });
+  const designPath = path.join(sb, 'DESIGN.md');
+  const agentsPath = path.join(sb, 'AGENTS.md');
+  fs.writeFileSync(designPath, designOriginal);
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  F.writeFileAtomic = (file, content, options) => {
+    if (path.resolve(String(file)) === path.resolve(agentsPath)) {
+      fs.writeFileSync(designPath, designExternal);
+      throw new Error('simulated pointer write failure');
+    }
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { DZ.writeDesign(sb, { commit: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  try {
+    assert(error && /rollback conflict/i.test(error.message), error && error.message);
+    assert.strictEqual(fs.readFileSync(designPath, 'utf8'), designExternal, 'rollback overwrote concurrent DESIGN.md bytes');
+    assert.strictEqual(fs.readFileSync(agentsPath, 'utf8'), '# Project\n', 'failed pointer write changed AGENTS.md');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
 t('re-run is idempotent: updates the block in place, preserves user content outside', () => {
   const sb = frontendFixture({ agentsMd: '# Project\n' });
   try {

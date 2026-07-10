@@ -8,6 +8,7 @@
 // pre-exists or OMX is installed.
 
 const fs = require('fs');
+const path = require('path');
 const P = require('./paths');
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -22,16 +23,62 @@ const replacePlaceholder = (v, replacement) => {
   return out;
 };
 
-// A command hook is agentsmd's iff its command path resolves under agentsmd's
-// own install dir in the active CODEX_HOME. Matching the exact install dir avoids
-// deleting an unrelated tenant whose command happens to live in a project
-// directory named `agentsmd`.
+// Parse the simple argv form used by Codex command hooks. Shell operators make
+// the ownership ambiguous, so fail closed and preserve the entry. This is not a
+// general shell parser: managed registry commands are deliberately `bash PATH`.
+function shellArgv(command) {
+  if (typeof command !== 'string') return null;
+  const argv = [];
+  let word = '', started = false, quote = null, escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (escaped) { word += ch; started = true; escaped = false; continue; }
+    if (quote === 'single') {
+      if (ch === "'") quote = null; else word += ch;
+      started = true;
+      continue;
+    }
+    if (quote === 'double') {
+      if (ch === '"') { quote = null; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '$' || ch === '`') return null;
+      word += ch; started = true;
+      continue;
+    }
+    if (ch === "'") { quote = 'single'; started = true; continue; }
+    if (ch === '"') { quote = 'double'; started = true; continue; }
+    if (ch === '\\') { escaped = true; started = true; continue; }
+    if (ch === '$' || ch === '`') return null;
+    if (/\s/.test(ch)) {
+      if (started) { argv.push(word); word = ''; started = false; }
+      continue;
+    }
+    if (/[;&|<>]/.test(ch)) return null;
+    word += ch; started = true;
+  }
+  if (quote || escaped) return null;
+  if (started) argv.push(word);
+  return argv;
+}
+
+// A managed hook is owned only when the actual script operand executed by bash
+// is below the exact hooks directory. A path merely appearing in another
+// tenant's logging/config argument is not provenance and must be preserved.
+function isHookScriptCommand(command, hooksDir) {
+  const argv = shellArgv(command);
+  if (!argv || argv.length !== 2 || pathBasename(argv[0]) !== 'bash') return false;
+  const root = path.resolve(String(hooksDir));
+  const script = path.resolve(String(argv[1]));
+  const relative = path.relative(root, script);
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function pathBasename(value) {
+  return String(value).replace(/\\/g, '/').split('/').pop();
+}
+
 function isAgentsmdCommand(command) {
-  if (typeof command !== 'string') return false;
-  const installDir = P.installDir();
-  const normalizedCommand = command.replace(/\\(["\\$`])/g, '$1').replace(/\\/g, '/');
-  const normalizedInstallDir = installDir.replace(/\\/g, '/').replace(/\/+$/, '');
-  return normalizedCommand.includes(`${normalizedInstallDir}/`);
+  return isHookScriptCommand(command, P.installHooksDir());
 }
 
 // Build agentsmd's managed hook config from the repo template, substituting the
@@ -149,6 +196,6 @@ function countAgentsmdHooks(content) {
 }
 
 module.exports = {
-  isAgentsmdCommand, buildManagedConfig, parseHooksConfig,
+  isAgentsmdCommand, isHookScriptCommand, buildManagedConfig, parseHooksConfig,
   mergeAgentsmdHooks, removeAgentsmdHooks, removeMarkedHooks, countAgentsmdHooks, serialize,
 };

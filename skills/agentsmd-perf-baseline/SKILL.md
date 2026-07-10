@@ -5,12 +5,20 @@ description: Benchmark native hook wall-clock cost with OFF/ON medians in an iso
 
 # agentsmd-perf-baseline
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/perf-baseline.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 Turns "the hooks add ~200–400 ms" (a guess) into a measured per-hook table. For each hook it times, over N runs, the median of **OFF** (`DISABLE_AGENTSMD_HOOKS=1` → the hook exits at its kill-switch line: bash-spawn + startup floor) vs **ON** (the hook does its real work); `delta = ON − OFF` is the hook's own logic cost.
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/perf-baseline.js"                    # all 15 hooks, 10 runs
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/perf-baseline.js" --event=PreToolUse # just the per-Bash-call hooks
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/perf-baseline.js" --runs=3 --json
+node "$AGENTSMD_ROOT/scripts/perf-baseline.js"                    # all 15 hooks, 10 runs
+node "$AGENTSMD_ROOT/scripts/perf-baseline.js" --event=PreToolUse # just the per-Bash-call hooks
+node "$AGENTSMD_ROOT/scripts/perf-baseline.js" --runs=3 --json
 ```
 
 - **`latency added per event firing`** (sum of ON medians) is the number that matters: the 5 PreToolUse:Bash hooks fire on every Bash call; the 7 Stop hooks fire once per turn.

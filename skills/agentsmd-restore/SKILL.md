@@ -5,13 +5,21 @@ description: Restore hooks.json, config.toml, and AGENTS.md from an agentsmd pre
 
 # agentsmd-restore
 
+Resolve the script root first. Set `SKILL_MD` to the selected SKILL.md absolute path from the live skills list; never infer it from the process cwd.
+
+```bash
+SKILL_MD="<selected SKILL.md absolute path from the live skills list>"
+CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
+if [ -f "$CANDIDATE_ROOT/scripts/restore.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
+```
+
 `install`/`update` mutate three files shared with oh-my-codex and other tenants. The write is atomic (crash-safe), and now also **reversible**: install snapshots all three into `.agentsmd-state/backups/<id>/` before touching them (rotated — the newest 5 kept). If a merge came out logically wrong, restore the prior bytes:
 
 ```bash
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --list          # snapshots + purpose
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js"                 # DRY-RUN — newest compatible snapshot
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --confirm       # apply compatible snapshot
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/restore.js" --id=<id> --confirm
+node "$AGENTSMD_ROOT/scripts/restore.js" --list          # snapshots + purpose
+node "$AGENTSMD_ROOT/scripts/restore.js"                 # DRY-RUN — newest compatible snapshot
+node "$AGENTSMD_ROOT/scripts/restore.js" --confirm       # apply compatible snapshot
+node "$AGENTSMD_ROOT/scripts/restore.js" --id=<id> --confirm
 ```
 
 - **Dry-run by default** — a bare `restore` prints what it *would* overwrite and writes nothing; `--confirm` performs the write.

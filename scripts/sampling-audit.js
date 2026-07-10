@@ -115,7 +115,7 @@ function walkTranscripts(dir, { days, now }) {
       if (e.isDirectory()) { stack.push(full); continue; }
       if (!e.name.endsWith('.jsonl')) continue;
       let st; try { st = fs.statSync(full); } catch { continue; }
-      if (st.mtimeMs >= cutoff) out.push({ full, mtimeMs: st.mtimeMs });
+      if (st.mtimeMs >= cutoff && st.mtimeMs <= now) out.push({ full, mtimeMs: st.mtimeMs });
     }
   }
   out.sort((a, b) => b.mtimeMs - a.mtimeMs); // most-recent first (for --limit)
