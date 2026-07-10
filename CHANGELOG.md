@@ -41,6 +41,8 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   path substring. Shell/Git parsing now covers bounded nested shell/eval forms,
   here strings, interpreter code substitution, redirected download execution,
   explicit current-directory `PATH`, multi-ref pushes, and exact target repos.
+  Bash 3.2 empty-array handling no longer aborts `--all`/`--branches` or memory
+  repository resolution on macOS.
 - Secret scanning models staged, `--all`, `--include`, `--only`, bare pathspec,
   and pathspec-file commit content without mutating the real index. Ship and
   memory gates bind CI and consultation evidence to every target repository.

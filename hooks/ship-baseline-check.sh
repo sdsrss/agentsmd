@@ -102,12 +102,17 @@ check_push_invocation() {
     ship_unevaluated "(mirror)" "mirror-refset-unsupported"
     return 0
   fi
-  for branch in "${branches[@]}"; do
-    if [[ "$branch" == *'*'* ]]; then
-      ship_unevaluated "$branch" "wildcard-refspec-unsupported"
-      return 0
-    fi
-  done
+  # Bash 3.2 + set -u treats an empty "${array[@]}" as unbound. Guard the
+  # pre-enumeration array explicitly: --all/--branches intentionally reaches
+  # this point with no positional refspecs.
+  if (( ${#branches[@]} > 0 )); then
+    for branch in "${branches[@]}"; do
+      if [[ "$branch" == *'*'* ]]; then
+        ship_unevaluated "$branch" "wildcard-refspec-unsupported"
+        return 0
+      fi
+    done
+  fi
 
   if git "${git_repo[@]}" rev-parse --git-dir >/dev/null 2>&1; then
     target_ok=true
@@ -130,18 +135,20 @@ check_push_invocation() {
     [[ -n "$branch" ]] && branches+=("$branch")
   fi
 
-  for branch in "${branches[@]}"; do
-    branch="${branch#+}"
-    [[ "$branch" == *:* ]] && branch="${branch##*:}"
-    [[ "$branch" == refs/heads/* ]] && branch="${branch#refs/heads/}"
-    [[ -n "$branch" && "$branch" != "HEAD" ]] || continue
-    case "$branch" in
-      main|master|develop|dev|release|release/*|release-*|releases/*|prod|prod/*|prod-*|production) : ;;
-      *) continue ;;
-    esac
+  if (( ${#branches[@]} > 0 )); then
+    for branch in "${branches[@]}"; do
+      branch="${branch#+}"
+      [[ "$branch" == *:* ]] && branch="${branch##*:}"
+      [[ "$branch" == refs/heads/* ]] && branch="${branch#refs/heads/}"
+      [[ -n "$branch" && "$branch" != "HEAD" ]] || continue
+      case "$branch" in
+        main|master|develop|dev|release|release/*|release-*|releases/*|prod|prod/*|prod-*|production) : ;;
+        *) continue ;;
+      esac
 
-    shared_branches+=("$branch")
-  done
+      shared_branches+=("$branch")
+    done
+  fi
   (( ${#shared_branches[@]} > 0 )) || return 0
 
   if [[ "$target_ok" != "true" ]]; then

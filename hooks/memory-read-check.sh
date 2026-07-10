@@ -57,9 +57,11 @@ add_memory() {
 
 while IFS= read -r invocation; do
   [[ -n "$invocation" ]] || continue
-  repo_args=()
-  while IFS= read -r arg; do repo_args+=("$arg"); done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
-  TARGET_ROOT="$(git -C "$CWD" "${repo_args[@]}" rev-parse --show-toplevel 2>/dev/null)"
+  # Keep the array non-empty for Bash 3.2 under set -u; expanding an empty
+  # repoArgs array there aborts the hook before Git can resolve the event cwd.
+  git_repo_args=(-C "$CWD")
+  while IFS= read -r arg; do git_repo_args+=("$arg"); done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
+  TARGET_ROOT="$(git "${git_repo_args[@]}" rev-parse --show-toplevel 2>/dev/null)"
   if [[ -z "$TARGET_ROOT" || ! -d "$TARGET_ROOT" ]]; then
     # The command is a real ship invocation, but its repository cannot be bound
     # safely. It remains an eligible opportunity, unevaluated; never fall back
