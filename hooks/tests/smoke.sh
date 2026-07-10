@@ -387,7 +387,7 @@ rm -f "$PENDING"; B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && [[ -z "$NEW" ]] && [[ ! -f "$PENDING" ]]; } && ok "second Stop within 24h → debounced" || bad "debounce within 24h" "out=[$OUT] new=[$NEW]"
 # (c) stamp aged past 24h → audits again.
-touch -d '25 hours ago' "$MA_STATE"/mem-audit-*.stamp 2>/dev/null || touch "$MA_STATE"/mem-audit-*.stamp
+node -e 'const fs=require("fs"); const old=new Date(Date.now()-25*60*60*1000); for (const p of process.argv.slice(1)) fs.utimesSync(p, old, old);' "$MA_STATE"/mem-audit-*.stamp
 rm -f "$PENDING"; B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "index lists a missing file" && printf '%s\n' "$NEW" | grep -q '§7-memory-hygiene'; } && ok "stamp >24h → re-audits" || bad "stamp >24h → re-audits" "out=[$OUT] new=[$NEW]"
