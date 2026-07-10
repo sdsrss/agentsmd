@@ -29,6 +29,11 @@ agentsmd 用「系统」而非「文档」的方式回应这一点:
 
 横跨 4 个 Codex 事件(SessionStart、PreToolUse、UserPromptSubmit、Stop——无 PostToolUse)的十五个原生 hook。阻断类是硬闸门;Stop 时刻的那些会排队成一条 advisory,在你下一次输入时呈现。
 
+用户明确要求“提交并发版/发布”时,该请求直接授权当前仓库的标准 ship
+流程,不再重复确认。完成条件包括合入默认分支、验证 tag/artifact,以及删除
+本地和远端已合并的任务/发布分支。未点名的生产环境、live 配置或其他
+仓库/package/registry 不在该授权范围内。
+
 | Hook | 事件 | 强制内容 |
 |---|---|---|
 | `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY——阻断不安全变量删除及同一/跨 tool 的远程下载执行,含相对路径和嵌套 shell 来源;对未固定版本的 `npx` 告警 |

@@ -3,6 +3,28 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v3.3.0 — 2026-07-11 — ship authorization reuse and release closure
+
+### Changed
+
+- Explicit `commit + release/publish` intent now pre-authorizes the standard
+  current-repository ship flow. Agents do not ask for a second confirmation
+  before the already-requested merge, push, tag, or package publish.
+- The ship checklist now ends only after the released commit is integrated into
+  the default branch, the artifact/tag is verified, merged task/release branches
+  are deleted locally and remotely, and the default-branch worktree is clean.
+- Scope remains operation-bound: live `CODEX_HOME`, production deployment, a
+  different repository/package/registry/environment, and unrelated Hard actions
+  still require explicit naming.
+
+### Fixed
+
+- The memory ship gate recognizes successful reader commands nested inside the
+  current Codex `functions.exec` orchestration transcript shape without allowing
+  path-only commands to count as reads.
+
+Evidence before release: drift 17/17 and hook smoke 240/240.
+
 ## v3.2.1 — 2026-07-11 — user-acceptance remediation
 
 ### Changed

@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v3.2.1 — Global
+# CODEX-CODING-SPEC v3.3.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap defaults to 32 KiB and truncates silently, so core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: `~/.codex/AGENTS-extended.md` — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -61,9 +61,11 @@ Search exact symbols with `rg`; enter unfamiliar modules through exports; verify
 
 ## §5 AUTH (semantic gates — sandbox/approval config does not replace these)
 
-`sandbox_mode` / `approval_policy` gate *mechanics*; this section gates *semantics*. Even under `approval_policy = "never"` / `--yolo`, these require `[AUTH REQUIRED]`:
+`sandbox_mode` / `approval_policy` gate *mechanics*; this section gates *semantics*. Even under `approval_policy = "never"` / `--yolo`, these require authorization; emit `[AUTH REQUIRED]` and block only when the current user request has not already granted operation-scoped authorization:
 
 **Hard (ask, block)**: delete file/dir outside safe-paths · DB migration / schema change · CI config · prod deploy state/config · infra state/config · prod-dependency add/remove/major-bump · `.env` / secrets / config schema · `~/.codex/config.toml` / hooks / rules / MCP config · global/shared/security-sensitive LLM routing metadata · auth/payment/crypto code · breaking public-API Δ · `git push` to shared branch / merge / publish / release (run §E3 first).
+
+**Explicit ship pre-authorization**: a current user request that directly orders `commit + push/merge/publish/release` (including “提交代码并发版”) authorizes the standard §E3 closure for the current repository/package without a second confirmation: commit · push task branch · integrate/push the default branch · tag · publish the declared package/release · verify · delete the merged task/release branch locally and remotely. Live `CODEX_HOME`, production deploy, a different repo/package/registry/environment, or any unrelated Hard operation is included only when named. Generic “finish/继续” is not ship authorization; scope expansion re-ASKs.
 
 **Soft (proceed, surface diff/plan first)**: dev-only deps · deletes inside `tmp/` `scripts/` build-output · multiple safe choices with real tradeoffs (state pick + why in REPORT).
 

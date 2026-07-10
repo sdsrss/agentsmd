@@ -30,3 +30,5 @@ local linked memory (when links exist) must be the exact target of `read_file` o
 an explicit reader command such as `sed`/`cat`/`rg`, paired to successful output
 by `call_id`. Merely printing or testing the path is not a read. A read from one
 repository does not satisfy another repository in the same chained ship command.
+The detector extracts `tools.exec_command({...})` calls from Codex's orchestrated
+`functions.exec` transcript item and applies the same reader/path/output checks.

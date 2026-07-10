@@ -2,6 +2,16 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v3.3.0 (2026-07-11) — explicit ship authorization and closure
+
+An explicit current-turn request to commit and release now supplies the
+operation-scoped AUTH for the standard current-repository ship flow, so the
+agent does not pause for a redundant confirmation. The extended checklist adds
+default-branch integration, artifact/tag verification, merged release-branch
+deletion, and clean-default-branch verification as required closure. Scope does
+not expand to unnamed live configuration, production, repositories, packages,
+registries, environments, or unrelated Hard operations.
+
 ## v3.2.1 (2026-07-11) — governance mirror repair (no rule-text changes)
 
 Core and extended rule text and shared spec version are unchanged. The existing

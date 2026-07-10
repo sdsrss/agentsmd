@@ -172,8 +172,99 @@ const consulted = process.argv.slice(2).filter((memory) => {
     if (!value || typeof value !== "object") return false;
     return [value.path, value.file_path].some((v) => typeof v === "string" && normalize(v) === normalize(target));
   };
-  const commandFields = (value) => {
-    if (typeof value === "string") return [value];
+  const orchestratedCommands = (source) => {
+    const found = [];
+    const marker = "tools.exec_command(";
+    if (typeof source !== "string") return found;
+    const readString = (start) => {
+      const quote = source[start];
+      if (quote !== "\"" && quote !== "\x27") return null;
+      let value = "";
+      for (let i = start + 1; i < source.length; i += 1) {
+        const ch = source[i];
+        if (ch === quote) return { value, end: i + 1 };
+        if (ch !== "\\") { value += ch; continue; }
+        if (++i >= source.length) return null;
+        const esc = source[i];
+        const simple = { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v", 0: "\0" };
+        if (Object.prototype.hasOwnProperty.call(simple, esc)) value += simple[esc];
+        else if (esc === "x" && /^[0-9a-f]{2}$/i.test(source.slice(i + 1, i + 3))) {
+          value += String.fromCharCode(parseInt(source.slice(i + 1, i + 3), 16)); i += 2;
+        } else if (esc === "u" && /^[0-9a-f]{4}$/i.test(source.slice(i + 1, i + 5))) {
+          value += String.fromCharCode(parseInt(source.slice(i + 1, i + 5), 16)); i += 4;
+        } else if (esc !== "\n" && esc !== "\r") value += esc;
+      }
+      return null;
+    };
+    const skipIgnored = (at) => {
+      let i = at;
+      for (;;) {
+        while (/\s/.test(source[i] || "")) i += 1;
+        if (source.startsWith("//", i)) { i = source.indexOf("\n", i + 2); if (i < 0) return source.length; continue; }
+        if (source.startsWith("/*", i)) { const end = source.indexOf("*/", i + 2); return end < 0 ? source.length : skipIgnored(end + 2); }
+        return i;
+      }
+    };
+    const objectFields = (start) => {
+      const fields = [];
+      let fieldStart = start + 1, braces = 1, brackets = 0, parens = 0, i = start + 1;
+      while (i < source.length) {
+        const ch = source[i];
+        if (ch === "\"" || ch === "\x27") { const s = readString(i); if (!s) return null; i = s.end; continue; }
+        if (source.startsWith("//", i)) { const end = source.indexOf("\n", i + 2); i = end < 0 ? source.length : end + 1; continue; }
+        if (source.startsWith("/*", i)) { const end = source.indexOf("*/", i + 2); if (end < 0) return null; i = end + 2; continue; }
+        if (ch === "{") braces += 1;
+        else if (ch === "}" && --braces === 0) { fields.push(source.slice(fieldStart, i)); return { fields, end: i + 1 }; }
+        else if (ch === "[") brackets += 1;
+        else if (ch === "]") brackets -= 1;
+        else if (ch === "(") parens += 1;
+        else if (ch === ")") parens -= 1;
+        else if (ch === "," && braces === 1 && brackets === 0 && parens === 0) { fields.push(source.slice(fieldStart, i)); fieldStart = i + 1; }
+        i += 1;
+      }
+      return null;
+    };
+    const fieldValue = (field, wanted) => {
+      let i = 0;
+      while (/\s/.test(field[i] || "")) i += 1;
+      let key = "";
+      if (field[i] === "\"" || field[i] === "\x27") {
+        const quote = field[i++];
+        while (i < field.length && field[i] !== quote) key += field[i++];
+        if (field[i] !== quote) return null;
+        i += 1;
+      } else {
+        const match = field.slice(i).match(/^[A-Za-z_$][A-Za-z0-9_$]*/);
+        if (!match) return null;
+        key = match[0]; i += key.length;
+      }
+      while (/\s/.test(field[i] || "")) i += 1;
+      if (field[i++] !== ":" || !wanted.has(key)) return null;
+      while (/\s/.test(field[i] || "")) i += 1;
+      const localSource = source;
+      source = field;
+      const parsed = readString(i);
+      source = localSource;
+      return parsed ? parsed.value : null;
+    };
+    for (let i = 0; i < source.length;) {
+      if (source[i] === "\"" || source[i] === "\x27") { const s = readString(i); i = s ? s.end : source.length; continue; }
+      if (source.startsWith("//", i) || source.startsWith("/*", i)) { i = skipIgnored(i); continue; }
+      if (!source.startsWith(marker, i)) { i += 1; continue; }
+      const start = skipIgnored(i + marker.length);
+      if (source[start] !== "{") { i += marker.length; continue; }
+      const parsed = objectFields(start);
+      if (!parsed) break;
+      for (const field of parsed.fields) {
+        const value = fieldValue(field, new Set(["cmd", "command"]));
+        if (typeof value === "string") found.push(value);
+      }
+      i = parsed.end;
+    }
+    return found;
+  };
+  const commandFields = (value, name) => {
+    if (typeof value === "string") return name === "exec" ? orchestratedCommands(value) : [value];
     if (!value || typeof value !== "object") return [];
     return [value.cmd, value.command, value.source].filter((v) => typeof v === "string");
   };
@@ -182,7 +273,7 @@ const consulted = process.argv.slice(2).filter((memory) => {
       if (!outputs.has(callId)) continue;
       if (call.name === "read_file" && exactPathField(call.arguments, target)) return true;
       if ((call.name === "exec_command" || call.name === "exec")
-          && commandFields(call.arguments).some((source) => commandReads(source, target))) return true;
+          && commandFields(call.arguments, call.name).some((source) => commandReads(source, target))) return true;
     }
     return false;
   };

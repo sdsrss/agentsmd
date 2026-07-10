@@ -45,6 +45,15 @@ t('hard-rules: every immutable Never clause has a manifest anchor', () => {
   assert.deepStrictEqual(missing, [], 'ungoverned Never clauses: ' + missing.join(' | '));
 });
 
+t('ship contract: explicit release intent pre-authorizes closure without a repeat prompt', () => {
+  assert.match(specFiles.core, /\*\*Explicit ship pre-authorization\*\*/,
+    'core must define explicit ship pre-authorization');
+  assert.match(specFiles.extended, /Release closure.*default branch.*delete.*branch/is,
+    'extended checklist must require default-branch integration and release-branch cleanup');
+  assert.doesNotMatch(specFiles.extended, /NO unattended path through this gate/,
+    'legacy always-reprompt wording must be removed');
+});
+
 // 2. live_sections must reference sections that actually exist in the manifest.
 t('hard-rules: live_sections ⊆ manifest rule_hits_sections', () => {
   const known = new Set(hr.rules.map((r) => r.rule_hits_section).filter(Boolean));

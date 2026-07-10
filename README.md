@@ -29,6 +29,12 @@ The point is not a raw token count. Core size, detector coverage, opportunity ro
 
 Fifteen native hooks across four Codex events (SessionStart, PreToolUse, UserPromptSubmit, Stop — no PostToolUse). The blocking ones are hard gates; the Stop-time ones queue an advisory that surfaces at your next prompt.
 
+An explicit request to commit and release/publish authorizes that standard ship
+flow without a second confirmation. Completion includes default-branch
+integration, tag/artifact verification, and deletion of merged task/release
+branches locally and remotely. Unnamed production, live configuration, or other
+repository/package/registry scopes remain outside that authorization.
+
 | Hook | Event | Enforces |
 |---|---|---|
 | `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY — blocks unsafe variable deletes and same/cross-tool execution of remote downloads, including relative and nested-shell provenance; warns on unpinned `npx` |

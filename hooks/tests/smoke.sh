@@ -655,6 +655,23 @@ READ_CMD="sed -n '1,200p' '$PROJ_TRANSCRIPT_PATH/MEMORY.md' '$PROJ_TRANSCRIPT_PA
 READ_ARGS="$(jq -cn --arg c "$READ_CMD" '{cmd:$c}')"
 { jq -cn --arg a "$READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"read-ok",arguments:$a}}'
   jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"read-ok",output:"auth index and linked notes"}}'; } > "$SANDBOX/tr-tool-read.jsonl"
+EXEC_READ_SOURCE="const r = await tools.exec_command({\"cmd\":$(jq -Rn --arg c "$READ_CMD" '$c')}); text(r.output);"
+{ jq -cn --arg i "$EXEC_READ_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-read-ok",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-read-ok",output:[{type:"input_text",text:"Script completed"},{type:"input_text",text:"auth index and linked notes"}]}}'; } > "$SANDBOX/tr-functions-exec-read.jsonl"
+EXEC_COMMON_SOURCE="const r = await tools.exec_command({cmd: $(jq -Rn --arg c "$READ_CMD" '$c'), workdir: \"$PROJ\"}); text(r.output);"
+{ jq -cn --arg i "$EXEC_COMMON_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-common-read",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-common-read",output:"Script completed: auth index and linked notes"}}'; } > "$SANDBOX/tr-functions-exec-common-read.jsonl"
+EXEC_STRING_MARKER="text('tools.exec_command({\"cmd\":$(jq -Rn --arg c "$READ_CMD" '$c')})')"
+{ jq -cn --arg i "$EXEC_STRING_MARKER" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-string-marker",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-string-marker",output:"Script completed: printed source text"}}'; } > "$SANDBOX/tr-functions-exec-string-marker.jsonl"
+EXEC_COMMENT_MARKER="// tools.exec_command({\"cmd\":$(jq -Rn --arg c "$READ_CMD" '$c')})\ntext('no read')"
+{ jq -cn --arg i "$EXEC_COMMENT_MARKER" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-comment-marker",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-comment-marker",output:"Script completed: no read"}}'; } > "$SANDBOX/tr-functions-exec-comment-marker.jsonl"
+{ jq -cn --arg i "$EXEC_COMMON_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-common-fail",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-common-fail",output:"Script failed: Process exited with code 2"}}'; } > "$SANDBOX/tr-functions-exec-common-fail.jsonl"
+EXEC_PATH_SOURCE="const r = await tools.exec_command({\"cmd\":\"printf paths $PROJ_TRANSCRIPT_PATH/MEMORY.md $PROJ_TRANSCRIPT_PATH/memory/auth.md\"}); text(r.output);"
+{ jq -cn --arg i "$EXEC_PATH_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-path-only",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-path-only",output:"Script completed: printed paths"}}'; } > "$SANDBOX/tr-functions-exec-path-only.jsonl"
 { jq -cn --arg a "$READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"read-fail",arguments:$a}}'
   jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"read-fail",output:"exited 2: No such file or directory"}}'; } > "$SANDBOX/tr-failed-read.jsonl"
 PATH_ONLY_CMD="printf '%s\\n' '$PROJ_TRANSCRIPT_PATH/MEMORY.md' '$PROJ_TRANSCRIPT_PATH/memory/auth.md'"
@@ -678,6 +695,12 @@ printf '%s\n' '{"type":"message","payload":{"role":"user","content":[{"text":"Pu
 mk_mr() { jq -cn --arg c "$1" --arg cwd "$2" --arg tr "$3" '{tool_name:"Bash",tool_input:{command:$c},session_id:"smoke1",cwd:$cwd,transcript_path:$tr}'; }
 B="$(clog_count)"; OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-read.jsonl")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && rows_have_observe "$NEW" '§7-memory-read' true true; } && ok "ship + MEMORY.md consulted → allow + evaluated observation" || bad "ship + MEMORY consulted → observe" "out=[$OUT] new=[$NEW]"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-read.jsonl")")"; is_empty "$OUT" && ok "ship + orchestrated exec reader → allow" || bad "functions.exec reader evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-common-read.jsonl")")"; is_empty "$OUT" && ok "ship + common object-literal exec reader → allow" || bad "functions.exec common object reader evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-string-marker.jsonl")")"; is_block "$OUT" && ok "ship + marker inside JS string → block" || bad "string marker is not exec evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-comment-marker.jsonl")")"; is_block "$OUT" && ok "ship + marker inside JS comment → block" || bad "comment marker is not exec evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-common-fail.jsonl")")"; is_block "$OUT" && ok "ship + failed common exec reader → block" || bad "failed orchestrated reader is not evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-path-only.jsonl")")"; is_block "$OUT" && ok "ship + orchestrated path-only command → block" || bad "functions.exec path-only is not read evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-read-file.jsonl")")"; is_empty "$OUT" && ok "ship + exact read_file targets → allow" || bad "read_file consultation evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-read.jsonl")")"; is_block "$OUT" && ok "ship + assistant self-report of memory path → block" || bad "assistant self-report is not read evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-failed-read.jsonl")")"; is_block "$OUT" && ok "ship + failed memory tool read → block" || bad "failed read is not evidence" "$OUT"

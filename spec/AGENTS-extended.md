@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v3.2.1 — Extended
+# CODEX-CODING-SPEC v3.3.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -32,7 +32,8 @@ Gate order — a red item stops the pipeline until fixed, waived by user, or `[B
 5. Secrets scan on the outgoing diff (grep for key/token/password patterns) — hit → core §8 procedure.
 6. Released-artifact rule (core §2): user-visible default change → documented in release notes, L3 evidence attached.
 7. Rollback path stated in one line (revert commit / previous tag / flag-off).
-8. The push/publish/merge itself = §5 hard AUTH, regardless of mode or `AUTONOMY` level. By design there is NO unattended path through this gate — scheduled / CI-driven release is out of scope for this spec, not a gap.
+8. **Authorization reuse**: push/publish/merge remain §5-hard operations, but explicit ship intent in the current user request is their operation-scoped authorization; do not emit a redundant confirmation prompt. Without that explicit intent, emit `[AUTH REQUIRED]` immediately before the first external mutation. Scheduled/CI release still needs prior user authorization that names its repository/package/environment scope.
+9. **Release closure**: ensure the released commit is integrated into and pushed on the default branch; create/push the intended tag and publish/verify the artifact; then delete the merged task/release branch locally and remotely and finish on a clean default branch. Retain a release branch only when repository policy or the user requires it. Update live `CODEX_HOME` only when explicitly requested, then run doctor/status.
 
 ## §E4 L3 EVIDENCE
 
