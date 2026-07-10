@@ -123,10 +123,16 @@ for (const line of lines) {
   eligible.push(line);
 }
 const consulted = process.argv.slice(2).filter((memory) => {
-  const slash = Math.max(memory.lastIndexOf("/"), memory.lastIndexOf("\\"));
-  const dir = slash >= 0 ? memory.slice(0, slash) : "";
-  return eligible.some((line) => line.includes(memory)
-    || (dir && line.includes(dir) && line.includes("MEMORY.md")));
+  // macOS exposes the same temp path as both /var/... and /private/var/....
+  // Git canonicalizes to the latter while the transcript may retain the former.
+  const aliases = [memory];
+  if (memory.startsWith("/private/")) aliases.push(memory.slice("/private".length));
+  else if (memory.startsWith("/var/")) aliases.push(`/private${memory}`);
+  return eligible.some((line) => aliases.some((candidate) => {
+    const slash = Math.max(candidate.lastIndexOf("/"), candidate.lastIndexOf("\\"));
+    const dir = slash >= 0 ? candidate.slice(0, slash) : "";
+    return line.includes(candidate) || (dir && line.includes(dir) && line.includes("MEMORY.md"));
+  }));
 });
 process.stdout.write(JSON.stringify(consulted));
 process.exit(consulted.length === process.argv.length - 2 ? 0 : 1);

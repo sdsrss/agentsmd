@@ -13,4 +13,5 @@
 - [Audit time window](memory/reference_audit-time-window.md) [audit,rules,telemetry,time-window] [审计 时间] — `audit --days=N` counts parseable timestamps only within `[cutoff, now]`.
 - [Remote exec variants](memory/reference_remote-exec-variants.md) [hooks,pretool,safety,remote-exec] [远程 执行 安全] — Unknown-origin script checks must cover process substitution, command substitution, and eval, not only `curl|wget ... | shell`.
 - [Cross-platform test time fixtures](memory/reference_cross-platform-test-time.md) [tests,macos,mtime,portability] [测试 跨平台 时间] — Use `fs.utimesSync` for portable mtime fixtures; GNU-only `touch -d` fallbacks can invert age assertions on macOS.
+- [macOS Bash 3.2 hook portability](memory/reference_macos-bash32-hooks.md) [hooks,macos,bash3,array,path,portability] [钩子 跨平台 路径] — Guard empty array expansion under `set -u`, and treat `/var` plus `/private/var` as equivalent evidence paths on macOS.
 - [Restore snapshot compatibility](memory/reference_restore-snapshot-compatibility.md) [restore,backup,lifecycle,atomicity] [恢复 快照 半安装] — Match snapshot hooks/spec state to the live manifest and transactionally roll back multi-file restore failures.
