@@ -51,7 +51,9 @@ MEMORIES=()
 add_memory() {
   local candidate="$1" existing
   [[ -n "$candidate" ]] || return 0
-  for existing in "${MEMORIES[@]}"; do [[ "$existing" == "$candidate" ]] && return 0; done
+  if (( ${#MEMORIES[@]} > 0 )); then
+    for existing in "${MEMORIES[@]}"; do [[ "$existing" == "$candidate" ]] && return 0; done
+  fi
   MEMORIES+=("$candidate")
 }
 
