@@ -11,37 +11,194 @@ const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
 const B = require('./lib/backup');
-const R = require('./lib/hook-registry');
+const F = require('./lib/fs-atomic');
+const S = require('./lib/uninstalled-shims');
 
-const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const readOrNull = (file) => F.readFileOptional(file, 'utf8');
 
-// Shim names come from the single-source hook registry (hook-registry.test.js pins
-// it against BOTH wirings), not a hardcoded copy. The former fallback list could
-// silently miss a newly-added hook, and its dynamic hooks.json read was dead in the
-// installed self-uninstall path anyway (installDir — where repoRoot resolves — is
-// removed before the shims are written), so the stale copy was authoritative.
-function hookShimNames() { return [...R.HOOK_BASENAMES].sort(); }
-
-function writeUninstalledHookShims() {
-  const hooksDir = P.installHooksDir();
-  fs.mkdirSync(hooksDir, { recursive: true });
-  const body = [
-    '#!/usr/bin/env bash',
-    '# agentsmd uninstalled compatibility shim.',
-    '# A Codex session may cache hook commands until restart; exit 0 so stale',
-    '# commands do not fail with bash exit 127 after agentsmd uninstall.',
-    'exit 0',
-    '',
-  ].join('\n');
-  let written = 0;
-  for (const name of hookShimNames()) {
-    const p = path.join(hooksDir, name);
-    fs.writeFileSync(p, body);
-    try { fs.chmodSync(p, 0o755); } catch {}
-    written++;
+function validateOwnership(manifest) {
+  const ownership = { deploy: false, extended: false, skills: [] };
+  if (manifest && manifest.name !== 'agentsmd') throw new Error('ownership collision: install manifest identity is not agentsmd');
+  const owned = manifest && manifest.ownedArtifacts;
+  if (!owned) {
+    const legacyFootprint = F.pathExists(P.installDir())
+      || F.pathExists(P.agentsExtendedMdPath())
+      || (manifest && Array.isArray(manifest.installedSkills)
+        && manifest.installedSkills.some((name) => F.pathExists(path.join(P.codexSkillsDir(), name))));
+    if (legacyFootprint) throw new Error('ownership collision: legacy manifest has no artifact hashes; uninstall made no changes');
+    return ownership;
   }
-  fs.writeFileSync(path.join(P.installDir(), '.uninstalled-shims'), `${new Date().toISOString()}\n`);
-  return written;
+
+  const deploy = owned.deploy;
+  if (F.pathExists(P.installDir())) {
+    if (!deploy || path.resolve(deploy.path || '') !== path.resolve(P.installDir())) {
+      throw new Error('ownership collision: deploy directory has no exact manifest record');
+    }
+    let actual = null;
+    try { actual = F.sha256Tree(P.installDir()); } catch {}
+    if (actual !== deploy.sha256) throw new Error('ownership collision: deploy tree differs from manifest hash');
+    ownership.deploy = true;
+  }
+
+  const extended = owned.extended;
+  if (F.pathExists(P.agentsExtendedMdPath())) {
+    if (!extended || path.resolve(extended.path || '') !== path.resolve(P.agentsExtendedMdPath())) {
+      throw new Error('ownership collision: AGENTS-extended.md has no exact manifest record');
+    }
+    let actual = null;
+    try { actual = F.sha256File(P.agentsExtendedMdPath()); } catch {}
+    if (actual !== extended.sha256) throw new Error('ownership collision: AGENTS-extended.md differs from manifest hash');
+    ownership.extended = true;
+  }
+
+  if (!Array.isArray(owned.skills)) throw new Error('ownership collision: manifest skill inventory is invalid');
+  for (const record of owned.skills) {
+    if (!record || typeof record.name !== 'string' || path.basename(record.name) !== record.name || !record.name.startsWith('agentsmd-')) {
+      throw new Error('ownership collision: manifest contains an invalid skill record');
+    }
+    const target = path.join(P.codexSkillsDir(), record.name);
+    if (path.resolve(record.path || '') !== path.resolve(target)) throw new Error(`ownership collision: skill path mismatch for ${record.name}`);
+    if (!F.pathExists(target)) continue;
+    let actual = null;
+    try { actual = F.sha256Tree(target); } catch {}
+    if (actual !== record.sha256) throw new Error(`ownership collision: installed skill ${record.name} differs from manifest hash`);
+    ownership.skills.push(target);
+  }
+  return ownership;
+}
+
+function ownedStateFiles(manifest) {
+  if (!manifest) return [];
+  const state = P.stateDir();
+  const ownedName = /^(?:pending-advisories-.+|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json)$/;
+  const files = [P.manifestPath()];
+  let entries = [];
+  try { entries = fs.readdirSync(state, { withFileTypes: true }); }
+  catch (error) { if (error && error.code === 'ENOENT') return files; throw error; }
+  for (const entry of entries) {
+    if (entry.isFile() && ownedName.test(entry.name)) files.push(path.join(state, entry.name));
+  }
+  return files;
+}
+
+function sameSnapshot(left, right) {
+  return left.present === right.present
+    && (!left.present || (left.mode === right.mode && left.content.equals(right.content)));
+}
+
+function createTransaction(stageRoot, files) {
+  const unique = [...new Set(files.map((file) => path.resolve(file)))];
+  return {
+    stageRoot,
+    files: unique.map((file) => ({ file, before: F.snapshotFile(file), after: null })),
+    swaps: [],
+    directorySnapshots: [],
+    keepStage: false,
+  };
+}
+
+function transactionFile(transaction, file) {
+  const absolute = path.resolve(file);
+  let record = transaction.files.find((candidate) => candidate.file === absolute);
+  if (!record) {
+    record = { file: absolute, before: F.snapshotFile(absolute), after: null };
+    transaction.files.push(record);
+  }
+  return record;
+}
+
+function mutateFile(transaction, file, action) {
+  const record = transactionFile(transaction, file);
+  try { action(); }
+  finally { record.after = F.snapshotFile(record.file); }
+}
+
+function quarantineDirectory(transaction, target) {
+  if (!F.pathExists(target)) return null;
+  const backup = path.join(transaction.stageRoot, 'quarantine', String(transaction.swaps.length));
+  fs.mkdirSync(path.dirname(backup), { recursive: true });
+  fs.renameSync(target, backup);
+  const record = { target, backup, afterPresent: false, afterHash: null, keepBackup: false };
+  transaction.swaps.push(record);
+  return record;
+}
+
+function markDirectoryAfter(record) {
+  record.afterPresent = F.pathExists(record.target);
+  record.afterHash = record.afterPresent ? F.sha256Tree(record.target) : null;
+}
+
+function snapshotDirectories(transaction, targets) {
+  const root = path.join(transaction.stageRoot, 'legacy-snapshots');
+  for (const target of targets) {
+    const present = F.pathExists(target);
+    const backup = path.join(root, String(transaction.directorySnapshots.length));
+    if (present) fs.cpSync(target, backup, { recursive: true });
+    transaction.directorySnapshots.push({
+      target,
+      backup,
+      present,
+      beforeHash: present ? F.sha256Tree(target) : null,
+      afterPresent: present,
+      afterHash: present ? F.sha256Tree(target) : null,
+    });
+  }
+}
+
+function markDirectorySnapshotsAfter(transaction) {
+  for (const record of transaction.directorySnapshots) {
+    record.afterPresent = F.pathExists(record.target);
+    record.afterHash = record.afterPresent ? F.sha256Tree(record.target) : null;
+  }
+}
+
+function rollback(transaction) {
+  const errors = [];
+  for (const record of [...transaction.files].reverse()) {
+    if (!record.after) continue;
+    try {
+      const current = F.snapshotFile(record.file);
+      if (sameSnapshot(current, record.before)) continue;
+      if (sameSnapshot(current, record.after)) F.restoreFile(record.file, record.before);
+      else errors.push(`rollback conflict ${record.file}: changed concurrently; preserved current bytes`);
+    } catch (error) { errors.push(`${record.file}: ${error.message}`); }
+  }
+  for (const record of [...transaction.swaps].reverse()) {
+    try {
+      const present = F.pathExists(record.target);
+      let matches = present === record.afterPresent;
+      if (matches && present) matches = F.sha256Tree(record.target) === record.afterHash;
+      if (!matches) {
+        record.keepBackup = true;
+        transaction.keepStage = true;
+        errors.push(`rollback conflict ${record.target}: changed concurrently; original retained at ${record.backup}`);
+        continue;
+      }
+      fs.rmSync(record.target, { recursive: true, force: true });
+      fs.renameSync(record.backup, record.target);
+    } catch (error) { errors.push(`${record.target}: ${error.message}`); }
+  }
+  for (const record of [...transaction.directorySnapshots].reverse()) {
+    try {
+      const present = F.pathExists(record.target);
+      let matches = present === record.afterPresent;
+      if (matches && present) matches = F.sha256Tree(record.target) === record.afterHash;
+      if (!matches) {
+        errors.push(`rollback conflict ${record.target}: changed concurrently; preserved current tree`);
+        continue;
+      }
+      if (record.present === record.afterPresent && record.beforeHash === record.afterHash) continue;
+      fs.rmSync(record.target, { recursive: true, force: true });
+      if (record.present) fs.cpSync(record.backup, record.target, { recursive: true });
+    } catch (error) { errors.push(`${record.target}: ${error.message}`); }
+  }
+  return errors;
+}
+
+function cleanupTransaction(transaction) {
+  if (transaction.keepStage) return null;
+  try { fs.rmSync(transaction.stageRoot, { recursive: true, force: true }); return null; }
+  catch (error) { return `quarantine cleanup retained at ${transaction.stageRoot}: ${error.message}`; }
 }
 
 function uninstall() {
@@ -55,74 +212,110 @@ function uninstall() {
     throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not edit it blind (it may hold other tenants' hooks). Fix or remove it, then re-run uninstall.`);
   }
 
-  const result = { hooksRemoved: 0, hooksJsonDeleted: false, agentsBlockRemoved: false, extendedMdRemoved: false, flagLeftEnabled: true };
+  let manifest = null;
+  const manifestRaw = readOrNull(P.manifestPath());
+  if (manifestRaw !== null) {
+    try { manifest = JSON.parse(manifestRaw); }
+    catch { throw new Error(`${P.manifestPath()} manifest is not valid JSON; ownership cannot be verified, so uninstall made no changes`); }
+  }
+  const ownership = validateOwnership(manifest);
+  const result = {
+    hooksRemoved: 0,
+    hooksJsonDeleted: false,
+    agentsBlockRemoved: false,
+    extendedMdRemoved: false,
+    flagLeftEnabled: true,
+    ownershipConflicts: [],
+  };
 
   // 0a. Best-effort pre-mutation backup of the shared files (mirror of install
   //     step 0a) so a logically-wrong removal is recoverable via `agentsmd restore`
   //     and a crash mid-uninstall leaves the snapshot behind (the state dir — where
   //     backups live — is only deleted on successful completion below). Never blocks
   //     the uninstall: a backup failure must not stop the user removing agentsmd.
-  try { B.createBackup(new Date().toISOString()); B.pruneBackups(); } catch {}
-
-  // 1. hooks.json — strip agentsmd entries, preserve others; delete file only if
-  //    nothing else remains.
-  if (beforeHooks !== null) {
-    const r = H.removeAgentsmdHooks(beforeHooks);
-    result.hooksRemoved = r.removed;
-    if (r.removed > 0) {
-      if (r.nextContent === null) { try { fs.unlinkSync(P.hooksJsonPath()); result.hooksJsonDeleted = true; } catch {} }
-      else { B.writeFileAtomic(P.hooksJsonPath(), r.nextContent); } // atomic: torn write corrupts co-tenants (OMX)
-    }
-  }
-
-  // 2. AGENTS.md — remove the sentinel block, preserve surrounding content;
-  //    delete the file only if it was ours-only (now empty).
+  if (manifest) { try { B.createBackup(new Date().toISOString()); B.pruneBackups(); } catch {} }
   const beforeAgents = readOrNull(P.agentsMdPath());
-  if (beforeAgents !== null) {
-    const am = AM.removeSpecBlock(beforeAgents);
-    if (am.changed) {
-      result.agentsBlockRemoved = true;
-      if (am.content.trim() === '') { try { fs.unlinkSync(P.agentsMdPath()); } catch {} }
-      else B.writeFileAtomic(P.agentsMdPath(), am.content); // atomic: AGENTS.md holds OMX/user content too
-    }
-  }
+  const hooksRemoval = beforeHooks === null ? null : H.removeAgentsmdHooks(beforeHooks);
+  const agentsRemoval = beforeAgents === null ? null : AM.removeSpecBlock(beforeAgents);
+  const stateFiles = ownedStateFiles(manifest);
+  const legacy = M.legacyArtifacts();
+  const stageRoot = path.join(P.codexHome(), `.agentsmd-uninstall-stage-${process.pid}-${Date.now()}`);
+  fs.mkdirSync(stageRoot, { mode: 0o700 });
+  let transaction = null;
 
-  // 2b. AGENTS-extended.md — agentsmd's own standalone file (not shared, not in
-  //     the discovery chain). Remove it only when it is ours (carries the
-  //     CODEX-CODING-SPEC header); a foreign same-named file is left byte-for-byte.
-  const beforeExtended = readOrNull(P.agentsExtendedMdPath());
-  if (beforeExtended !== null && beforeExtended.includes('CODEX-CODING-SPEC')) {
-    try { fs.unlinkSync(P.agentsExtendedMdPath()); result.extendedMdRemoved = true; } catch {}
-  }
-
-  // 3. config.toml hooks flag: intentionally LEFT (see header).
-
-  // 3b. Remove ONLY agentsmd-* skill dirs from the shared Codex skills dir;
-  //     every other tenant's skill is left untouched.
-  result.skillsRemoved = 0;
   try {
-    const sdir = P.codexSkillsDir();
-    if (fs.existsSync(sdir)) {
-      for (const name of fs.readdirSync(sdir)) {
-        if (name.startsWith('agentsmd-')) { fs.rmSync(require('path').join(sdir, name), { recursive: true, force: true }); result.skillsRemoved++; }
+    transaction = createTransaction(stageRoot, [
+      P.hooksJsonPath(), P.agentsMdPath(), P.agentsExtendedMdPath(),
+      ...stateFiles, ...legacy.files,
+    ]);
+    snapshotDirectories(transaction, legacy.directories);
+    // 1. Shared files are marker-scoped and tracked byte-for-byte for rollback.
+    if (hooksRemoval && hooksRemoval.removed > 0) {
+      result.hooksRemoved = hooksRemoval.removed;
+      if (hooksRemoval.nextContent === null) {
+        mutateFile(transaction, P.hooksJsonPath(), () => fs.unlinkSync(P.hooksJsonPath()));
+        result.hooksJsonDeleted = true;
+      } else {
+        mutateFile(transaction, P.hooksJsonPath(), () => B.writeFileAtomic(P.hooksJsonPath(), hooksRemoval.nextContent));
       }
     }
-  } catch {}
+    if (agentsRemoval && agentsRemoval.changed) {
+      result.agentsBlockRemoved = true;
+      if (agentsRemoval.content.trim() === '') mutateFile(transaction, P.agentsMdPath(), () => fs.unlinkSync(P.agentsMdPath()));
+      else mutateFile(transaction, P.agentsMdPath(), () => B.writeFileAtomic(P.agentsMdPath(), agentsRemoval.content));
+    }
 
-  // 4. Remove the self-contained install dir + agentsmd state. Then leave tiny
-  //    no-op hook shims at the old command paths: Codex may keep the current
-  //    session's hook command list cached until restart, and `bash "missing.sh"`
-  //    exits 127. The shims are not registered and no manifest remains, so
-  //    agentsmd is still uninstalled; they only keep stale in-memory commands
-  //    quiet until the session refreshes.
-  try { fs.rmSync(P.installDir(), { recursive: true, force: true }); } catch {}
-  try { fs.rmSync(P.stateDir(), { recursive: true, force: true }); } catch {}
-  result.compatibilityShimsWritten = writeUninstalledHookShims();
+    if (ownership.extended) {
+      mutateFile(transaction, P.agentsExtendedMdPath(), () => fs.unlinkSync(P.agentsExtendedMdPath()));
+      result.extendedMdRemoved = true;
+    }
 
-  // 5. Belt-and-suspenders: sweep any leftover pre-rename codexmd footprint too,
-  //    so a clean uninstall leaves no trace of either name (marker-scoped).
-  result.legacyCodexmdRemoved = M.removeLegacyCodexmd();
-  return result;
+    // 2. Quarantine owned directories instead of deleting them in place. They
+    //    remain recoverable until every later uninstall phase succeeds.
+    result.skillsRemoved = 0;
+    for (const target of ownership.skills) {
+      quarantineDirectory(transaction, target);
+      result.skillsRemoved++;
+    }
+    const deploySwap = ownership.deploy ? quarantineDirectory(transaction, P.installDir()) : null;
+
+    // 3. Remove only manifest/session files; backups and unknown state survive.
+    for (const file of stateFiles) {
+      if (F.pathExists(file)) mutateFile(transaction, file, () => fs.unlinkSync(file));
+    }
+    try { fs.rmdirSync(P.stateDir()); result.stateDirRemoved = true; }
+    catch (error) {
+      if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error;
+      result.stateDirRemoved = error.code === 'ENOENT';
+    }
+
+    // 4. Current-session compatibility shims are part of the deploy swap.
+    if (deploySwap) {
+      try { result.compatibilityShimsWritten = S.writeUninstalledHookShims(); }
+      finally { markDirectoryAfter(deploySwap); }
+    } else result.compatibilityShimsWritten = 0;
+
+    // 5. Legacy cleanup is inside the same transaction boundary.
+    try { result.legacyCodexmdRemoved = M.removeLegacyCodexmd(); }
+    finally {
+      for (const file of legacy.files) transactionFile(transaction, file).after = F.snapshotFile(file);
+      markDirectorySnapshotsAfter(transaction);
+    }
+
+    const cleanupWarning = cleanupTransaction(transaction);
+    if (cleanupWarning) result.cleanupWarnings = [cleanupWarning];
+    return result;
+  } catch (error) {
+    const rollbackErrors = transaction ? rollback(transaction) : [];
+    if (transaction) {
+      const cleanupWarning = cleanupTransaction(transaction);
+      if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+    } else {
+      try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
+    }
+    if (rollbackErrors.length) error.message += `; ${rollbackErrors.join('; ')}`;
+    throw error;
+  }
 }
 
 if (require.main === module) {

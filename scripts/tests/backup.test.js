@@ -34,6 +34,14 @@ try {
     assert.strictEqual(b1.id, '2026-07-06T00_00_00.000Z'); // stamp sanitized for the FS
   });
 
+  t('backup snapshots and state directories are owner-only', () => {
+    assert.strictEqual(fs.statSync(B.backupsDir()).mode & 0o777, 0o700);
+    assert.strictEqual(fs.statSync(b1.dir).mode & 0o777, 0o700);
+    for (const name of [...b1.files, 'backup-manifest.json']) {
+      assert.strictEqual(fs.statSync(path.join(b1.dir, name)).mode & 0o777, 0o600, name);
+    }
+  });
+
   t('restore returns the exact pre-mutation bytes after a merge dropped a tenant', () => {
     fs.writeFileSync(path.join(SANDBOX, 'hooks.json'), '{"agentsmd":"only — tenant dropped!"}');
     fs.writeFileSync(path.join(SANDBOX, 'AGENTS.md'), '# clobbered\n');
@@ -41,6 +49,15 @@ try {
     assert.deepStrictEqual(res.restored.sort(), ['AGENTS.md', 'config.toml', 'hooks.json']);
     assert.strictEqual(read('hooks.json'), '{"tenant":"omx","v":1}');
     assert.strictEqual(read('AGENTS.md'), '# tenant A block\n');
+  });
+
+  t('atomic restore reinstates the snapshotted file mode', () => {
+    const hooks = path.join(SANDBOX, 'hooks.json');
+    fs.chmodSync(hooks, 0o640);
+    const b = B.createBackup('mode-fixture');
+    fs.chmodSync(hooks, 0o666);
+    B.restoreBackup(b.id);
+    assert.strictEqual(fs.statSync(hooks).mode & 0o777, 0o640);
   });
 
   t('planRestore is a pure preview — it never writes', () => {

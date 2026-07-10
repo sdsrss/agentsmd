@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
-const { audit, parseDaysArg, formatReport, classifyProject } = require('../audit');
+const { audit, parseDaysArg, formatReport, classifyProject, readRows } = require('../audit');
 const { rulesAudit } = require('../rules');
 const cp = require('child_process');
 
@@ -17,6 +17,7 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 
 const NOW = Date.parse('2026-07-02T12:00:00.000Z');
 const day = (n) => new Date(NOW - n * 86400000).toISOString();
+const RULE_HITS = path.join(__dirname, '..', '..', 'hooks', 'lib', 'rule-hits.sh');
 
 // session_id present + spread across ≥5 distinct in-window sessions so exposure
 // is sufficient for the demote/hook-value/deterrence signal branches to engage
@@ -54,6 +55,141 @@ try {
     const r = audit({ days: 30, now: NOW, logPath: rlog });
     assert.strictEqual(r.bySection['§8-secrets'].enforcement, 3, 'rotated hits must count');
     assert.strictEqual(r.sessionCount, 3, 'rotated sessions must count toward exposure');
+  });
+  t('rule-hits serializes rotation + append: every concurrent attempt is retained with empty stderr', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'concurrent-home.'));
+    const logDir = path.join(home, 'logs');
+    const concurrentLog = path.join(logDir, 'agentsmd.jsonl');
+    fs.mkdirSync(logDir, { recursive: true });
+    const padding = 'x'.repeat(8192);
+    const seed = JSON.stringify({ ts: day(1), hook: 'seed', event: 'context', spec_section: null, extra: { padding } }) + '\n';
+    fs.writeFileSync(concurrentLog, seed.repeat(140)); // > 1 MiB: first writer must rotate.
+    const attempted = 96;
+    const script = `
+      i=1
+      while [ "$i" -le "$ATTEMPTED" ]; do
+        bash -c 'source "$1"; rule_hits_append concurrent observe null "§test-concurrent" "$2"' _ "$RULE_HITS" "concurrent-$i" &
+        i=$((i + 1))
+      done
+      wait
+    `;
+    const run = cp.spawnSync('bash', ['-c', script], {
+      env: {
+        ...process.env,
+        CODEX_HOME: home,
+        AGENTSMD_LOG_MAX_MB: '1',
+        AGENTSMD_LOG_LOCK_ATTEMPTS: '500',
+        ATTEMPTED: String(attempted),
+        RULE_HITS,
+      },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, `writers exited ${run.status}: ${run.stderr}`);
+    assert.strictEqual(run.stderr, '', `concurrent writers emitted stderr: ${run.stderr}`);
+    const retained = readRows(concurrentLog).filter((r) => /^concurrent-/.test(String(r.session_id))).length;
+    assert.strictEqual(retained, attempted, `retained ${retained}/${attempted} attempted rows`);
+  });
+  t('rule_hits_observe writes eligibility/evaluation separately from enforcement', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'observe-home.'));
+    const script = 'source "$1"; rule_hits_observe gate "§test-observe" session-observe true true "{\\"clean\\":true}"';
+    const run = cp.spawnSync('bash', ['-c', script, '_', RULE_HITS], {
+      env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    const written = readRows(path.join(home, 'logs', 'agentsmd.jsonl'));
+    assert.strictEqual(written.length, 1);
+    assert.strictEqual(written[0].event, 'observe');
+    assert.strictEqual(written[0].eligible, true);
+    assert.strictEqual(written[0].evaluated, true);
+  });
+  t('rule-hits lock contention fails open with no row and no stderr', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'locked-home.'));
+    const logDir = path.join(home, 'logs');
+    const lockedLog = path.join(logDir, 'agentsmd.jsonl');
+    const lockDir = lockedLog + '.lock';
+    fs.mkdirSync(lockDir, { recursive: true });
+    const lease = `${Math.floor(Date.now() / 1000)} ${process.pid} active-test\n`;
+    fs.writeFileSync(path.join(lockDir, 'lease'), lease);
+    const script = 'source "$1"; rule_hits_append locked block null "§locked" session-locked';
+    const run = cp.spawnSync('bash', ['-c', script, '_', RULE_HITS], {
+      env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '1' },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    assert.strictEqual(fs.existsSync(lockedLog), false, 'contention must not write outside the lock');
+    assert.strictEqual(fs.readFileSync(path.join(lockDir, 'lease'), 'utf8'), lease, 'active lease must not be replaced');
+  });
+  t('rule-hits atomically recovers an expired lock owned by a dead process', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'stale-lock-home.'));
+    const logDir = path.join(home, 'logs');
+    const staleLog = path.join(logDir, 'agentsmd.jsonl');
+    const lockDir = staleLog + '.lock';
+    fs.mkdirSync(lockDir, { recursive: true });
+    const expired = Math.floor(Date.now() / 1000) - 60;
+    fs.writeFileSync(path.join(lockDir, 'lease'), `${expired} 999999 stale-test\n`);
+    const script = 'source "$1"; rule_hits_append recovered block null "§recovered" session-recovered';
+    const run = cp.spawnSync('bash', ['-c', script, '_', RULE_HITS], {
+      env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '20' },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    const written = readRows(staleLog);
+    assert.strictEqual(written.length, 1);
+    assert.strictEqual(written[0].session_id, 'session-recovered');
+    assert.strictEqual(fs.existsSync(lockDir), false, 'writer releases the recovered lock');
+    assert.strictEqual(fs.existsSync(lockDir + '.reap'), false, 'reaper gate is released');
+    assert.deepStrictEqual(fs.readdirSync(logDir).filter((n) => n.includes('.stale.')), [], 'quarantine is disposed');
+  });
+  t('rule-hits recovery requires both expiry and a dead owner', () => {
+    const cases = [
+      { name: 'fresh-dead', epoch: Math.floor(Date.now() / 1000), pid: 999999 },
+      { name: 'expired-live', epoch: Math.floor(Date.now() / 1000) - 60, pid: process.pid },
+    ];
+    for (const c of cases) {
+      const home = fs.mkdtempSync(path.join(tmp, `${c.name}-home.`));
+      const logDir = path.join(home, 'logs');
+      const log = path.join(logDir, 'agentsmd.jsonl');
+      const lockDir = log + '.lock';
+      fs.mkdirSync(lockDir, { recursive: true });
+      const lease = `${c.epoch} ${c.pid} ${c.name}\n`;
+      fs.writeFileSync(path.join(lockDir, 'lease'), lease);
+      const run = cp.spawnSync('bash', ['-c', 'source "$1"; rule_hits_append held block null "§held" session-held', '_', RULE_HITS], {
+        env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '1' }, encoding: 'utf8',
+      });
+      assert.strictEqual(run.status, 0, `${c.name}: ${run.stderr}`);
+      assert.strictEqual(run.stderr, '', c.name);
+      assert.strictEqual(fs.existsSync(log), false, `${c.name}: must fail open without appending`);
+      assert.strictEqual(fs.readFileSync(path.join(lockDir, 'lease'), 'utf8'), lease, `${c.name}: lease replaced`);
+    }
+  });
+  t('concurrent writers recover one stale generation without stealing the new owner', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'stale-concurrent-home.'));
+    const logDir = path.join(home, 'logs');
+    const log = path.join(logDir, 'agentsmd.jsonl');
+    const lockDir = log + '.lock';
+    fs.mkdirSync(lockDir, { recursive: true });
+    fs.writeFileSync(path.join(lockDir, 'lease'), `${Math.floor(Date.now() / 1000) - 60} 999999 stale-concurrent\n`);
+    const attempted = 32;
+    const script = `
+      i=1
+      while [ "$i" -le "$ATTEMPTED" ]; do
+        bash -c 'source "$1"; rule_hits_append recovered observe null "§stale-concurrent" "$2"' _ "$RULE_HITS" "stale-concurrent-$i" &
+        i=$((i + 1))
+      done
+      wait
+    `;
+    const run = cp.spawnSync('bash', ['-c', script], {
+      env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '500', ATTEMPTED: String(attempted), RULE_HITS },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    const retained = readRows(log).filter((r) => /^stale-concurrent-/.test(String(r.session_id))).length;
+    assert.strictEqual(retained, attempted, `retained ${retained}/${attempted} after stale recovery`);
+    assert.deepStrictEqual(fs.readdirSync(logDir).filter((n) => n.includes('.lock') || n.includes('.stale.')), []);
   });
   t('window includes the exact cutoff and excludes future rows', () => {
     const boundary = path.join(tmp, 'boundary.jsonl');
@@ -333,48 +469,122 @@ try {
   });
 
   const ra = rulesAudit({ days: 30, now: NOW, logPath: log });
-  t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
-  t('rules: extended-scope §E3-ship-baseline w/ 0 hits = hook-value-review, not demote (nowhere to demote to)', () => {
-    const r = ra.rules.find((x) => x.id === '§E3-ship-baseline');
-    assert(r && r.signal === 'hook-value-review', 'got ' + (r && r.signal));
-    assert(!ra.demoteCandidates.some((x) => x.id === '§E3-ship-baseline'), 'extended rule must not be a core demote-candidate');
-    assert(ra.hookValueReview.some((x) => x.id === '§E3-ship-baseline'));
+  const opportunityLog = path.join(tmp, 'rule-opportunities.jsonl');
+  const opportunityRules = path.join(tmp, 'rule-opportunities.json');
+  const opportunityRows = [];
+  for (let i = 1; i <= 5; i++) {
+    opportunityRows.push({
+      ts: day(i), hook: 'gate', event: 'observe', spec_section: '§evaluated-clean',
+      session_id: `clean-${i}`, eligible: true, evaluated: true,
+    });
+    opportunityRows.push({
+      ts: day(i), hook: 'gate', event: 'observe', spec_section: '§eligible-unevaluated',
+      session_id: `unevaluated-${i}`, eligible: true, evaluated: false,
+    });
+  }
+  opportunityRows.push({
+    ts: day(1), hook: 'gate', event: 'block', spec_section: '§active-rule',
+    session_id: 'active-1',
   });
-  t('rules: immutable §8.V4 w/ 0 hits + sufficient exposure = deterrence-ok (never dilution)', () => {
+  opportunityRows.push(
+    { ts: day(1), hook: 'gate', event: 'observe', spec_section: '§bypassed-rule', session_id: 'bypass-1', eligible: true, evaluated: false },
+    { ts: day(1), hook: 'gate', event: 'bypass', spec_section: '§bypassed-rule', session_id: 'bypass-1' },
+  );
+  fs.writeFileSync(opportunityLog, opportunityRows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  fs.writeFileSync(opportunityRules, JSON.stringify({
+    live_sections: ['§no-opportunity', '§evaluated-clean', '§eligible-unevaluated', '§active-rule', '§bypassed-rule'],
+    rules: [
+      { id: 'no-opportunity', scope: 'core', enforcement: 'hook', rule_hits_section: '§no-opportunity' },
+      { id: 'evaluated-clean', scope: 'core', enforcement: 'hook', rule_hits_section: '§evaluated-clean' },
+      { id: 'eligible-unevaluated', scope: 'core', enforcement: 'hook', rule_hits_section: '§eligible-unevaluated' },
+      { id: 'active-rule', scope: 'core', enforcement: 'hook', rule_hits_section: '§active-rule' },
+      { id: 'bypassed-rule', scope: 'core', enforcement: 'hook', rule_hits_section: '§bypassed-rule' },
+    ],
+  }));
+  const opportunityAudit = audit({ days: 30, now: NOW, logPath: opportunityLog });
+  const opportunityGovernance = rulesAudit({
+    days: 30, now: NOW, logPath: opportunityLog, hardRulesPath: opportunityRules,
+  });
+  t('audit: observe rows expose per-rule eligible/evaluated session denominators without enforcement hits', () => {
+    const clean = opportunityAudit.bySection['§evaluated-clean'];
+    assert.strictEqual(clean.enforcement, 0);
+    assert.strictEqual(clean.eligibleSessions, 5);
+    assert.strictEqual(clean.evaluatedSessions, 5);
+  });
+  t('rules: unrelated sessions do not demote a rule with no opportunity', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'no-opportunity');
+    assert.strictEqual(r.eligibleSessions, 0);
+    assert.strictEqual(r.evaluatedSessions, 0);
+    assert.strictEqual(r.signal, 'no-opportunity');
+  });
+  t('rules: five evaluated-clean opportunities can support demotion', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'evaluated-clean');
+    assert.strictEqual(r.eligibleSessions, 5);
+    assert.strictEqual(r.evaluatedSessions, 5);
+    assert.strictEqual(r.hits, 0);
+    assert.strictEqual(r.signal, 'demote-candidate');
+  });
+  t('rules: eligible but unevaluated opportunities cannot support demotion', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'eligible-unevaluated');
+    assert.strictEqual(r.eligibleSessions, 5);
+    assert.strictEqual(r.evaluatedSessions, 0);
+    assert.strictEqual(r.hits, 0);
+    assert.strictEqual(r.signal, 'insufficient-evaluation');
+  });
+  t('rules: enforcement remains an active signal and implies an evaluated opportunity for legacy rows', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'active-rule');
+    assert.strictEqual(r.eligibleSessions, 1);
+    assert.strictEqual(r.evaluatedSessions, 1);
+    assert.strictEqual(r.hits, 1);
+    assert.strictEqual(r.signal, 'active');
+  });
+  t('rules: explicit unevaluated observation overrides legacy inference for a same-session bypass', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'bypassed-rule');
+    assert.strictEqual(r.eligibleSessions, 1);
+    assert.strictEqual(r.evaluatedSessions, 0);
+    assert.strictEqual(r.hits, 1);
+    assert.strictEqual(r.signal, 'active');
+  });
+  t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
+  t('rules: extended-scope §E3-ship-baseline with no opportunity is not reviewed from unrelated sessions', () => {
+    const r = ra.rules.find((x) => x.id === '§E3-ship-baseline');
+    assert(r && r.signal === 'no-opportunity', 'got ' + (r && r.signal));
+    assert(!ra.demoteCandidates.some((x) => x.id === '§E3-ship-baseline'), 'extended rule must not be a core demote-candidate');
+    assert(!ra.hookValueReview.some((x) => x.id === '§E3-ship-baseline'));
+  });
+  t('rules: immutable §8.V4 with no opportunity is no-opportunity (never dilution)', () => {
     const r = ra.rules.find((x) => x.id === '§8.V4-sandbox-disposal');
-    assert(r && r.signal === 'deterrence-ok', 'got ' + (r && r.signal));
+    assert(r && r.signal === 'no-opportunity', 'got ' + (r && r.signal));
     assert(!ra.demoteCandidates.some((x) => x.id === '§8.V4-sandbox-disposal'), '§8 immutable rule must never be a demote-candidate');
   });
-  t('rules: a core standard-policy live rule w/ 0 hits + exposure IS a demote-candidate', () => {
+  t('rules: a core standard-policy live rule with unrelated global sessions has no opportunity', () => {
     const r = ra.rules.find((x) => x.id === '§10-four-section-order');
-    assert(r && r.signal === 'demote-candidate', 'got ' + (r && r.signal));
+    assert(r && r.signal === 'no-opportunity', 'got ' + (r && r.signal));
   });
   // Iron Law #2 gained a Stop observer (roadmap C4) so it is now enforcement 'both' +
   // live, but demote_policy 'deterrence' keeps it out of demote-candidates: 0 hits means
   // no unanchored fix claim arose (discipline working), not dilution — a foundational
   // Iron Law stays core regardless of hit count.
-  t('rules: Iron Law #2 live via C4 observer = deterrence-ok, never a demote-candidate', () => {
+  t('rules: Iron Law #2 without a rule-specific opportunity is no-opportunity, never a demote-candidate', () => {
     const r = ra.rules.find((x) => x.id === '§6-iron-law-2');
-    assert(r && r.signal === 'deterrence-ok', 'got ' + (r && r.signal));
+    assert(r && r.signal === 'no-opportunity', 'got ' + (r && r.signal));
     assert(!ra.demoteCandidates.some((x) => x.id === '§6-iron-law-2'), 'a foundational Iron Law must never be a demote-candidate');
   });
   t('rules: a still-self-enforced Iron Law (#1) is labeled self-enforced', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-1'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
   t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
-  // Thin window: telemetry present but < MIN_EXPOSURE_SESSIONS distinct sessions →
-  // a 0-hit live rule reads 'insufficient-exposure' (can't judge dilution yet), and
-  // nothing is demoted. A rule WITH hits still reads 'active' (exposure gates 0-hit only).
+  // Thin window: another rule's activity is not opportunity for a 0-hit rule.
   const thin = path.join(tmp, 'thin.jsonl');
   fs.writeFileSync(thin, [
     { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'only-one-session' },
     { ts: day(2), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'only-one-session' },
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
   const raThin = rulesAudit({ days: 30, now: NOW, logPath: thin });
-  t('rules: thin window → 0-hit live rule = insufficient-exposure, no demotes', () => {
+  t('rules: thin window → unrelated 0-hit live rule = no-opportunity, no demotes', () => {
     assert.strictEqual(raThin.sessionCount, 1);
-    assert.strictEqual(raThin.lowExposure, true);
+    assert.strictEqual(raThin.lowExposure, false);
     assert.strictEqual(raThin.demoteCandidates.length, 0, 'no demote off thin exposure');
     const r = raThin.rules.find((x) => x.id === '§10-four-section-order');
-    assert(r && r.signal === 'insufficient-exposure', 'got ' + (r && r.signal));
+    assert(r && r.signal === 'no-opportunity', 'got ' + (r && r.signal));
     const r8 = raThin.rules.find((x) => x.id === '§8-rm-rf-var');
     assert(r8 && r8.signal === 'active', 'active despite thin window: got ' + (r8 && r8.signal));
   });

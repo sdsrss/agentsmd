@@ -18,6 +18,7 @@ PATTERNS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/banned-vocab.patter
 HOOK="banned-vocab"
 hook_kill_switch "BANNED_VOCAB" || exit 0
 hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
+command -v node >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "node-missing"; exit 0; }
 [[ -r "$PATTERNS_FILE" ]] || { hook_record_failopen "$HOOK" "patterns-missing"; exit 0; }
 
 EVENT="$(hook_read_event)" || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
@@ -29,18 +30,21 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 [[ -n "$CMD" ]] || exit 0
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
-# Only inspect git commit commands (consume git global options so
-# `git -C <dir> commit -m …` is gated the same as the bare form).
-hook_cmd_invokes_git 'commit' "$CMD" || exit 0
-[[ "$CMD" == *"[allow-vocab]"* ]] && exit 0
+# Inspect every actual Git commit invocation; checking only the first lets a
+# later commit in the same Bash tool call evade the message gate.
+INVOCATIONS="$(hook_git_invocations_json 'commit' "$CMD")"
+[[ -n "$INVOCATIONS" && "$INVOCATIONS" != "[]" ]] || exit 0
 
 # Scan ONLY the inline message value(s), not the whole command line — otherwise a
 # filename/arg token (e.g. `-- significantly.txt`) would false-block a clean
-# message. Handles -m "…" / -m '…' / -m word / --message[= ]"…". Non-inline
-# messages (editor/-F) aren't inspectable pre-exec → nothing to scan.
-MSG="$(printf '%s' "$CMD" | grep -oE -- "(--message([[:space:]]+|=)|-[A-Za-z]*m[[:space:]]*)('[^']*'|\"[^\"]*\"|[^[:space:]'\"][^[:space:]]*)" 2>/dev/null \
-  | sed -E "s/^(--message([[:space:]]+|=)|-[A-Za-z]*m[[:space:]]*)//; s/^'(.*)'$/\1/; s/^\"(.*)\"$/\1/")"
+# message. The shared parser extracts -m/--message values from every invocation.
+# File/editor-sourced messages remain uninspectable pre-execution.
+MSG="$(printf '%s' "$INVOCATIONS" | jq -r '.[].messages[]' 2>/dev/null)"
 [[ -n "$MSG" ]] || exit 0
+if [[ "$CMD" == *"[allow-vocab]"* ]]; then
+  hook_observe "$HOOK" '§10-V' "$SID" true false '{"reason":"bypass"}'
+  exit 0
+fi
 
 # Find the first banned pattern that hits the message text.
 HIT=""
@@ -48,6 +52,8 @@ while IFS= read -r pat; do
   [[ -z "$pat" || "$pat" == \#* ]] && continue
   if printf '%s' "$MSG" | grep -qiE "$pat"; then HIT="$pat"; break; fi
 done < "$PATTERNS_FILE"
+
+hook_observe "$HOOK" '§10-V' "$SID" true true '{"source":"inline-message"}'
 
 [[ -n "$HIT" ]] || exit 0
 

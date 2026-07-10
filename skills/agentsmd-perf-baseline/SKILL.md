@@ -1,6 +1,6 @@
 ---
 name: agentsmd-perf-baseline
-description: Measure the real wall-clock latency each native Codex hook adds to a turn — median over N runs of OFF (DISABLE_AGENTSMD_HOOKS kill-switch floor) vs ON (full run), grouped by event — so the per-turn hook cost is a measured number, not a hand-waved estimate. Use when the user asks how much latency the hooks add, whether a hook is slow, wants to benchmark hook overhead, or is weighing disabling a hook. Spawns hooks in an isolated CODEX_HOME sandbox (writes NO telemetry/state to the live ~/.codex); numbers are a lower bound (exclude Codex's harness round-trip). NOT a correctness check — use agentsmd-safety-coverage-audit / doctor for that.
+description: Benchmark native hook wall-clock cost with OFF/ON medians in an isolated CODEX_HOME. Use for latency or disablement decisions. Not for correctness, install health, or live telemetry.
 ---
 
 # agentsmd-perf-baseline

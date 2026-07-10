@@ -1,8 +1,7 @@
 'use strict';
-// install.js — install agentsmd into ~/.codex (honors $CODEX_HOME). Independent
-// of oh-my-codex: touches only agentsmd's own entries, preserves everything else,
-// works whether or not ~/.codex pre-exists or OMX is present (ARCHITECTURE.md §5).
-// Idempotent — re-running refreshes agentsmd's entries without duplicating them.
+// install.js — transactional standalone installer for ~/.codex (honors
+// $CODEX_HOME). All source trees are staged before the live deployment moves,
+// so update can run from the deployed copy without deleting its own source.
 
 const fs = require('fs');
 const path = require('path');
@@ -12,148 +11,363 @@ const CT = require('./lib/config-toml');
 const AM = require('./lib/agents-md');
 const M = require('./lib/migrate');
 const B = require('./lib/backup');
+const F = require('./lib/fs-atomic');
+const S = require('./lib/uninstalled-shims');
 
-const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
-// Atomic write: write a sibling temp then rename (atomic on the same filesystem).
-// A torn/partial fs.writeFileSync of a SHARED file (hooks.json / config.toml /
-// AGENTS.md) would corrupt other tenants too; with rename, a reader — or a crash —
-// sees either the whole old file or the whole new one, never a truncated one.
-const writeFile = (p, c) => {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.agentsmd-tmp-${process.pid}`;
-  try { fs.writeFileSync(tmp, c); fs.renameSync(tmp, p); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
-};
-const chmodShells = (dir) => {
+const readOrNull = (file) => F.readFileOptional(file, 'utf8');
+
+function sameSnapshot(left, right) {
+  return left.present === right.present
+    && (!left.present || (left.mode === right.mode && left.content.equals(right.content)));
+}
+
+function transactionFile(transaction, file) {
+  return transaction.files.find((record) => path.resolve(record.file) === path.resolve(file));
+}
+
+function markTransactionFile(transaction, file) {
+  const record = transactionFile(transaction, file);
+  if (record) record.after = F.snapshotFile(file);
+}
+
+function writeTracked(transaction, file, content) {
+  F.writeFileAtomic(file, content);
+  markTransactionFile(transaction, file);
+}
+
+function chmodShells(dir) {
   if (!fs.existsSync(dir)) return;
-  for (const f of fs.readdirSync(dir)) if (f.endsWith('.sh')) { try { fs.chmodSync(path.join(dir, f), 0o755); } catch {} }
-};
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) chmodShells(file);
+    else if (entry.isFile() && entry.name.endsWith('.sh')) fs.chmodSync(file, 0o755);
+  }
+}
+
+function parsePriorManifest() {
+  const raw = readOrNull(P.manifestPath());
+  if (raw === null) return null;
+  let manifest;
+  try { manifest = JSON.parse(raw); }
+  catch { throw new Error(`${P.manifestPath()} is not valid JSON; ownership cannot be verified`); }
+  if (!manifest || manifest.name !== 'agentsmd') throw new Error(`ownership collision: ${P.manifestPath()} is not an agentsmd manifest`);
+  return manifest;
+}
+
+function priorSkillRecord(manifest, name, target) {
+  const records = manifest && manifest.ownedArtifacts && Array.isArray(manifest.ownedArtifacts.skills)
+    ? manifest.ownedArtifacts.skills : [];
+  return records.find((record) => record && record.name === name && path.resolve(record.path || '') === path.resolve(target)) || null;
+}
+
+function verifyOwnedSkill(manifest, name, target) {
+  if (!F.pathExists(target)) return;
+  const record = priorSkillRecord(manifest, name, target);
+  if (record) {
+    let actual;
+    try { actual = F.sha256Tree(target); } catch {}
+    if (record.sha256 === actual) return;
+    throw new Error(`ownership collision: installed skill ${name} differs from manifest hash`);
+  }
+  throw new Error(`ownership collision: ${target} exists but is not owned by this agentsmd manifest`);
+}
+
+function verifyOwnedExtended(manifest, target) {
+  if (!F.pathExists(target)) return;
+  const record = manifest && manifest.ownedArtifacts && manifest.ownedArtifacts.extended;
+  if (record && path.resolve(record.path || '') === path.resolve(target)) {
+    let actual;
+    try { actual = F.sha256File(target); } catch {}
+    if (record.sha256 === actual) return;
+    throw new Error('ownership collision: AGENTS-extended.md differs from manifest hash');
+  }
+  if (manifest && !manifest.ownedArtifacts && manifest.extendedMdAddedByUs === true) {
+    const deployed = readOrNull(path.join(P.installSpecDir(), 'AGENTS-extended.md'));
+    const current = readOrNull(target);
+    if (deployed !== null && current === deployed) return;
+  }
+  throw new Error('ownership collision: AGENTS-extended.md exists without an exact agentsmd manifest record');
+}
+
+function verifyOwnedDeploy(manifest, target) {
+  if (!F.pathExists(target)) return;
+  const record = manifest && manifest.ownedArtifacts && manifest.ownedArtifacts.deploy;
+  if (record && path.resolve(record.path || '') === path.resolve(target)) {
+    let actual;
+    try { actual = F.sha256Tree(target); } catch {}
+    if (actual === record.sha256) return;
+    throw new Error('ownership collision: deploy tree differs from manifest hash');
+  }
+  // Uninstall intentionally leaves a fixed no-op shim tree for commands cached
+  // by the current Codex session. Reinstall may replace only that exact tree;
+  // any added, missing, modified, non-executable, or symlinked entry remains a
+  // foreign ownership collision.
+  if (!manifest && S.isExactUninstalledShimTree(target)) return;
+  throw new Error(`ownership collision: deploy directory ${target} exists without an exact agentsmd manifest record`);
+}
+
+function migrateLegacyAgentsmdManifest(manifest, stamp) {
+  if (!manifest || manifest.ownedArtifacts) return { manifest, backup: null };
+  if (path.resolve(manifest.installDir || '') !== path.resolve(P.installDir())) {
+    throw new Error('ownership collision: legacy agentsmd manifest does not name the active deploy directory');
+  }
+  const backup = path.join(
+    P.codexHome(),
+    `.agentsmd-legacy-backup-${String(stamp).replace(/[^0-9A-Za-z._-]/g, '_')}-${process.pid}`
+  );
+  if (F.pathExists(backup)) throw new Error(`ownership collision: legacy backup path already exists: ${backup}`);
+  fs.mkdirSync(backup, { mode: 0o700 });
+
+  const ownedArtifacts = { deploy: null, extended: null, skills: [] };
+  if (F.pathExists(P.installDir())) {
+    fs.cpSync(P.installDir(), path.join(backup, 'deploy'), { recursive: true });
+    ownedArtifacts.deploy = { path: P.installDir(), sha256: F.sha256Tree(P.installDir()) };
+  }
+  if (manifest.extendedMdAddedByUs === true && F.pathExists(P.agentsExtendedMdPath())) {
+    fs.copyFileSync(P.agentsExtendedMdPath(), path.join(backup, 'AGENTS-extended.md'));
+    ownedArtifacts.extended = { path: P.agentsExtendedMdPath(), sha256: F.sha256File(P.agentsExtendedMdPath()) };
+  }
+  const skillBackup = path.join(backup, 'skills');
+  for (const name of Array.isArray(manifest.installedSkills) ? manifest.installedSkills : []) {
+    if (typeof name !== 'string' || path.basename(name) !== name || !name.startsWith('agentsmd-')) {
+      throw new Error('ownership collision: legacy agentsmd manifest contains an invalid skill name');
+    }
+    const target = path.join(P.codexSkillsDir(), name);
+    if (!F.pathExists(target)) continue;
+    fs.mkdirSync(skillBackup, { recursive: true });
+    fs.cpSync(target, path.join(skillBackup, name), { recursive: true });
+    ownedArtifacts.skills.push({ name, path: target, sha256: F.sha256Tree(target) });
+  }
+  F.writeFileAtomic(path.join(backup, 'migration-manifest.json'), JSON.stringify({
+    sourceManifest: manifest,
+    capturedAt: stamp,
+    ownedArtifacts,
+  }, null, 2) + '\n');
+  return { manifest: { ...manifest, ownedArtifacts }, backup };
+}
+
+function stageSources(repo, stageRoot) {
+  const deploy = path.join(stageRoot, 'deploy');
+  fs.mkdirSync(deploy, { recursive: true });
+  for (const name of ['hooks', 'spec', 'scripts', 'skills']) {
+    const source = path.join(repo, name);
+    if (fs.existsSync(source)) fs.cpSync(source, path.join(deploy, name), { recursive: true });
+  }
+  const packageJson = path.join(repo, 'package.json');
+  if (fs.existsSync(packageJson)) fs.copyFileSync(packageJson, path.join(deploy, 'package.json'));
+  for (const required of ['hooks', 'spec', 'scripts', 'skills']) {
+    if (!fs.existsSync(path.join(deploy, required))) throw new Error(`install source is incomplete: missing ${required}/`);
+  }
+  chmodShells(path.join(deploy, 'hooks'));
+  return deploy;
+}
+
+function swapDirectory(staged, target, transaction) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const backup = `${target}.agentsmd-old-${process.pid}-${transaction.swaps.length}`;
+  const existed = F.pathExists(target);
+  if (existed) fs.renameSync(target, backup);
+  try {
+    if (staged) fs.renameSync(staged, target);
+  } catch (error) {
+    if (existed) fs.renameSync(backup, target);
+    throw error;
+  }
+  transaction.swaps.push({
+    target,
+    backup: existed ? backup : null,
+    afterHash: staged ? F.sha256Tree(target) : null,
+    afterPresent: !!staged,
+    keepBackup: false,
+  });
+}
+
+function rollback(transaction) {
+  const errors = [];
+  for (const record of [...transaction.files].reverse()) {
+    try {
+      const current = F.snapshotFile(record.file);
+      if (sameSnapshot(current, record.before)) continue;
+      if (record.after && sameSnapshot(current, record.after)) F.restoreFile(record.file, record.before);
+      else errors.push(`rollback conflict ${record.file}: changed concurrently; preserved current bytes`);
+    } catch (error) { errors.push(`${record.file}: ${error.message}`); }
+  }
+  for (const swap of [...transaction.swaps].reverse()) {
+    try {
+      const present = F.pathExists(swap.target);
+      let matches = present === swap.afterPresent;
+      if (matches && present) {
+        try { matches = F.sha256Tree(swap.target) === swap.afterHash; } catch { matches = false; }
+      }
+      if (!matches) {
+        swap.keepBackup = true;
+        errors.push(`rollback conflict ${swap.target}: changed concurrently; preserved current tree`);
+        continue;
+      }
+      fs.rmSync(swap.target, { recursive: true, force: true });
+      if (swap.backup) fs.renameSync(swap.backup, swap.target);
+    } catch (error) { errors.push(`${swap.target}: ${error.message}`); }
+  }
+  for (const snapshot of [...transaction.directories].reverse()) {
+    try {
+      const present = F.pathExists(snapshot.target);
+      let matches = present === snapshot.afterPresent;
+      if (matches && present) {
+        try { matches = F.sha256Tree(snapshot.target) === snapshot.afterHash; } catch { matches = false; }
+      }
+      if (!matches) {
+        errors.push(`rollback conflict ${snapshot.target}: changed concurrently; preserved current tree`);
+        continue;
+      }
+      fs.rmSync(snapshot.target, { recursive: true, force: true });
+      if (snapshot.present) fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+    } catch (error) { errors.push(`${snapshot.target}: ${error.message}`); }
+  }
+  return errors;
+}
+
+function cleanupTransaction(transaction, stageRoot) {
+  for (const swap of transaction.swaps) if (swap.backup && !swap.keepBackup) {
+    try { fs.rmSync(swap.backup, { recursive: true, force: true }); } catch {}
+  }
+  try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
+}
 
 function install(nowIso) {
   const repo = P.repoRoot();
-  const installDir = P.installDir();
-  const hooksDir = P.installHooksDir();
   const stamp = nowIso || new Date().toISOString();
+  const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);
+  F.ensurePrivateDir(stageRoot);
+  let transaction = null;
 
-  // 0. Abort BEFORE touching anything if the shared hooks.json is present but
-  //    unparseable — it may hold other tenants' hooks we cannot see, and
-  //    overwriting it would silently delete them (C1). Never clobber blind.
-  const existingHooks = readOrNull(P.hooksJsonPath());
-  if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
-    throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
-  }
-
-  // 0a. Snapshot the 3 shared multi-tenant files (hooks.json / config.toml /
-  //     AGENTS.md) BEFORE any mutation — atomic-write makes a merge crash-safe, this
-  //     makes it reversible if a merge is logically wrong. Rotated (keep 5). Runs only
-  //     after the abort check (never back up a state we refuse to proceed from) and is
-  //     best-effort: a backup failure must NOT block the install (the shared files are
-  //     still mutated atomically). Backups live in agentsmd's own state dir. Roll back
-  //     with `agentsmd restore` (scripts/restore.js).
-  let backupInfo = null;
-  try { backupInfo = B.createBackup(stamp); B.pruneBackups(); } catch { backupInfo = null; }
-
-  // 0b. Migrate away any prior codexmd install (agentsmd's former name) BEFORE we
-  //     lay down our own entries — strip the legacy /codexmd/ hooks, AGENTS.md
-  //     block, skills, and dirs so an upgrader gets a clean replacement, not
-  //     duplicates. Marker-scoped (never touches OMX); a no-op when none exists.
-  const migratedFromCodexmd = M.removeLegacyCodexmd();
-  //     …and carry that user's rule-hit telemetry across the rename so the
-  //     promote/demote window survives the upgrade (no-op on a fresh install).
-  const migratedTelemetry = M.migrateLegacyTelemetry();
-
-  // 1. Copy hooks/ + spec/ + scripts/ into the self-contained install dir (the
-  //    `/agentsmd/` path segment is what the hooks.json marker matches). Wipe the
-  //    dir first so a file removed since the last version cannot linger: the
-  //    install dir is 100% agentsmd's (manifest/state/log live elsewhere), so it
-  //    must mirror the repo exactly, not accumulate stale copies across upgrades.
-  fs.rmSync(installDir, { recursive: true, force: true });
-  fs.mkdirSync(installDir, { recursive: true });
-  fs.cpSync(path.join(repo, 'hooks'), hooksDir, { recursive: true });
-  fs.cpSync(path.join(repo, 'spec'), P.installSpecDir(), { recursive: true });
-  fs.cpSync(path.join(repo, 'scripts'), P.installScriptsDir(), { recursive: true });
-  chmodShells(hooksDir); chmodShells(path.join(hooksDir, 'lib')); chmodShells(path.join(hooksDir, 'tests'));
-
-  // 1b. Install command-layer skills into the Codex user-skills dir — ONLY our
-  //     `agentsmd-*` prefixed dirs; never touch any other tenant's skill.
-  const installedSkills = [];
-  const repoSkills = path.join(repo, 'skills');
-  if (fs.existsSync(repoSkills)) {
-    fs.mkdirSync(P.codexSkillsDir(), { recursive: true });
-    for (const name of fs.readdirSync(repoSkills)) {
-      if (!name.startsWith('agentsmd-')) continue;
-      const src = path.join(repoSkills, name);
-      if (!fs.statSync(src).isDirectory()) continue;
-      fs.rmSync(path.join(P.codexSkillsDir(), name), { recursive: true, force: true }); // idempotent refresh
-      fs.cpSync(src, path.join(P.codexSkillsDir(), name), { recursive: true });
-      installedSkills.push(name);
+  try {
+    const existingHooks = readOrNull(P.hooksJsonPath());
+    if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
+      throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
     }
+    let priorManifest = parsePriorManifest();
+    const legacyAgentsmd = migrateLegacyAgentsmdManifest(priorManifest, stamp);
+    priorManifest = legacyAgentsmd.manifest;
+    const stagedDeploy = stageSources(repo, stageRoot);
+    const stagedSkillsDir = path.join(stageRoot, 'user-skills');
+    fs.mkdirSync(stagedSkillsDir, { recursive: true });
+    const skillNames = fs.readdirSync(path.join(stagedDeploy, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('agentsmd-'))
+      .map((entry) => entry.name)
+      .sort();
+
+    verifyOwnedDeploy(priorManifest, P.installDir());
+    verifyOwnedExtended(priorManifest, P.agentsExtendedMdPath());
+    for (const name of skillNames) {
+      const target = path.join(P.codexSkillsDir(), name);
+      verifyOwnedSkill(priorManifest, name, target);
+      fs.cpSync(path.join(stagedDeploy, 'skills', name), path.join(stagedSkillsDir, name), { recursive: true });
+    }
+    const priorNames = priorManifest && priorManifest.ownedArtifacts && Array.isArray(priorManifest.ownedArtifacts.skills)
+      ? priorManifest.ownedArtifacts.skills.map((record) => record.name)
+      : (priorManifest && Array.isArray(priorManifest.installedSkills) ? priorManifest.installedSkills : []);
+    const staleSkillNames = [...new Set(priorNames)].filter((name) => name.startsWith('agentsmd-') && !skillNames.includes(name));
+    for (const name of staleSkillNames) verifyOwnedSkill(priorManifest, name, path.join(P.codexSkillsDir(), name));
+
+    let backupInfo = null;
+    try { backupInfo = B.createBackup(stamp); B.pruneBackups(); } catch { backupInfo = null; }
+
+    const legacy = M.legacyArtifacts();
+    transaction = {
+      files: [
+        P.hooksJsonPath(), P.configTomlPath(), P.agentsMdPath(),
+        P.agentsExtendedMdPath(), P.manifestPath(), ...legacy.files,
+      ].map((file) => ({ file, before: F.snapshotFile(file), after: null })),
+      directories: [],
+      swaps: [],
+    };
+    const legacyBackupRoot = path.join(stageRoot, 'legacy-rollback');
+    for (const [index, target] of legacy.directories.entries()) {
+      const present = F.pathExists(target);
+      const backup = path.join(legacyBackupRoot, String(index));
+      if (present) fs.cpSync(target, backup, { recursive: true });
+      transaction.directories.push({ target, backup, present, afterPresent: present, afterHash: present ? F.sha256Tree(target) : null });
+    }
+
+    // Legacy migration remains marker-scoped. It runs only after every new artifact
+    // collision has been validated, so a foreign collision is a zero-mutation abort.
+    const migratedFromCodexmd = M.removeLegacyCodexmd();
+    const migratedTelemetry = M.migrateLegacyTelemetry();
+    for (const record of transaction.files) record.after = F.snapshotFile(record.file);
+    for (const record of transaction.directories) {
+      record.afterPresent = F.pathExists(record.target);
+      record.afterHash = record.afterPresent ? F.sha256Tree(record.target) : null;
+    }
+
+    const hooksDir = P.installHooksDir();
+    const managed = H.buildManagedConfig(hooksDir, path.join(stagedDeploy, 'hooks', 'hooks.json'));
+    const mergedHooks = H.mergeAgentsmdHooks(readOrNull(P.hooksJsonPath()), managed);
+    const cfg = CT.ensureCodexHooksFlag(readOrNull(P.configTomlPath()));
+    const statusLine = CT.ensureTuiStatusLine(cfg.content);
+    const specText = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS.md'), 'utf8');
+    const am = AM.injectSpecBlock(readOrNull(P.agentsMdPath()), specText);
+    const extendedSrc = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md'), 'utf8');
+    const packageInfo = (() => { try { return JSON.parse(fs.readFileSync(path.join(stagedDeploy, 'package.json'), 'utf8')); } catch { return {}; } })();
+
+    const ownedSkills = skillNames.map((name) => ({
+      name,
+      path: path.join(P.codexSkillsDir(), name),
+      sha256: F.sha256Tree(path.join(stagedSkillsDir, name)),
+    }));
+    const manifest = {
+      name: 'agentsmd',
+      version: packageInfo.version || null,
+      installedAt: stamp,
+      backup: backupInfo ? backupInfo.id : null,
+      installDir: P.installDir(),
+      hooksDir,
+      hookCount: H.countAgentsmdHooks(mergedHooks),
+      installedSkills: skillNames,
+      ownedArtifacts: {
+        deploy: { path: P.installDir(), sha256: F.sha256Tree(stagedDeploy) },
+        extended: { path: P.agentsExtendedMdPath(), sha256: F.sha256File(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md')) },
+        skills: ownedSkills,
+      },
+      deployedFiles: F.treeEntries(stagedDeploy).filter((entry) => entry.type !== 'dir'),
+      configFlag: cfg.reason,
+      configFlagAddedByUs: cfg.changed,
+      statusLine: statusLine.reason,
+      statusLineAddedByUs: statusLine.changed,
+      agentsBlockUpdated: am.updated === true,
+      extendedMd: fs.existsSync(P.agentsExtendedMdPath()) ? 'refreshed' : 'created',
+      extendedMdAddedByUs: true,
+      migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
+      migratedTelemetryRows: migratedTelemetry.migrated,
+      legacyArtifactBackup: legacyAgentsmd.backup,
+    };
+
+    // Commit directories first; all hook commands already point at the final path.
+    swapDirectory(stagedDeploy, P.installDir(), transaction);
+    for (const name of skillNames) swapDirectory(path.join(stagedSkillsDir, name), path.join(P.codexSkillsDir(), name), transaction);
+    for (const name of staleSkillNames) if (F.pathExists(path.join(P.codexSkillsDir(), name))) {
+      swapDirectory(null, path.join(P.codexSkillsDir(), name), transaction);
+    }
+
+    writeTracked(transaction, P.hooksJsonPath(), mergedHooks);
+    if (cfg.changed || statusLine.changed) writeTracked(transaction, P.configTomlPath(), statusLine.content);
+    writeTracked(transaction, P.agentsMdPath(), am.content);
+    writeTracked(transaction, P.agentsExtendedMdPath(), extendedSrc);
+    F.ensurePrivateDir(P.stateDir());
+    writeTracked(transaction, P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n');
+
+    cleanupTransaction(transaction, stageRoot);
+    return manifest;
+  } catch (error) {
+    const rollbackErrors = transaction ? rollback(transaction) : [];
+    cleanupTransaction(transaction || { swaps: [] }, stageRoot);
+    if (rollbackErrors.length) error.message += `; rollback errors: ${rollbackErrors.join('; ')}`;
+    throw error;
   }
-
-  // 2. Merge hooks.json — marker-scoped, preserve all non-agentsmd entries.
-  const managed = H.buildManagedConfig(hooksDir, path.join(hooksDir, 'hooks.json'));
-  const mergedHooks = H.mergeAgentsmdHooks(readOrNull(P.hooksJsonPath()), managed);
-  writeFile(P.hooksJsonPath(), mergedHooks);
-
-  // 3. Ensure config.toml [features] hooks = true (Codex 0.142+; migrates a
-  //    legacy codex_hooks flag to the canonical name), and restore the useful
-  //    Codex built-in footer items formerly configured by OMX. User-defined
-  //    [tui] status_line values are preserved byte-for-byte.
-  const cfg = CT.ensureCodexHooksFlag(readOrNull(P.configTomlPath()));
-  const statusLine = CT.ensureTuiStatusLine(cfg.content);
-  if (cfg.changed || statusLine.changed) writeFile(P.configTomlPath(), statusLine.content);
-
-  // 4. Inject the core spec into ~/.codex/AGENTS.md as a sentinel block.
-  const specText = fs.readFileSync(path.join(P.installSpecDir(), 'AGENTS.md'), 'utf8');
-  const am = AM.injectSpecBlock(readOrNull(P.agentsMdPath()), specText);
-  writeFile(P.agentsMdPath(), am.content);
-
-  // 4b. Place the extended spec at the top-level ~/.codex/AGENTS-extended.md — the
-  //     exact path core §2/§5 order the agent to `cat` on L3. Without this it is
-  //     copied into the install dir (step 1) but the `cat` target never exists, so
-  //     the whole extended spec is unreachable. It is NOT in the discovery chain
-  //     (zero AGENTS.md-budget) and its name is agentsmd's own → a self-owned
-  //     standalone file. Never clobber a FOREIGN same-named file: write only when
-  //     absent or when the existing one is ours (carries the CODEX-CODING-SPEC
-  //     header). Tracked in the manifest for a precise, reversible uninstall.
-  const extendedSrc = fs.readFileSync(path.join(P.installSpecDir(), 'AGENTS-extended.md'), 'utf8');
-  const existingExtended = readOrNull(P.agentsExtendedMdPath());
-  let extendedMd, extendedMdAddedByUs;
-  if (existingExtended !== null && !existingExtended.includes('CODEX-CODING-SPEC')) {
-    extendedMd = 'skipped-foreign'; extendedMdAddedByUs = false;
-  } else {
-    writeFile(P.agentsExtendedMdPath(), extendedSrc);
-    extendedMd = existingExtended === null ? 'created' : 'refreshed';
-    extendedMdAddedByUs = true;
-  }
-
-  // 5. Record what we did, for an exact reversible uninstall.
-  const manifest = {
-    name: 'agentsmd',
-    // Record the installed version so status/doctor can tell a lagging install from a
-    // current one, and a future SessionStart notifier can compare against the package.
-    version: (() => { try { return JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version; } catch { return null; } })(),
-    installedAt: stamp,
-    backup: backupInfo ? backupInfo.id : null,
-    installDir, hooksDir,
-    hookCount: H.countAgentsmdHooks(mergedHooks),
-    installedSkills,
-    configFlag: cfg.reason,
-    configFlagAddedByUs: cfg.changed,
-    statusLine: statusLine.reason,
-    statusLineAddedByUs: statusLine.changed,
-    agentsBlockUpdated: am.updated === true,
-    extendedMd,
-    extendedMdAddedByUs,
-    migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
-    migratedTelemetryRows: migratedTelemetry.migrated,
-  };
-  writeFile(P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n');
-  return manifest;
 }
 
 if (require.main === module) {
   try { console.log('agentsmd installed:\n' + JSON.stringify(install(), null, 2)); }
-  catch (e) { console.error('agentsmd install failed:', e.message); process.exit(1); }
+  catch (error) { console.error('agentsmd install failed:', error.message); process.exit(1); }
 }
+
 module.exports = { install };

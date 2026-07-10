@@ -1,6 +1,6 @@
 ---
 name: agentsmd-safety-coverage-audit
-description: Static check that agentsmd's hooks actually IMPLEMENT the spec §8/§10/§7 rules their headers and deny/advisory strings CLAIM — catches a hook whose comment quotes a multi-clause rule (e.g. "lockfile → local → pinned") but only one clause has code, a documented [allow-*] bypass with no guarding code, a telemetry section no manifest rule declares, or a live rule no hook emits. Use before shipping a hook change, when auditing §8 SAFETY coverage, or when you suspect a hook's documentation drifted from its implementation. Pure static analysis over hooks/*.sh + hard-rules.json; exit 3 on any gap.
+description: Check hook claims, bypass tokens, emitters, and hard-rules wiring for static drift. Use when reviewing safety hook metadata. Not for semantic security proof or runtime correctness.
 ---
 
 # agentsmd-safety-coverage-audit

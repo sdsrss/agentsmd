@@ -25,25 +25,30 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-# Only ship-family commands (spec §5/§E3 ship intent): git push/merge (with any
-# global options), or npm/pnpm/yarn publish / gh release / cargo publish.
+# Only ship-family commands (spec §5/§E3 ship intent): git push/merge (including
+# quoted global options and path-qualified Git), or the non-Git publishers below.
 hook_cmd_invokes_git 'push|merge' "$CMD" \
   || printf '%s' "$CMD" | grep -qiE '(npm|pnpm|yarn)[[:space:]]+publish\b|(^|[[:space:]])(gh[[:space:]]+release|cargo[[:space:]]+publish)\b' \
   || exit 0
-[[ "$CMD" == *"[allow-unread-memory]"* ]] && { hook_record "$HOOK" "bypass" '{"token":"allow-unread-memory"}' '§7-memory-read' "$SID"; exit 0; }
 
 # Locate a MEMORY.md worth consulting: cwd, the enclosing git root (a ship command
 # is often run from a subdir), or global.
 MEM=""
 MEM="$(hook_find_memory_file "$CWD" 2>/dev/null || true)"
 [[ -n "$MEM" ]] || exit 0   # no MEMORY.md → nothing to enforce
+memory_unevaluated() {
+  local reason="$1"
+  hook_observe "$HOOK" '§7-memory-read' "$SID" true false \
+    "$(jq -cn --arg m "$MEM" --arg r "$reason" '{memory:$m,reason:$r}' 2>/dev/null || echo null)"
+}
+[[ "$CMD" == *"[allow-unread-memory]"* ]] && { memory_unevaluated "bypass"; hook_record "$HOOK" "bypass" '{"token":"allow-unread-memory"}' '§7-memory-read' "$SID"; exit 0; }
 
 # Was it consulted? Fail-open if we can't read the transcript to tell. User
 # prompts do not count: otherwise "push without reading MEMORY.md" satisfies the
 # gate by merely naming the file. Non-user transcript entries are the only
 # evidence this hook can observe cheaply across Codex transcript variants.
 TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
-[[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || { hook_record_failopen "$HOOK" "no-transcript"; exit 0; }
+[[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || { memory_unevaluated "no-transcript"; hook_record_failopen "$HOOK" "no-transcript"; exit 0; }
 node -e '
 const fs = require("fs");
 const CAP = 1 << 19; // 512 KiB tail — bound the read on long sessions (mirror of the Stop hooks); an unbounded readFileSync here degraded the ship gate to a timeout no-op on the longest sessions.
@@ -71,6 +76,8 @@ process.exit(1);
 ' "$TRANSCRIPT" 2>/dev/null
 CONSULTED=$?
 if [[ "$CONSULTED" -eq 0 ]]; then
+  hook_observe "$HOOK" '§7-memory-read' "$SID" true true \
+    "$(jq -cn --arg m "$MEM" '{memory:$m,consulted:true}' 2>/dev/null || echo null)"
   exit 0   # referenced this session → consider it consulted
 fi
 # Fail-OPEN on anything but the detector's explicit "not consulted" (exit 1).
@@ -78,7 +85,9 @@ fi
 # independently of this parent (OOM/SIGKILL/SIGSEGV/SIGTERM → 137/139/143), a
 # tool malfunction that must never fail-CLOSED onto a git push — the layer's
 # prime invariant. Only a clean exit 1 is evidence the file was not opened.
-[[ "$CONSULTED" -ne 1 ]] && { hook_record_failopen "$HOOK" "transcript-read-failed"; exit 0; }
+[[ "$CONSULTED" -ne 1 ]] && { memory_unevaluated "transcript-read-failed"; hook_record_failopen "$HOOK" "transcript-read-failed"; exit 0; }
+hook_observe "$HOOK" '§7-memory-read' "$SID" true true \
+  "$(jq -cn --arg m "$MEM" '{memory:$m,consulted:false}' 2>/dev/null || echo null)"
 
 # The block text below refers to the file by its DIRECTORY, never the literal
 # "MEMORY.md" — otherwise, if Codex echoes this hook's own reason into the

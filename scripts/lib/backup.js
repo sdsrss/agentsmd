@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const P = require('./paths');
+const F = require('./fs-atomic');
 
 // The shared multi-tenant files, by stable key → path resolver.
 const SHARED_FILES = { 'hooks.json': P.hooksJsonPath, 'config.toml': P.configTomlPath, 'AGENTS.md': P.agentsMdPath };
@@ -23,12 +24,7 @@ function backupsDir() { return path.join(P.stateDir(), 'backups'); }
 
 // Atomic write (mirror of install.js writeFile) — a torn restore of a shared file
 // would corrupt other tenants too.
-function writeFileAtomic(p, c) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.agentsmd-tmp-${process.pid}`;
-  try { fs.writeFileSync(tmp, c); fs.renameSync(tmp, p); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
-}
+const writeFileAtomic = F.writeFileAtomic;
 
 function statMtime(p) { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }
 
@@ -40,15 +36,18 @@ function statMtime(p) { try { return fs.statSync(p).mtimeMs; } catch { return 0;
 function createBackup(stamp) {
   const id = String(stamp || new Date().toISOString()).replace(/[^0-9A-Za-z._-]/g, '_');
   const dir = path.join(backupsDir(), id);
-  fs.mkdirSync(dir, { recursive: true });
+  F.ensurePrivateDir(P.stateDir());
+  F.ensurePrivateDir(backupsDir());
+  F.ensurePrivateDir(dir);
   const files = [], skipped = [], meta = {};
   for (const [name, resolve] of Object.entries(SHARED_FILES)) {
     let content = null;
-    try { content = fs.readFileSync(resolve(), 'utf8'); } catch { content = null; }
+    const source = resolve();
+    try { content = fs.readFileSync(source, 'utf8'); } catch { content = null; }
     if (content === null) { skipped.push(name); meta[name] = { present: false }; continue; }
     writeFileAtomic(path.join(dir, name), content);
     files.push(name);
-    meta[name] = { present: true };
+    meta[name] = { present: true, mode: fs.statSync(source).mode & 0o777 };
   }
   writeFileAtomic(path.join(dir, 'backup-manifest.json'), JSON.stringify({ id, stamp: String(stamp || ''), files: meta }, null, 2) + '\n');
   return { id, dir, files, skipped };
@@ -94,10 +93,15 @@ function planRestore(id) {
 // (atomic). Absent-at-backup files are left untouched. Returns { id, restored, left }.
 function restoreBackup(id) {
   const plan = planRestore(id);
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(plan.dir, 'backup-manifest.json'), 'utf8')).files || {}; } catch {}
   const restored = [];
   for (const name of plan.willRestore) {
     const content = fs.readFileSync(path.join(plan.dir, name), 'utf8');
-    writeFileAtomic(SHARED_FILES[name](), content);
+    writeFileAtomic(SHARED_FILES[name](), content, {
+      mode: meta[name] && Number.isInteger(meta[name].mode) ? meta[name].mode : 0o600,
+      preserveMode: false,
+    });
     restored.push(name);
   }
   return { id: plan.id, dir: plan.dir, restored, left: plan.willLeave };

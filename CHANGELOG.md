@@ -3,6 +3,27 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v2.17.0 — 2026-07-10 — change: transactional lifecycle, bounded governance telemetry, and 16 KiB core
+
+- Added quote-aware Git invocation parsing and `commit -a/--all` secret scanning.
+- Added manifest-backed lifecycle ownership, staged transactions, failure
+  rollback in both install and uninstall, mode-preserving atomic writes, legacy
+  recovery snapshots, exact compatibility-shim reinstall ownership, and stricter
+  doctor inventory checks.
+- Narrowed ship-hook claims to known-red remote status and added CI for Node
+  18/20/22/24 plus shellcheck.
+- Serialized telemetry rotation/append and changed governance denominators to
+  per-rule eligible/evaluated opportunities.
+- Reduced core to the 16 KiB budget; moved detail to extended, followed the
+  user's language, made repository memory opt-in, and added bilingual recall and
+  skill-routing fixtures.
+- Synchronized capability wording, hook-event manifests, SQL safety semantics,
+  `npx` advisory classification, architecture, and drift gates.
+
+No hooks were added or removed (15 remain). Rollback: pin npm consumers to
+`@sdsrs/agentsmd@2.16.0` and revert the `v2.17.0` release commit; npm versions
+are immutable, so a published `2.17.0` can only be deprecated, not replaced.
+
 ## v2.16.0 — 2026-07-07 — fix: git-global-option hook evasion + config atomicity + telemetry rotation; new drift/doctor gates
 
 Minor release closing a batch of correctness, safety, and honesty findings from the

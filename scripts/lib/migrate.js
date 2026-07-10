@@ -13,6 +13,7 @@ const P = require('./paths');
 const H = require('./codex-hooks');
 const AM = require('./agents-md');
 const B = require('./backup');
+const F = require('./fs-atomic');
 
 // The former identity. Kept HERE — the only place agentsmd still names the old
 // project — so the rest of the codebase stays free of it.
@@ -30,7 +31,7 @@ const isLegacyCommand = (command) => {
   return command.replace(/\\/g, '/').includes(`${legacyInstallDir}/`);
 };
 
-const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const readOrNull = (file) => F.readFileOptional(file, 'utf8');
 const rmrf = (p) => { try { if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); return true; } } catch {} return false; };
 
 // Remove any prior codexmd footprint from the active Codex home ($CODEX_HOME).
@@ -39,7 +40,19 @@ function removeLegacyCodexmd() {
   const report = {
     detected: false, hooksRemoved: 0, agentsBlockRemoved: false,
     skillsRemoved: 0, installDirRemoved: false, stateDirRemoved: false,
+    ownershipConflicts: [],
   };
+  const legacyInstallDir = path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME);
+  const legacyStateDir = path.join(P.codexHome(), LEGACY_STATE_DIRNAME);
+  const legacyManifestPath = path.join(legacyStateDir, 'manifest.json');
+  let legacyManifest = null;
+  const legacyManifestRaw = readOrNull(legacyManifestPath);
+  if (legacyManifestRaw !== null) {
+    try {
+      const parsed = JSON.parse(legacyManifestRaw);
+      if (parsed && parsed.name === 'codexmd') legacyManifest = parsed;
+    } catch {}
+  }
 
   // 1. hooks.json — strip only old CODEX_HOME/codexmd install-dir entries;
   //    preserve all others (OMX, the user's own, any tenant) exactly as
@@ -67,19 +80,58 @@ function removeLegacyCodexmd() {
     }
   }
 
-  // 3. skills — remove only codexmd-* dirs; every other tenant's skill is kept.
+  // 3. Skills require an exact legacy manifest record. The namespace prefix by
+  //    itself is not provenance and may be used by an unrelated local skill.
   const sdir = P.codexSkillsDir();
+  const legacySkills = legacyManifest?.ownedArtifacts && Array.isArray(legacyManifest.ownedArtifacts.skills)
+    ? legacyManifest.ownedArtifacts.skills : [];
   if (fs.existsSync(sdir)) {
-    for (const name of fs.readdirSync(sdir)) {
-      if (name.startsWith(LEGACY_SKILL_PREFIX) && rmrf(path.join(sdir, name))) {
+    for (const record of legacySkills) {
+      const name = record && record.name;
+      const target = typeof name === 'string' ? path.join(sdir, name) : '';
+      if (typeof name !== 'string' || path.basename(name) !== name || !name.startsWith(LEGACY_SKILL_PREFIX)
+          || path.resolve(record.path || '') !== path.resolve(target)) {
+        report.ownershipConflicts.push(`invalid legacy skill record: ${name || '(unknown)'}`);
+        continue;
+      }
+      if (!F.pathExists(target)) continue;
+      let actual = null;
+      try { actual = F.sha256Tree(target); } catch {}
+      if (actual !== record.sha256) {
+        report.ownershipConflicts.push(target);
+      } else if (rmrf(target)) {
         report.skillsRemoved++; report.detected = true;
+      }
+    }
+    const unhashedNames = legacyManifest && !legacyManifest.ownedArtifacts && Array.isArray(legacyManifest.installedSkills)
+      ? legacyManifest.installedSkills : [];
+    for (const name of unhashedNames) {
+      const target = typeof name === 'string' ? path.join(sdir, name) : '';
+      if (typeof name === 'string' && path.basename(name) === name && name.startsWith(LEGACY_SKILL_PREFIX) && F.pathExists(target)) {
+        report.ownershipConflicts.push(target);
       }
     }
   }
 
-  // 4. the self-contained install dir + state dir under the Codex home.
-  if (rmrf(path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME))) { report.installDirRemoved = true; report.detected = true; }
-  if (rmrf(path.join(P.codexHome(), LEGACY_STATE_DIRNAME))) { report.stateDirRemoved = true; report.detected = true; }
+  // 4. Fixed-name dirs are deleted only with verified provenance: the manifest
+  //    names the exact install path, or live hook commands proved that path was
+  //    the active legacy release. A same-named foreign directory is preserved.
+  const deployRecord = legacyManifest?.ownedArtifacts && legacyManifest.ownedArtifacts.deploy;
+  if (F.pathExists(legacyInstallDir)) {
+    let actual = null;
+    try { actual = F.sha256Tree(legacyInstallDir); } catch {}
+    if (deployRecord && path.resolve(deployRecord.path || '') === path.resolve(legacyInstallDir) && actual === deployRecord.sha256) {
+      if (rmrf(legacyInstallDir)) { report.installDirRemoved = true; report.detected = true; }
+    } else {
+      report.ownershipConflicts.push(legacyInstallDir);
+    }
+  }
+  if (legacyManifest && report.ownershipConflicts.length === 0) {
+    try { fs.unlinkSync(legacyManifestPath); report.detected = true; } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
+    try { fs.rmdirSync(legacyStateDir); report.stateDirRemoved = true; }
+    catch (error) { if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error; }
+  }
+  if (report.ownershipConflicts.length) report.detected = true;
 
   return report;
 }
@@ -108,4 +160,23 @@ function migrateLegacyTelemetry() {
   } catch { return { migrated: 0 }; }
 }
 
-module.exports = { removeLegacyCodexmd, migrateLegacyTelemetry, isLegacyCommand, LEGACY_BEGIN, LEGACY_END };
+// Exact paths mutated by the legacy migration. The transactional installer uses
+// this inventory to snapshot the old footprint before migration starts.
+function legacyArtifacts() {
+  const directories = [
+    path.join(P.codexHome(), LEGACY_INSTALL_DIRNAME),
+    path.join(P.codexHome(), LEGACY_STATE_DIRNAME),
+  ];
+  const skillsDir = P.codexSkillsDir();
+  if (fs.existsSync(skillsDir)) {
+    for (const name of fs.readdirSync(skillsDir)) {
+      if (name.startsWith(LEGACY_SKILL_PREFIX)) directories.push(path.join(skillsDir, name));
+    }
+  }
+  return {
+    directories,
+    files: [path.join(P.codexHome(), 'logs', 'codexmd.jsonl'), P.logPath()],
+  };
+}
+
+module.exports = { removeLegacyCodexmd, migrateLegacyTelemetry, legacyArtifacts, isLegacyCommand, LEGACY_BEGIN, LEGACY_END };

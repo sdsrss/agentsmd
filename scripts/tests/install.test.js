@@ -76,6 +76,24 @@ withSandbox((dir) => {
   });
 });
 
+// Existing private config must not be widened by temp-file + rename. New files
+// managed under CODEX_HOME carry private defaults because config can contain env
+// and MCP credentials and state/manifest data describes the local installation.
+withSandbox((dir) => {
+  const cfgPath = path.join(dir, 'config.toml');
+  fs.writeFileSync(cfgPath, '[features]\nhooks = false\n', { mode: 0o600 });
+  fs.chmodSync(cfgPath, 0o600);
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  t('atomic install preserves an existing config.toml mode', () => assert.strictEqual(fs.statSync(cfgPath).mode & 0o777, 0o600));
+  t('new sensitive install files are owner-only', () => {
+    for (const rel of ['hooks.json', 'AGENTS.md', 'AGENTS-extended.md', '.agentsmd-state/manifest.json']) {
+      assert.strictEqual(fs.statSync(path.join(dir, rel)).mode & 0o777, 0o600, rel);
+    }
+    assert.strictEqual(fs.statSync(path.join(dir, '.agentsmd-state')).mode & 0o777, 0o700);
+  });
+});
+
 // ── 2. install is idempotent ────────────────────────────────────────────────
 withSandbox((dir) => {
   fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
@@ -138,6 +156,81 @@ withSandbox((dir) => {
   });
   t('uninstall abort leaves the corrupt file byte-untouched', () => {
     assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), corrupt);
+  });
+});
+
+withSandbox((dir) => {
+  const foreign = path.join(dir, '.agentsmd-state', 'foreign.txt');
+  fs.mkdirSync(path.dirname(foreign), { recursive: true });
+  fs.writeFileSync(foreign, 'foreign state\n');
+  const { uninstall } = loadModules();
+  uninstall();
+  t('uninstall without a manifest preserves a foreign state directory', () => assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'foreign state\n'));
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const foreign = path.join(dir, '.agentsmd-state', 'foreign.txt');
+  fs.writeFileSync(foreign, 'foreign state\n');
+  uninstall();
+  t('uninstall removes owned state but preserves unknown state files', () => {
+    assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'foreign state\n');
+    assert(!fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const manifest = path.join(dir, '.agentsmd-state', 'manifest.json');
+  const hooks = path.join(dir, 'hooks.json');
+  const hooksBefore = fs.readFileSync(hooks, 'utf8');
+  const realRead = fs.readFileSync;
+  fs.readFileSync = (file, ...args) => {
+    if (path.resolve(String(file)) === path.resolve(manifest)) {
+      const denied = new Error('permission denied'); denied.code = 'EACCES'; throw denied;
+    }
+    return realRead(file, ...args);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { fs.readFileSync = realRead; }
+  t('uninstall fails closed when the ownership manifest is unreadable', () => assert(error && /EACCES|permission denied/i.test(error.message)));
+  t('unreadable manifest abort preserves shared and owned artifacts', () => {
+    assert.strictEqual(fs.readFileSync(hooks, 'utf8'), hooksBefore);
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+    assert(fs.existsSync(path.join(dir, 'skills', 'agentsmd-audit', 'SKILL.md')));
+  });
+});
+
+withSandbox((dir) => {
+  const foreignDeploy = path.join(dir, 'agentsmd');
+  fs.mkdirSync(foreignDeploy, { recursive: true });
+  fs.writeFileSync(path.join(foreignDeploy, 'foreign.txt'), 'foreign deploy\n');
+  const { install } = loadModules();
+  t('install rejects an unowned deploy directory collision', () => assert.throws(
+    () => install('2026-07-02T00:00:00.000Z'),
+    /ownership collision.*deploy/i
+  ));
+  t('deploy collision preserves foreign bytes', () => assert.strictEqual(fs.readFileSync(path.join(foreignDeploy, 'foreign.txt'), 'utf8'), 'foreign deploy\n'));
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const manifest = path.join(dir, '.agentsmd-state', 'manifest.json');
+  const hooks = path.join(dir, 'hooks.json');
+  const hooksBefore = fs.readFileSync(hooks, 'utf8');
+  fs.writeFileSync(manifest, '{ invalid ownership manifest');
+  t('uninstall rejects an unparseable ownership manifest before mutation', () => assert.throws(
+    () => uninstall(),
+    /manifest.*not valid JSON.*ownership/i
+  ));
+  t('malformed manifest abort preserves hooks, deploy, skill, and extended artifacts', () => {
+    assert.strictEqual(fs.readFileSync(hooks, 'utf8'), hooksBefore);
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+    assert(fs.existsSync(path.join(dir, 'skills', 'agentsmd-audit', 'SKILL.md')));
+    assert(fs.existsSync(path.join(dir, 'AGENTS-extended.md')));
   });
 });
 
@@ -248,6 +341,50 @@ withSandbox((dir) => {
     assert(d.checks.some((c) => c.name === 'agentsmd hooks registered' && c.ok === false));
     assert(d.checks.some((c) => c.name === 'installed hooks executable' && c.ok === false));
   });
+  install('2026-07-02T01:00:00.000Z');
+  t('reinstall replaces the exact shim-only tree with a healthy install', () => {
+    assert.strictEqual(status().installed, true);
+    assert.strictEqual(status().agentsmdHooksRegistered, EXPECTED_HOOKS);
+    assert.strictEqual(doctor().ok, true);
+    assert(!fs.existsSync(path.join(dir, 'agentsmd', '.uninstalled-shims')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  uninstall();
+  const shim = path.join(dir, 'agentsmd', 'hooks', 'pre-bash-safety-check.sh');
+  fs.appendFileSync(shim, '# user edit\n');
+  t('reinstall rejects a modified shim tree as a foreign ownership collision', () => {
+    assert.throws(() => install('2026-07-02T01:00:00.000Z'), /ownership collision.*deploy/i);
+    assert(fs.readFileSync(shim, 'utf8').endsWith('# user edit\n'));
+  });
+});
+
+for (const kind of ['root', 'marker', 'hooks']) withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  uninstall();
+  const root = path.join(dir, 'agentsmd');
+  if (kind === 'root') {
+    const external = path.join(dir, 'shim-root-external');
+    fs.renameSync(root, external);
+    fs.symlinkSync(external, root, 'dir');
+  } else if (kind === 'marker') {
+    const marker = path.join(root, '.uninstalled-shims');
+    const external = path.join(dir, 'shim-marker-external');
+    fs.renameSync(marker, external);
+    fs.symlinkSync(external, marker);
+  } else {
+    const hooks = path.join(root, 'hooks');
+    const external = path.join(dir, 'shim-hooks-external');
+    fs.renameSync(hooks, external);
+    fs.symlinkSync(external, hooks, 'dir');
+  }
+  t(`reinstall rejects a symlinked shim ${kind}`, () => {
+    assert.throws(() => install('2026-07-02T01:00:00.000Z'), /ownership collision.*deploy/i);
+  });
 });
 
 // ── 4a. status/doctor CLIs reject unknown args and support help ─────────────
@@ -320,19 +457,19 @@ withSandbox((dir) => {
   });
 });
 
-// ── 4e. independence: a FOREIGN ~/.codex/AGENTS-extended.md is never clobbered ─
+// ── 4e. ownership: a FOREIGN ~/.codex/AGENTS-extended.md fails closed ─────────
 withSandbox((dir) => {
-  const foreign = "# Someone else's extended notes\nnot ours\n";
+  const foreign = "# Someone else's CODEX-CODING-SPEC notes\nnot ours\n";
   fs.writeFileSync(path.join(dir, 'AGENTS-extended.md'), foreign);
-  const { install, uninstall } = loadModules();
-  const manifest = install('2026-07-02T00:00:00.000Z');
-  t('install does not clobber a foreign AGENTS-extended.md', () => {
+  const { install } = loadModules();
+  t('install rejects an unowned AGENTS-extended.md collision', () => {
+    assert.throws(() => install('2026-07-02T00:00:00.000Z'), /ownership collision.*AGENTS-extended\.md/i);
     assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS-extended.md'), 'utf8'), foreign);
-    assert.strictEqual(manifest.extendedMd, 'skipped-foreign');
-    assert.strictEqual(manifest.extendedMdAddedByUs, false);
   });
-  uninstall();
-  t('uninstall leaves a foreign AGENTS-extended.md untouched', () => assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS-extended.md'), 'utf8'), foreign));
+  t('collision abort occurs before any install mutation', () => {
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+    assert(!fs.existsSync(path.join(dir, 'hooks.json')));
+  });
 });
 
 // ── 5. config.toml + AGENTS.md preserve unrelated content ───────────────────
@@ -367,6 +504,199 @@ withSandbox((dir) => {
   t('uninstall removes agentsmd-* skills', () => assert(!fs.existsSync(path.join(skillsDir, 'agentsmd-audit'))));
   t('uninstall preserves other tenant skills', () => assert(fs.existsSync(path.join(skillsDir, 'other-plugin-skill', 'SKILL.md'))));
   t('uninstall reports skillsRemoved count', () => assert(un.skillsRemoved >= 4, 'skillsRemoved=' + un.skillsRemoved));
+});
+
+withSandbox((dir) => {
+  const skillsDir = path.join(dir, 'skills');
+  const foreign = path.join(skillsDir, 'agentsmd-personal');
+  fs.mkdirSync(foreign, { recursive: true });
+  fs.writeFileSync(path.join(foreign, 'SKILL.md'), '---\nname: agentsmd-personal\n---\n');
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.agentsmd-state', 'manifest.json'), 'utf8'));
+  t('manifest records exact owned artifacts with hashes', () => {
+    assert(manifest.ownedArtifacts && /^[a-f0-9]{64}$/.test(manifest.ownedArtifacts.extended.sha256));
+    assert(manifest.ownedArtifacts.skills.length > 0);
+    assert(manifest.ownedArtifacts.skills.every((x) => x.path && /^[a-f0-9]{64}$/.test(x.sha256)));
+  });
+  uninstall();
+  t('uninstall preserves an unlisted agentsmd-* foreign skill', () => assert(fs.existsSync(path.join(foreign, 'SKILL.md'))));
+});
+
+withSandbox((dir) => {
+  const collision = path.join(dir, 'skills', 'agentsmd-audit');
+  fs.mkdirSync(collision, { recursive: true });
+  fs.writeFileSync(path.join(collision, 'SKILL.md'), 'foreign skill bytes\n');
+  const { install } = loadModules();
+  t('install rejects an unowned skill collision', () => assert.throws(
+    () => install('2026-07-02T00:00:00.000Z'),
+    /ownership collision.*agentsmd-audit/i
+  ));
+  t('skill collision preserves the foreign bytes and aborts before deployment', () => {
+    assert.strictEqual(fs.readFileSync(path.join(collision, 'SKILL.md'), 'utf8'), 'foreign skill bytes\n');
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+  });
+});
+
+withSandbox((dir) => {
+  const collision = path.join(dir, 'skills', 'agentsmd-audit');
+  fs.mkdirSync(path.dirname(collision), { recursive: true });
+  fs.symlinkSync(path.join(dir, 'missing-foreign-skill'), collision);
+  const { install } = loadModules();
+  t('install treats a broken skill symlink as an ownership collision', () => assert.throws(
+    () => install('2026-07-02T00:00:00.000Z'),
+    /ownership collision.*agentsmd-audit/i
+  ));
+  t('broken foreign skill symlink remains byte-for-byte', () => {
+    assert.strictEqual(fs.readlinkSync(collision), path.join(dir, 'missing-foreign-skill'));
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const skill = path.join(dir, 'skills', 'agentsmd-audit', 'SKILL.md');
+  fs.appendFileSync(skill, '\nuser edit\n');
+  const hooksBefore = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
+  t('uninstall rejects a modified owned skill before mutation', () => assert.throws(() => uninstall(), /ownership collision.*agentsmd-audit/i));
+  t('modified skill abort preserves the complete install and manifest', () => {
+    assert(fs.existsSync(skill));
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), hooksBefore);
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  fs.appendFileSync(path.join(dir, 'AGENTS-extended.md'), '\nuser edit\n');
+  t('uninstall rejects modified extended metadata before mutation', () => assert.throws(() => uninstall(), /ownership collision.*AGENTS-extended/i));
+  t('modified extended abort retains ownership manifest', () => assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json'))));
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  fs.writeFileSync(path.join(dir, 'agentsmd', 'foreign.txt'), 'user bytes\n');
+  t('uninstall rejects a modified deploy tree before mutation', () => assert.throws(() => uninstall(), /ownership collision.*deploy/i));
+  t('modified deploy abort retains foreign bytes and manifest', () => {
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'agentsmd', 'foreign.txt'), 'utf8'), 'user bytes\n');
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+// A failure after the live deploy switch must restore every pre-update artifact.
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const deployedInstaller = path.join(dir, 'agentsmd', 'scripts', 'install.js');
+  const beforeDeploy = fs.readFileSync(deployedInstaller, 'utf8');
+  const beforeHooks = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
+  const beforeManifest = fs.readFileSync(path.join(dir, '.agentsmd-state', 'manifest.json'), 'utf8');
+  const realRename = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    if (path.resolve(String(to)) === path.resolve(path.join(dir, 'hooks.json'))) throw new Error('simulated commit failure');
+    return realRename(from, to);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { fs.renameSync = realRename; }
+  t('failed update reports its commit error', () => assert(error && /simulated commit failure/.test(error.message)));
+  t('failed update rolls back deploy, hooks, and manifest exactly', () => {
+    assert.strictEqual(fs.readFileSync(deployedInstaller, 'utf8'), beforeDeploy);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), beforeHooks);
+    assert.strictEqual(fs.readFileSync(path.join(dir, '.agentsmd-state', 'manifest.json'), 'utf8'), beforeManifest);
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const manifestPath = path.join(dir, '.agentsmd-state', 'manifest.json');
+  const legacy = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  delete legacy.ownedArtifacts;
+  delete legacy.deployedFiles;
+  fs.writeFileSync(manifestPath, JSON.stringify(legacy));
+  fs.writeFileSync(path.join(dir, 'agentsmd', 'user-edit.txt'), 'deploy user edit\n');
+  fs.appendFileSync(path.join(dir, 'skills', 'agentsmd-audit', 'SKILL.md'), '\nskill user edit\n');
+  const next = install('2026-07-03T00:00:00.000Z');
+  t('legacy agentsmd manifest upgrades through a persistent artifact backup', () => {
+    assert(next.legacyArtifactBackup && fs.existsSync(next.legacyArtifactBackup));
+    assert.strictEqual(fs.readFileSync(path.join(next.legacyArtifactBackup, 'deploy', 'user-edit.txt'), 'utf8'), 'deploy user edit\n');
+    assert(/skill user edit/.test(fs.readFileSync(path.join(next.legacyArtifactBackup, 'skills', 'agentsmd-audit', 'SKILL.md'), 'utf8')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const hooks = path.join(dir, 'hooks.json');
+  const external = '{"external":"concurrent"}\n';
+  const realRename = fs.renameSync;
+  let injected = false;
+  fs.renameSync = (from, to) => {
+    if (!injected && path.resolve(String(to)) === path.resolve(hooks)) {
+      injected = true;
+      fs.writeFileSync(hooks, external);
+      throw new Error('simulated concurrent commit failure');
+    }
+    return realRename(from, to);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { fs.renameSync = realRename; }
+  t('rollback preserves a concurrent tenant edit instead of overwriting it', () => {
+    assert(error && /rollback conflict.*hooks\.json/i.test(error.message));
+    assert.strictEqual(fs.readFileSync(hooks, 'utf8'), external);
+  });
+});
+
+// Running update from the deployed copy used to erase its own source tree before
+// cpSync reached scripts/. Stage-before-switch makes this flow equivalent to repo install.
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const deployedInstaller = path.join(dir, 'agentsmd', 'scripts', 'install.js');
+  const run = cp.spawnSync('node', [deployedInstaller], {
+    env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t('deployed-copy self-update completes without deleting its source', () => {
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert(fs.existsSync(deployedInstaller));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, doctor } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  fs.unlinkSync(path.join(dir, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));
+  t('doctor fails when an installed hook support file is missing', () => {
+    const check = doctor().checks.find((x) => x.name === 'installed hook and support files intact');
+    assert(check && check.ok === false && /hook-common\.sh/.test(check.detail));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, doctor } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const manifestPath = path.join(dir, '.agentsmd-state', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.deployedFiles = [];
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  t('doctor rejects an empty self-reported deploy inventory', () => {
+    const check = doctor().checks.find((x) => x.name === 'installed hook and support files intact');
+    assert(check && check.ok === false && /inventory/i.test(check.detail));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, doctor } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  fs.unlinkSync(path.join(dir, 'agentsmd', 'hooks', 'secrets-scan.sh'));
+  t('doctor checks every registry hook, including missing files', () => {
+    const check = doctor().checks.find((x) => x.name === 'installed hooks executable');
+    assert(check && check.ok === false && /secrets-scan\.sh/.test(check.detail));
+  });
 });
 
 // ── 7. C1: never clobber a present-but-unparseable shared hooks.json ─────────
@@ -571,7 +901,16 @@ withSandbox((dir) => {
   fs.mkdirSync(path.join(dir, 'codexmd', 'hooks'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'codexmd', 'hooks', 'x.sh'), '# old\n');
   fs.mkdirSync(path.join(dir, '.codexmd-state'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.codexmd-state', 'manifest.json'), '{}\n');
+  const artifactHash = require('../lib/fs-atomic');
+  fs.writeFileSync(path.join(dir, '.codexmd-state', 'manifest.json'), JSON.stringify({
+    name: 'codexmd',
+    installDir: path.join(dir, 'codexmd'),
+    installedSkills: ['codexmd-audit'],
+    ownedArtifacts: {
+      deploy: { path: path.join(dir, 'codexmd'), sha256: artifactHash.sha256Tree(path.join(dir, 'codexmd')) },
+      skills: [{ name: 'codexmd-audit', path: path.join(dir, 'skills', 'codexmd-audit'), sha256: artifactHash.sha256Tree(path.join(dir, 'skills', 'codexmd-audit')) }],
+    },
+  }) + '\n');
 
   const { install, H } = loadModules();
   const manifest = install('2026-07-03T00:00:00.000Z');
@@ -598,6 +937,34 @@ withSandbox((dir) => {
     assert.strictEqual(m.hooksRemoved, 2);
     assert.strictEqual(m.agentsBlockRemoved, true);
     assert.strictEqual(m.installDirRemoved, true);
+  });
+});
+
+withSandbox((dir) => {
+  const artifactHash = require('../lib/fs-atomic');
+  const legacyDeploy = path.join(dir, 'codexmd');
+  const legacySkill = path.join(dir, 'skills', 'codexmd-audit');
+  fs.mkdirSync(legacyDeploy, { recursive: true });
+  fs.mkdirSync(legacySkill, { recursive: true });
+  fs.writeFileSync(path.join(legacyDeploy, 'release'), 'original\n');
+  fs.writeFileSync(path.join(legacySkill, 'SKILL.md'), 'original\n');
+  fs.mkdirSync(path.join(dir, '.codexmd-state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.codexmd-state', 'manifest.json'), JSON.stringify({
+    name: 'codexmd',
+    installDir: legacyDeploy,
+    ownedArtifacts: {
+      deploy: { path: legacyDeploy, sha256: artifactHash.sha256Tree(legacyDeploy) },
+      skills: [{ name: 'codexmd-audit', path: legacySkill, sha256: artifactHash.sha256Tree(legacySkill) }],
+    },
+  }));
+  fs.writeFileSync(path.join(legacyDeploy, 'release'), 'user modified\n');
+  fs.writeFileSync(path.join(legacySkill, 'SKILL.md'), 'user modified\n');
+  const { install } = loadModules();
+  const result = install('2026-07-03T00:00:00.000Z');
+  t('migrate: modified legacy deploy and skill are preserved fail-closed', () => {
+    assert.strictEqual(fs.readFileSync(path.join(legacyDeploy, 'release'), 'utf8'), 'user modified\n');
+    assert.strictEqual(fs.readFileSync(path.join(legacySkill, 'SKILL.md'), 'utf8'), 'user modified\n');
+    assert(result.migratedFromCodexmd.ownershipConflicts.length === 2);
   });
 });
 
@@ -632,16 +999,16 @@ withSandbox((dir) => {
   t('migrate: agentsmd hooks installed after preserving unrelated codexmd path', () => assert.strictEqual(H.countAgentsmdHooks(hooks), EXPECTED_HOOKS));
 });
 
-// 9d. uninstall sweeps a leftover codexmd remnant too.
+// 9d. A name collision without legacy provenance is foreign and must survive.
 withSandbox((dir) => {
   const { install, uninstall } = loadModules();
   install('2026-07-03T00:00:00.000Z');
   fs.mkdirSync(path.join(dir, 'codexmd'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'codexmd', 'x'), '1');
   const res = uninstall();
-  t('migrate: uninstall sweeps + reports a leftover codexmd remnant', () => {
-    assert(res.legacyCodexmdRemoved && res.legacyCodexmdRemoved.installDirRemoved === true);
-    assert(!fs.existsSync(path.join(dir, 'codexmd')));
+  t('migrate: uninstall preserves an unowned codexmd directory', () => {
+    assert(res.legacyCodexmdRemoved && res.legacyCodexmdRemoved.installDirRemoved === false);
+    assert(fs.existsSync(path.join(dir, 'codexmd', 'x')));
   });
 });
 
@@ -663,6 +1030,99 @@ withSandbox((dir) => {
   // idempotent: a second install must not double-append (legacy file already gone).
   install('2026-07-03T00:00:00.000Z');
   t('migrate: re-install does not duplicate migrated rows', () => assert.strictEqual(fs.readFileSync(newLog, 'utf8').split('\n').filter(Boolean).length, 2));
+});
+
+// Uninstall is a multi-artifact transaction too. A failure after shared files
+// changed must restore the complete installed state, not leave half an uninstall.
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-03T00:00:00.000Z');
+  const hooks = path.join(dir, 'hooks.json');
+  const agents = path.join(dir, 'AGENTS.md');
+  const extended = path.join(dir, 'AGENTS-extended.md');
+  const manifest = path.join(dir, '.agentsmd-state', 'manifest.json');
+  const before = Object.fromEntries([hooks, agents, extended, manifest].map((file) => [file, fs.readFileSync(file)]));
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (path.resolve(String(file)) === path.resolve(extended)) throw new Error('simulated uninstall failure after shared edits');
+    return realUnlink(file);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { fs.unlinkSync = realUnlink; }
+  t('uninstall failure after shared edits is reported', () => assert(error && /simulated uninstall failure/.test(error.message)));
+  t('failed uninstall rolls every owned artifact back exactly', () => {
+    for (const [file, content] of Object.entries(before)) assert(fs.readFileSync(file).equals(content), file);
+    assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+    assert(fs.existsSync(path.join(dir, 'skills', 'agentsmd-audit', 'SKILL.md')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-03T00:00:00.000Z');
+  const hooks = path.join(dir, 'hooks.json');
+  const agents = path.join(dir, 'AGENTS.md');
+  const agentsBefore = fs.readFileSync(agents);
+  const extended = path.join(dir, 'AGENTS-extended.md');
+  const external = '{"external":"concurrent-uninstall"}\n';
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (path.resolve(String(file)) === path.resolve(extended)) {
+      fs.writeFileSync(hooks, external);
+      throw new Error('simulated concurrent uninstall failure');
+    }
+    return realUnlink(file);
+  };
+  let error;
+  try { uninstall(); } catch (e) { error = e; } finally { fs.unlinkSync = realUnlink; }
+  t('uninstall rollback preserves concurrent external bytes', () => {
+    assert(error && /rollback conflict.*hooks\.json/i.test(error.message));
+    assert.strictEqual(fs.readFileSync(hooks, 'utf8'), external);
+    assert(fs.readFileSync(agents).equals(agentsBefore));
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+// 9f. A later commit failure rolls the legacy migration back too; otherwise an
+// update could fail while still deleting the only runnable old installation.
+withSandbox((dir) => {
+  const hooksPath = path.join(dir, 'hooks.json');
+  const agentsPath = path.join(dir, 'AGENTS.md');
+  const legacySkill = path.join(dir, 'skills', 'codexmd-audit');
+  const legacyInstall = path.join(dir, 'codexmd');
+  const legacyState = path.join(dir, '.codexmd-state');
+  const legacyLog = path.join(dir, 'logs', 'codexmd.jsonl');
+  const hooksBefore = codexmdSeed(dir);
+  const agentsBefore = '# User\n\n# >>> codexmd >>>\nold spec\n# <<< codexmd <<<\n';
+  fs.writeFileSync(hooksPath, hooksBefore);
+  fs.writeFileSync(agentsPath, agentsBefore);
+  for (const target of [legacySkill, legacyInstall, legacyState]) fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(legacySkill, 'SKILL.md'), 'legacy skill\n');
+  fs.writeFileSync(path.join(legacyInstall, 'release'), 'legacy release\n');
+  fs.writeFileSync(path.join(legacyState, 'manifest.json'), '{}\n');
+  fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+  fs.writeFileSync(legacyLog, '{"legacy":true}\n');
+
+  const { install } = loadModules();
+  const realRename = fs.renameSync;
+  let hooksCommits = 0;
+  fs.renameSync = (from, to) => {
+    if (path.resolve(String(to)) === path.resolve(hooksPath) && ++hooksCommits === 2) throw new Error('simulated post-migration failure');
+    return realRename(from, to);
+  };
+  let error;
+  try { install('2026-07-03T00:00:00.000Z'); } catch (e) { error = e; } finally { fs.renameSync = realRename; }
+  t('failed update restores every legacy migration artifact', () => {
+    assert(error && /post-migration failure/.test(error.message));
+    assert.strictEqual(fs.readFileSync(hooksPath, 'utf8'), hooksBefore);
+    assert.strictEqual(fs.readFileSync(agentsPath, 'utf8'), agentsBefore);
+    assert.strictEqual(fs.readFileSync(path.join(legacySkill, 'SKILL.md'), 'utf8'), 'legacy skill\n');
+    assert.strictEqual(fs.readFileSync(path.join(legacyInstall, 'release'), 'utf8'), 'legacy release\n');
+    assert(fs.existsSync(path.join(legacyState, 'manifest.json')));
+    assert.strictEqual(fs.readFileSync(legacyLog, 'utf8'), '{"legacy":true}\n');
+    assert(!fs.existsSync(path.join(dir, 'logs', 'agentsmd.jsonl')));
+    assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+  });
 });
 
 // ── 10. Atomicity: a torn shared-file write during uninstall must leave the

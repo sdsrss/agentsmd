@@ -1,6 +1,6 @@
 ---
 name: agentsmd-status
-description: Show agentsmd install state — how many agentsmd hooks are registered, how many OTHER-tenant (e.g. oh-my-codex) hooks are preserved, whether the spec block + [features] hooks flag are present, and telemetry row count. Use when the user asks if agentsmd is installed, what it registered, or whether it coexists cleanly with oh-my-codex / other plugins.
+description: Show agentsmd install state (安装状态清单), registered hooks, preserved tenants, config flags, and telemetry rows. Use for a quick inventory. Not for health diagnosis or rule analysis.
 ---
 
 # agentsmd-status

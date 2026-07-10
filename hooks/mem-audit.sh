@@ -81,7 +81,10 @@ process.stdout.write([io+" "+fo+" "+mh].concat(bullets).join("\n"));
 
 FIRST="${RESULT%%$'\n'*}"
 read -r IO FO MH <<<"$FIRST"
-[[ "$IO" =~ ^[0-9]+$ && "$FO" =~ ^[0-9]+$ && "$MH" =~ ^[0-9]+$ ]] || { IO=0; FO=0; MH=0; }
+[[ "$IO" =~ ^[0-9]+$ && "$FO" =~ ^[0-9]+$ && "$MH" =~ ^[0-9]+$ ]] \
+  || { hook_observe "$HOOK" '§7-memory-hygiene' "$SID" true false '{"reason":"scan-parse-failed"}'; exit 0; }
+hook_observe "$HOOK" '§7-memory-hygiene' "$SID" true true \
+  "$(jq -cn --argjson io "$IO" --argjson fo "$FO" --argjson mh "$MH" '{index_orphan:$io,file_orphan:$fo,missing_header:$mh,stage:"scan-complete"}' 2>/dev/null || echo null)"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 

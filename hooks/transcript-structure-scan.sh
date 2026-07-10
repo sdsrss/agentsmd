@@ -76,7 +76,9 @@ P_DONE="$(order_pos 'Done')"; P_NOT="$(order_pos 'Not done')"
 P_FAIL="$(order_pos 'Failed')"; P_UNC="$(order_pos 'Uncertain')"
 MARKERS=0
 for v in "$P_NOT" "$P_FAIL" "$P_UNC"; do [[ -n "$v" ]] && MARKERS=$((MARKERS+1)); done
+ORDER_ELIGIBLE=false
 if [[ -n "$P_DONE" && "$MARKERS" -ge 2 ]]; then
+  ORDER_ELIGIBLE=true
   prev="$P_DONE"; bad=0
   for v in "$P_NOT" "$P_FAIL" "$P_UNC"; do
     [[ -z "$v" ]] && continue
@@ -95,7 +97,11 @@ fi
 # never trips, and it stays silent on non-fix "Done:" lines (those are §10's job).
 FIXCLAIM_RE='\b(fixed|resolved)\b|修复|解决了|已解决'
 EVID_RE='[0-9]+ ?/ ?[0-9]+|[0-9]+ (passed|failed|tests?|ok|assertions?)|\b(passed|failed)\b|exit [0-9]+|exit code|[0-9]+%|[0-9]+ ?(→|->|=>) ?[0-9]+|\.[a-z0-9_]+:[0-9]+|\b(was|were|used to|previously|regression|crash|crashed|threw|throws|traceback)\b|TypeError|Exception|Error:|\b[0-9a-f]{7,40}\b|`[^`]+`'
-if printf '%s' "$SCAN_TEXT" | grep -qiE "$FIXCLAIM_RE" \
+FIX_ELIGIBLE=false
+if printf '%s' "$SCAN_TEXT" | grep -qiE "$FIXCLAIM_RE"; then
+  FIX_ELIGIBLE=true
+fi
+if [[ "$FIX_ELIGIBLE" == "true" ]] \
    && ! printf '%s' "$SCAN_TEXT" | grep -qiE "$EVID_RE"; then
   ISSUES="${ISSUES}iron-law-2 "
 fi
@@ -104,13 +110,22 @@ fi
 # 可能/或许) instead of stating "uncertain because <X>". Scoped to the Uncertain
 # section tail (byte offset P_UNC into $LAST) so legitimate hedges elsewhere don't
 # trip it; cleared by a because/因为/由于 justification in the same section.
+HONESTY_ELIGIBLE=false
 if [[ -n "$P_UNC" ]]; then
+  HONESTY_ELIGIBLE=true
   UNC_TAIL="$(printf '%s' "$LAST" | tail -c "+$((P_UNC+1))" 2>/dev/null)"
   if printf '%s' "$UNC_TAIL" | grep -qiE '\b(may|might|could|possibly|perhaps)\b|可能|或许|也许|大概' \
      && ! printf '%s' "$UNC_TAIL" | grep -qiE '\bbecause\b|因为|由于'; then
     ISSUES="${ISSUES}uncertain-hedge "
   fi
 fi
+
+# A vocabulary scan applies to every extracted assistant message. The other
+# rules enter the denominator only when their triggering report shape exists.
+hook_observe "$HOOK" '§10-V' "$SID" true true '{"stage":"last-message-scanned"}'
+[[ "$ORDER_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§10-four-section-order' "$SID" true true '{"stage":"report-order-scanned"}'
+[[ "$FIX_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§6-iron-law-2' "$SID" true true '{"stage":"fix-claim-scanned"}'
+[[ "$HONESTY_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§10-honesty' "$SID" true true '{"stage":"uncertain-section-scanned"}'
 
 [[ -n "$ISSUES" ]] || exit 0
 ISSUES="${ISSUES% }"

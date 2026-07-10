@@ -45,6 +45,7 @@ const LOG = writeLog([
   // §W — non-enforcement events only → never a rule.
   row({ sec: '§W', ts: ago(3), event: 'context' }),
   row({ sec: '§W', ts: ago(3), event: 'suggest' }),
+  row({ sec: '§W', ts: ago(3), event: 'observe', extra: { eligible: true, evaluated: true } }),
   // (none) — enforcement but no section → skipped.
   row({ sec: '', ts: ago(3), event: 'block' }),
   // §V — only out-of-window rows (future + too old) → absent.

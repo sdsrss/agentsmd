@@ -1,11 +1,11 @@
 ---
 name: agentsmd-sampling-audit
-description: Measure how often the SELF-enforced §10 rules (banned vocabulary, four-section report order) were actually violated across recent Codex sessions. Use when the user asks how well the honesty/specificity rules are being followed, wants the real violation rate of rules the live hook can't measure, or is weighing whether a self-enforced rule earns its keep. Read-only retrospective scan — never edits the spec or transcripts.
+description: Retrospectively measure §10 vocabulary and report-order violations across assistant turns. Use for per-turn compliance rates. Not for live hook hits or spec editing; read-only.
 ---
 
 # agentsmd-sampling-audit
 
-The live Stop hook (`transcript-structure-scan.sh`) records a `§10-V` / `§10-four-section-order` row only for the LAST turn of each session, so the true violation RATE of these self-enforced rules is otherwise invisible — `agentsmd rules` marks them `self-enforced` = "not mechanically measured". This walks every assistant turn in recent Codex transcripts (`~/.codex/sessions/`) and re-runs the hook's exact detection (same `banned-vocab.patterns`, same four-section-order logic; a test pins the two to identical verdicts).
+The live Stop hook (`transcript-structure-scan.sh`) observes the current last assistant turn whenever Stop fires, but live hit telemetry has no denominator for every assistant turn. This audit walks all recent assistant turns in `~/.codex/sessions/` and re-runs the same vocabulary/order detectors to calculate a retrospective violation rate.
 
 Run:
 
@@ -13,4 +13,4 @@ Run:
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/sampling-audit.js" --days=30
 ```
 
-Report the per-rule `turns w/ violation` + `transcripts affected` table. A rising rate is input to the §13.2 demote-review decision (use `agentsmd-rules` for the promote/demote call) — nothing is auto-changed. `--limit=N` caps the scan to the N most-recent transcripts and surfaces how many older ones were dropped. From the repo instead of an install: `node scripts/sampling-audit.js`.
+Report `turns w/ violation` and `transcripts affected`. A rising rate informs `OPERATOR.md §O2`; nothing is auto-changed. `--limit=N` caps the scan and reports dropped older transcripts. From the repo: `node scripts/sampling-audit.js`.

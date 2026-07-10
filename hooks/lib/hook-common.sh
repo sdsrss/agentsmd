@@ -92,9 +92,8 @@ hook_advisory_file() {
 
 hook_find_memory_file() {
   local cwd="${1:-$PWD}" cand gitroot dir parent
-  for cand in "$cwd/MEMORY.md"; do
-    [[ -r "$cand" ]] && { printf '%s' "$cand"; return 0; }
-  done
+  cand="$cwd/MEMORY.md"
+  [[ -r "$cand" ]] && { printf '%s' "$cand"; return 0; }
   gitroot="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
   if [[ -n "$gitroot" && -r "$gitroot/MEMORY.md" ]]; then
     printf '%s' "$gitroot/MEMORY.md"
@@ -138,6 +137,18 @@ hook_record() {
   rule_hits_append "$@"
 }
 
+# hook_observe HOOK SECTION SESSION_ID ELIGIBLE EVALUATED [EXTRA_JSON]
+# Record a rule-specific opportunity independently from enforcement. Callers own
+# the eligibility boundary; this wrapper deliberately does not infer one from the
+# hook event type.
+hook_observe() {
+  local lib_dir
+  lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=/dev/null
+  source "$lib_dir/rule-hits.sh" 2>/dev/null || return 0
+  rule_hits_observe "$@"
+}
+
 # hook_record_failopen HOOK REASON — record a fail-open event (jq-missing /
 # bad-event / prereq-missing) so silently-skipped enforcement is visible to the
 # audit, not indistinguishable from "rule wasn't relevant". Rate-limited 1/60s
@@ -162,20 +173,27 @@ hook_record_failopen() {
   rule_hits_append "$hook" "fail-open" "{\"reason\":\"$escaped\"}" '§hooks-fail-open'
 }
 
-# HOOK_GIT_GLOBAL_OPTS — ERE fragment matching optional git global options that
-# may sit between `git` and its subcommand. Without consuming these, common agent
-# idioms — `git -C <dir> push`, `git -c k=v commit`, `git --git-dir=<d> merge` —
-# slip past every git-gated hook (ship/secrets/vocab/memory), evading §8/§E3/§10.
-# Covers value-taking globals (-C/-c, --git-dir/--work-tree/--namespace/
-# --exec-path/--config-env, `=`- or space-separated) and valueless toggles.
-HOOK_GIT_GLOBAL_OPTS='([[:space:]]+(-[Cc][[:space:]]*[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env)[=[:space:]][^[:space:]]+|-p|--paginate|--no-pager|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks))*'
+# hook_git_invocations_json SUBCMD_ALT CMD — print a JSON array containing every
+# matching Git command. The parser is quote-aware, accepts common wrappers and
+# path-qualified Git, and never evaluates the command or shell expansions.
+hook_git_invocations_json() {
+  local sub="$1" cmd="$2" lib_dir
+  command -v node >/dev/null 2>&1 || return 1
+  lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  node "$lib_dir/command-parse.js" "$sub" "$cmd" 2>/dev/null
+}
 
-# hook_cmd_invokes_git SUBCMD_ALT CMD — 0 if CMD invokes `git <SUBCMD>`, allowing
-# any global options in between. SUBCMD_ALT is an ERE alternation ('push' or
-# 'push|merge'). Case-insensitive; word-boundary-anchored on the subcommand.
+# Backward-compatible single-invocation accessor for out-of-tree hook consumers.
+hook_git_invocation_json() {
+  hook_git_invocations_json "$1" "$2" | jq -c '.[0] // empty' 2>/dev/null
+}
+
+# hook_cmd_invokes_git SUBCMD_ALT CMD — 0 if CMD contains an actual matching Git
+# invocation. SUBCMD_ALT is a literal alternation ('push' or 'push|merge').
 hook_cmd_invokes_git() {
-  local sub="$1" cmd="$2"
-  printf '%s' "$cmd" | grep -qiE "(^|[;&|]|[[:space:]])git${HOOK_GIT_GLOBAL_OPTS}[[:space:]]+(${sub})\b"
+  local parsed
+  parsed="$(hook_git_invocations_json "$1" "$2")"
+  [[ -n "$parsed" && "$parsed" != "[]" ]]
 }
 
 # hook_is_readonly_bash CMD — 0 if CMD is definitely read-only & side-effect

@@ -30,12 +30,16 @@ TMPROOT="${TMPDIR:-/tmp}"
 # Count depth-1 scratch dirs newer than the session reference, matching common
 # mkdtemp/agent scratch prefixes only (avoid flagging unrelated /tmp content).
 RESIDUE=0
+SCAN="$(find "$TMPROOT" -maxdepth 1 -mindepth 1 -type d -newer "$REF" 2>/dev/null)" \
+  || { hook_observe "$HOOK" '§8.V4' "$SID" true false '{"reason":"scan-failed"}'; exit 0; }
 while IFS= read -r d; do
   [[ -z "$d" ]] && continue
   case "${d##*/}" in
     agentsmd-*|tmp.*|*.XXXXXX|agent-*|codex-*|claude-*) RESIDUE=$((RESIDUE+1)) ;;
   esac
-done < <(find "$TMPROOT" -maxdepth 1 -mindepth 1 -type d -newer "$REF" 2>/dev/null)
+done <<< "$SCAN"
+hook_observe "$HOOK" '§8.V4' "$SID" true true \
+  "$(jq -cn --argjson r "$RESIDUE" '{residue:$r,stage:"scan-complete"}' 2>/dev/null || echo null)"
 
 if (( RESIDUE > 0 )); then
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson r "$RESIDUE" '{residue:$r}' 2>/dev/null || echo null)" '§8.V4' "$SID"

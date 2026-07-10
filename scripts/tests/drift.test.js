@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
+const { parseSkillFrontmatter } = require('../lib/skill-frontmatter');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -56,6 +57,9 @@ t('hooks: install-template and plugin-manifest wirings match', () => {
   const a = basenames(read('hooks/hooks.json'));
   const b = basenames(read('hooks.json'));
   assert.deepStrictEqual(a, b, 'install-template vs plugin-manifest wiring differ');
+  assert.deepStrictEqual(Object.keys(a).sort(), [...hr.registered_hook_events].sort(), 'manifest registered_hook_events differ from wiring');
+  const supported = new Set(hr.supported_hook_events || []);
+  assert(hr.registered_hook_events.every((event) => supported.has(event)), 'registered hook event missing from supported_hook_events');
 });
 
 // 5. version is consistent across package.json / plugin.json / manifest / BOTH
@@ -103,16 +107,13 @@ t('skill: agentsmd-status hook count matches the wiring', () => {
   assert.strictEqual(Number(claim), n, `SKILL.md claims ${claim} hooks, wiring registers ${n}`);
 });
 
-// 9. the core spec must stay under Codex's discovery-chain byte cap. Codex merges
-//    the AGENTS.md chain and SILENTLY truncates past project_doc_max_bytes (~32 KiB
-//    default) — a core spec over the cap loses its tail (e.g. §10 REPORT) every
-//    turn with no error. This is the single most consequential normalization
-//    invariant and was previously gated by nothing (only a hand-updated Sizing line).
-t('spec: core AGENTS.md stays under the 32 KiB discovery-chain cap', () => {
-  const CAP = 32768; // Codex project_doc_max_bytes default (bytes)
+// 9. Reserve at least half of the default discovery-chain cap for project-level
+//    instructions. The core is global context; closer project rules must not be
+//    silently truncated merely because the universal layer consumed the budget.
+t('spec: core AGENTS.md reserves half the default cap for project rules', () => {
+  const CAP = 16384; // half of Codex's default 32 KiB combined cap
   const bytes = Buffer.byteLength(specFiles.core, 'utf8');
-  assert(bytes < CAP, `core spec is ${bytes} B, at/over the ${CAP} B cap — Codex will silently truncate its tail`);
-  if (bytes > CAP * 0.9) console.log(`  warn spec/AGENTS.md at ${bytes} B — ${(100 * bytes / CAP).toFixed(1)}% of the ${CAP} B cap (keep headroom)`);
+  assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B to reserve half the default chain cap`);
 });
 
 // 10. both READMEs' hook tables must list exactly as many hooks as the wiring
@@ -120,12 +121,35 @@ t('spec: core AGENTS.md stays under the 32 KiB discovery-chain cap', () => {
 //     rows while the wiring had 15) misleads the first-time reader about what runs.
 t('README: EN + zh hook-table row counts match the wiring', () => {
   const wiring = JSON.parse(read('hooks/hooks.json'));
-  let n = 0;
-  for (const groups of Object.values(wiring.hooks)) for (const g of groups || []) n += (g.hooks || []).length;
-  const rowRe = /^\|\s*`[a-z0-9-]+`\s*\|\s*(SessionStart|PreToolUse|UserPromptSubmit|Stop)\b/gm;
+  const expected = new Map();
+  for (const [event, groups] of Object.entries(wiring.hooks)) for (const group of groups || []) {
+    for (const hook of group.hooks || []) {
+      const name = (hook.command.match(/([a-z0-9-]+)\.sh/) || [])[1];
+      if (name) expected.set(name, event);
+    }
+  }
+  const rowRe = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(SessionStart|PreToolUse(?::Bash)?|UserPromptSubmit|Stop)\b.*$/gm;
   for (const f of ['README.md', 'README.zh-CN.md']) {
-    const rows = (read(f).match(rowRe) || []).length;
-    assert.strictEqual(rows, n, `${f} lists ${rows} hook rows, wiring registers ${n}`);
+    const src = read(f);
+    const actual = new Map([...src.matchAll(rowRe)].map((m) => [m[1], m[2].replace(':Bash', '')]));
+    assert.deepStrictEqual([...actual].sort(), [...expected].sort(), `${f} hook names/events differ from wiring`);
+    const transcript = [...src.matchAll(rowRe)].find((m) => m[1] === 'transcript-structure-scan');
+    assert(transcript && transcript[0].includes('§10') && transcript[0].includes('§6'), `${f} transcript observer omits §10/§6 scope`);
+  }
+});
+
+// 11. Skill frontmatter is always loaded for routing. Keep it compact and force
+//     a negative boundary so neighboring audit/init skills do not blur together.
+t('skills: descriptions stay compact and declare a Not for boundary', () => {
+  const skillsDir = path.join(ROOT, 'skills');
+  for (const name of fs.readdirSync(skillsDir).filter((n) => n.startsWith('agentsmd-'))) {
+    const src = fs.readFileSync(path.join(skillsDir, name, 'SKILL.md'), 'utf8');
+    const metadata = parseSkillFrontmatter(src, `${name}/SKILL.md`);
+    assert.strictEqual(metadata.name, name, `${name}: frontmatter name mismatch`);
+    const desc = metadata.description;
+    assert(desc, `${name}: missing frontmatter description`);
+    assert(desc.length <= 300, `${name}: description ${desc.length} chars exceeds 300`);
+    assert(/\bnot for\b/i.test(desc), `${name}: missing explicit Not for boundary`);
   }
 });
 

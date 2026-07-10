@@ -17,6 +17,10 @@ tasks/
 !.agents/
 !.agents/plugins/
 !.agents/plugins/marketplace.json
+.github/
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 .code-graph/
 
 # subagent-driven-development scratch

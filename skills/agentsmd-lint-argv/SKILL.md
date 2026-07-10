@@ -1,6 +1,6 @@
 ---
 name: agentsmd-lint-argv
-description: Gate against the "silent-fallback argv" bug class in agentsmd's CLIs — args.includes('--x') / .find(a=>a.startsWith('--')) / .indexOf('--x') (reading a flag by scanning argv and silently falling back when it is absent or mis-shaped) and a require.main===module block that never calls a real argv parser. Use when adding or reviewing a CLI script under bin/ or scripts/, or when the user asks whether argv is parsed safely / a new command validates its flags. Static scan (tests + lib/argv.js excluded); exit 1 on a hit. Fix by parsing through scripts/lib/argv.js parseStrict; suppress a deliberate line with `// argv-lint:allow`.
+description: Detect silent-fallback argv parsing in agentsmd bin/ and scripts/. Use when adding or reviewing a CLI flag/parser. Not for runtime hook command parsing or general linting; static read-only gate.
 ---
 
 # agentsmd-lint-argv

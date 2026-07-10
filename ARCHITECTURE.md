@@ -1,16 +1,16 @@
 # agentsmd — Architecture & Build Plan
 
-Codex 版编程全局规范**系统**（不只是一份规范文本）的架构设计与分阶段实施计划。参照 `/mnt/data_ssd/dev/projects/claudemd` 的成熟三层形态，适配 Codex CLI 的真实能力面。本文件是设计正典；实施已完成（Phase 0-5 全绿，见 §8 阶段表）。
+Codex 版编程全局规范**系统**（不只是一份规范文本）的架构设计与分阶段实施记录。本文只把仓库 wiring、fixture 和测试能验证的行为写成产品事实；外部运行时能力需由对应官方契约或实机证据支持。
 
 ---
 
 ## 1. 为什么需要「系统」而不只是「一份 AGENTS.md」
 
-`spec/AGENTS.md` 的 core 规范文本本身已经完备：六大功能轴（§3 链式思维 / §4 skills+工具路由 / §7 记忆与进度 / §9 文件卫生 / §11 自动化）齐备，Iron Laws、§8 SAFETY、Codex 机制映射都准确。它缺的**不是文字**。
+`spec/AGENTS.md` 的 core 覆盖 SPINE、授权、证据、安全和路由等每轮约束；展开流程放在按需加载的 extended。两层内容仍需由 drift、测试和人工复审持续校准。
 
-真实成本是**注意力稀释**（`docs/agentsmd.txt`）：规则条数越多，长会话中间段每条的遵从强度越低，且这个成本 token 数字测不出来。claudemd 最终演化出**三层加载 + hook 强制 + 命中率升降级**，其目的**不是省 token，是保持每条规则的执行力**。一条无人强制、又从不命中的 always-on 规则，是纯稀释源。
+主要风险是 discovery 预算被 core 占用，以及规则存在但没有对应执行或测量机会。三层加载、选择性 hook 和机会/结果遥测分别约束上下文占用、可检测行为和治理证据；零命中本身不证明规则无价值。
 
-因此本系统的每个部件都服务同一个目标：**让「规则被写下」变成「规则被执行」，并让数据决定哪条规则值得留在 always-on 层。**
+因此本系统把「规则文本」「可检测执行」「机会与结果」连到同一条审计链；数据是 operator 复审输入，不自动证明规则价值或触发 prompt 变更。
 
 ---
 
@@ -22,41 +22,41 @@ bin/        npm CLI 入口  bin/agentsmd.js（Node）：`agentsmd <cmd>` / `npx 
 L3  命令层    Codex skills（dir + SKILL.md）：agentsmd-audit / doctor / rules / status
               —— stub，告诉 agent 去跑哪个 L2 脚本
 L2  管理脚本  scripts/*.js（Node）：install / uninstall / status / audit / doctor / toggle
-              —— 处理安装、append-only 并入 ~/.codex/hooks.json、遥测聚合、命中率升降级
-L1  强制层    hooks/*.sh（bash，fail-open，<3s）：由 Codex harness 在 5 个事件直接调用
+              —— 处理安装、scoped merge/remove、遥测聚合与治理信号
+L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 4 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
 ```
 
-**层间隔离不变式**（沿用 claudemd）：L1 永不 import L2；坏掉的安装留下 hooks 仍可用（或 fail-open）；坏掉的 hooks 留下命令仍可用。npm CLI 入口 `bin/agentsmd.js` 通过 spawn 子进程调用 L2 脚本（绝不 import），因此每个脚本仍是独立可运行单元，隔离不变式不受影响。**append-only 不变式**：安装器并入 `~/.codex/hooks.json` 时绝不删改/重排 OMX 或其他插件的条目。
+**层间隔离不变式**：L1 永不 import L2；hook 异常时 fail-open，管理命令仍可独立运行。npm CLI 入口 `bin/agentsmd.js` 通过 spawn 子进程调用 L2 脚本。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
 
-**命令层为何是 skills 而非 prompts**：`spec/AGENTS.md §4` 明确「custom prompts 上游已弃用——author a skill」。Codex skill = `dir + SKILL.md(name+description frontmatter)`，是 agent 可被描述触发调用的正典形态，正好对应 claudemd「slash command 作为 L2 脚本的 stub」模式。
+**命令层为何使用 skills**：仓库把 `dir + SKILL.md(name+description frontmatter)` 作为命令元数据，并让每个 skill 路由到一个 L2 脚本；触发边界与 progressive disclosure 见 `spec/AGENTS-extended.md §E9`。
 
 ---
 
-## 3. Codex hook 契约（本机 v0.130.0 实测 / 逆向）
+## 3. Codex hook 契约（仓库当前可验证范围）
 
-这是整个强制层的地基。结论：**Codex 原生 hook 与 Claude Code hook 近乎同构，claudemd 的 16 个 hook 主要改路径/harness细节即可移植，无需重写协议。**
+这是强制层的地基。仓库测试只把已部署 wiring、stdin fixture 和 block/context 输出当作可验证契约；未被当前官方文档或本地运行验证的能力不写成产品事实。
 
-| 维度 | Claude Code | Codex v0.130 | 移植增量 |
+| 维度 | 来源形态 | agentsmd repository model | 验证边界 |
 |---|---|---|---|
-| 启用 | 插件装即生效 | `config.toml [features]` 需 `hooks = true`（Codex 0.142+；旧名 `codex_hooks` 装时自动迁移） | doctor 检查该 flag |
-| 注册 | 每插件 `hooks.json`，marketplace 合并 | 单一全局 `~/.codex/hooks.json`（**当前 OMX 独占**） | 安装器 **append-only 合并** |
-| 事件 | SessionStart/PreToolUse/PostToolUse/UserPromptSubmit/Stop/**SessionEnd** | ✅ 确认恰好 5 个，**无 SessionEnd** | session-end 逻辑折进 Stop |
-| 条目形状 | `{"type":"command","command":"...","timeout":N}` | **同构** | 逐条对应 |
-| matcher | `"Bash"` / `"*"` / `"startup\|resume"` | **同构**（OMX 用 `Bash`、`startup\|resume`） | 直接沿用 |
-| stdin | JSON（tool_name/tool_input/session_id…） | ✅ **实测 snake_case，与 Claude 逐字段一致** | 读字段零改动 |
-| 阻断输出 | `hookSpecificOutput.permissionDecision:"deny"` | ✅ **实测 `decision:"block"`+reason+systemMessage** | `hook_deny`→`hook_block` 改写 |
-| 注入 context | `hookSpecificOutput.additionalContext` | OMX 用 `additionalContext/systemMessage` | 直接沿用 |
+| 启用 | standalone config | `[features] hooks = true`；旧 `codex_hooks` 由 installer 迁移 | doctor 检查 deployed flag |
+| 注册 | repository manifests | standalone 使用 `~/.codex/hooks.json` scoped merge/remove | drift 校验两份 wiring |
+| 事件 | manifest keys | supported 5 个；agentsmd registered 4 个 | fixture 不证明外部事件全集 |
+| 条目形状 | JSON wiring | `{"type":"command","command":"...","timeout":N}` | JSON/drift test |
+| matcher | JSON wiring | `Bash`、`*`、`startup\|resume` | JSON/drift test |
+| stdin | smoke fixture | snake_case `tool_name/tool_input/session_id/...` | synthetic fixture contract |
+| 阻断输出 | smoke assertion | `decision:block` + reason/systemMessage | synthetic fixture contract |
+| 注入 context | smoke assertion | `hookSpecificOutput.additionalContext` | synthetic fixture contract |
 
-证据锚点：`~/.codex/hooks.json`(5 事件挂载) · `~/.codex/config.toml:48`(`codex_hooks=true`) · OMX `codex-native-hook.js` 出现 `hookEventName/decision/"block"/systemMessage/additionalContext/hookSpecificOutput/stdin`（与 claudemd `hook_deny` 同族）。
+证据锚点：`hooks.json`、`hooks/hooks.json`、`scripts/lib/hook-registry.js` 与 `hooks/tests/smoke.sh`。这些证明仓库模型内部一致；外部 Codex harness compatibility 仍需对应版本的官方契约或脱敏实机 capture。
 
 **路径自派生**（沿用 claudemd 不变式）：脚本用 `${BASH_SOURCE[0]}`/`__dirname` 自推基址，不依赖 `${CLAUDE_PLUGIN_ROOT}` 类变量——跨版本安全，也回避 Codex plugin-root 变量的不确定性。
 
 ---
 
-## 4. 闭环数据面（spec → hook → 遥测 → 升降级）
+## 4. 闭环数据面（spec → hook → 遥测 → operator review）
 
-这是「让数据决定 always-on 层」的落地机制，也是 claudemd 与一份静态文档的本质区别：
+这条链把 rule-specific opportunity、detector outcome 与 manifest 对齐，避免用无关 session 或 raw hit count 直接下治理结论：
 
 ```
 spec/AGENTS*.md 的 (HARD) 规则
@@ -64,7 +64,7 @@ spec/AGENTS*.md 的 (HARD) 规则
       └─ hooks/*.sh 强制             命中/阻断/fail-open 时 hook_record
           └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（ts/hook/event/project/session_id/spec_section/extra）
               └─ scripts/audit.js    bySection 聚合
-                  └─ 升降级信号       0 命中的 always-on 规则 → 降级到 extended；高频命中 → 证明值回 core
+                  └─ 治理信号         rule-specific opportunity + outcome → operator review
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
@@ -77,13 +77,13 @@ spec/AGENTS*.md 的 (HARD) 规则
 
 **agentsmd 是一个独立的 Codex 插件，与 oh-my-codex(OMX) 完全解耦。** 用户可能**根本没装 OMX**，agentsmd 必须能独立安装运行；装了 OMX 时，两者的**安装/更新/卸载互不冲突、互不影响**。这是 HARD 不变式，不是「尽量」。
 
-**agentsmd 绝不**：假设 OMX 存在 · 读取/依赖/修改 OMX（或任何其他租户）的任何条目 · 在共享文件里重排或触碰非自己的内容。**agentsmd 只管自己的条目**，靠当前 `CODEX_HOME/agentsmd` 安装目录标记唯一识别 hook 命令（绝不会撞上 OMX 的 `codex-native-hook.js`、其他插件，或恰好名为 `agentsmd` 的项目目录）。
+**agentsmd 不依赖 OMX**。共享文件中的 hook 仍按当前 `CODEX_HOME/agentsmd` 命令路径识别；独立 deploy、extended spec 和 skills 则由 manifest 的 exact path + content hash 证明所有权。所有 standalone artifact 在 mutation 前完成 preflight，无法证明所有权时中止。
 
-**装卸语义**（照搬 OMX `codex-hooks.js` 生产验证的 merge/remove 模式，用 agentsmd 自己的标记）：
-- **安装/更新 = merge**：逐事件 → strip 掉自己的旧条目 + **其余条目逐字保留** + 追加自己的新条目。**幂等**，重装不重复。
-- **卸载 = remove**：只 strip 当前 `CODEX_HOME/agentsmd` 安装目录下的条目 + 其余逐字保留；事件数组空→删事件键，hooks 空→删 hooks，root 空→删文件。
+**装卸语义**：
+- **安装/更新 = stage + preflight + transaction**：先构建完整 release tree 并验证既有 manifest ownership，再更新共享文件和 live tree；注入失败时用 compare-and-swap 快照回滚，避免覆盖事务外并发写入。
+- **卸载 = preflight + transaction**：先验证全部 manifest-owned artifact，任一冲突都零 mutation；通过后 quarantine owned tree 并更新共享文件，失败时以 compare-and-swap 回滚，不覆盖并发外部写入。
 - 天然处理两种边界：目标文件**不存在**（从 `{}` 起，创建自己的）· **有没有 OMX**（OMX 条目只是「其他条目」，原样保留）。
-- 安装器把「装了什么」（自己的 hook 条目、是否由自己设了 hook flag、是否补了 status line、AGENTS.md 注入块）记入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`，使卸载精确可逆。
+- 安装器把 deploy、extended spec、skills 的 exact path + hash，以及共享面变更结果写入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`；共享配置仍由 hook path/sentinel 识别。
 
 **每个共享面的隔离策略**：
 
@@ -94,10 +94,10 @@ spec/AGENTS*.md 的 (HARD) 规则
 | `config.toml [tui] status_line` | 若缺失则补 Codex built-in footer preset；已有用户值逐字保留；**卸载不删**（这是用户可见 TUI 偏好） | 自己设 preset，卸载留存 |
 | `~/.codex/AGENTS.md`（规范部署） | sentinel 托管块 `# >>> agentsmd >>> … # <<< agentsmd <<<`，块外内容（OMX/用户的）逐字保留；卸载只删块 | 不存在则创建，只含自己的块 |
 | MCP servers | 强制层不加 MCP（遥测是本地 jsonl）；未来若加，用 `agentsmd_*` 键 | 无影响 |
-| skills（命令层） | agentsmd 自有目录 + `agentsmd-` 前缀技能名 | 无影响 |
-| state / log | 自有路径 `~/.codex/.agentsmd-state/`、`~/.codex/logs/agentsmd.jsonl` | 无碰撞 |
+| skills（命令层） | manifest exact path + tree hash；前缀不是 ownership 证据 | 无影响 |
+| state / log | manifest/known runtime 可移除；backups 与 unknown entries 保留；telemetry log 不随 uninstall 删除 | 无碰撞 |
 
-**打包形态**：标准 `.codex-plugin/plugin.json`（`name:"agentsmd"` + `skills:"./skills/"` + 携带 `hooks.json`）。若 Codex 对插件携带的 `hooks.json` 自动装配（figma 插件已携带 hooks.json，倾向支持）→ 装卸隔离由插件系统免费提供；若不自动 → agentsmd 附带 postinstall 跑上面的标记式 merge。**两条路都满足独立性**。
+**打包形态**：仓库提供 `.codex-plugin/plugin.json`、顶层 `hooks.json` 和 standalone `scripts/install.js`。plugin surface 的装配由 Codex plugin runtime 管理；standalone surface 使用本节的 manifest-backed transaction。两套 surface 分开卸载。
 
 **定位**：OMX（若在）是编排框架，agentsmd 是纪律/执行力层——互补而非竞争；但 agentsmd **不依赖** OMX。
 
@@ -114,7 +114,7 @@ spec/AGENTS*.md 的 (HARD) 规则
 | 2 keyword | `MEMORY.md` + `memory/*.md` | 关键词/路径命中 | 召回式（feedback_/project_/reference_） |
 | operator | `spec/OPERATOR.md`（Phase 4） | 永不自动加载 | 人类维护者的升降级节奏，不占 agent 注意力 |
 
-Codex 侧约束（已在 spec 头部记录）：discovery 链合并有 `project_doc_max_bytes`(默认 32KiB) 上限，**超限静默截断**；core 现 24.1KB 占约 74%。这正是「让数据砍 core」的物理动机——Tier 0 越精简，被截断风险越低、每条规则遵从强度越高。
+Codex discovery 链共享 `project_doc_max_bytes`（默认 32 KiB）且超限静默截断。core 由 drift gate 限制在 ≤16 KiB，至少保留默认预算的一半给项目级指令；展开流程放入 triggered extended。
 
 ---
 
@@ -150,7 +150,7 @@ agentsmd/
 | **2** | 其余 hooks 移植（ship-baseline/memory-read/residue/sandbox-disposal/transcript-structure-scan/mem-audit/memory-prompt-hint） | 否 | ✅ 已完成 |
 | **3** | L2 脚本（install/status/audit/doctor/toggle）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | ✅ 已完成 |
 | **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | ✅ 已完成 |
-| **5** | 打包成标准 codex plugin（`.codex-plugin/plugin.json`：skills + 携带 hooks.json）+ marketplace 清单 + CI drift 测试（hard-rules ↔ spec 一致性）；独立于 OMX 可单独安装 | 部署时 | ✅ 已完成 |
+| **5** | 标准 Codex plugin + marketplace + GitHub Actions CI（Node 18/20/22/24 全套测试 + shellcheck）+ drift gates | 部署时 | ✅ 已完成 |
 
 每个 hook 移植遵循 `spec/AGENTS.md §6` 证据规则：先对 temp fixture 灌样例 stdin 冒烟（§8.V3 destructive-smoke），再接 live。
 
@@ -161,7 +161,7 @@ agentsmd/
 已解决（Phase 1 逆向 OMX 生产 hook + smoke 验证）：
 - ✅ **#1 PreToolUse deny 字段**：`{decision:"block", reason, systemMessage, hookSpecificOutput:{hookEventName}}`——**不是** Claude 的 `permissionDecision:"deny"`。这是阻断类 hook 的唯一移植增量。
 - ✅ **#2 stdin payload 形状**：snake_case，与 Claude Code **逐字段一致**（`tool_name`/`tool_input.command`/`session_id`/`transcript_path`/`cwd`/`hook_event_name`/`prompt`/`stop_hook_active`/`tool_response`）。读字段的 hook 零改动移植。
-- ✅ **#3 SessionEnd**：Codex 恰好 5 事件，**无 SessionEnd**（`MANAGED_HOOK_EVENTS` 类型确认）。session-end 逻辑折进 Stop。
+- ✅ **#3 注册事件**：manifest 区分 supported 5-event 集合与 agentsmd registered 4-event 集合；session-end 行为折进 Stop observer，不再宣称未经当前文档验证的“恰好”事件总数。
 
 已解决（实现落地）：
 - ✅ **[Phase 3/5]** 打包/安装机制 = **双路径**：plugin 携带的顶层 `hooks.json`（相对路径）由 Codex plugin 系统自动装配 + `scripts/install.js` 标记式 merge 手动并入 `~/.codex/hooks.json`；两份布线由 `drift.test.js` gate #4 保持一致。

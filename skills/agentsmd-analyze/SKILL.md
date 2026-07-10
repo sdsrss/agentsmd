@@ -1,6 +1,6 @@
 ---
 name: agentsmd-analyze
-description: Distill a project's implicit coding conventions (naming, imports, error handling, comment style, git conventions, etc.) from its own source, then inject them into the project AGENTS.md's `agentsmd:conventions` block. Use when the user asks to analyze, distill, or deepen project conventions beyond what agentsmd-init detects — agentsmd-init only detects stack facts (language, package manager, commands); this skill reads and reasons over actual code. Run agentsmd-init first; this skill edits the same AGENTS.md.
+description: Distill coding conventions from source into AGENTS.md (提炼代码约定). Use for naming/import/error-handling analysis after agentsmd-init. Not for stack detection or design tokens.
 ---
 
 # agentsmd-analyze

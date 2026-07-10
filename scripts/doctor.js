@@ -8,7 +8,18 @@ const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
 const H = require('./lib/codex-hooks');
 const REG = require('./lib/hook-registry');
+const F = require('./lib/fs-atomic');
 const { parseNoArgs } = require('./status');
+
+const REQUIRED_HOOK_SUPPORT = [
+  'hooks.json',
+  'banned-vocab.patterns',
+  'secrets.patterns',
+  'lib/hook-common.sh',
+  'lib/platform.sh',
+  'lib/rule-hits.sh',
+  'lib/command-parse.js',
+];
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const has = (bin) => { try { cp.execSync(`command -v ${bin}`, { stdio: 'ignore' }); return true; } catch { return false; } };
@@ -43,7 +54,10 @@ function doctor() {
   const hooksParseable = rawHooks === null || rawHooks.trim() === '' || H.parseHooksConfig(rawHooks) !== null;
   add('hooks.json parseable', hooksParseable, hooksParseable ? 'ok' : 'UNPARSEABLE — install/uninstall abort on this; fix or remove ~/.codex/hooks.json');
   const registeredHooks = H.countAgentsmdHooks(rawHooks || '');
-  const manifestInstalled = read(P.manifestPath()) !== null;
+  const manifestRaw = read(P.manifestPath());
+  const manifestInstalled = manifestRaw !== null;
+  let manifest = null;
+  try { manifest = manifestRaw === null ? null : JSON.parse(manifestRaw); } catch {}
   add(
     'agentsmd hooks registered',
     hooksParseable && registeredHooks === expectedHooks,
@@ -65,15 +79,66 @@ function doctor() {
   const hooksDir = P.installHooksDir();
   if (!manifestInstalled) {
     add('installed hooks executable', false, 'not installed');
-  } else if (fs.existsSync(hooksDir)) {
-    let execOk = true, bad = '';
-    for (const f of fs.readdirSync(hooksDir)) if (f.endsWith('.sh')) {
-      try { fs.accessSync(path.join(hooksDir, f), fs.constants.X_OK); } catch { execOk = false; bad = f; }
-    }
-    add('installed hooks executable', execOk, execOk ? 'ok' : `not executable: ${bad}`);
   } else {
-    add('installed hooks executable', false, 'not installed');
+    const bad = [];
+    for (const hook of REG.HOOK_REGISTRY) {
+      const file = path.join(hooksDir, hook.basename);
+      try { fs.accessSync(file, fs.constants.X_OK); } catch { bad.push(hook.basename); }
+    }
+    add('installed hooks executable', bad.length === 0, bad.length ? `missing/not executable: ${bad.join(', ')}` : `${REG.HOOK_REGISTRY.length}/${REG.HOOK_REGISTRY.length}`);
   }
+
+  // The manifest inventories the complete deployed release, including support
+  // libraries and pattern files that a top-level executable scan cannot see.
+  const integrityFailures = [];
+  if (!manifestInstalled) {
+    integrityFailures.push('not installed');
+  } else if (!manifest || !Array.isArray(manifest.deployedFiles)) {
+    integrityFailures.push('manifest has no deployed file inventory — re-run install');
+  } else {
+    const root = path.resolve(P.installDir());
+    if (manifest.name !== 'agentsmd' || typeof manifest.version !== 'string' || !manifest.version) {
+      integrityFailures.push('manifest identity/version invalid');
+    }
+    if (manifest.deployedFiles.length === 0) integrityFailures.push('manifest deploy inventory is empty');
+    for (const relative of REQUIRED_HOOK_SUPPORT) {
+      if (!fs.existsSync(path.join(hooksDir, relative))) integrityFailures.push(`hooks/${relative}`);
+    }
+    const expected = new Map();
+    for (const record of manifest.deployedFiles) {
+      const file = path.resolve(root, record.path || '');
+      const validType = record.type === 'file' || record.type === 'symlink';
+      const validHash = record.type !== 'file' || /^[a-f0-9]{64}$/.test(record.sha256 || '');
+      const validTarget = record.type !== 'symlink' || typeof record.target === 'string';
+      if (!record.path || expected.has(record.path) || !validType || !validHash || !validTarget) {
+        integrityFailures.push(`invalid inventory record: ${record.path || '(empty)'}`);
+        continue;
+      }
+      if (file === root || !file.startsWith(root + path.sep)) {
+        integrityFailures.push(`invalid manifest path: ${record.path}`);
+        continue;
+      }
+      expected.set(record.path, record);
+    }
+    let actual = [];
+    try { actual = F.treeEntries(root).filter((entry) => entry.type !== 'dir'); }
+    catch (error) { integrityFailures.push(`cannot inventory deploy: ${error.message}`); }
+    const actualMap = new Map(actual.map((entry) => [entry.path, entry]));
+    for (const [relative, record] of expected) {
+      const entry = actualMap.get(relative);
+      if (!entry || entry.type !== record.type
+          || (record.type === 'file' && entry.sha256 !== record.sha256)
+          || (record.type === 'symlink' && entry.target !== record.target)) integrityFailures.push(relative);
+    }
+    for (const relative of actualMap.keys()) {
+      if (!expected.has(relative)) integrityFailures.push(`unexpected: ${relative}`);
+    }
+  }
+  add(
+    'installed hook and support files intact',
+    integrityFailures.length === 0,
+    integrityFailures.length ? [...new Set(integrityFailures)].slice(0, 5).join(', ') : `${manifest.deployedFiles.length}/${manifest.deployedFiles.length}`
+  );
 
   // hard-rules anchors resolve against the spec (drift guard).
   try {

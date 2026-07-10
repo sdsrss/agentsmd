@@ -117,8 +117,11 @@ try {
       const ev = JSON.stringify({ session_id: 'parity', transcript_path: tr, hook_event_name: 'Stop' });
       cp.execFileSync('bash', [HOOK], { input: ev, env: { ...process.env, HOME: home, CODEX_HOME: path.join(home, '.codex') }, stdio: ['pipe', 'ignore', 'ignore'] });
       const log = path.join(home, '.codex', 'logs', 'agentsmd.jsonl');
-      const rows = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
-      return { vocab: /"spec_section":"§10-V"/.test(rows), order: /"spec_section":"§10-four-section-order"/.test(rows) };
+      const rows = fs.existsSync(log)
+        ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line))
+        : [];
+      const enforced = new Set(rows.filter((row) => row.event === 'advisory').map((row) => row.spec_section));
+      return { vocab: enforced.has('§10-V'), order: enforced.has('§10-four-section-order') };
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
   const parityCases = [

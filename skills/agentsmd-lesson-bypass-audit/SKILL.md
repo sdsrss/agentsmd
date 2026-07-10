@@ -1,6 +1,6 @@
 ---
 name: agentsmd-lesson-bypass-audit
-description: Measure memory cite-recall — how often the §7 memory hint ("read the suggested memory before acting") is actually acted on vs bypassed across recent Codex sessions. Use when the user asks whether the memory system is working, if surfaced memories get read, or wants the follow-through rate behind the hints (not just that they fired). Read-only join of suggest-telemetry against transcripts.
+description: Measure whether surfaced memory hints were later cited in Codex transcripts. Use for memory hint follow-through and bypass rates. Not for rule-hit governance or memory editing; read-only.
 ---
 
 # agentsmd-lesson-bypass-audit

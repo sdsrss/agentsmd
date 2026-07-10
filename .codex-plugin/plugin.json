@@ -1,7 +1,7 @@
 {
   "name": "agentsmd",
-  "version": "2.16.0",
-  "description": "CODEX-CODING-SPEC — a global coding-discipline spec enforced by native Codex hooks: SPINE workflow, level classification, Iron Laws (no done without fresh evidence), §8 SAFETY (blocks rm -rf $VAR / remote-exec), four-section reports, banned-vocab on commits, and a base-branch CI ship gate — plus a rule-hit telemetry closed loop that lets data decide which rules stay always-on. Installs standalone and is fully independent of oh-my-codex.",
+  "version": "2.17.0",
+  "description": "CODEX-CODING-SPEC — global Codex workflow and evidence guidance, with native hooks for selected safety/report checks and rule-specific opportunity telemetry. Installs independently of oh-my-codex.",
   "author": {
     "name": "agentsmd"
   },
@@ -19,8 +19,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "agentsmd",
-    "shortDescription": "A coding-discipline spec enforced by native Codex hooks + a rule-hit telemetry loop",
-    "longDescription": "agentsmd turns a global coding spec (SPINE workflow, level classification, evidence-before-done Iron Laws, §8 SAFETY, honest four-section reporting) from a document the model may drift from into an enforced system: native Codex hooks block dangerous shell + banned commit vocabulary + red-CI ship pushes, a Stop-time scan checks report structure, and every hit is logged so `agentsmd-rules` can surface which always-on rules earn their place and which are attention dilution. It manages only its own entries in ~/.codex and never touches oh-my-codex or other plugins.",
+    "shortDescription": "A coding-discipline spec with bounded native checks and opportunity telemetry",
+    "longDescription": "agentsmd combines a global SPINE/evidence spec with bounded native hooks. Hooks block selected dangerous shell, secret-commit, vocabulary, and known-red CI patterns; Stop observers report detectable structure issues. Telemetry records rule-specific opportunities and outcomes for operator review. Manifest-backed ownership keeps standalone lifecycle changes scoped to agentsmd artifacts.",
     "developerName": "agentsmd",
     "category": "Coding",
     "capabilities": [

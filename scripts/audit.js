@@ -95,11 +95,45 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     const ev = (r && r.event) || 'unknown';
     const hook = (r && r.hook) || 'unknown';
     const isEnf = ENFORCEMENT_EVENTS.has(ev);
+    // Explicit opportunity observations take precedence over compatibility
+    // inference. A legacy enforcement row with no observation for its
+    // (section,session) still implies eligible+evaluated; a current bypass with
+    // an explicit evaluated:false observation remains unevaluated.
+    const hasExplicitOpportunity = r && (typeof r.eligible === 'boolean' || typeof r.evaluated === 'boolean');
+    const isExplicitEvaluated = Boolean(r && r.evaluated === true);
+    const isExplicitEligible = isExplicitEvaluated || Boolean(r && r.eligible === true);
+    const isEvaluated = isEnf || isExplicitEvaluated;
+    const isEligible = isEnf || isExplicitEligible;
     if (isEnf) enforcement++;
 
-    bySection[sec] = bySection[sec] || { total: 0, enforcement: 0, events: {} };
+    bySection[sec] = bySection[sec] || {
+      total: 0,
+      enforcement: 0,
+      eligibleObservations: 0,
+      evaluatedObservations: 0,
+      eligibleSessions: 0,
+      evaluatedSessions: 0,
+      events: {},
+      _explicitOpportunitySessions: new Set(),
+      _explicitEligibleSessions: new Set(),
+      _explicitEvaluatedSessions: new Set(),
+      _enforcementSessions: new Set(),
+    };
     bySection[sec].total++;
     if (isEnf) bySection[sec].enforcement++;
+    if (isEligible) {
+      bySection[sec].eligibleObservations++;
+    }
+    if (isEvaluated) {
+      bySection[sec].evaluatedObservations++;
+    }
+    if (sid) {
+      const session = String(sid);
+      if (hasExplicitOpportunity) bySection[sec]._explicitOpportunitySessions.add(session);
+      if (isExplicitEligible) bySection[sec]._explicitEligibleSessions.add(session);
+      if (isExplicitEvaluated) bySection[sec]._explicitEvaluatedSessions.add(session);
+      if (isEnf) bySection[sec]._enforcementSessions.add(session);
+    }
     bySection[sec].events[ev] = (bySection[sec].events[ev] || 0) + 1;
 
     byHook[hook] = (byHook[hook] || 0) + 1;
@@ -132,6 +166,20 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     }
   }
 
+  for (const bucket of Object.values(bySection)) {
+    const eligible = new Set([...bucket._explicitEligibleSessions, ...bucket._enforcementSessions]);
+    const evaluated = new Set(bucket._explicitEvaluatedSessions);
+    for (const session of bucket._enforcementSessions) {
+      if (!bucket._explicitOpportunitySessions.has(session)) evaluated.add(session);
+    }
+    bucket.eligibleSessions = eligible.size;
+    bucket.evaluatedSessions = evaluated.size;
+    delete bucket._explicitOpportunitySessions;
+    delete bucket._explicitEligibleSessions;
+    delete bucket._explicitEvaluatedSessions;
+    delete bucket._enforcementSessions;
+  }
+
   return {
     days,
     windowStartIso: new Date(cutoff).toISOString(),
@@ -155,13 +203,13 @@ function formatReport(a) {
   if (a.unparseableRows) skips.push(`${a.unparseableRows} unparseable-ts (excluded from window)`);
   if (skips.length) lines.push(`skipped: ${skips.join(' · ')}`);
   lines.push('');
-  lines.push('by spec_section (enforcement / total):');
+  lines.push('by spec_section (enforcement / evaluated sessions / eligible sessions / total rows):');
   const secs = Object.keys(a.bySection).sort((x, y) => a.bySection[y].enforcement - a.bySection[x].enforcement);
   if (!secs.length) lines.push('  (no telemetry yet — hooks have not fired in this window)');
   for (const s of secs) {
     const b = a.bySection[s];
     const evs = Object.entries(b.events).map(([k, v]) => `${k}:${v}`).join(' ');
-    lines.push(`  ${s.padEnd(26)} ${String(b.enforcement).padStart(4)} / ${String(b.total).padStart(4)}   ${evs}`);
+    lines.push(`  ${s.padEnd(26)} ${String(b.enforcement).padStart(4)} / ${String(b.evaluatedSessions).padStart(4)} / ${String(b.eligibleSessions).padStart(4)} / ${String(b.total).padStart(4)}   ${evs}`);
   }
   lines.push('');
   lines.push('by project (enforcement / total):');

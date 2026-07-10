@@ -1,6 +1,6 @@
 ---
 name: agentsmd-doctor
-description: Health-check a agentsmd install (jq/node present, the [features] hooks flag enabled, hooks executable, hard-rules anchors resolve). Use when agentsmd hooks seem not to fire, after installing/updating agentsmd, when the user asks to diagnose or verify the agentsmd setup, or to check spec↔manifest drift. Read-only diagnostics.
+description: "Diagnose an agentsmd installation (安装故障诊断): prerequisites, hook registration/executability, config flags, and spec drift. Use after install/update or when hooks fail. Not for telemetry analysis; read-only."
 ---
 
 # agentsmd-doctor

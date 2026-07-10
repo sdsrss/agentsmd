@@ -1,20 +1,17 @@
 'use strict';
-// sampling-audit.js — retrospective batch scan of the SELF-enforced §10 rules
-// across historical Codex transcripts. The live Stop hook (transcript-structure-
-// scan.sh) records a §10-V / §10-four-section-order row only for the LAST turn of
-// each session; those rules otherwise leave no telemetry, so their real-world
-// violation RATE is invisible (scripts/rules.js marks them 'self-enforced' =
-// "not mechanically measured"). This walks every assistant turn in the window and
+// sampling-audit.js — retrospective batch scan of §10 observer rules across
+// historical Codex transcripts. The live Stop hook checks the current last turn
+// whenever Stop fires, but hit telemetry has no every-assistant-turn denominator.
+// This walks every assistant turn in the window and
 // re-runs the hook's exact detection, making that rate observable.
 //
 // Drift safeguard: scripts/tests/sampling-audit.test.js pins scanVocab + scanOrder
 // to transcript-structure-scan.sh — same text in, same verdict out — and both read
 // the SAME hooks/banned-vocab.patterns, so the vocabulary can't fork.
 //
-// Scope note: only the two rules agentsmd's live hook actually enforces are
-// scanned. The iron-law-2 evidence-fingerprint / honesty observers exist in the
-// sibling claudemd hook but not agentsmd's (roadmap C4); adding them here before
-// the hook has them would measure a rule nothing enforces.
+// Scope note: this retrospective tool currently scans vocabulary and report
+// order only. The live hook also has iron-law-2 and honesty observers; they are
+// excluded here until their per-turn classifiers share a tested implementation.
 
 const fs = require('fs');
 const path = require('path');
@@ -158,7 +155,7 @@ function samplingAudit({ sessionsDir = defaultSessionsDir(), days = 30, now = Da
 
 function formatReport(r) {
   const lines = [];
-  lines.push(`agentsmd sampling-audit — last ${r.days}d (self-enforced §10 rules, retrospective)`);
+  lines.push(`agentsmd sampling-audit — last ${r.days}d (§10 per-turn retrospective)`);
   const cap = r.limit ? ` · limit ${r.limit}${r.truncated ? ` (dropped ${r.truncated} older)` : ''}` : '';
   lines.push(`transcripts scanned: ${r.transcripts}${cap} · assistant turns: ${r.turns}`);
   if (!r.transcripts) { lines.push('\n(no transcripts in window — nothing to measure)'); return lines.join('\n'); }
@@ -169,8 +166,8 @@ function formatReport(r) {
     lines.push(`  ${k.padEnd(27)} ${String(b.hits).padStart(6)}               ${String(b.transcriptsAffected).padStart(6)}`);
   }
   lines.push('');
-  lines.push('Self-enforced rules leave no per-turn telemetry — this is the only view of their');
-  lines.push('real violation rate. A rising count feeds §13.2 demote-review, not auto-deletion.');
+  lines.push('Live Stop observations have no every-turn denominator; this retrospective supplies it.');
+  lines.push('A rising rate informs OPERATOR §O2 review and never changes the spec automatically.');
   return lines.join('\n');
 }
 

@@ -1,6 +1,6 @@
 ---
 name: agentsmd-version-cascade
-description: Free-text version-drift gate — scans the prose READMEs for a same-major version token drifted off the current minor (e.g. a "current version vX.Y" claim left stale after a bump), complementing the structured drift test that only checks named JSON/header fields. Use before a release, when bumping the version, or when the user asks whether a version string in the docs went stale. Intentional historical/example refs (the rename version, an example --ref tag) are allowlisted by exact token. Read-only; exit 1 on a stale token. NOT the structured 5-place version check (that is drift.test.js gate #5, over package.json / plugin.json / hard-rules.json / the two spec headers).
+description: Scan README prose for stale same-major version tokens. Use before release or after a version bump. Not for structured package/plugin/spec version equality; read-only.
 ---
 
 # agentsmd-version-cascade

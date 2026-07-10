@@ -36,6 +36,8 @@ printf '%s' "$NOW_COUNT" > "$BASELINE" 2>/dev/null || true
 
 # First run (no baseline) → establish silently.
 [[ -n "$PREV_COUNT" && "$PREV_COUNT" =~ ^[0-9]+$ ]] || exit 0
+hook_observe "$HOOK" '§7-user-global-state' "$SID" true true \
+  "$(jq -cn --argjson prev "$PREV_COUNT" --argjson now "$NOW_COUNT" '{previous:$prev,current:$now,stage:"comparison-complete"}' 2>/dev/null || echo null)"
 
 if (( NOW_COUNT > PREV_COUNT )); then
   GREW=$(( NOW_COUNT - PREV_COUNT ))

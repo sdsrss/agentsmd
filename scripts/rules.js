@@ -11,12 +11,11 @@ const path = require('path');
 const P = require('./lib/paths');
 const { audit, parseDaysArg } = require('./audit');
 
-// Distinct cross-project sessions a window must hold before a live 0-hit rule can
-// be called dilution. Below this, the window is too thin to distinguish "rule is
-// dead weight" from "rule's trigger never arose" — so 0-hit rules read
-// 'insufficient-exposure', not 'demote-candidate'. A deliberately conservative
-// floor (the operator reviews anyway); tune with field data per OPERATOR §O2.
-const MIN_EXPOSURE_SESSIONS = 5;
+// Distinct evaluated sessions for THIS RULE that a window must hold before a live
+// 0-hit rule can be called dilution. Global session volume is not an opportunity
+// denominator: a session that never attempted git commit says nothing about the
+// value of the commit secret gate.
+const MIN_EXPOSURE_SESSIONS = 5; // rule-specific eligible/evaluated sessions
 
 function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
@@ -36,24 +35,24 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   // governance surface never recommends demotion off an empty window (e.g. a fresh
   // or never-run install).
   const noData = a.inWindow === 0;
-  // Exposure gate: telemetry exists but too FEW DISTINCT SESSIONS to judge a 0-hit
-  // rule (its trigger may just never have arisen). Always from the UNSCOPED audit
-  // `a` — never `scoped`, or the exposure verdict would leak --project scoping, the
-  // exact class of bug the cross-project invariant here guards against.
-  const lowExposure = !noData && a.sessionCount < MIN_EXPOSURE_SESSIONS;
-
   const rows = hr.rules.map((r) => {
     const enforced = r.enforcement === 'hook' || r.enforcement === 'both';
     const section = r.rule_hits_section || null;
     const bucket = section ? a.bySection[section] : null;
     const hits = bucket ? bucket.enforcement : 0;
+    const eligibleSessions = bucket ? bucket.eligibleSessions : 0;
+    const evaluatedSessions = bucket ? bucket.evaluatedSessions : 0;
+    const eligibleObservations = bucket ? bucket.eligibleObservations : 0;
+    const evaluatedObservations = bucket ? bucket.evaluatedObservations : 0;
     const live = section ? liveSections.has(section) : false;
     const policy = r.demote_policy || 'standard';
     let signal;
     if (enforced && section && live) {
       if (hits > 0) signal = 'active';
       else if (noData) signal = 'no-data';
-      else if (lowExposure) signal = 'insufficient-exposure';
+      else if (eligibleSessions === 0) signal = 'no-opportunity';
+      else if (eligibleSessions < MIN_EXPOSURE_SESSIONS) signal = 'insufficient-opportunity';
+      else if (evaluatedSessions < MIN_EXPOSURE_SESSIONS) signal = 'insufficient-evaluation';
       else if (policy === 'deterrence') signal = 'deterrence-ok'; // immutable §8: 0 hits = hazard never arose, not dilution
       else if (r.scope === 'extended') signal = 'hook-value-review'; // already bottom tier — nowhere to demote to
       else signal = 'demote-candidate'; // core + standard policy + enough exposure + 0 hits
@@ -64,7 +63,12 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     // Informational only — null when unscoped or the rule has no section.
     const scopedBucket = (scoped && section) ? scoped.bySection[section] : null;
     const localHits = (scoped && section) ? (scopedBucket ? scopedBucket.enforcement : 0) : null;
-    return { id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits, live, signal, policy, localHits, confidence: r.confidence, lastDemoteReview: r.last_demote_review };
+    return {
+      id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits,
+      eligibleSessions, evaluatedSessions, eligibleObservations, evaluatedObservations,
+      live, signal, policy, localHits, confidence: r.confidence,
+      lastDemoteReview: r.last_demote_review,
+    };
   });
 
   // Cross-project count — always derived from the unfiltered audit above, so
@@ -95,14 +99,17 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     telemetryRows: a.inWindow,
     sessionCount: a.sessionCount,
     minExposureSessions: MIN_EXPOSURE_SESSIONS,
-    lowExposure,
+    lowExposure: rows.some((r) => r.signal === 'insufficient-opportunity' || r.signal === 'insufficient-evaluation'),
     projectFilter,
     projectCount,
     matchedSlugs,
     rules: rows,
     demoteCandidates: rows.filter((r) => r.signal === 'demote-candidate'),
     hookValueReview: rows.filter((r) => r.signal === 'hook-value-review'),
-    insufficientExposure: rows.filter((r) => r.signal === 'insufficient-exposure'),
+    noOpportunity: rows.filter((r) => r.signal === 'no-opportunity'),
+    insufficientExposure: rows.filter((r) => r.signal === 'insufficient-opportunity' || r.signal === 'insufficient-evaluation'),
+    insufficientOpportunity: rows.filter((r) => r.signal === 'insufficient-opportunity'),
+    insufficientEvaluation: rows.filter((r) => r.signal === 'insufficient-evaluation'),
     deterrenceOk: rows.filter((r) => r.signal === 'deterrence-ok'),
     active: rows.filter((r) => r.signal === 'active'),
     selfEnforced: rows.filter((r) => r.signal === 'self-enforced'),
@@ -118,15 +125,11 @@ function formatReport(ra) {
   } else {
     L.push(`telemetry spans ${ra.projectCount} project(s).`);
   }
+  L.push('Governance denominators are rule-specific eligible/evaluated sessions; global sessions are informational only.');
   L.push('');
   if (ra.telemetryRows === 0) {
     L.push('No telemetry in window yet. Demote/promote signals need field data —');
     L.push('install agentsmd live and let hooks fire before trusting these counts.');
-    L.push('');
-  } else if (ra.lowExposure) {
-    L.push(`Only ${ra.sessionCount} distinct session(s) in window (< ${ra.minExposureSessions} needed to judge a 0-hit rule).`);
-    L.push('0-hit live rules read "insufficient-exposure", not demote — a rule may simply');
-    L.push('not have met its trigger yet. Let more sessions accrue before demoting.');
     L.push('');
   }
   L.push(ra.projectFilter ? 'hook-enforced rules (hits = cross-project; local = within filter):' : 'hook-enforced rules:');
@@ -134,13 +137,19 @@ function formatReport(ra) {
     const flag = r.signal === 'demote-candidate' ? '  ⚠ DEMOTE?'
       : (r.signal === 'hook-value-review' ? '  ⚠ HOOK-VALUE?' : '');
     const local = (ra.projectFilter && r.localHits !== null) ? `  local:${r.localHits}` : '';
-    L.push(`  ${r.id.padEnd(24)} ${r.section || ''}  hits:${r.hits}  [${r.signal}]${flag}${local}`);
+    L.push(`  ${r.id.padEnd(24)} ${r.section || ''}  hits:${r.hits}  eligible:${r.eligibleSessions}  evaluated:${r.evaluatedSessions}  [${r.signal}]${flag}${local}`);
   }
   L.push('');
   L.push(`self-enforced (not mechanically measured): ${ra.selfEnforced.length} rules`);
+  if (ra.noOpportunity.length) {
+    L.push(`${ra.noOpportunity.length} live hook rule(s) had no recorded opportunity; unrelated sessions are not demotion evidence.`);
+  }
+  if (ra.insufficientExposure.length) {
+    L.push(`${ra.insufficientExposure.length} live hook rule(s) had fewer than ${ra.minExposureSessions} evaluated opportunities; no demotion signal emitted.`);
+  }
   if (ra.demoteCandidates.length && ra.telemetryRows > 0) {
     L.push('');
-    L.push(`⚠ ${ra.demoteCandidates.length} core hook-enforced rule(s) with 0 hits + sufficient exposure —`);
+    L.push(`⚠ ${ra.demoteCandidates.length} core hook-enforced rule(s) with 0 hits + sufficient evaluated opportunities —`);
     L.push('  demote candidates (move core→extended; immutable §8 + extended-scope rules are excluded):');
     for (const r of ra.demoteCandidates) L.push(`    - ${r.id} (${r.section})`);
   }

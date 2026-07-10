@@ -2,17 +2,17 @@
 
 **English · [中文](./README.zh-CN.md)**
 
-> A coding-discipline spec for **OpenAI's Codex CLI**, made enforceable by native Codex hooks and kept honest by a rule-hit telemetry loop. It turns a spec the model can drift from into a system that actually holds — and it installs standalone, fully independent of oh-my-codex.
+> A coding-discipline spec for **OpenAI's Codex CLI**, with native hooks for selected mechanically detectable rules and telemetry for measured review. It installs standalone and is independent of oh-my-codex.
 
 ![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/hooks-native%20Codex-blue) ![independent](https://img.shields.io/badge/independent%20of-oh--my--codex-orange)
 
-> **Formerly `codexmd`.** The project was renamed to `agentsmd` in v2.0.0 to match its repository. Installing agentsmd automatically migrates a prior codexmd install — [details below](#upgrading-from-codexmd).
+> **Formerly `codexmd`.** The project was renamed to `agentsmd` in v2.0.0 to match its repository. The installer migrates prior artifacts only when their legacy provenance can be verified — [details below](#upgrading-from-codexmd).
 
 ---
 
 ## What is agentsmd?
 
-**agentsmd is a global coding-discipline spec for the Codex CLI that Codex's own hooks enforce.** The spec — `spec/AGENTS.md` (always-on core) plus `spec/AGENTS-extended.md` (loaded on demand) — defines a `CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT` workflow, level-based rigor, Iron Laws (no "done" without fresh evidence; no fix without a root cause), a §8 SAFETY floor, and honest four-section reporting. Native Codex hooks make the mechanical parts **non-optional**, and every rule-hit is logged so **data — not taste — decides which rules earn a place in the always-on layer.**
+**agentsmd is a global coding-discipline spec for the Codex CLI with a mechanically observed subset.** The spec — `spec/AGENTS.md` (always-on core) plus `spec/AGENTS-extended.md` (triggered detail) — defines a `CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT` workflow, level-based evidence, Iron Laws, a §8 SAFETY floor, and ordered reporting. Enabled hooks block or advise on patterns they can detect; semantic rules remain agent/operator enforced.
 
 ## Why hooks and telemetry, not just an `AGENTS.md`?
 
@@ -20,10 +20,10 @@ A spec file is only as strong as the model's willingness to follow it mid-sessio
 
 agentsmd answers this the way a system does, not a document:
 
-- **Hooks** turn the mechanical rules (block `rm -rf $VAR`, block unquantified commit-message claims, block a push onto a red-CI branch) into deterministic gates the model cannot talk its way past.
-- **Telemetry** records every hit, so `agentsmd-rules` can show which always-on rules keep firing (they earn their place) and which never fire (they are pure dilution — demote them).
+- **Hooks** block selected command shapes such as unvalidated recursive deletes, detected secrets, and known-red shared-branch pushes. Hooks are bounded and fail-open when prerequisites or parsing are unavailable; those failures are recorded when possible.
+- **Telemetry** separates eligible/evaluated opportunities from enforcement hits, so `agentsmd-rules` can reject no-opportunity windows instead of treating every raw zero as dilution.
 
-The point isn't saving tokens. **A rule nobody enforces and nobody triggers is pure attention dilution.** agentsmd exists to keep every rule enforceable and every always-on rule justified by data.
+The point is not a raw token count. Core size, detector coverage, opportunity rows, and outcomes are separate signals; the operator reviews them together before changing an always-on rule.
 
 ## What it enforces
 
@@ -41,7 +41,7 @@ Fifteen native hooks across four Codex events (SessionStart, PreToolUse, UserPro
 | `memory-prompt-hint` | UserPromptSubmit | surfaces `MEMORY.md` entries matching the prompt |
 | `residue-audit` | Stop | §7/§9 — flags `~/.codex/tmp` growth |
 | `sandbox-disposal-check` | Stop | §8.V4 — flags undisposed scratch dirs |
-| `transcript-structure-scan` | Stop | §10 — checks four-section order + banned vocab in the last report |
+| `transcript-structure-scan` | Stop | §10/§6 — checks report order, vocabulary, fix-evidence anchors, and Uncertain phrasing |
 | `convention-cite-scan` | Stop | tracks `@conv-*` project-convention citations for `analyze --adoption` |
 | `session-exit-checkpoint` | Stop | §7 — flags edits left unvalidated at session exit (surfaced next SessionStart) |
 | `mem-audit` | Stop | §7 — flags `MEMORY.md` index/file drift + missing verified headers |
@@ -69,7 +69,7 @@ Choose one install surface:
 
 ### Standalone installer
 
-Use this when you want agentsmd to manage its own marker-scoped entries in
+Use this when you want agentsmd to manage its own manifest-backed artifacts and marker-scoped shared entries in
 `$CODEX_HOME` directly. The installer downloads the latest repo snapshot, runs
 the same idempotent Node installer used by local development, and cleans up its
 temporary files when it exits.
@@ -136,12 +136,14 @@ Use this when you want Codex to install agentsmd as a plugin and keep the bundle
 in Codex's plugin cache. The repo ships a marketplace at
 `.agents/plugins/marketplace.json`; its marketplace name is `agentsmd`.
 
-> **What the plugin path wires — and what it doesn't.** Codex auto-manages
-> agentsmd's **hooks** from the plugin bundle. The rest of a full install —
+> **What the plugin bundle declares — and what the repository verifies.** The
+> bundle declares agentsmd's **hooks** and skills. Repository drift tests verify
+> that bundle wiring matches the standalone template, but they do not exercise
+> every Codex plugin runtime/version end to end. The rest of a full install —
 > injecting the core spec into `~/.codex/AGENTS.md`, setting `config.toml`
 > `[features] hooks = true`, and migrating a prior codexmd install — is done by
-> the script installer, **not** by plugin install. For the complete experience,
-> run the installer once after adding the plugin:
+> the standalone script. Run it once after adding the plugin when you need that
+> repository-tested surface:
 >
 > ```bash
 > npm install -g @sdsrs/agentsmd && agentsmd install
@@ -175,7 +177,7 @@ node scripts/status.js      # confirm: agentsmd hooks registered, other tenants 
 node scripts/doctor.js      # health checks
 ```
 
-Install is **idempotent** and preserves every other tenant's entries byte-for-byte.
+Install is **idempotent** and preserves every other tenant's hook objects; the install/uninstall round trip restores the seeded shared fixture byte-for-byte.
 
 ## Update
 
@@ -213,7 +215,7 @@ codex plugin add agentsmd --marketplace agentsmd --json
 
 ## Uninstall
 
-Standalone uninstall removes agentsmd's own entries and cleanup state while
+Standalone uninstall removes agentsmd's owned runtime entries while
 preserving other plugins and user config:
 
 ```bash
@@ -223,8 +225,11 @@ curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | s
 node scripts/uninstall.js
 ```
 
-Uninstall strips only agentsmd's own entries (registered hooks, skills, the
-`AGENTS.md` block, install manifest, state, and extended spec) and, per §5,
+Uninstall preflights ownership, then transactionally removes registered hooks,
+skills, the `AGENTS.md` block, install manifest, known session runtime state, and
+extended spec. Compare-and-swap rollback preserves concurrent external writes.
+Recovery snapshots under `.agentsmd-state/backups/` and unknown/foreign state
+entries are deliberately retained, so the state directory usually remains. Per §5 it
 **leaves `config.toml` hook/status-line settings enabled** (removing them could
 break oh-my-codex, your own hooks, or your preferred footer). It also leaves
 tiny unregistered no-op hook shims under `$CODEX_HOME/agentsmd/hooks/` so a
@@ -256,15 +261,15 @@ they manage different Codex surfaces.
 
 ### Upgrading from codexmd
 
-If you previously installed **codexmd** (v1.4.0–v1.4.3), you don't need to do anything special: **running the agentsmd installer migrates you automatically.** It strips hooks under the old `CODEX_HOME/codexmd` install dir, the `# >>> codexmd >>>` `AGENTS.md` block, the `codexmd-*` skills, and `~/.codex/{codexmd, .codexmd-state}` — marker-scoped, so oh-my-codex and every other tenant are left untouched. The migration is a no-op if no codexmd install is present, and `uninstall` sweeps any codexmd remnant too.
+If you previously installed **codexmd** (v1.4.0–v1.4.3), running the agentsmd installer detects its hooks and manifest. It migrates only legacy artifacts whose provenance can be verified; an ambiguous or modified same-named directory is preserved and reported instead of being deleted.
 
 ## How is it independent of oh-my-codex?
 
-agentsmd manages **only its own entries** in the shared `~/.codex/hooks.json`, `config.toml`, and `AGENTS.md`, identified by the active `CODEX_HOME/agentsmd` install-dir marker in hook commands and `# >>> agentsmd >>>` sentinels. For `config.toml`, it sets `[features] hooks = true` and fills `[tui] status_line` only when missing; an existing user footer is preserved. It never reads, modifies, reorders, or depends on oh-my-codex (OMX) or any other tenant, and it installs cleanly whether or not OMX is present. If the shared `hooks.json` is ever unparseable, the installer **aborts rather than clobber** it — it may hold other tenants' hooks it cannot see. This is proven by `scripts/tests/install.test.js`, which asserts a byte-identical round-trip alongside a seeded OMX config.
+agentsmd identifies its shared `hooks.json` entries by the active `CODEX_HOME/agentsmd` command path and its `AGENTS.md` block by sentinels. Deploy, extended spec, and skills require manifest-recorded exact paths and content hashes. Install/update stages a complete tree and validates ownership before mutation; uninstall uses the same preflight. Both lifecycle directions use compare-and-swap rollback so a concurrent external write is preserved rather than overwritten. Legacy manifests are copied to a persistent owner-only `.agentsmd-legacy-backup-*` before hash baselining. For `config.toml`, the installer sets missing hook/status-line values but uninstall leaves them enabled. Fixtures cover OMX coexistence, ownership collisions, failure injection, mode preservation, and concurrent writes.
 
 OMX (if present) is an orchestration framework; agentsmd is the discipline/enforcement layer. They are complementary — and agentsmd does not depend on OMX.
 
-## Governance — let data decide which rules stay
+## Governance — opportunity-aware operator review
 
 ```bash
 node scripts/audit.js --days=30    # aggregate rule-hit telemetry by spec section
@@ -272,7 +277,7 @@ node scripts/audit.js --project=X  # …scoped to projects whose path contains "
 node scripts/rules.js --days=30    # promote/demote signals vs spec/hard-rules.json
 ```
 
-A hook-enforced rule with **zero hits** over a review window is always-on-layer dilution → a demote candidate. A high-hit rule justifies its place in the core. Operator cadence, size budget, and promote/demote gates live in `spec/OPERATOR.md`.
+A hook rule becomes a demotion candidate only after enough rule-specific evaluated opportunities with zero enforcement hits. `no-opportunity`, low evaluation, and global session counts are not evidence for demotion; high hits show activity, not correctness. The operator decides using `spec/OPERATOR.md`.
 
 ## Generate a project-level AGENTS.md
 
@@ -319,7 +324,7 @@ node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption
 node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/analyze.js" --adoption --days=7 --project=X
 ```
 
-A dimension with zero cites over the window is flagged a prune candidate — advisory only; nothing is deleted automatically, a human decides whether to drop it from `AGENTS.md`. This is the per-project mirror of the global `audit`/`rules` promote/demote loop above, kept intentionally separate: `@conv-*` measures **adoption** of a project's own conventions, `§*` measures **enforcement** of the global spec.
+A dimension with zero cites is a manual review prompt, not pruning evidence: the citation layer does not yet record per-anchor evaluated opportunities. Nothing is deleted automatically. `@conv-*` citation counts remain separate from the global `§*` enforcement ledger.
 
 ## Capture design tokens
 
@@ -357,16 +362,20 @@ install.sh   curl-friendly standalone installer/updater/uninstaller
 ## FAQ
 
 **Is agentsmd the same as codexmd?**
-Yes. `codexmd` was the former name; the project was renamed to `agentsmd` in v2.0.0 to match its repository. Same system, same `CODEX-CODING-SPEC`; only the tool's identity changed. Existing codexmd installs are migrated automatically.
+Yes. `codexmd` was the former name; the project was renamed to `agentsmd` in v2.0.0 to match its repository. Same system, same `CODEX-CODING-SPEC`; only the tool's identity changed. Legacy artifacts are migrated only when their provenance is verifiable.
 
 **Do I need oh-my-codex to use agentsmd?**
 No. agentsmd installs and runs standalone. If OMX happens to be installed, the two coexist without touching each other's config.
 
 **Does it work with plain OpenAI Codex CLI?**
-Yes — it targets the Codex CLI's native hook system (`[features] hooks = true`, Codex 0.142+). It reads snake_case hook stdin and emits the Codex block/advisory/context JSON shapes.
+The standalone installer targets the native hook configuration and `doctor`
+checks the deployed wiring, executability, dependencies, flag, manifest, and
+spec inventory. The smoke suite exercises snake_case fixtures and the
+block/advisory/context JSON shapes; compatibility outside those fixtures remains
+dependent on the Codex runtime version.
 
 **Will it modify my existing `~/.codex` config?**
-Only its own marker-scoped entries, and it refuses to touch an unparseable `hooks.json`. Your model, profiles, and other plugins' entries are preserved byte-for-byte.
+Only its identified shared entries and manifest-owned standalone artifacts. It refuses an unparseable shared file or an artifact whose current hash no longer matches the manifest; existing model/profile/plugin settings outside its managed blocks remain outside the mutation set.
 
 **How do I update or remove it?**
 Standalone: re-run the curl installer or `node scripts/install.js`; remove with

@@ -71,6 +71,10 @@ process.stdout.write(mut+" "+val);
 
 MUT="${RESULT%% *}"; VAL="${RESULT##* }"
 [[ "$MUT" =~ ^[0-9]+$ ]] || exit 0
+if [[ "$MUT" -gt 0 ]]; then
+  hook_observe "$HOOK" '§7-session-exit' "$SID" true true \
+    "$(jq -cn --argjson m "$MUT" --arg v "$VAL" '{mutations:$m,validated:($v=="1")}' 2>/dev/null || echo null)"
+fi
 
 if [[ "$MUT" -gt 0 && "$VAL" == "0" ]]; then
   # Mutated without validating. Record telemetry ONCE per streak — only on the

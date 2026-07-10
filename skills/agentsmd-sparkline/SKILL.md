@@ -1,6 +1,6 @@
 ---
 name: agentsmd-sparkline
-description: Show the multi-window TREND of agentsmd rule-usage — which spec sections are firing more, less, or went silent (a rule that WAS enforcing and stopped, e.g. a regressed or unwired hook). Use when the user asks whether a hook stopped firing / regressed, wants the enforcement trend over time rather than a single point count, asks which rules are trending down, or wants a rule-usage block for the CHANGELOG. Read-only log math; --markdown emits the CHANGELOG table.
+description: Show multi-window trends in agentsmd rule activity and detect sections that went silent. Use for regressions or CHANGELOG trend tables. Not for single-window governance; read-only.
 ---
 
 # agentsmd-sparkline

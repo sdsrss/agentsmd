@@ -1,6 +1,6 @@
 ---
 name: agentsmd-init
-description: Generate or refresh a project-level AGENTS.md for the current repo — detects the stack (Node/Rust/Python/Go), package manager, build/test/dev commands, and structure, then writes a sentinel-delimited managed block that re-runs update in place while preserving your own edits. Use when the user asks to create, scaffold, generate, or refresh a project AGENTS.md, or set up project coding conventions. Complements the global agentsmd spec in ~/.codex/AGENTS.md (which carries the universal workflow discipline).
+description: Generate or refresh project AGENTS.md stack facts, commands, and structure (生成项目指令). Use before convention analysis. Not for inferring coding conventions or design tokens.
 ---
 
 # agentsmd-init

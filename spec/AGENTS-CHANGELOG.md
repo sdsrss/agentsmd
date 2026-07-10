@@ -2,6 +2,17 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v2.17.0 (2026-07-10) — audit remediation
+
+Core keeps safety, authorization, evidence and execution gates while expanded
+procedures move to extended; the drift ceiling is now 16 KiB. Language follows
+the current user and existing document, repository-memory writes require an
+existing memory surface or an explicit request, SQL data mutation is separated
+from destructive schema operations, and skill routing gains compact descriptions
+plus positive/near-negative fixtures. Hook governance now uses rule-specific
+eligible/evaluated opportunities. `spec_version` → v2.17.0. Sizing: core 24,749 → 16,301 B
+(-8,448 B, -34.1%); extended 9,470 → 13,084 B (+3,614 B, triggered only).
+
 ## v2.16.0 (2026-07-07) — git-evasion + atomicity + rotation fixes; new gates (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep with a

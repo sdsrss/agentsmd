@@ -1,6 +1,6 @@
 ---
 name: agentsmd-restore
-description: Roll agentsmd's 3 shared Codex files (hooks.json / config.toml / AGENTS.md) back to a pre-install snapshot. Use when an install or update produced a wrong merge (a tenant's hooks vanished, config.toml looks off, AGENTS.md is malformed) and you want the exact prior bytes back. Each install auto-snapshots these files first (rotated, keep 5). Dry-run by default; --confirm writes. To remove only agentsmd's own entries instead, use uninstall (marker-scoped).
+description: Restore hooks.json, config.toml, and AGENTS.md from an agentsmd pre-install snapshot. Use after a bad install/update merge. Not for ordinary uninstall; dry-run unless confirmed.
 ---
 
 # agentsmd-restore

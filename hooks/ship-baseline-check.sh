@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# ship-baseline-check.sh — PreToolUse:Bash. Enforces spec §E3 ship-checklist
-# item 2: a `git push` to a shared branch requires the base-branch CI to be
-# green. If the latest CI run on the target branch concluded red, block the push
-# (spec/AGENTS.md §E3-ship-baseline). Bypass: [allow-red-ship] (records a
-# known-red baseline; the pusher takes responsibility).
+# ship-baseline-check.sh — PreToolUse:Bash. Observes the latest GitHub run for a
+# shared target branch and blocks only a conclusively known-red baseline. Full,
+# local, and fresh validation remain the pusher's §E3 checklist responsibility.
+# Bypass: [allow-red-ship] records acceptance of the known-red baseline.
 #
 # Branch resolution: prefer the branch named in the push command
 # (`git push <remote> <branch>`), else the current branch via git rev-parse.
@@ -26,6 +25,7 @@ source "$LIB_DIR/platform.sh" 2>/dev/null || true
 HOOK="ship-baseline"
 hook_kill_switch "SHIP_BASELINE" || exit 0
 hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
+command -v node >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "node-missing"; exit 0; }
 
 EVENT="$(hook_read_event)" || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
 [[ -n "$EVENT" ]] || { hook_record_failopen "$HOOK" "bad-event"; exit 0; }
@@ -35,53 +35,90 @@ CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 SID="$(hook_json_field "$EVENT" '.session_id')"
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-# Only inspect git push (consume git global options so `git -C <dir> push` is
-# gated the same as the bare form).
-hook_cmd_invokes_git 'push' "$CMD" || exit 0
-[[ "$CMD" == *"[allow-red-ship]"* ]] && { hook_record "$HOOK" "bypass" '{"token":"allow-red-ship"}' '§E3-ship-baseline' "$SID"; exit 0; }
-command -v gh >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "gh-missing"; exit 0; }
+INVOCATIONS="$(hook_git_invocations_json 'push' "$CMD")"
+[[ -n "$INVOCATIONS" && "$INVOCATIONS" != "[]" ]] || exit 0
 
-# Resolve the target branch: `git push <remote> <branch>` wins, else HEAD.
-# Strip push options whose values are separate argv tokens before the lightweight
-# parse, otherwise the option value is mistaken for the remote.
-PARSE_CMD="$(printf '%s' "$CMD" | sed -E 's/[[:space:]]--push-option[[:space:]]+[^[:space:]]+//g; s/[[:space:]]-o[[:space:]]+[^[:space:]]+//g')"
-# Consume git global options (HOOK_GIT_GLOBAL_OPTS) before `push` so a
-# `git -C <dir> push origin main` still yields `main`, not the -C value.
-BRANCH="$(printf '%s' "$PARSE_CMD" | grep -oiE "git${HOOK_GIT_GLOBAL_OPTS}[[:space:]]+push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]-][^[:space:]]*" | awk '{print $NF}' | head -1)"
-if [[ -z "$BRANCH" ]]; then
-  BRANCH="$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-fi
-# A `src:dst` refspec pushes to dst — gate on the destination branch.
-[[ "$BRANCH" == *:* ]] && BRANCH="${BRANCH##*:}"
-# Full refnames are common in scripted pushes (`HEAD:refs/heads/main`); normalize
-# them before shared-branch matching so they cannot bypass the ship gate.
-[[ "$BRANCH" == refs/heads/* ]] && BRANCH="${BRANCH#refs/heads/}"
-[[ -n "$BRANCH" && "$BRANCH" != "HEAD" ]] || exit 0
+ship_unevaluated() {
+  local branch="$1" reason="$2"
+  hook_observe "$HOOK" '§E3-ship-baseline' "$SID" true false \
+    "$(jq -cn --arg b "$branch" --arg r "$reason" '{branch:$b,reason:$r}' 2>/dev/null || echo null)"
+}
 
-# Only gate shared branches. Cover the common release/prod naming shapes: bare,
-# slash-scoped (release/1.2), AND dash-suffixed (release-1.2, prod-east) — the
-# last was previously unmatched, so a red-CI push to `release-1.2` slipped through.
-case "$BRANCH" in
-  main|master|develop|dev|release|release/*|release-*|releases/*|prod|prod/*|prod-*|production) : ;;
-  *) exit 0 ;;
-esac
+check_push_invocation() {
+  local invocation="$1" branch repo_arg run_json conclusion status headsha created shortsha
+  local -a git_repo=(-C "$CWD") branches=()
+  while IFS= read -r repo_arg; do
+    [[ -n "$repo_arg" ]] && git_repo+=("$repo_arg")
+  done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
+  while IFS= read -r branch; do
+    [[ -n "$branch" ]] && branches+=("$branch")
+  done < <(printf '%s' "$invocation" | jq -r '
+    .args as $a
+    | reduce range(0; $a|length) as $i
+        ({skip:false, positional:[]};
+         if .skip then .skip=false
+         elif ($a[$i] == "--push-option" or $a[$i] == "-o" or $a[$i] == "--repo"
+               or $a[$i] == "--receive-pack" or $a[$i] == "--exec") then .skip=true
+         elif ($a[$i] | startswith("-")) then .
+         else .positional += [$a[$i]] end)
+    | .positional[1:][]' 2>/dev/null)
+  if (( ${#branches[@]} == 0 )); then
+    branch="$(git "${git_repo[@]}" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    [[ -n "$branch" ]] && branches+=("$branch")
+  fi
 
-# Query the latest CI run conclusion on that branch (bounded).
-RUN_JSON="$(platform_timeout 5 gh run list --branch "$BRANCH" --limit 1 --json conclusion,status,headSha,createdAt 2>/dev/null)" || RUN_JSON=""
-[[ -n "$RUN_JSON" ]] || { hook_record_failopen "$HOOK" "gh-noreply"; exit 0; }
-CONCLUSION="$(printf '%s' "$RUN_JSON" | jq -r '.[0].conclusion // empty' 2>/dev/null)"
-STATUS="$(printf '%s' "$RUN_JSON" | jq -r '.[0].status // empty' 2>/dev/null)"
-HEADSHA="$(printf '%s' "$RUN_JSON" | jq -r '.[0].headSha // empty' 2>/dev/null)"
-CREATED="$(printf '%s' "$RUN_JSON" | jq -r '.[0].createdAt // empty' 2>/dev/null)"
-[[ -n "$CONCLUSION" || -n "$STATUS" ]] || exit 0   # no runs → nothing to gate
-SHORTSHA="${HEADSHA:0:12}"
+  for branch in "${branches[@]}"; do
+    branch="${branch#+}"
+    [[ "$branch" == *:* ]] && branch="${branch##*:}"
+    [[ "$branch" == refs/heads/* ]] && branch="${branch#refs/heads/}"
+    [[ -n "$branch" && "$branch" != "HEAD" ]] || continue
+    case "$branch" in
+      main|master|develop|dev|release|release/*|release-*|releases/*|prod|prod/*|prod-*|production) : ;;
+      *) continue ;;
+    esac
 
-case "$CONCLUSION" in
-  failure|cancelled|timed_out|startup_failure|action_required)
-    hook_record "$HOOK" "block" "$(jq -cn --arg b "$BRANCH" --arg c "$CONCLUSION" --arg s "$HEADSHA" --arg t "$CREATED" '{branch:$b,conclusion:$c,head_sha:$s,created_at:$t}')" '§E3-ship-baseline' "$SID"
-    hook_block \
-      "Blocked: pushing to '${BRANCH}' whose latest CI run concluded '${CONCLUSION}' ( spec §E3 ship-checklist item 2 )." \
-      "§E3 (ship gate): base-branch CI on '${BRANCH}' is red (latest run: ${CONCLUSION}${SHORTSHA:+, commit ${SHORTSHA}}${CREATED:+, ${CREATED}}). Options per spec: (a) fix the failure first, (b) record a known-red baseline in the commit body and append [allow-red-ship] to proceed, or (c) hold the push. Pushing onto a red baseline hides which change broke it. If that run predates the branch's current tip, the red may be stale — re-run CI to confirm." \
-      "PreToolUse" ;;
-  *) exit 0 ;;   # success / neutral / skipped / in-progress → allow
-esac
+    if [[ "$CMD" == *"[allow-red-ship]"* ]]; then
+      ship_unevaluated "$branch" "bypass"
+      hook_record "$HOOK" "bypass" '{"token":"allow-red-ship"}' '§E3-ship-baseline' "$SID"
+      continue
+    fi
+    if ! command -v gh >/dev/null 2>&1; then
+      ship_unevaluated "$branch" "gh-missing"
+      hook_record_failopen "$HOOK" "gh-missing"
+      continue
+    fi
+
+    run_json="$(platform_timeout 5 gh run list --branch "$branch" --limit 1 --json conclusion,status,headSha,createdAt 2>/dev/null)" || run_json=""
+    if [[ -z "$run_json" ]]; then
+      ship_unevaluated "$branch" "gh-noreply"
+      hook_record_failopen "$HOOK" "gh-noreply"
+      continue
+    fi
+    if ! printf '%s' "$run_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      ship_unevaluated "$branch" "gh-invalid-json"
+      hook_record_failopen "$HOOK" "gh-invalid-json"
+      continue
+    fi
+    conclusion="$(printf '%s' "$run_json" | jq -r '.[0].conclusion // empty' 2>/dev/null)"
+    status="$(printf '%s' "$run_json" | jq -r '.[0].status // empty' 2>/dev/null)"
+    headsha="$(printf '%s' "$run_json" | jq -r '.[0].headSha // empty' 2>/dev/null)"
+    created="$(printf '%s' "$run_json" | jq -r '.[0].createdAt // empty' 2>/dev/null)"
+    hook_observe "$HOOK" '§E3-ship-baseline' "$SID" true true \
+      "$(jq -cn --arg b "$branch" --arg c "$conclusion" --arg s "$status" '{branch:$b,conclusion:$c,status:$s,stage:"run-parsed"}' 2>/dev/null || echo null)"
+    [[ -n "$conclusion" || -n "$status" ]] || continue
+    shortsha="${headsha:0:12}"
+
+    case "$conclusion" in
+      failure|cancelled|timed_out|startup_failure|action_required)
+        hook_record "$HOOK" "block" "$(jq -cn --arg b "$branch" --arg c "$conclusion" --arg s "$headsha" --arg t "$created" '{branch:$b,conclusion:$c,head_sha:$s,created_at:$t}')" '§E3-ship-baseline' "$SID"
+        hook_block \
+          "Blocked: pushing to '${branch}' whose latest observable CI run concluded '${conclusion}' ( spec §E3 known-red branch observer )." \
+          "§E3 known-red observer: '${branch}' latest run is ${conclusion}${shortsha:+, commit ${shortsha}}${created:+, ${created}}. Fix or re-run CI, hold the push, or append [allow-red-ship] to accept this known-red baseline. This hook does not certify local/full/fresh validation." \
+          "PreToolUse" ;;
+    esac
+  done
+}
+
+while IFS= read -r INVOCATION; do
+  check_push_invocation "$INVOCATION"
+done < <(printf '%s' "$INVOCATIONS" | jq -c '.[]' 2>/dev/null)

@@ -1,14 +1,15 @@
 {
-  "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md (CODEX-CODING-SPEC). Mirrors claudemd/spec/hard-rules.json, adapted for Codex. Drives: (1) the hit-rate promote/demote governance (rules with 0 hits over a review window are always-on-layer dilution → demote to extended; high-hit rules justify core residence), (2) the Phase-1+ hook build (codex_hook_event names the event a hook attaches to), (3) the CI drift test (scripts/tests/drift.test.js) asserting each section_anchor still exists verbatim in the named spec file. Maintenance: when the spec adds/removes a HARD rule, update this manifest in the SAME edit. enforcement values: self (agent-enforced, no mechanical check) | hook (Codex native hook enforces) | external (offline codex-exec audit / operator) | both. last_demote_review is null until agentsmd has deployed telemetry (pre-deployment: no field data exists yet).",
-  "spec_version": "v2.16.0",
+  "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both.",
+  "spec_version": "v2.17.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
   },
-  "codex_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
+  "supported_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
+  "registered_hook_events": ["SessionStart", "PreToolUse", "UserPromptSubmit", "Stop"],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
-  "_live_sections_doc": "spec_section values currently EMITTED by a built+registered hook. scripts/rules.js only treats a hook-enforced rule as a demote-candidate when its section is live (0 hits on a live section = dilution); a hook-enforced rule whose section is NOT live is 'hook-planned' (its hook is not built yet, so 0 hits is expected, not dilution). Update this array in the same commit a hook starts/stops emitting a section.",
-  "_demote_policy_doc": "Optional per-rule governance policy (scripts/rules.js). Absent/'standard' = a live 0-hit rule with sufficient exposure is a core→extended demote-candidate. 'deterrence' = a rule whose 0 hits mean the hazard/violation never arose (the discipline is working), NOT dilution — never flagged for demotion. Applies to immutable §8 SAFETY hooks AND to foundational core self-discipline observers (Iron Law #2, §10 Honesty) that stay core on principle regardless of hit count; §7 session-hygiene observers (session-exit, memory-hygiene) stay 'standard' because they are genuinely demotable elaborations. Scope also matters independently: a hook rule already scoped 'extended' with 0 hits is 'hook-value-review' (nowhere to demote to), not 'demote-candidate'.",
+  "_live_sections_doc": "spec_section values emitted or observed by a built and registered hook. A live section with zero rule-specific eligible/evaluated opportunities is no-opportunity, not a demotion signal. Update this array when a hook starts or stops emitting/observing a section.",
+  "_demote_policy_doc": "Optional per-rule governance policy used by scripts/rules.js. A standard live core rule becomes a demotion candidate only after the minimum distinct eligible and evaluated sessions with zero enforcement outcomes. deterrence rules are never demoted from telemetry alone. Extended rules have no lower prompt tier and receive hook-value-review instead. Every signal remains operator input, not an automatic edit.",
   "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene", "§6-iron-law-2", "§10-honesty"],
   "rules": [
     {
@@ -37,7 +38,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Includes unpinned npx / curl|bash detection; §5 hard also lists it."
+      "note": "Covers remote downloads executed by an interpreter. Unpinned npx is a separate non-safety advisory and never contributes to this immutable rule's telemetry."
     },
     {
       "id": "§8-secrets",
@@ -55,16 +56,16 @@
     },
     {
       "id": "§8-sql-no-where",
-      "name": "No DELETE/UPDATE/DROP without WHERE (immutable)",
+      "name": "No unbounded DELETE/UPDATE; destructive schema/data operations require a rollback plan",
       "scope": "core",
-      "section_anchor": "`DELETE`/`UPDATE`/`DROP` without WHERE",
+      "section_anchor": "unbounded `DELETE`/`UPDATE` without a predicate",
       "enforcement": "self",
       "codex_hook_event": null,
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Reliable mechanical detection across SQL dialects/ORMs is infeasible at the bash-hook layer; self-enforced (claudemd also leaves this self)."
+      "note": "DELETE/UPDATE require a bounded predicate and remain prohibited even with authorization. DROP/TRUNCATE use the separate hard-AUTH + reviewed backup/rollback rule because those statements have no WHERE clause."
     },
     {
       "id": "§8-home-traversal",
@@ -222,16 +223,16 @@
     },
     {
       "id": "§E3-ship-baseline",
-      "name": "Ship-baseline: full validation green + fresh before push",
+      "name": "Known-red remote branch observer before push",
       "scope": "extended",
-      "section_anchor": "Full validation green and FRESH",
+      "section_anchor": "known-red branch observer",
       "enforcement": "hook",
       "codex_hook_event": "PreToolUse:Bash",
       "rule_hits_section": "§E3-ship-baseline",
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "§E3 ship-checklist item 2 (the specific green+fresh gate); hook fires on git push to a shared branch. Distinct from §E3-ship-checklist (the full gate order)."
+      "note": "Hook blocks a shared-branch push only when the latest observable GitHub run is conclusively red. Full/local/fresh validation remains self-enforced by §E3-ship-checklist."
     },
     {
       "id": "§10-four-section-order",
@@ -384,7 +385,7 @@
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": null,
-      "note": "The full 8-item gate order is agent-walked (self). Only item 2 (base-branch CI green+fresh) is hook-enforced — that is the sibling §E3-ship-baseline rule, which owns the §E3-ship-baseline telemetry section. Previously mislabeled enforcement 'both' / rule_hits_section '§7-ship-baseline' (an orphan no hook emits), which made rules.js perpetually flag it 'hook-planned'."
+      "note": "The full 8-item gate order, including local/full/fresh validation, is agent-walked. The sibling §E3-ship-baseline hook is only a known-red remote observer and owns its telemetry section."
     },
     {
       "id": "§E4-evidence-ladder",

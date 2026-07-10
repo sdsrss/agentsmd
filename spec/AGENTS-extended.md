@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v2.16.0 — Extended
+# CODEX-CODING-SPEC v2.17.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -26,7 +26,7 @@ Mode ambiguity (weak trigger) → ASK once before entering; strong explicit trig
 Gate order — a red item stops the pipeline until fixed, waived by user, or `[BLOCKED]`:
 
 1. Working tree clean, or every dirty file accounted for in REPORT.
-2. Full validation green and FRESH (post-last-change run; targeted-only runs do not satisfy ship).
+2. Full validation green and FRESH (post-last-change run; targeted-only runs do not satisfy ship). The hook is only a **known-red branch observer**; it cannot prove local completeness, freshness, or a missing/in-progress remote run.
 3. CHANGELOG entry matches the actual Δ — `fix:` restores intended behavior, `feat:` additive, `change:` alters defaults/contract; mislabeling a `change:` as `fix:` violates core §10 honesty.
 4. Version bump consistent with Δ-contract (breaking → major, additive → minor, fix → patch).
 5. Secrets scan on the outgoing diff (grep for key/token/password patterns) — hit → core §8 procedure.
@@ -68,6 +68,39 @@ Core §7's Session-exit rule covers the SESSION ending mid-cycle; this covers yi
 - **Not a turn boundary**: `<system-reminder>` / hook `additionalContext` injections · mid-turn tool results · PostToolUse flushes · a single Edit that "feels done". Running one tool call then stopping with planned steps unrun is a silent yield.
 - **Legitimate yields only**: `[AUTH REQUIRED]` (core §5 hard) · direction genuinely ambiguous (ASK) · context-pressure → paused-task file (core §7). Everything else → finish the cycle.
 - **The evasion**: a silent mid-cycle yield followed by a next-turn "done" claim asserts completion for steps that never ran = Iron Law #2 (no done without fresh evidence), not a reporting nicety. Tell — the next user message is `继续 / next / 怎么停了 / why did you stop`: a prior silent yield is confirmed; re-run VALIDATE before any "done".
+
+## §E9 REASONING & ROUTING DETAIL
+
+- Debug with a hypothesis ladder: list at least two plausible causes, rank them, verify the cheapest discriminator, then patch. After two failed fixes, restart the analysis; §E5 handles the third failure.
+- Checkpoint significant phases as done / verified / remaining. When codebase patterns conflict, follow the newer or better-tested one and name the other as debt.
+- Route exact symbols to `rg`; unfamiliar modules to entry/exports then the import tree; versioned APIs to local source/lockfile then primary docs; prior decisions to the matching `MEMORY.md`; external systems to an existing MCP tool.
+- Skills use progressive disclosure: select the narrowest description match, read its full `SKILL.md`, and load only referenced material needed for the step. Custom prompts are not a substitute for skills. L3/ship/destructive work records the selected skill or why none applies.
+- Optional workflow plugins accelerate these procedures but never relax AUTH, SAFETY, or the Iron Laws.
+
+## §E10 MEMORY DETAIL
+
+- Treat native/per-user memories and `memory/project_*`/`reference_*` as inferred context; current files win. `memory/feedback_*` records explicit user corrections.
+- In opted-in repositories, keep `MEMORY.md` as a one-line-per-entry index and start each `memory/*.md` with `verified: <date> | source: <source>`. Archive stale, unverifiable entries instead of silently trusting them.
+- Use `tasks/<slug>.md` for multi-phase execution state: goal, plan, done, verified, remaining, and exact next command. It is machine-local, not durable memory.
+- Batch durable archival at REPORT. Skip git-log-recoverable facts, code invariants, session-only details, and clean root-cause fixes. Without repository opt-in, put the lesson in the final report rather than creating committed memory files.
+
+## §E11 FILE DETAIL
+
+- Source follows project conventions; throwaway experiments use gitignored `tmp/`; durable helpers use `scripts/`; committed fixtures live beside tests. Do not create root scratch files.
+- Use intention-revealing kebab-case names. Touch only required files, preserve dirty user work, and fix errors introduced by the task without drive-by cleanup.
+- Contract changes update their README/changelog line in the same task. At exit, every changed/untracked file is a declared deliverable or task-owned residue that was removed.
+
+## §E12 REPORT DETAIL
+
+- L0 reports one result plus its check. L1 can use `Done: <result> (<evidence>)` when nothing failed or remains uncertain. L2/L3 use the four-section order only for non-empty sections; an all-clean L3 report adds one combined `Not done / Failed / Uncertain: none` line.
+- Evidence names the command, observation, and conclusion. Value claims require an absolute result or a ratio with baseline. A fix claim includes the prior failing behavior in the same sentence.
+- `Uncertain` states `uncertain because <reason>` and the exact resolving command. Do not downgrade incomplete work with evaluative adjectives.
+
+## §E13 AUTOMATION DETAIL
+
+- Compress a single run-test/format/typecheck request into CLASSIFY → EXECUTE → REPORT; merge same-type L0/L1 batches.
+- Unattended runs use scoped workspace permissions and capture the last report. A hard AUTH gate exits blocked; urgency and sandbox settings never self-authorize it.
+- Strictness applies to safety, authorization, evidence, and data-loss ambiguity. It does not add unrelated features, files, tools, or ceremony.
 
 ## Changelog
 
