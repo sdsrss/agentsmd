@@ -31,19 +31,19 @@ Fifteen native hooks across four Codex events (SessionStart, PreToolUse, UserPro
 
 | Hook | Event | Enforces |
 |---|---|---|
-| `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY — blocks `rm -rf $VAR`, `curl \| bash`; warns on unpinned `npx` |
+| `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY — blocks unsafe variable deletes and same/cross-tool execution of remote downloads, including relative and nested-shell provenance; warns on unpinned `npx` |
 | `banned-vocab-check` | PreToolUse:Bash | §10 — blocks unquantified value claims in `git commit` messages |
 | `ship-baseline-check` | PreToolUse:Bash | §E3 — blocks `git push` to a shared branch while its CI is red |
-| `memory-read-check` | PreToolUse:Bash | §7 — blocks a ship when a project `MEMORY.md` was not consulted |
-| `secrets-scan` | PreToolUse:Bash | §8 — blocks a `git commit` whose staged diff adds a high-confidence secret |
+| `memory-read-check` | PreToolUse:Bash | §7 — blocks a ship without a successful `read_file` or explicit read command for the project memory index + a linked memory |
+| `secrets-scan` | PreToolUse:Bash | §8 — blocks commits adding secret content or high-confidence `.env`/private-key filenames |
 | `session-start-check` | SessionStart | injects the active-spec banner; resets the advisory queue |
 | `surface-advisories` | UserPromptSubmit | surfaces advisories the Stop hooks queued last turn |
 | `memory-prompt-hint` | UserPromptSubmit | surfaces `MEMORY.md` entries matching the prompt |
 | `residue-audit` | Stop | §7/§9 — flags `~/.codex/tmp` growth |
-| `sandbox-disposal-check` | Stop | §8.V4 — flags undisposed scratch dirs |
-| `transcript-structure-scan` | Stop | §10/§6 — checks report order, vocabulary, fix-evidence anchors, and Uncertain phrasing |
+| `sandbox-disposal-check` | Stop | §8.V4 — flags likely task scratch, excludes Codex runtime paths, and requires ownership verification before deletion |
+| `transcript-structure-scan` | Stop | §10/§6 — checks report-label completeness/order, vocabulary, fix-evidence anchors, and Uncertain phrasing |
 | `convention-cite-scan` | Stop | tracks `@conv-*` project-convention citations for `analyze --adoption` |
-| `session-exit-checkpoint` | Stop | §7 — flags edits left unvalidated at session exit (surfaced next SessionStart) |
+| `session-exit-checkpoint` | Stop | §7 — tracks patch/formatter mutations and flags bytes left without test/lint/typecheck/build evidence |
 | `mem-audit` | Stop | §7 — flags `MEMORY.md` index/file drift + missing verified headers |
 | `session-summary` | Stop | records the session's enforcement tally (surfaced next SessionStart) |
 

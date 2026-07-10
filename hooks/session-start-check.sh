@@ -34,7 +34,9 @@ SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
 if [[ "$SS_SOURCE" != "resume" ]]; then
   rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
   rm -f "$(hook_advisory_file "$SID")" 2>/dev/null || true
+  rm -f "$STATE_DIR/remote-downloads-$SKEY.paths" 2>/dev/null || true
 fi
+find "$STATE_DIR" -maxdepth 1 -type f -name 'remote-downloads-*.paths' -mtime +7 -delete 2>/dev/null || true
 
 # Resolve spec version from the installed core spec, if present. The fallback is a
 # non-version placeholder on purpose: a hardcoded vX.Y.Z here silently goes stale
@@ -64,7 +66,7 @@ while IFS= read -r f; do
   rm -f "$f" 2>/dev/null || true
 done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'unvalidated-*.flag' -mtime +7 2>/dev/null)
 if [[ "$CP_FOUND" -gt 0 ]]; then
-  CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/commit ran after the last apply_patch). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
+  CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/typecheck/build ran after the last mutation). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
 
 # B2 cross-session self-awareness: among EXPIRED (>7-day) non-self summaries,

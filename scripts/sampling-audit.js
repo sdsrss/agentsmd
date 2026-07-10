@@ -52,14 +52,16 @@ function labelPos(text, label) {
   return m ? m.index : -1;
 }
 
-// Four-section order (Done → Not done → Failed → Uncertain). Only judged when it
-// is clearly a four-section report (Done present + ≥2 trailing markers), exactly
+// Four-section completeness/order (Done → Not done → Failed → Uncertain). Only
+// judged when it is clearly a four-section report (Done + ≥2 trailing markers),
+// exactly
 // like transcript-structure-scan.sh:74-87.
 function scanOrder(text) {
   const done = labelPos(text, 'Done');
   const parts = [labelPos(text, 'Not done'), labelPos(text, 'Failed'), labelPos(text, 'Uncertain')];
   const markers = parts.filter((p) => p >= 0).length;
   if (done < 0 || markers < 2) return false;
+  if (parts.some((p) => p < 0)) return true;
   let prev = done, bad = false;
   for (const p of parts) { if (p < 0) continue; if (p < prev) bad = true; prev = p; }
   return bad;

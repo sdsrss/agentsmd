@@ -2,9 +2,9 @@
 # memory-read-check.sh — PreToolUse:Bash. Enforces spec §7 "MEMORY.md
 # read-the-file (HARD at ship/destructive/L3)": before a ship-family command
 # (git push/merge, publish, deploy), if the project (or global) MEMORY.md exists
-# it MUST have been consulted this session. Detection scans non-user transcript
-# entries only: if MEMORY.md exists but no assistant/tool/system-side entry names
-# it, the file was not observably opened → block.
+# it MUST have been consulted this session. Detection requires a successful
+# read_file call or an explicit read command paired with successful tool output;
+# assistant prose and path-only commands are not read evidence.
 # Bypass: [allow-unread-memory]. Fail-open when no MEMORY.md / no transcript.
 
 set -uo pipefail
@@ -100,6 +100,7 @@ if [[ -z "$TRANSCRIPT" || ! -r "$TRANSCRIPT" ]]; then
 fi
 CONSULTED_JSON="$(node -e '
 const fs = require("fs");
+const path = require("path");
 const CAP = 1 << 19; // 512 KiB tail — bound the read on long sessions (mirror of the Stop hooks); an unbounded readFileSync here degraded the ship gate to a timeout no-op on the longest sessions.
 let lines;
 try {
@@ -113,14 +114,42 @@ try {
   } finally { fs.closeSync(fd); }
   lines = buf.toString("utf8").split(/\r?\n/).filter(Boolean);
 } catch { process.exit(2); }
-const eligible = [];
+const calls = new Map();
+const outputs = new Map();
+const parseValue = (value) => {
+  if (!value || typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return value; }
+};
+const outputFailed = (value) => {
+  value = parseValue(value);
+  if (value && typeof value === "object") {
+    for (const key of ["exit_code", "exitCode"]) {
+      if (Number.isFinite(Number(value[key])) && Number(value[key]) !== 0) return true;
+    }
+    return Object.values(value).some(outputFailed);
+  }
+  return typeof value === "string" && /(?:\b(?:Process\s+)?exited\s+(?:with\s+code\s+)?[1-9][0-9]*\b|\bexit[_ ]?code\s*[:=]?\s*[1-9][0-9]*\b|No such file or directory|Script failed|tool_error)/i.test(value);
+};
 for (const line of lines) {
   let o;
   try { o = JSON.parse(line); } catch { continue; }
   const p = o && o.payload != null ? o.payload : o;
-  const role = p && (p.role || p.author);
-  if (role === "user") continue;
-  eligible.push(line);
+  if (!p || typeof p !== "object") continue;
+  const type = p.type || o.type;
+  const callId = p.call_id || p.id;
+  if ((type === "function_call" || type === "custom_tool_call") && callId) {
+    const name = p.name || "";
+    if (["exec_command", "exec", "read_file"].includes(name)) {
+      calls.set(callId, { name, arguments: parseValue(p.arguments != null ? p.arguments : p.input) });
+    }
+    continue;
+  }
+  if ((type === "function_call_output" || type === "custom_tool_call_output") && callId) {
+    const out = p.output != null ? p.output : p.content;
+    if (out != null && JSON.stringify(out).length > 2 && !outputFailed(out)) {
+      outputs.set(callId, out);
+    }
+  }
 }
 const consulted = process.argv.slice(2).filter((memory) => {
   // macOS exposes the same temp path as both /var/... and /private/var/....
@@ -130,14 +159,43 @@ const consulted = process.argv.slice(2).filter((memory) => {
   const normalize = (value) => value
     .replace(/\/private\/var\//g, "/var/")
     .replace(/\/{2,}/g, "/");
-  const candidate = normalize(memory);
-  const slash = Math.max(candidate.lastIndexOf("/"), candidate.lastIndexOf("\\"));
-  const dir = slash >= 0 ? candidate.slice(0, slash) : "";
-  return eligible.some((line) => {
-    const normalizedLine = normalize(line);
-    return normalizedLine.includes(candidate)
-      || (dir && normalizedLine.includes(dir) && normalizedLine.includes("MEMORY.md"));
-  });
+  const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pathMentioned = (source, target) => new RegExp(`(^|[\\s\"\x27=])${escapeRe(normalize(target))}($|[\\s\"\x27])`).test(normalize(source));
+  const commandReads = (source, target) => {
+    if (typeof source !== "string") return false;
+    return source.split(/\r?\n|;|&&|\|\||\|/).some((segment) => {
+      const reader = /^\s*(?:(?:command|sudo)\s+)*(?:env(?:\s+(?:-[^\s]+|[A-Za-z_]\w*=[^\s]+))*\s+)?(?:[A-Za-z_]\w*=[^\s]+\s+)*(?:\/[^\s]+\/)?(?:cat|sed|head|tail|awk|rg|grep|bat|less|more|perl)\b/.test(segment);
+      return reader && pathMentioned(segment, target);
+    });
+  };
+  const exactPathField = (value, target) => {
+    if (!value || typeof value !== "object") return false;
+    return [value.path, value.file_path].some((v) => typeof v === "string" && normalize(v) === normalize(target));
+  };
+  const commandFields = (value) => {
+    if (typeof value === "string") return [value];
+    if (!value || typeof value !== "object") return [];
+    return [value.cmd, value.command, value.source].filter((v) => typeof v === "string");
+  };
+  const wasRead = (target) => {
+    for (const [callId, call] of calls) {
+      if (!outputs.has(callId)) continue;
+      if (call.name === "read_file" && exactPathField(call.arguments, target)) return true;
+      if ((call.name === "exec_command" || call.name === "exec")
+          && commandFields(call.arguments).some((source) => commandReads(source, target))) return true;
+    }
+    return false;
+  };
+  if (!wasRead(memory)) return false;
+  let body;
+  try { body = fs.readFileSync(memory, "utf8"); } catch { return false; }
+  const links = [];
+  for (const match of body.matchAll(/\]\(([^)]+)\)/g)) {
+    const target = match[1].trim();
+    if (!target || target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+    links.push(path.resolve(path.dirname(memory), target));
+  }
+  return links.length === 0 || links.some(wasRead);
 });
 process.stdout.write(JSON.stringify(consulted));
 process.exit(consulted.length === process.argv.length - 2 ? 0 : 1);

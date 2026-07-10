@@ -71,6 +71,19 @@ t('documented bypass tokens are backed by a code guard', () => {
   assert.ok(R.bypassChecks.length >= 5, 'expected several bypass tokens, got ' + R.bypassChecks.length);
 });
 
+t('hook libraries participate in section-emission coverage', () => {
+  assert.ok(R.emissions.some((e) => e.hook.endsWith('hooks/lib/hook-common.sh') && e.section === '§hooks-fail-open'),
+    'hook-common §hooks-fail-open emission was not scanned');
+});
+
+t('--json CLI writes one complete parseable document to a piped stdout', () => {
+  const cli = path.join(ROOT, 'scripts', 'safety-coverage-audit.js');
+  const consumer = 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const o=JSON.parse(s);if(o.summary.gapCount!==0)process.exit(4);});';
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} --json | ${JSON.stringify(process.execPath)} -e ${JSON.stringify(consumer)}`;
+  const result = cp.spawnSync('bash', ['-o', 'pipefail', '-c', command], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  assert.strictEqual(result.status, 0, result.stderr);
+});
+
 t('--hook filter restricts the audit to a single hook', () => {
   const one = auditSafetyCoverage({ root: ROOT, hookFilter: 'pre-bash-safety-check.sh' });
   assert.strictEqual(one.summary.hooksAudited, 1);
@@ -116,7 +129,9 @@ t('auditSafetyCoverage surfaces gaps end-to-end on a synthetic broken tree', () 
     fs.mkdirSync(path.join(tmp, 'spec'));
     fs.writeFileSync(path.join(tmp, 'hooks', 'broken.sh'),
       ['#!/usr/bin/env bash',
-       '# broken.sh — foo resolves alpha -> betazoid via arrow: alpha → betazoid; bypass [allow-broken]',
+       '# broken.sh — foo resolves alpha -> betazoid via arrow: alpha → betazoid; bypass [allow-broken] and [allow-record-only]',
+       '[[ "$CMD" == *"[allow-code-only]"* ]] && exit 0',
+       'hook_record "$HOOK" "bypass" "[allow-record-only]"',
        'hook_record "$HOOK" "block" "{}" \'§99-orphan\' "$SID"',
        'echo alpha'].join('\n'));
     fs.writeFileSync(path.join(tmp, 'spec', 'hard-rules.json'), JSON.stringify({
@@ -129,6 +144,8 @@ t('auditSafetyCoverage surfaces gaps end-to-end on a synthetic broken tree', () 
     assert.ok(br.summary.unimplementedRules.includes('§77'), 'expected §77 unimplemented: ' + JSON.stringify(br.summary.unimplementedRules));
     assert.ok(br.summary.orphanEmissions.some((o) => o.includes('§99-orphan')), 'expected §99 orphan: ' + JSON.stringify(br.summary.orphanEmissions));
     assert.ok(br.summary.bypassGaps.some((b) => b.includes('[allow-broken]')), 'expected [allow-broken] gap: ' + JSON.stringify(br.summary.bypassGaps));
+    assert.ok(br.summary.bypassGaps.some((b) => b.includes('[allow-record-only]')), 'telemetry-only token must not count as a guard: ' + JSON.stringify(br.summary.bypassGaps));
+    assert.ok(br.summary.bypassGaps.some((b) => b.includes('[allow-code-only]')), 'expected code-only bypass gap: ' + JSON.stringify(br.summary.bypassGaps));
     assert.ok(br.summary.partialCandidates >= 1, 'expected a partial-impl candidate');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true }); // §8.V4 sandbox disposal

@@ -4,8 +4,9 @@
 #   1. `rm -rf $VAR` — recursive+force delete targeting an unvalidated variable
 #      expansion (spec §8: "rm -rf $VAR without validating VAR"). Bypass token:
 #      [allow-rm-rf-var].
-#   2. `curl`/`wget` output executed by an interpreter through a pipeline,
-#      substitution, or downloaded file — unknown-origin remote script execution
+#   2. downloader output executed by an interpreter through a pipeline,
+#      substitution, downloaded file, or a later same-session tool call —
+#      unknown-origin remote script execution
 #      (spec §8: "execute unknown-origin scripts"). Bypass token: [allow-remote-exec].
 # Advises (non-blocking):
 #   3. Unpinned `npx <pkg>` dependency-hygiene advice. Bypass: [allow-npx-unpinned].
@@ -33,6 +34,7 @@ TOOL="$(hook_json_field "$EVENT" '.tool_name')"
 CMD="$(hook_json_field "$EVENT" '.tool_input.command')"
 [[ -n "$CMD" ]] || exit 0
 SID="$(hook_json_field "$EVENT" '.session_id')"
+CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
 # Fast-path: obviously read-only command → nothing to enforce.
 hook_is_readonly_bash "$CMD" && exit 0
@@ -52,8 +54,10 @@ printf '%s' "$SAFETY" | jq -e 'type == "object"' >/dev/null 2>&1 || {
 # ── 1. rm -rf $VAR (immutable §8) ───────────────────────────────────────────
 if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfCandidate // false')" == "true" ]]; then
   hook_observe "$HOOK" '§8-rm-rf-var' "$SID" true true '{"candidate":"rm-rf"}'
-  if [[ "$CMD" != *"[allow-rm-rf-var]"* ]] \
-    && [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]]; then
+  if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]] \
+    && [[ "$CMD" == *"[allow-rm-rf-var]"* ]]; then
+    hook_record "$HOOK" "bypass" '{"token":"allow-rm-rf-var"}' '§8-rm-rf-var' "$SID"
+  elif [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]]; then
     hook_record "$HOOK" "block" '{"pattern":"rm-rf-var"}' '§8-rm-rf-var' "$SID"
     hook_block \
       "Blocked: rm -rf on an unvalidated variable ( spec/AGENTS.md §8, immutable )." \
@@ -63,14 +67,48 @@ if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfCandidate // false')" == "true" ]];
 fi
 
 # ── 2. remote download executed by an interpreter (immutable §8) ────────────
-if [[ "$(printf '%s' "$SAFETY" | jq -r '.remoteExec // false')" == "true" ]]; then
-  hook_observe "$HOOK" '§8-unknown-script' "$SID" true true '{"candidate":"remote-exec"}'
-  if [[ "$CMD" != *"[allow-remote-exec]"* ]]; then
-    hook_record "$HOOK" "block" '{"pattern":"remote-exec"}' '§8-unknown-script' "$SID"
+REMOTE_EXEC="$(printf '%s' "$SAFETY" | jq -r '.remoteExec // false')"
+REMOTE_KIND="same-tool"
+SKEY="$(hook_session_key "$SID")"
+REMOTE_STATE="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state/remote-downloads-$SKEY.paths"
+if [[ "$SKEY" != "global" && -r "$REMOTE_STATE" ]]; then
+  while IFS= read -r remote_path; do
+    [[ -n "$remote_path" && -f "$remote_path" ]] || continue
+    if [[ "$(node "$LIB_DIR/command-parse.js" --executes-file "$CMD" "$remote_path" "$CWD" 2>/dev/null)" == "true" ]]; then
+      REMOTE_EXEC=true
+      REMOTE_KIND="cross-tool"
+      break
+    fi
+  done < "$REMOTE_STATE"
+fi
+
+if [[ "$REMOTE_EXEC" == "true" ]]; then
+  hook_observe "$HOOK" '§8-unknown-script' "$SID" true true \
+    "$(jq -cn --arg c "$REMOTE_KIND" '{candidate:"remote-exec",correlation:$c}' 2>/dev/null || echo null)"
+  if [[ "$CMD" == *"[allow-remote-exec]"* ]]; then
+    hook_record "$HOOK" "bypass" '{"token":"allow-remote-exec"}' '§8-unknown-script' "$SID"
+  else
+    hook_record "$HOOK" "block" "$(jq -cn --arg c "$REMOTE_KIND" '{pattern:"remote-exec",correlation:$c}' 2>/dev/null || echo null)" '§8-unknown-script' "$SID"
     hook_block \
       "Blocked: executing an uninspected remote download ( spec/AGENTS.md §8, immutable )." \
       "§8 SAFETY (immutable): 'execute unknown-origin scripts' is banned. Download to a file, inspect it, then run it — or append [allow-remote-exec] if the source is trusted and pinned. Command: ${CMD}" \
       "PreToolUse"
+  fi
+fi
+
+# Remember statically-resolved download destinations for this session. The next
+# PreToolUse only treats them as provenance when the file actually exists and
+# the new command executes that exact path. State is bounded and session-scoped.
+if [[ "$SKEY" != "global" ]]; then
+  while IFS= read -r download_path; do
+    [[ -n "$download_path" ]] || continue
+    resolved="$(node -e 'const p=require("path");process.stdout.write(p.resolve(process.argv[1],process.argv[2]));' "$CWD" "$download_path" 2>/dev/null)"
+    [[ -n "$resolved" ]] || continue
+    mkdir -p "$(dirname "$REMOTE_STATE")" 2>/dev/null || continue
+    grep -Fxq -- "$resolved" "$REMOTE_STATE" 2>/dev/null || printf '%s\n' "$resolved" >> "$REMOTE_STATE" 2>/dev/null || true
+  done < <(printf '%s' "$SAFETY" | jq -r '.downloads[]?')
+  if [[ -r "$REMOTE_STATE" && "$(wc -l < "$REMOTE_STATE" 2>/dev/null || echo 0)" -gt 20 ]]; then
+    tail -n 20 "$REMOTE_STATE" > "$REMOTE_STATE.tmp" 2>/dev/null && mv -f "$REMOTE_STATE.tmp" "$REMOTE_STATE" 2>/dev/null
   fi
 fi
 

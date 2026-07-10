@@ -22,6 +22,29 @@ t('hard-rules: all section_anchors resolve in the spec', () => {
   assert.strictEqual(miss.length, 0, 'unresolved: ' + miss.map((r) => r.id).join(', '));
 });
 
+// Reverse direction: every explicit HARD/MUST line and every immutable Never
+// clause must be represented by at least one same-scope manifest anchor. This
+// prevents a new hard rule from landing in prose while the one-way anchor check
+// remains green.
+t('hard-rules: explicit HARD/MUST prose is represented in the manifest', () => {
+  const missing = [];
+  for (const [scope, text] of Object.entries(specFiles)) {
+    for (const line of text.split('\n').filter((l) => /\b(?:HARD|MUST)\b/.test(l))) {
+      const represented = hr.rules.some((r) => r.scope === scope && line.includes(r.section_anchor));
+      if (!represented) missing.push(`${scope}: ${line.trim()}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], 'ungoverned HARD/MUST lines:\n' + missing.join('\n'));
+});
+
+t('hard-rules: every immutable Never clause has a manifest anchor', () => {
+  const line = specFiles.core.split('\n').find((l) => l.startsWith('**Never**:')) || '';
+  const clauses = line.replace(/^\*\*Never\*\*:\s*/, '').replace(/\.$/, '').split(' · ').filter(Boolean);
+  const missing = clauses.filter((clause) => !hr.rules.some((r) => r.scope === 'core'
+    && (clause.includes(r.section_anchor) || r.section_anchor.includes(clause))));
+  assert.deepStrictEqual(missing, [], 'ungoverned Never clauses: ' + missing.join(' | '));
+});
+
 // 2. live_sections must reference sections that actually exist in the manifest.
 t('hard-rules: live_sections ⊆ manifest rule_hits_sections', () => {
   const known = new Set(hr.rules.map((r) => r.rule_hits_section).filter(Boolean));
@@ -141,7 +164,8 @@ t('spec: LEVEL is risk-based and AUTH is operation-based', () => {
 //     triggered layer merely to satisfy the byte gate.
 t('spec: foundational hard rules remain in core', () => {
   const ids = [
-    '§8-rm-rf-var', '§8-unknown-script', '§8-secrets', '§8-sql-no-where',
+    '§0-extended-load', '§8-rm-rf-var', '§8-unknown-script', '§8-secrets',
+    '§8-disable-ssl', '§8-env-key-commit', '§8-git-internals', '§8-sql-no-where',
     '§8-home-traversal', '§8-verify-before-claim', '§8.V4-sandbox-disposal',
     '§6-iron-law-1', '§6-iron-law-2', '§6-iron-law-3', '§6-bugfix-anchor',
     '§6-destructive-smoke', '§5-hard-auth', '§2-hard-upgrades',

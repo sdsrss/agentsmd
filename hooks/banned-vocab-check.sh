@@ -43,6 +43,7 @@ MSG="$(printf '%s' "$INVOCATIONS" | jq -r '.[].messages[]' 2>/dev/null)"
 [[ -n "$MSG" ]] || exit 0
 if [[ "$CMD" == *"[allow-vocab]"* ]]; then
   hook_observe "$HOOK" '§10-V' "$SID" true false '{"reason":"bypass"}'
+  hook_record "$HOOK" "bypass" '{"token":"allow-vocab"}' '§10-V' "$SID"
   exit 0
 fi
 

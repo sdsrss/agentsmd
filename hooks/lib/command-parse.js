@@ -4,6 +4,8 @@
 // Parse enough POSIX shell syntax to identify an actual Git command without
 // evaluating expansions. This is deliberately a lexer, not a shell executor.
 
+const path = require("path");
+
 const VALUE_GLOBALS = new Set([
   "-C",
   "-c",
@@ -32,7 +34,7 @@ const ENV_FLAGS = new Set(["-", "-i", "--ignore-environment", "-0", "--null", "-
 const ENV_VALUE_OPTIONS = new Set(["-u", "--unset"]);
 const SUDO_FLAGS = new Set(["-A", "--askpass", "-b", "--background", "-E", "--preserve-env", "-H", "--set-home", "-K", "--remove-timestamp", "-k", "--reset-timestamp", "-n", "--non-interactive", "-S", "--stdin", "-V", "--version", "-v", "--validate"]);
 const SUDO_VALUE_OPTIONS = new Set(["-C", "--close-from", "-D", "--chdir", "-g", "--group", "-h", "--host", "-p", "--prompt", "-R", "--chroot", "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-u", "--user"]);
-const DOWNLOADERS = new Set(["curl", "wget"]);
+const DOWNLOADERS = new Set(["curl", "wget", "fetch", "http", "https", "aria2c"]);
 const SHELL_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 const INTERPRETERS = new Set([
   "sh", "bash", "zsh", "dash", "ksh", "fish",
@@ -434,15 +436,23 @@ function downloaderOutput(command) {
   if (!DOWNLOADERS.has(name)) return "";
   const args = commandArgs.map((word) => word.value);
   let explicitOutput = null;
+  let outputDir = "";
   let curlRemoteName = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (name === "curl" && (arg === "-o" || arg === "--output")) explicitOutput = args[i + 1] || "";
     else if (name === "wget" && (arg === "-O" || arg === "--output-document")) explicitOutput = args[i + 1] || "";
+    else if ((name === "fetch" || name === "http" || name === "https") && (arg === "-o" || arg === "--output")) explicitOutput = args[i + 1] || "";
+    else if (name === "aria2c" && (arg === "-o" || arg === "--out")) explicitOutput = args[i + 1] || "";
+    else if (name === "aria2c" && (arg === "-d" || arg === "--dir")) outputDir = args[i + 1] || "";
     else if (name === "curl" && arg.startsWith("--output=")) explicitOutput = arg.slice("--output=".length);
     else if (name === "wget" && arg.startsWith("--output-document=")) explicitOutput = arg.slice("--output-document=".length);
+    else if ((name === "fetch" || name === "http" || name === "https") && arg.startsWith("--output=")) explicitOutput = arg.slice("--output=".length);
+    else if (name === "aria2c" && arg.startsWith("--out=")) explicitOutput = arg.slice("--out=".length);
+    else if (name === "aria2c" && arg.startsWith("--dir=")) outputDir = arg.slice("--dir=".length);
     if (name === "curl" && (arg === "-O" || arg === "--remote-name")) curlRemoteName = true;
-    const shortOption = name === "curl" ? "o" : "O";
+    if (name === "aria2c" && /^-d.+/.test(arg)) outputDir = arg.slice(2);
+    const shortOption = name === "wget" ? "O" : "o";
     if (/^-[^-]/.test(arg)) {
       if (name === "curl" && arg.slice(1).includes("O")) curlRemoteName = true;
       const optionIndex = arg.slice(1).indexOf(shortOption);
@@ -452,7 +462,12 @@ function downloaderOutput(command) {
       }
     }
   }
-  if (explicitOutput !== null && explicitOutput !== "-") return explicitOutput;
+  if (explicitOutput !== null && explicitOutput !== "-") {
+    if (name === "aria2c" && outputDir && !explicitOutput.startsWith("/")) {
+      return `${outputDir.replace(/\/$/, "")}/${explicitOutput}`;
+    }
+    return explicitOutput;
+  }
 
   // curl writes the response body to stdout unless an output/remote-name option
   // redirects it. wget does so only with an explicit stdout output document.
@@ -469,18 +484,22 @@ function downloaderOutput(command) {
   return "";
 }
 
-function interpreterReadsFile(command, file) {
-  const { name, args } = safetyExecutable(command);
-  if (!(name === "source" || name === ".") && !interpreterExecutesInput(command)) return false;
-  const normalized = file.replace(/^\.\//, "");
-  return args.some((word) => word.value.replace(/^\.\//, "") === normalized);
+function comparablePath(value, cwd) {
+  if (!cwd) return value.replace(/^\.\//, "");
+  return path.resolve(cwd, value);
 }
 
-function commandExecutesFile(command, file) {
+function interpreterReadsFile(command, file, cwd = "") {
+  const { name, args } = safetyExecutable(command);
+  if (!(name === "source" || name === ".") && !interpreterExecutesInput(command)) return false;
+  const normalized = comparablePath(file, cwd);
+  return args.some((word) => comparablePath(word.value, cwd) === normalized);
+}
+
+function commandExecutesFile(command, file, cwd = "") {
   const { index } = safetyExecutable(command);
   if (index < 0) return false;
   const executable = command.words[index]?.value || "";
-  const normalize = (value) => value.replace(/^\.\//, "");
   if (!executable.includes("/")) {
     // A bare name is normally ambiguous, but an explicit command-local PATH
     // component of `.` (or an empty component) deterministically searches the
@@ -489,9 +508,9 @@ function commandExecutesFile(command, file) {
       if (!word.value.startsWith("PATH=")) return false;
       return word.value.slice("PATH=".length).split(":").some((part) => part === "" || part === ".");
     });
-    return currentDirOnPath && executable === normalize(file);
+    return currentDirOnPath && comparablePath(executable, cwd) === comparablePath(file, cwd);
   }
-  return normalize(executable) === normalize(file);
+  return comparablePath(executable, cwd) === comparablePath(file, cwd);
 }
 
 function remoteExecState(commands, depth = 0) {
@@ -545,6 +564,21 @@ function remoteExecState(commands, depth = 0) {
   return false;
 }
 
+function sourceExecutesFile(source, file, cwd = "", depth = 0) {
+  const commands = lexSafetyCommands(source);
+  if (commands.some((command) => interpreterReadsFile(command, file, cwd) || commandExecutesFile(command, file, cwd))) return true;
+  if (depth >= MAX_SAFETY_RECURSION) return false;
+  return nestedShellSources(commands).some((nested) => sourceExecutesFile(nested, file, cwd, depth + 1));
+}
+
+function collectDownloads(source, depth = 0) {
+  const commands = lexSafetyCommands(source);
+  const downloads = commands.map(downloaderOutput).filter(Boolean);
+  if (depth >= MAX_SAFETY_RECURSION) return downloads;
+  for (const nested of nestedShellSources(commands)) downloads.push(...collectDownloads(nested, depth + 1));
+  return downloads;
+}
+
 function analyzeSafety(source) {
   const commands = lexSafetyCommands(source);
   const rm = rmRfStateRecursive(commands, 0);
@@ -552,6 +586,7 @@ function analyzeSafety(source) {
     rmRfCandidate: rm.candidate,
     rmRfVar: rm.variableTarget,
     remoteExec: remoteExecState(commands),
+    downloads: collectDownloads(source),
   };
 }
 
@@ -930,6 +965,10 @@ function collectGitMatches(source, wanted, depth = 0) {
 }
 
 function main() {
+  if (process.argv[2] === "--executes-file") {
+    process.stdout.write(JSON.stringify(sourceExecutesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
+    return;
+  }
   if (process.argv[2] === "--safety") {
     process.stdout.write(JSON.stringify(analyzeSafety(process.argv[3] || "")));
     return;

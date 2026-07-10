@@ -67,5 +67,5 @@ SUGGESTED_JSON="$(printf '%s' "$MATCHES" | grep -oE '\]\([^)]+\)' | sed -E 's/^\
 [[ -z "$SUGGESTED_JSON" ]] && SUGGESTED_JSON="[]"
 hook_record "$HOOK" "suggest" "$(jq -cn --argjson c "$COUNT" --argjson s "$SUGGESTED_JSON" '{count:$c, suggested:$s}' 2>/dev/null || echo null)" '§7-memory-read' "$SID"
 hook_context \
-  "[agentsmd §7] Prior memory may be relevant to this task — read before acting:"$'\n'"${MATCHES%$'\n'}" \
+  "[agentsmd §7] Prior memory may be relevant to this task — read before acting."$'\n'"Memory index: ${MEM} (resolve relative links from its directory)"$'\n'"${MATCHES%$'\n'}" \
   "UserPromptSubmit"

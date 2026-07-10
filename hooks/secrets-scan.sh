@@ -2,13 +2,15 @@
 # secrets-scan.sh — PreToolUse:Bash enforcement of spec/AGENTS.md §8 (immutable
 # SAFETY): "plaintext secrets in code/logs/commits". On a `git commit`, scans the
 # effective commit diff for high-confidence secret patterns in ADDED lines and
-# blocks the commit if any match. For `commit -a/--all`, a temporary index models
+# high-confidence secret filenames, then blocks the commit if any match. For
+# `commit -a/--all`, a temporary index models
 # Git's implicit tracked-file staging without touching the real index.
 #
 # Scope: `git commit` only (the effective diff is locally scannable). `git push`
 # secrets need the outgoing commit range and are left to the pusher's §8 review;
 # commit-time is the highest-value, lowest-false-positive gate.
 # Patterns live in hooks/secrets.patterns (prefix-anchored, low-FP by design).
+# Reviewed false-positive fixtures may use [allow-secret].
 # Fail-open: jq/git missing, not a repo, empty staged diff, unreadable stdin →
 # exit 0 (recorded via hook_record_failopen) so a broken hook never wedges commits.
 
@@ -54,7 +56,7 @@ trap cleanup_index EXIT
 
 scan_commit_invocation() {
   local invocation="$1" mode pathspec_from_file pathspec_file_nul unsupported
-  local index_tree head_tree diff added hit pat repo_arg tracked_path
+  local index_tree head_tree diff added hit pat repo_arg tracked_path changed_path base dangerous_path
   local -a git_repo=(-C "$CWD")
   local -a pathspecs=() pathspec_file_args=() tracked_paths=()
   while IFS= read -r repo_arg; do
@@ -134,9 +136,43 @@ scan_commit_invocation() {
     diff="$(git "${git_repo[@]}" diff --cached 2>/dev/null)" \
       || { secret_failopen "git-diff-failed"; return 0; }
   fi
+  dangerous_path=""
+  if [[ -n "$TEMP_INDEX" ]]; then
+    while IFS= read -r -d '' changed_path; do
+      base="${changed_path##*/}"
+      case "$base" in
+        .env) dangerous_path="$changed_path"; break ;;
+        .env.*)
+          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_path="$changed_path"; break ;; esac
+          ;;
+        id_rsa|id_dsa|id_ecdsa|id_ed25519|*.key|*.p12|*.pfx|*.jks|*.keystore)
+          dangerous_path="$changed_path"; break ;;
+      esac
+    done < <(GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
+  else
+    while IFS= read -r -d '' changed_path; do
+      base="${changed_path##*/}"
+      case "$base" in
+        .env) dangerous_path="$changed_path"; break ;;
+        .env.*)
+          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_path="$changed_path"; break ;; esac
+          ;;
+        id_rsa|id_dsa|id_ecdsa|id_ed25519|*.key|*.p12|*.pfx|*.jks|*.keystore)
+          dangerous_path="$changed_path"; break ;;
+      esac
+    done < <(git "${git_repo[@]}" diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
+  fi
   cleanup_index
   hook_observe "$HOOK" '§8-secrets' "$SID" true true '{"stage":"diff-complete"}'
   [[ -n "$diff" ]] || return 0
+
+  if [[ -n "$dangerous_path" ]]; then
+    hook_record "$HOOK" "block" "$(jq -cn --arg p "$dangerous_path" '{path:$p,detector:"filename"}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+    hook_block \
+      "Blocked: the effective commit includes a secret-bearing filename ( spec/AGENTS.md §8, immutable )." \
+      "§8 SAFETY (immutable): committing .env/private-key files is banned. Remove or unstage '${dangerous_path}', keep secrets outside Git, and ROTATE credentials if this file was ever pushed. Safe templates may use .env.example, .env.sample, or .env.template. Append [allow-secret] only for a reviewed false-positive fixture." \
+      "PreToolUse"
+  fi
 
   # Scan only ADDED lines (leading '+', excluding the '+++' file header) — a
   # secret already in the base tree is not something this commit introduces.

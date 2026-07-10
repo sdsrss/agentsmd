@@ -3,6 +3,39 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v3.2.1 — 2026-07-11 — user-acceptance remediation
+
+### Changed
+
+- `hard-rules.json` now governs 39 rules. Reverse drift gates require every
+  explicit HARD/MUST line and every §8 Never clause to have a manifest anchor;
+  operational telemetry sections are declared separately from normative rules.
+- Unknown-origin execution tracks resolved download destinations per session,
+  resolves later relative execution against the event cwd, covers nested-shell
+  downloads and compact output flags, and recognizes `fetch`, HTTPie, and
+  `aria2c` alongside `curl`/`wget`.
+- Memory ship evidence requires a successful `read_file` or explicit read
+  command/output pair for the index and a linked memory file. Path-only commands
+  and nonzero structured/text outputs do not count. Prompt hints name the
+  absolute index base.
+
+### Fixed
+
+- V4 no longer attributes Codex's bwrap mount-staging directory to the task,
+  and its advisory requires ownership verification before deletion.
+- Secret scanning blocks `.env` and high-confidence private-key filenames in
+  the effective commit while allowing `.env.example/.sample/.template`.
+- Four-section observers flag a missing required label once report intent is
+  established. Session checkpoints no longer count commit/push as validation,
+  recognize direct project test commands, and keep formatter-only `ruff`/`biome`
+  writes in the unvalidated state.
+- Safety-coverage JSON drains fully through pipes, scans hook libraries, checks
+  bypass documentation in both directions, distinguishes conditional guards
+  from telemetry/message strings, and accounts for bypass telemetry.
+
+Targeted evidence: sampling 21/21, drift 16/16, safety coverage 14/14, and hook
+smoke 234/234.
+
 ## v3.2.0 — 2026-07-11 — additive audit remediation, safety routing, and distribution integrity
 
 ### Added

@@ -45,6 +45,9 @@ t('scanOrder: correct Done→Not done→Failed→Uncertain order is clean', () =
 t('scanOrder: out-of-order four-section report is flagged', () => {
   assert.strictEqual(scanOrder('Not done: a\nDone: b\nFailed: c\nUncertain: d'), true);
 });
+t('scanOrder: a clearly structured report missing one required section is flagged', () => {
+  assert.strictEqual(scanOrder('Done: a\nNot done: b\nFailed: c'), true);
+});
 t('scanOrder: fewer than 2 trailing markers is not judged (not clearly a report)', () => {
   assert.strictEqual(scanOrder('Done: shipped the fix.'), false);
 });

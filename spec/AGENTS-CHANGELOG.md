@@ -2,6 +2,15 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v3.2.1 (2026-07-11) — governance mirror repair (no rule-text changes)
+
+Core and extended rule text and shared spec version are unchanged. The existing
+HARD/MUST and §8 Never clauses gain missing `hard-rules.json` rows plus reverse
+drift checks, bringing the governed manifest from 32 to 39 entries. Hook evidence
+for memory, secret filenames, remote-download provenance, report completeness,
+fresh validation, V4 ownership, bypass accounting, and safety-audit coverage is
+strengthened without changing authorization policy or registered hook count.
+
 ## v3.2.0 (2026-07-11) — package capability sync (no rule-text changes)
 
 Core and extended rule text is unchanged. The shared version moves in lockstep

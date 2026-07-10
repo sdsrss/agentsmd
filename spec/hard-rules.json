@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both.",
-  "spec_version": "v3.2.0",
+  "spec_version": "v3.2.1",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -8,6 +8,7 @@
   "supported_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
   "registered_hook_events": ["SessionStart", "PreToolUse", "UserPromptSubmit", "Stop"],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
+  "operational_sections": ["§hooks-fail-open"],
   "_live_sections_doc": "spec_section values emitted or observed by a built and registered hook. A live section with zero rule-specific eligible/evaluated opportunities is no-opportunity, not a demotion signal. Update this array when a hook starts or stops emitting/observing a section.",
   "_demote_policy_doc": "Optional per-rule governance policy used by scripts/rules.js. A standard live core rule becomes a demotion candidate only after the minimum distinct eligible and evaluated sessions with zero enforcement outcomes. deterrence rules are never demoted from telemetry alone. Extended rules have no lower prompt tier and receive hook-value-review instead. Every signal remains operator input, not an automatic edit.",
   "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene", "§6-iron-law-2", "§10-honesty"],
@@ -38,7 +39,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Covers remote downloads executed by an interpreter. Unpinned npx is a separate non-safety advisory and never contributes to this immutable rule's telemetry."
+      "note": "Covers curl, wget, fetch, HTTPie, and aria2 downloads executed in the same command or by a later command in the same session, including bounded nested-shell downloads. Cross-tool blocking requires the exact recorded output path to exist and resolves later relative execution against the event cwd. Unpinned npx is a separate non-safety advisory and never contributes to this immutable rule's telemetry."
     },
     {
       "id": "§8-secrets",
@@ -105,7 +106,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Stop-hook advisory on mkdtemp/scratch residue newer than session baseline."
+      "note": "Stop-hook advisory on mkdtemp/scratch residue newer than session baseline; excludes Codex runtime-owned synthetic mount targets because recency alone does not prove task ownership."
     },
     {
       "id": "§6-iron-law-1",
@@ -181,7 +182,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Hook fires on git push/merge/publish Bash; requires a matched MEMORY.md Read earlier in session."
+      "note": "Hook fires on git push/merge/publish Bash; requires successful tool-output evidence for the selected MEMORY.md index and a linked local memory file when the index contains local Markdown links."
     },
     {
       "id": "§7-exit-archival",
@@ -206,7 +207,7 @@
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": null,
-      "note": "Stop hook session-exit-checkpoint.sh records an advisory (once per unvalidated streak) when a turn ran apply_patch with no test/lint/typecheck/commit afterward, and drops a per-session state flag; session-start-check.sh surfaces a prior session's leftover flag at the next SessionStart. The paused-task file itself stays self-enforced (the hook observes + nudges, it never writes into the user's repo)."
+      "note": "Stop hook session-exit-checkpoint.sh records an advisory (once per unvalidated streak) when a mutation is not followed by test/lint/typecheck/build evidence, and drops a per-session state flag; git commit/push are not validation. session-start-check.sh surfaces a prior session's leftover flag at the next SessionStart. The paused-task file itself stays self-enforced (the hook observes + nudges, it never writes into the user's repo)."
     },
     {
       "id": "§7-memory-hygiene",
@@ -361,6 +362,94 @@
       "confidence": "high",
       "last_demote_review": null,
       "note": "§9 Beyond-green-tests parallel-path rule (fallback / feature flag / default match arm / early return / multi-dispatch): enumerate every branch before edit, verify each after; main-path green + silent siblings is not evidence. Self-enforced — 'did you check every branch' has no reliable bash-hook detector (semantic, needs code understanding); the manifest entry makes it a first-class governed rule (rules.js review cadence) instead of un-tracked prose. The rule text already lived in AGENTS.md §9; C2 adds a manifest row, no spec prose."
+    },
+    {
+      "id": "§0-extended-load",
+      "name": "Load the extended spec on every declared trigger",
+      "scope": "core",
+      "section_anchor": "MUST read on **L3**",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null,
+      "note": "The rule predates this manifest row; reverse HARD/MUST drift coverage now prevents it from becoming ungoverned prose."
+    },
+    {
+      "id": "§8-disable-ssl",
+      "name": "Never disable SSL or certificate verification",
+      "scope": "core",
+      "section_anchor": "disable SSL/cert verification",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null,
+      "note": "Immutable §8; dynamic command/config forms make a low-false-positive generic hook infeasible, so enforcement remains self."
+    },
+    {
+      "id": "§8-env-key-commit",
+      "name": "Never commit .env or private-key files",
+      "scope": "core",
+      "section_anchor": "commit `.env`/keys",
+      "enforcement": "both",
+      "codex_hook_event": "PreToolUse:Bash",
+      "rule_hits_section": "§8-secrets",
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null,
+      "note": "secrets-scan blocks high-confidence secret filenames in the effective commit while allowing documented .env templates; non-Bash and ambiguous key formats remain self-enforced."
+    },
+    {
+      "id": "§8-git-internals",
+      "name": "Never edit .git internals directly",
+      "scope": "core",
+      "section_anchor": "edit `.git/` internals directly (`info/exclude` exempt)",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null,
+      "note": "Immutable §8; Git plumbing and worktree layouts make path-only interception unsafe, so enforcement remains self."
+    },
+    {
+      "id": "§E1-emergency-followup",
+      "name": "Emergency deferral requires a root-cause and regression-test follow-up",
+      "scope": "extended",
+      "section_anchor": "follow-up task MUST backfill root cause + regression test",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null
+    },
+    {
+      "id": "§E6-skill-description",
+      "name": "Skill descriptions front-load trigger, scope, and non-trigger boundaries",
+      "scope": "extended",
+      "section_anchor": "Description MUST front-load trigger words, scope, AND non-trigger cases",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null
+    },
+    {
+      "id": "§E7-plugin-boundary",
+      "name": "Plugin MUST wording never overrides the core spec",
+      "scope": "extended",
+      "section_anchor": "'MUST invoke' wording does not override core §4 level routing",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.4.0",
+      "confidence": "high",
+      "last_demote_review": null
     },
     {
       "id": "§E2-phase-gate",

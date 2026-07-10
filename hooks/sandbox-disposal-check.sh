@@ -35,6 +35,9 @@ SCAN="$(find "$TMPROOT" -maxdepth 1 -mindepth 1 -type d -newer "$REF" 2>/dev/nul
 while IFS= read -r d; do
   [[ -z "$d" ]] && continue
   case "${d##*/}" in
+    # Codex owns this bwrap mount staging directory. A task did not create it,
+    # and parallel Codex sessions may still be using it.
+    codex-bwrap-synthetic-mount-targets-*) ;;
     agentsmd-*|tmp.*|*.XXXXXX|agent-*|codex-*|claude-*) RESIDUE=$((RESIDUE+1)) ;;
   esac
 done <<< "$SCAN"
@@ -44,7 +47,7 @@ hook_observe "$HOOK" '§8.V4' "$SID" true true \
 if (( RESIDUE > 0 )); then
   hook_record "$HOOK" "advisory" "$(jq -cn --argjson r "$RESIDUE" '{residue:$r}' 2>/dev/null || echo null)" '§8.V4' "$SID"
   hook_queue_advisory \
-    "[agentsmd §8.V4] ${RESIDUE} scratch dir(s) created under ${TMPROOT} this session look undisposed. The creating task should delete its own sandbox artifacts on exit (exempt: .keep-marked or paused-task-referenced)." \
+    "[agentsmd §8.V4] ${RESIDUE} scratch dir(s) under ${TMPROOT} are newer than this session and look undisposed. Verify task ownership before deleting; never remove Codex/runtime-owned paths. Task-owned artifacts should be deleted on exit (exempt: .keep-marked or paused-task-referenced)." \
     "$SID"
 fi
 exit 0

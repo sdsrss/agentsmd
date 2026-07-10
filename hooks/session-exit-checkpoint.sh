@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # session-exit-checkpoint.sh — Stop. Observer for §7-session-exit ("un-validated
-# work is not 'Completed'"). Detects a turn that MUTATED files (apply_patch) with
-# NO validating command (test / lint / typecheck / commit / push) run afterward,
+# work is not 'Completed'"). Detects a turn that MUTATED files (apply_patch or a
+# known formatter/in-place writer) with NO validating command (test / lint /
+# typecheck / build) run afterward,
 # and (a) records telemetry so the otherwise self-enforced, invisible rule becomes
 # measurable, and (b) drops a silent per-session state flag under the agentsmd
 # state dir. Stop is a turn checkpoint, NOT reliable evidence that a session
@@ -41,7 +42,7 @@ FLAG="$STATE_DIR/unvalidated-$SKEY.flag"
 
 # Walk the transcript tail (512 KiB — the current turn lives at the end; caps the
 # per-Stop cost at O(1), not O(transcript)). Since the last user turn: count
-# apply_patch mutations, and detect any validating shell command. Prints "MUT VAL"
+# mutations, and detect any validating shell command. Prints "MUT VAL"
 # (e.g. "3 0" = 3 edits, none validated). Empty/parse failure → stay silent.
 RESULT="$(node -e '
 const fs=require("fs");
@@ -58,7 +59,10 @@ for(let i=lines.length-1;i>=0;i--){
   const t=o&&o.type,pl=o&&o.payload!=null?o.payload:o,role=pl&&(pl.role||pl.author);
   if(t==="user_message"||((t==="message"||t==="response_item")&&role==="user")){start=i+1;break;}
 }
-const VAL=/\b(npm\s+(test|run\b[^\n]*\b(test|lint|check|typecheck|build))|yarn\s+(test|lint)|pnpm\s+(test|lint)|pytest|jest|vitest|mocha|cargo\s+(test|build|check|clippy)|go\s+test|tsc\b|eslint|biome|ruff|clippy|make\s+(test|check)|git\s+(commit|push))\b/i;
+const VAL=/\b(npm\s+(test|run\b[^\n]*\b(test|lint|check|typecheck|build))|yarn\s+(test|lint)|pnpm\s+(test|lint)|python\s+-m\s+pytest|pytest|jest|vitest|mocha|cargo\s+(test|build|check|clippy)|go\s+test|tsc\b|eslint|biome\s+(?:check|lint)\b|ruff\s+(?:check\b|format\b[^\n]*--check\b)|clippy|make\s+(test|check)|(?:node|bash|sh)\s+[^\n;]*(?:\/tests?\/|\.test\.(?:[cm]?[jt]s|tsx?)\b|(?:smoke|test)\.sh\b))/i;
+const MUT=/((?:npx\s+)?prettier\b[^\n]*(?:--write|-w\b)|eslint\b[^\n]*--fix\b|biome\b[^\n]*(?:--write|--fix)\b|gofmt\b[^\n]*-w\b|rustfmt\b|cargo\s+fmt\b|sed\b[^\n]*\s-i(?:\s|$)|perl\b[^\n]*\s-pi\b|npm\s+run\s+(?:format|fmt)\b)/i;
+const RUFF_MUT=/\bruff\s+format\b/i;
+const RUFF_CHECK=/\bruff\s+format\b[^\n]*--check\b/i;
 let mut=0,val=0;
 for(let i=start;i<lines.length;i++){
   let o;try{o=JSON.parse(lines[i]);}catch{continue;}
@@ -74,6 +78,7 @@ for(let i=start;i<lines.length;i++){
     const raw=a&&typeof a==="object"?(a.cmd!==undefined?a.cmd:a.command):null;
     const cmd=typeof raw==="string"?raw
       :(Array.isArray(raw)&&raw.every(x=>typeof x==="string")?raw.join(" "):"");
+    if(MUT.test(cmd)||(RUFF_MUT.test(cmd)&&!RUFF_CHECK.test(cmd))){mut++;val=0;}
     if(mut>0&&VAL.test(cmd))val=1;
   }
 }

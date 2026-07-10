@@ -70,7 +70,8 @@ if [[ -r "$PATTERNS_FILE" ]]; then
   done < "$PATTERNS_FILE"
 fi
 
-# (b) four-section order — only when clearly a four-section report (≥2 markers).
+# (b) four-section completeness/order — only when clearly a four-section report
+# (Done + ≥2 trailing markers), so compact L0/L1 reports remain outside scope.
 order_pos() { printf '%s' "$LAST" | grep -aboiE "(^|\n)[[:space:]>*-]*${1}\b" 2>/dev/null | head -1 | cut -d: -f1; }
 P_DONE="$(order_pos 'Done')"; P_NOT="$(order_pos 'Not done')"
 P_FAIL="$(order_pos 'Failed')"; P_UNC="$(order_pos 'Uncertain')"
@@ -80,11 +81,14 @@ ORDER_ELIGIBLE=false
 if [[ -n "$P_DONE" && "$MARKERS" -ge 2 ]]; then
   ORDER_ELIGIBLE=true
   prev="$P_DONE"; bad=0
-  for v in "$P_NOT" "$P_FAIL" "$P_UNC"; do
-    [[ -z "$v" ]] && continue
-    (( v < prev )) && bad=1
-    prev="$v"
-  done
+  if [[ -z "$P_NOT" || -z "$P_FAIL" || -z "$P_UNC" ]]; then
+    bad=1
+  else
+    for v in "$P_NOT" "$P_FAIL" "$P_UNC"; do
+      (( v < prev )) && bad=1
+      prev="$v"
+    done
+  fi
   (( bad == 1 )) && ISSUES="${ISSUES}four-section-order "
 fi
 

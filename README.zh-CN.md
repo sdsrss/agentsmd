@@ -31,19 +31,19 @@ agentsmd 用「系统」而非「文档」的方式回应这一点:
 
 | Hook | 事件 | 强制内容 |
 |---|---|---|
-| `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY——阻断 `rm -rf $VAR`、`curl \| bash`;对未固定版本的 `npx` 告警 |
+| `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY——阻断不安全变量删除及同一/跨 tool 的远程下载执行,含相对路径和嵌套 shell 来源;对未固定版本的 `npx` 告警 |
 | `banned-vocab-check` | PreToolUse:Bash | §10——阻断 `git commit` 信息里没有量化的价值声明 |
 | `ship-baseline-check` | PreToolUse:Bash | §E3——当共享分支的 CI 为红时,阻断 `git push` |
-| `memory-read-check` | PreToolUse:Bash | §7——ship 时若未查阅项目 `MEMORY.md`,则阻断 |
+| `memory-read-check` | PreToolUse:Bash | §7——ship 前若没有成功 `read_file` 或明确读取项目 memory index 及一个链接 memory 的命令证据,则阻断 |
 | `session-start-check` | SessionStart | 注入 active-spec 横幅;重置 advisory 队列 |
 | `surface-advisories` | UserPromptSubmit | 呈现上一轮 Stop hook 排队的 advisory |
 | `memory-prompt-hint` | UserPromptSubmit | 呈现与本次 prompt 匹配的 `MEMORY.md` 条目 |
 | `residue-audit` | Stop | §7/§9——标记 `~/.codex/tmp` 增长 |
-| `sandbox-disposal-check` | Stop | §8.V4——标记未清理的临时目录 |
-| `transcript-structure-scan` | Stop | §10/§6——检查上一份报告的四段式顺序、违禁词、证据锚点与对冲措辞 |
-| `secrets-scan` | PreToolUse:Bash | §8——阻断 staged diff 中新增高置信度密钥的 `git commit` |
+| `sandbox-disposal-check` | Stop | §8.V4——标记疑似任务临时目录,排除 Codex runtime 路径,删除前要求验证所有权 |
+| `transcript-structure-scan` | Stop | §10/§6——检查报告标签完整性/顺序、违禁词、证据锚点与对冲措辞 |
+| `secrets-scan` | PreToolUse:Bash | §8——阻断新增密钥内容或高置信 `.env`/私钥文件名的 `git commit` |
 | `convention-cite-scan` | Stop | 追踪 `@conv-*` 项目约定引用,供 `analyze --adoption` |
-| `session-exit-checkpoint` | Stop | §7——标记会话退出时未验证的编辑(下次 SessionStart 呈现) |
+| `session-exit-checkpoint` | Stop | §7——跟踪 patch/formatter 写入,标记没有 test/lint/typecheck/build 证据的字节 |
 | `mem-audit` | Stop | §7——标记 `MEMORY.md` 索引/文件漂移 + 缺失 verified 头 |
 | `session-summary` | Stop | 记录本会话的强制计数(下次 SessionStart 呈现) |
 

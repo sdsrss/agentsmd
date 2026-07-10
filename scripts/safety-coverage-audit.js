@@ -3,7 +3,7 @@
 // enforcement CLAIMS. Header comments and deny/advisory strings are DOCUMENTATION,
 // not proof; this catches the drift where a hook quotes a multi-clause rule but only
 // one clause has implementing code. Four deterministic cross-references, all pure
-// static analysis over hooks/*.sh + spec/hard-rules.json (no telemetry, no FS
+// static analysis over hooks/*.sh + hooks/lib/*.sh + spec/hard-rules.json (no telemetry, no FS
 // outside the repo):
 //   A. arrow-claim sweep — every '→' claim (header comment block or deny/advisory
 //      string) is split on →/; and each clause keyword-grepped against the hook's
@@ -14,8 +14,9 @@
 //      with no emitter is an unimplemented gap. A hook-enforced rule whose section is
 //      NOT live is 'hook-planned' (its hook isn't built yet — expected, not a gap),
 //      mirroring live_sections semantics + scripts/rules.js.
-//   C. bypass-token coverage — every documented [allow-*] escape hatch (named in a
-//      comment) must ALSO appear on a code line (a real guard), not just prose.
+//   C. bypass-token coverage — every documented [allow-*] escape hatch must have
+//      a conditional shell guard, and every guard must be documented. Telemetry
+//      or message strings containing the token do not count as guards.
 //   D. orphan emission — a §-section literal a hook emits that no manifest rule
 //      declares (telemetry the governance layer can't see).
 // Adapted from claudemd/scripts/safety-coverage-audit.js (ESM→CommonJS). Its rm-rf
@@ -124,17 +125,23 @@ function auditSafetyCoverage({ root = ROOT, hookFilter = null } = {}) {
   const hooksDir = path.join(root, HOOKS_DIR);
   if (!fs.existsSync(hooksDir)) throw new Error(`safety-coverage-audit: hooks dir not found: ${hooksDir}`);
 
-  const allHookFiles = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh')).sort();
-  if (hookFilter && !allHookFiles.includes(hookFilter)) {
-    throw new Error(`hook ${hookFilter} not found`);
-  }
-  const auditedHookFiles = hookFilter ? allHookFiles.filter((f) => f === hookFilter) : allHookFiles;
+  const allHookFiles = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh'))
+    .concat(fs.existsSync(path.join(hooksDir, 'lib'))
+      ? fs.readdirSync(path.join(hooksDir, 'lib')).filter((f) => f.endsWith('.sh')).map((f) => path.join('lib', f))
+      : [])
+    .sort();
+  const filtered = hookFilter
+    ? allHookFiles.filter((f) => f === hookFilter || path.basename(f) === hookFilter)
+    : allHookFiles;
+  if (hookFilter && filtered.length !== 1) throw new Error(`hook ${hookFilter} not found or ambiguous`);
+  const auditedHookFiles = filtered;
   const allHookSources = {};
   for (const f of allHookFiles) allHookSources[f] = fs.readFileSync(path.join(hooksDir, f), 'utf8');
 
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'), 'utf8'));
   const liveSet = new Set(manifest.live_sections || []);
-  const knownSections = new Set(manifest.rules.map((r) => r.rule_hits_section).filter(Boolean));
+  const knownSections = new Set(manifest.rules.map((r) => r.rule_hits_section).filter(Boolean)
+    .concat(manifest.operational_sections || []));
 
   // A — arrow-claim sweep.
   const claimSites = [];
@@ -166,18 +173,25 @@ function auditSafetyCoverage({ root = ROOT, hookFilter = null } = {}) {
       return { id: r.id, name: r.name, rule_hits_section: section, scope: r.scope, enforcement: r.enforcement, live, implementingHooks, status };
     });
 
-  // C — bypass-token coverage: a token named in a comment must exist on a code line.
+  // C — bypass-token coverage is bidirectional: every documented token needs a
+  // guard, and every code-only guard must be documented for operators.
   const bypassChecks = [];
   for (const f of auditedHookFiles) {
     const documented = new Set();
     const inCode = new Set();
+    const guarded = new Set();
     for (const raw of allHookSources[f].split('\n')) {
       const toks = raw.match(ALLOW_TOKEN_RE) || [];
-      const target = /^\s*#/.test(raw) ? documented : inCode;
-      for (const t of toks) target.add(t);
+      const isComment = /^\s*#/.test(raw);
+      for (const t of toks) {
+        (isComment ? documented : inCode).add(t);
+        if (!isComment && (raw.includes('[[') || /^\s*(?:if|elif)\b/.test(raw) || /^\s*[^#]*\)\s*(?:;|&&|return|exit)/.test(raw))) guarded.add(t);
+      }
     }
-    for (const tok of documented) {
-      bypassChecks.push({ hook: `${HOOKS_DIR}/${f}`, token: tok, status: inCode.has(tok) ? 'covered' : 'gap' });
+    for (const tok of new Set([...documented, ...inCode])) {
+      const status = documented.has(tok) && guarded.has(tok) ? 'covered'
+        : documented.has(tok) ? 'missing-guard' : 'undocumented';
+      bypassChecks.push({ hook: `${HOOKS_DIR}/${f}`, token: tok, status });
     }
   }
 
@@ -201,7 +215,7 @@ function auditSafetyCoverage({ root = ROOT, hookFilter = null } = {}) {
   const partialCandidates = claimSites.filter((s) => s.gapClauses.length > 0);
   const unimplementedRules = ruleEnforcement.filter((r) => r.status === 'unimplemented');
   const hookPlanned = ruleEnforcement.filter((r) => r.status === 'hook-planned');
-  const bypassGaps = bypassChecks.filter((b) => b.status === 'gap');
+  const bypassGaps = bypassChecks.filter((b) => b.status !== 'covered');
   const gapCount = partialCandidates.length + unimplementedRules.length + bypassGaps.length + orphanEmissions.length;
 
   return {
@@ -240,7 +254,7 @@ function formatReport(r) {
   out.push('');
   out.push('## Bypass-token coverage');
   if (!r.bypassChecks.length) out.push('  (no [allow-*] tokens documented)');
-  for (const b of r.bypassChecks) out.push(`  [${b.status === 'covered' ? '✓' : '✗'}] ${b.hook}: ${b.token}`);
+  for (const b of r.bypassChecks) out.push(`  [${b.status === 'covered' ? '✓' : '✗'}] ${b.hook}: ${b.token} (${b.status})`);
   out.push('');
   out.push('## Summary');
   out.push(`  Partial-impl candidates: ${r.summary.partialCandidates}`);
@@ -278,8 +292,8 @@ if (require.main === module) {
   let r;
   try { r = auditSafetyCoverage({ hookFilter: parsed.hookFilter }); }
   catch (error) { console.error(`agentsmd safety-coverage-audit: ${error.message}`); process.exit(2); }
-  console.log(parsed.json ? JSON.stringify(r, null, 2) : formatReport(r));
-  process.exit(r.summary.gapCount > 0 ? 3 : 0);
+  process.stdout.write((parsed.json ? JSON.stringify(r, null, 2) : formatReport(r)) + '\n');
+  process.exitCode = r.summary.gapCount > 0 ? 3 : 0;
 }
 
 module.exports = {
