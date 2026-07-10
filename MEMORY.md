@@ -12,3 +12,4 @@
 - [Config status_line TOML strings](memory/reference_config-status-line-toml-strings.md) [config,status-line,toml,doctor] [配置 字符串] — `tui.status_line` parsing accepts double-quoted and single-quoted TOML strings.
 - [Audit time window](memory/reference_audit-time-window.md) [audit,rules,telemetry,time-window] [审计 时间] — `audit --days=N` counts parseable timestamps only within `[cutoff, now]`.
 - [Remote exec variants](memory/reference_remote-exec-variants.md) [hooks,pretool,safety,remote-exec] [远程 执行 安全] — Unknown-origin script checks must cover process substitution, command substitution, and eval, not only `curl|wget ... | shell`.
+- [Cross-platform test time fixtures](memory/reference_cross-platform-test-time.md) [tests,macos,mtime,portability] [测试 跨平台 时间] — Use `fs.utimesSync` for portable mtime fixtures; GNU-only `touch -d` fallbacks can invert age assertions on macOS.
