@@ -125,14 +125,19 @@ for (const line of lines) {
 const consulted = process.argv.slice(2).filter((memory) => {
   // macOS exposes the same temp path as both /var/... and /private/var/....
   // Git canonicalizes to the latter while the transcript may retain the former.
-  const aliases = [memory];
-  if (memory.startsWith("/private/")) aliases.push(memory.slice("/private".length));
-  else if (memory.startsWith("/var/")) aliases.push(`/private${memory}`);
-  return eligible.some((line) => aliases.some((candidate) => {
-    const slash = Math.max(candidate.lastIndexOf("/"), candidate.lastIndexOf("\\"));
-    const dir = slash >= 0 ? candidate.slice(0, slash) : "";
-    return line.includes(candidate) || (dir && line.includes(dir) && line.includes("MEMORY.md"));
-  }));
+  // TMPDIR commonly ends in '/', so mktemp-derived transcript paths can also
+  // carry a harmless doubled separator that Git removes during canonicalization.
+  const normalize = (value) => value
+    .replace(/\/private\/var\//g, "/var/")
+    .replace(/\/{2,}/g, "/");
+  const candidate = normalize(memory);
+  const slash = Math.max(candidate.lastIndexOf("/"), candidate.lastIndexOf("\\"));
+  const dir = slash >= 0 ? candidate.slice(0, slash) : "";
+  return eligible.some((line) => {
+    const normalizedLine = normalize(line);
+    return normalizedLine.includes(candidate)
+      || (dir && normalizedLine.includes(dir) && normalizedLine.includes("MEMORY.md"));
+  });
 });
 process.stdout.write(JSON.stringify(consulted));
 process.exit(consulted.length === process.argv.length - 2 ? 0 : 1);

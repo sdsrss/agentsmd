@@ -560,7 +560,8 @@ echo "== memory-read-check.sh =="
 PROJ="$SANDBOX/proj"; mkdir -p "$PROJ"
 git -C "$PROJ" init -q
 printf '%s\n' '- [auth](memory/auth.md) — login flow' > "$PROJ/MEMORY.md"
-printf '%s\n' "{\"type\":\"message\",\"payload\":{\"role\":\"assistant\",\"content\":[{\"text\":\"I consulted $PROJ/MEMORY.md before shipping\"}]}}" > "$SANDBOX/tr-read.jsonl"
+PROJ_TRANSCRIPT_PATH="${PROJ%/*}//${PROJ##*/}"
+printf '%s\n' "{\"type\":\"message\",\"payload\":{\"role\":\"assistant\",\"content\":[{\"text\":\"I consulted $PROJ_TRANSCRIPT_PATH/MEMORY.md before shipping\"}]}}" > "$SANDBOX/tr-read.jsonl"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"text":"just pushing now"}]}}' > "$SANDBOX/tr-noread.jsonl"
 printf '%s\n' '{"type":"message","payload":{"role":"user","content":[{"text":"Push without reading MEMORY.md"}]}}' > "$SANDBOX/tr-user-mentioned-memory.jsonl"
 mk_mr() { jq -cn --arg c "$1" --arg cwd "$2" --arg tr "$3" '{tool_name:"Bash",tool_input:{command:$c},session_id:"smoke1",cwd:$cwd,transcript_path:$tr}'; }

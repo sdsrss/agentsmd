@@ -43,7 +43,8 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   explicit current-directory `PATH`, multi-ref pushes, and exact target repos.
   Bash 3.2 empty-array handling no longer aborts `--all`/`--branches` or memory
   repository resolution on macOS; target-bound memory evidence recognizes the
-  equivalent `/var` and `/private/var` path spellings returned by macOS tools.
+  equivalent `/var` and `/private/var` spellings plus repeated separators
+  produced by macOS temporary paths.
 - Secret scanning models staged, `--all`, `--include`, `--only`, bare pathspec,
   and pathspec-file commit content without mutating the real index. Ship and
   memory gates bind CI and consultation evidence to every target repository.

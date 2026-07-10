@@ -8,9 +8,10 @@ append. Guard the loop with a safe length check, or keep command-argument arrays
 non-empty by seeding required arguments such as `-C "$cwd"`.
 
 macOS also exposes temporary paths through equivalent `/var/...` and
-`/private/var/...` spellings. Git may return the canonical `/private/var` root
-while a transcript retains `/var`. Target-bound evidence comparisons must accept
-that specific alias without weakening repository binding.
+`/private/var/...` spellings. `TMPDIR` commonly has a trailing slash, so a
+mktemp-derived transcript path may contain a doubled separator too. Git removes
+both aliases during canonicalization. Normalize those spellings on both sides of
+target-bound evidence comparisons without weakening repository binding.
 
 The macOS Hook smoke job is the release gate for both behaviors; Linux-only
 success does not cover them.
