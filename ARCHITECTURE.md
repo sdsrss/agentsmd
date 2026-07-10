@@ -114,7 +114,7 @@ spec/AGENTS*.md 的 (HARD) 规则
 | 2 keyword | `MEMORY.md` + `memory/*.md` | 关键词/路径命中 | 召回式（feedback_/project_/reference_） |
 | operator | `spec/OPERATOR.md`（Phase 4） | 永不自动加载 | 人类维护者的升降级节奏，不占 agent 注意力 |
 
-Codex discovery 链共享 `project_doc_max_bytes`（默认 32 KiB）且超限静默截断。core 由 drift gate 限制在 ≤16 KiB，至少保留默认预算的一半给项目级指令；展开流程放入 triggered extended。
+Codex discovery 链共享 `project_doc_max_bytes`（默认 32 KiB）且超限静默截断。core 由 drift gate 限制在 ≤15 KiB，给项目级指令保留超过一半的默认预算；展开流程放入 triggered extended。
 
 ---
 

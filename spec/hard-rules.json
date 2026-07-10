@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both.",
-  "spec_version": "v3.0.0",
+  "spec_version": "v3.1.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -310,7 +310,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": null,
-      "note": "Some entries (delete/migration/push) overlap hook-enforced rules; the AUTH judgment itself is self-enforced."
+      "note": "AUTH is operation-scoped and independent of LEVEL; L3 alone is not a gate. Irreversible, external-state, CI, production, data, security, global-config/routing, and ship operations remain hard-authorized."
     },
     {
       "id": "§2-hard-upgrades",
@@ -401,9 +401,9 @@
     },
     {
       "id": "§E6-skill-authoring-l3",
-      "name": "Skill/prompt/MCP-description authoring = LLM-visible metadata = L3",
+      "name": "Skill/prompt/MCP-description authoring uses risk-tiered LLM-visible metadata levels",
       "scope": "extended",
-      "section_anchor": "LLM-visible metadata → **L3**",
+      "section_anchor": "global/shared/security-sensitive LLM-visible metadata → **L3**",
       "enforcement": "self",
       "codex_hook_event": null,
       "rule_hits_section": null,

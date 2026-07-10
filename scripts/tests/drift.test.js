@@ -110,13 +110,63 @@ t('skill: agentsmd-status hook count matches the wiring', () => {
 // 9. Reserve at least half of the default discovery-chain cap for project-level
 //    instructions. The core is global context; closer project rules must not be
 //    silently truncated merely because the universal layer consumed the budget.
-t('spec: core AGENTS.md reserves half the default cap for project rules', () => {
-  const CAP = 16384; // half of Codex's default 32 KiB combined cap
+t('spec: core AGENTS.md stays below the 15 KiB ceiling', () => {
+  const CAP = 15 * 1024;
   const bytes = Buffer.byteLength(specFiles.core, 'utf8');
-  assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B to reserve half the default chain cap`);
+  assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B`);
 });
 
-// 10. both READMEs' hook tables must list exactly as many hooks as the wiring
+// 10. LEVEL is risk-based and orthogonal to AUTH. Diff size and file count are
+//     observations, not gates; reversible L3 work does not ask twice merely
+//     because it is L3, while the concrete §5 high-risk operations remain gated.
+t('spec: LEVEL is risk-based and AUTH is operation-based', () => {
+  const level = (specFiles.core.match(/## §2 LEVEL[\s\S]*?(?=\n## §3 )/) || [''])[0];
+  const hardAuth = (specFiles.core.match(/\*\*Hard \(ask, block\)\*\*[\s\S]*?(?=\n\n\*\*Soft)/) || [''])[0];
+  assert(level.includes('**Level/Auth separation**'), '§2 missing explicit LEVEL/AUTH separation');
+  for (const stale of ['LOC <', 'LOC =', '≤2 files']) assert(!level.includes(stale), `§2 still uses ${stale} as a level gate`);
+  assert(level.includes('Scoped reversible LLM-visible metadata → L2'), 'scoped reversible LLM metadata is not classified L2');
+  assert(level.includes('global/shared/security-sensitive LLM-visible metadata → L3'), 'high-risk LLM metadata is not classified L3');
+  for (const stale of ['entering L3 implementation', 'cross-module refactor']) assert(!hardAuth.includes(stale), `§5 still blanket-gates ${stale}`);
+  for (const kept of ['DB migration / schema change', 'CI config', 'prod-dependency', '.env', 'auth/payment/crypto', 'global/shared/security-sensitive LLM routing metadata', 'breaking public-API', 'git push']) {
+    assert(hardAuth.includes(kept), `§5 lost hard AUTH boundary: ${kept}`);
+  }
+  assert(specFiles.core.includes('L3 alone is not an authorization gate'), '§5 missing L3/AUTH boundary');
+  assert(specFiles.extended.includes('When the plan contains a §5-hard operation'), '§E2 does not condition AUTH on a hard operation');
+  for (const parity of ['before AND after', 'exported surface unchanged', 'characterization before/after', '[PARTIAL]']) {
+    assert(specFiles.core.includes(parity), `§6 lost L2 refactor evidence boundary: ${parity}`);
+  }
+});
+
+// 11. Trimming prose must never move the foundational always-on floor into the
+//     triggered layer merely to satisfy the byte gate.
+t('spec: foundational hard rules remain in core', () => {
+  const ids = [
+    '§8-rm-rf-var', '§8-unknown-script', '§8-secrets', '§8-sql-no-where',
+    '§8-home-traversal', '§8-verify-before-claim', '§8.V4-sandbox-disposal',
+    '§6-iron-law-1', '§6-iron-law-2', '§6-iron-law-3', '§6-bugfix-anchor',
+    '§6-destructive-smoke', '§5-hard-auth', '§2-hard-upgrades',
+    '§9-preflight', '§9-end-of-task-sweep', '§9-parallel-path',
+    '§10-four-section-order', '§10-honesty', '§10-specificity',
+  ];
+  for (const id of ids) {
+    const rule = hr.rules.find((r) => r.id === id);
+    assert(rule, `missing foundational rule ${id}`);
+    assert.strictEqual(rule.scope, 'core', `${id} moved out of core`);
+  }
+});
+
+// 12. L2/L3 reports keep every outcome visible. Empty states are explicit,
+//     separate labels rather than a combined line that renderers can de-emphasize.
+t('spec: L2/L3 render four independent report labels', () => {
+  assert(specFiles.core.includes('L2/L3 always show four independent labels'), 'core does not require independent report labels');
+  assert(!specFiles.core.includes('use only non-empty sections'), 'core still hides empty report sections');
+  for (const label of ['**Done:**', '**Not done:**', '**Failed:**', '**Uncertain:**']) {
+    assert(specFiles.extended.includes(label), `§E12 missing visible label ${label}`);
+  }
+  assert(!specFiles.extended.includes('one combined `Not done / Failed / Uncertain'), '§E12 still combines empty states');
+});
+
+// 13. both READMEs' hook tables must list exactly as many hooks as the wiring
 //     registers — a hand-maintained table that lags the code (it drifted to 12/10
 //     rows while the wiring had 15) misleads the first-time reader about what runs.
 t('README: EN + zh hook-table row counts match the wiring', () => {
@@ -138,7 +188,7 @@ t('README: EN + zh hook-table row counts match the wiring', () => {
   }
 });
 
-// 11. Skill frontmatter is always loaded for routing. Keep it compact and force
+// 14. Skill frontmatter is always loaded for routing. Keep it compact and force
 //     a negative boundary so neighboring audit/init skills do not blur together.
 t('skills: descriptions stay compact and declare a Not for boundary', () => {
   const skillsDir = path.join(ROOT, 'skills');

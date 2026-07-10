@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v3.0.0 — Extended
+# CODEX-CODING-SPEC v3.1.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -16,7 +16,7 @@ Mode ambiguity (weak trigger) → ASK once before entering; strong explicit trig
 
 `research → plan (sub-phases) → per-phase: implement → validate → integrate → full validation → review → REPORT`
 
-- **Blast-radius statement** precedes the `[AUTH REQUIRED]` for implementation: files/modules touched · contracts affected (additive vs breaking per core §2) · rollback plan. This is what the user approves.
+- **Blast-radius statement** precedes L3 implementation: files/modules touched · contracts affected (additive vs breaking per core §2) · rollback plan. When the plan contains a §5-hard operation, place this statement immediately before its `[AUTH REQUIRED]`; otherwise it is planning evidence, not an approval request.
 - **Phase gate**: no phase N+1 while phase N is un-validated. Each sub-phase is small enough that its validation is runnable in isolation.
 - **Review pass** distinct from authoring: subagent review when available; else an explicit self-review against the plan — checked items named, not "reviewed, looks good".
 - **Checkpoint** (core §9 Preflight, hard at L3): branch / worktree created before implementation; every phase revertible.
@@ -51,7 +51,7 @@ Gate order — a red item stops the pipeline until fixed, waived by user, or `[B
 
 - Description MUST front-load trigger words, scope, AND non-trigger cases — implicit invocation matches on description alone, and truncated descriptions keep only the front.
 - Keep one skill = one job; prefer instructions over scripts unless determinism or external tooling requires them.
-- Creating or editing any skill / prompt template / MCP tool description = LLM-visible metadata → **L3** (core §2 hard upgrade); test the description against sample prompts before shipping it.
+- Creating or editing a skill / prompt template / MCP tool description is runtime routing behavior: scoped reversible project metadata → **L2**; global/shared/security-sensitive LLM-visible metadata → **L3**. Test changed descriptions against positive and near-negative prompts before shipping.
 
 ## §E7 SUPERPOWERS (optional `superpowers` / sp plugin)
 
@@ -92,7 +92,7 @@ Core §7's Session-exit rule covers the SESSION ending mid-cycle; this covers yi
 
 ## §E12 REPORT DETAIL
 
-- L0 reports one result plus its check. L1 can use `Done: <result> (<evidence>)` when nothing failed or remains uncertain. L2/L3 use the four-section order only for non-empty sections; an all-clean L3 report adds one combined `Not done / Failed / Uncertain: none` line.
+- L0 reports one result plus its check. L1 can collapse when clean. L2/L3 render four separate bold labels on their own lines in order: **Done:**, **Not done:**, **Failed:**, **Uncertain:**. Use `无`/`none` for an empty value; never combine or omit labels.
 - Evidence names the command, observation, and conclusion. Value claims require an absolute result or a ratio with baseline. A fix claim includes the prior failing behavior in the same sentence.
 - `Uncertain` states `uncertain because <reason>` and the exact resolving command. Do not downgrade incomplete work with evaluative adjectives.
 

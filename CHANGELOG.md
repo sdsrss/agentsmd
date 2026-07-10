@@ -3,6 +3,38 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v3.1.0 — 2026-07-10 — change: risk-based workflow, operation-scoped AUTH, and a smaller core
+
+### Changed
+
+- LEVEL is based on reversibility, contract impact, persisted data, security,
+  production, infrastructure, and external-state boundaries instead of LOC or
+  file count. A coordinated multi-component change is L2; a large but cohesive,
+  reversible local fix is not upgraded by size alone.
+- LEVEL and AUTH are orthogonal. L3 still requires its extended workflow,
+  blast-radius statement, checkpoint, and validation, but no longer asks for a
+  second approval merely for being L3. Concrete destructive, data, CI,
+  production, security, global Codex configuration/routing, breaking API, and
+  ship operations retain hard authorization.
+- LLM-visible metadata uses risk tiers: scoped reversible project metadata is
+  L2; global/shared/security-sensitive routing remains L3. Unknown-origin script
+  execution remains forbidden by §8 and is no longer listed as authorizable.
+- L2/L3 reports always render `Done`, `Not done`, `Failed`, and `Uncertain` as
+  four independent bold labels. Empty values stay visible as `none` instead of
+  being omitted or collapsed into a combined line.
+- The always-loaded core moved repeated rationale and examples to the triggered
+  extended layer, shrinking from 16,300 B to 12,787 B (-21.6%). The drift ceiling
+  is now 15 KiB, and a new gate prevents foundational safety/auth/evidence/
+  worktree/report rules from being moved out of core to satisfy the byte budget.
+
+No hooks or live telemetry sections changed. Release validation: `npm run check`
+exited 0 (drift 14/14, safety coverage 11/11, distribution 31/31, hook smoke
+169/169, shellcheck clean); version cascade found 0 stale prose tokens; npm publish
+dry-run packed 105 files as 3.1.0. Roll back npm consumers with
+`npm install -g @sdsrs/agentsmd@3.0.0 && agentsmd install`; plugin/source users
+select `v3.0.0` and reinstall. Revert the v3.1.0 release commit/tag for source
+rollback. Published npm versions are immutable and can only be deprecated.
+
 ## v3.0.0 — 2026-07-10 — change: safe lifecycle recovery, shell-aware safety checks, and strict CLI contracts
 
 ### Changed

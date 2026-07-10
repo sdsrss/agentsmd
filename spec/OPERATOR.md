@@ -29,7 +29,7 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh → ~/.codex/logs/agen
 ## §O3 Size budget (the discovery-chain ceiling)
 
 - Core (`spec/AGENTS.md`) loads into the Codex discovery chain **every turn**; extended loads only on trigger. The default 32 KiB `project_doc_max_bytes` cap is shared with project `AGENTS.md` files and truncates silently.
-- Core is gated at ≤16 KiB so at least half the default cap remains for project chains. Track the exact size in the spec changelog.
+- Core is gated at ≤15 KiB so more than half the default cap remains for project chains. Track the exact size in the spec changelog.
 - **Over budget → the next version MUST net-delete** (removal bytes > addition bytes) or refuse the addition. When a project chain starves, raise `project_doc_max_bytes` to 65536 in `config.toml` and verify the assembled chain (a "summarize your current instructions" run).
 - Preserve hard safety/auth/evidence anchors in core; move expanded procedures to extended. Governance data informs later demotion but never substitutes for semantic review.
 

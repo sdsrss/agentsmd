@@ -2,6 +2,30 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v3.1.0 (2026-07-10) — risk-based workflow and authorization
+
+LEVEL now follows reversibility and behavioral blast radius instead of LOC/file
+count: scoped reversible local work is L1, coordinated/additive behavior is L2,
+and breaking, persisted-data, security, production, infrastructure, or release
+boundaries are L3. LEVEL controls workflow/evidence and is explicitly independent
+from AUTH; L3 alone and cross-module refactors no longer force a second approval,
+while concrete destructive, data, CI, production, security, global-config/routing,
+breaking-API, and ship operations remain hard-authorized. LLM-visible metadata is tiered: scoped
+reversible project routing is L2; global/shared/security-sensitive routing is L3.
+Unknown-origin execution remains a §8 Never rule and is no longer misleadingly
+listed as authorizable.
+
+L2/L3 reports restore four independently rendered bold labels in the fixed
+`Done → Not done → Failed → Uncertain` order. Empty values remain explicit as
+`无`/`none`; they are never omitted or collapsed into one visually weak line.
+
+Repeated rationale and examples moved out of the always-loaded layer while every
+safety/auth/evidence/worktree/report hard anchor remains core. The drift ceiling
+is now 15 KiB and explicitly locks foundational manifest scopes to core.
+`spec_version` → v3.1.0. Sizing: core 16,300 → 12,787 B (-3,513 B, -21.6%);
+extended 13,083 → 13,287 B (+204 B, triggered only). No hooks or live telemetry
+sections changed.
+
 ## v3.0.0 (2026-07-10) — lifecycle, safety-parser, and CLI contract fixes (no rule-text changes)
 
 Core + extended rule text is unchanged; the shared version moves in lockstep
