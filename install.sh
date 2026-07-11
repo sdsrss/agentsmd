@@ -69,6 +69,14 @@ usage_die() {
   exit 2
 }
 
+require_option_value() {
+  option="$1"
+  value="${2:-}"
+  case "$value" in
+    ''|-*) usage_die "$option requires a value" ;;
+  esac
+}
+
 select_action() {
   option="$1"
   action="$2"
@@ -225,17 +233,17 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --repo)
-      [ "$#" -ge 2 ] || usage_die "--repo requires a value"
+      require_option_value "$1" "${2:-}"
       REPO="$2"
       shift 2
       ;;
     --ref)
-      [ "$#" -ge 2 ] || usage_die "--ref requires a value"
+      require_option_value "$1" "${2:-}"
       REF="$2"
       shift 2
       ;;
     --source)
-      [ "$#" -ge 2 ] || usage_die "--source requires a value"
+      require_option_value "$1" "${2:-}"
       SOURCE_DIR="$2"
       shift 2
       ;;

@@ -66,6 +66,21 @@ t('install.sh rejects unknown options before touching CODEX_HOME', () => withSan
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
 }));
 
+t('install.sh rejects option-like values before touching CODEX_HOME', () => withSandbox((dir) => {
+  for (const option of ['--repo', '--ref', '--source']) {
+    const codexHome = path.join(dir, option.slice(2));
+    const result = cp.spawnSync('sh', [path.join(ROOT, 'install.sh'), option, '--status'], {
+      cwd: ROOT,
+      env: { ...process.env, CODEX_HOME: codexHome },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    assert.strictEqual(result.status, 2, `${option}\n${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, new RegExp(`${option} requires a value`));
+    assert(!fs.existsSync(path.join(codexHome, 'agentsmd')), `${option} malformed value installed agentsmd`);
+  }
+}));
+
 t('install.sh rejects conflicting lifecycle actions without uninstalling', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   run(['--source', ROOT], env);
