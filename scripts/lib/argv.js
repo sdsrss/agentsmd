@@ -27,7 +27,7 @@ function printHelpAndExit(argv, usage) {
 
 // Strict positive integer: returns the int, or null if not a clean positive int.
 // Accepts '30', '30.0', ' 30 ', numeric 30; rejects '1.5', '0x1e', '1e2', '0',
-// '-5', 'abc', '', null, undefined. Callers turn null into an ArgvError / exit 1.
+// '-5', 'abc', '', null, undefined. CLI callers report null as a usage error / exit 2.
 function parsePositiveInt(raw) {
   if (raw === null || raw === undefined) return null;
   const s = String(raw).trim();
