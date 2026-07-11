@@ -17,3 +17,9 @@
 - 复现: `rg -n -- '--project=X|informational lens|信息' README.md README.zh-CN.md` → English governance section documents `audit --project=X` and `rules` scoping; Chinese governance section does not.
 - 期望: 中文用户能发现按项目查看 telemetry/rules 的命令与“仅信息透镜、降级信号仍跨项目”的边界 / 实际: 只能看到未限定范围的 `--days=30` 示例。
 - 根因与备注: governance 文档后续参数扩展未同步中文。与 ISSUE-001 同属 README 中英功能漂移，可合并修复提交，但提交信息必须列出全部 ID。
+
+### ISSUE-004 | P2 | NEEDS_CONFIRMATION | 非法参数在不同子命令间返回 1 或 2
+- 发现轮次: 1    修复 commit: —
+- 复现: run `node bin/agentsmd.js init --check --dry-run; node bin/agentsmd.js audit --days=-1; node bin/agentsmd.js design --bogus; node bin/agentsmd.js status --bogus` and record statuses → `init`/`audit` return 1 while `design`/`status` return 2 for the same class of CLI usage error.
+- 期望: 自动化调用者能用一致退出码区分“命令使用错误”和“有效命令得到不健康/有缺口结果” / 实际: 手写 parser 的 `init`、`analyze`、`audit`、`rules`、`sampling-audit`、`lesson-bypass-audit`、`sparkline` 及 `perf-baseline` 的部分值校验返回 1；基于 `ArgvError` 的入口通常返回 2。
+- 根因与备注: 各脚本独立演进，参数错误的退出码约定未统一。方案 A: 全部非法 argv 统一为 2（推荐，符合现有 `ArgvError`、status/doctor/install/uninstall/restore 约定，风险是依赖旧 exit=1 的脚本需调整）；方案 B: 保留现状但在 help/README 逐命令记录退出码（零兼容风险，但自动化体验继续不一致）；方案 C: 全部归一为 1（实现简单，但会失去 usage/runtime/result 分类且改变更多既有入口）。这是外部调用者可见行为，未经产品确认不直接修改。
