@@ -64,6 +64,20 @@ t('install.sh rejects unknown options before touching CODEX_HOME', () => withSan
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
 }));
 
+t('install.sh rejects conflicting lifecycle actions without uninstalling', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  run(['--source', ROOT], env);
+  const result = cp.spawnSync('sh', [path.join(ROOT, 'install.sh'), '--source', ROOT, '--status', '--uninstall'], {
+    cwd: ROOT,
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.notStrictEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /multiple action options|conflicting.*action/i);
+  assert.strictEqual(JSON.parse(cli(['status'], env)).installed, true, 'conflicting action must not mutate CODEX_HOME');
+}));
+
 t('install.sh cleans its temp source dir when repo validation fails', () => withSandbox((dir) => {
   const script = path.join(dir, 'install.sh');
   const tmpdir = path.join(dir, 'tmp');

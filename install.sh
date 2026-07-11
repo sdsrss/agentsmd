@@ -9,6 +9,7 @@ DEFAULT_REPO="sdsrss/agentsmd"
 DEFAULT_REF="main"
 
 ACTION="install"
+ACTION_OPTION=""
 REPO="${AGENTSMD_REPO:-$DEFAULT_REPO}"
 REF="${AGENTSMD_REF:-$DEFAULT_REF}"
 SOURCE_DIR="${AGENTSMD_SOURCE_DIR:-}"
@@ -47,6 +48,7 @@ Environment:
   AGENTSMD_SOURCE_DIR Use a local checkout instead of downloading.
 
 Notes:
+  --update, --uninstall, --status, and --doctor are mutually exclusive.
   GitHub does not serve raw files from https://github.com/sdsrss/agentsmd/install.sh.
   Use the raw.githubusercontent.com URL above for curl-piped installs.
 EOF
@@ -59,6 +61,16 @@ say() {
 die() {
   printf 'agentsmd installer: %s\n' "$*" >&2
   exit 1
+}
+
+select_action() {
+  option="$1"
+  action="$2"
+  if [ -n "$ACTION_OPTION" ]; then
+    die "multiple action options: $ACTION_OPTION and $option"
+  fi
+  ACTION_OPTION="$option"
+  ACTION="$action"
 }
 
 cleanup() {
@@ -191,19 +203,19 @@ run_node_script() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --update)
-      ACTION="install"
+      select_action "--update" "install"
       shift
       ;;
     --uninstall)
-      ACTION="uninstall"
+      select_action "--uninstall" "uninstall"
       shift
       ;;
     --status)
-      ACTION="status"
+      select_action "--status" "status"
       shift
       ;;
     --doctor)
-      ACTION="doctor"
+      select_action "--doctor" "doctor"
       shift
       ;;
     --repo)
