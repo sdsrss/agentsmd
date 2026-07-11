@@ -1,11 +1,11 @@
 {
-  "description": "Plugin hook manifest selected explicitly by .codex-plugin/plugin.json. Commands resolve through PLUGIN_ROOT. The standalone installer separately expands hooks/hooks.json into ~/.codex/hooks.json; drift tests keep both wirings aligned.",
+  "description": "Plugin hook manifest selected explicitly by .codex-plugin/plugin.json. Commands resolve through Codex's CLAUDE_PLUGIN_ROOT. The standalone installer separately expands hooks/hooks.json into ~/.codex/hooks.json; drift tests keep both wirings aligned.",
   "hooks": {
     "SessionStart": [
       {
         "matcher": "startup|resume",
         "hooks": [
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/session-start-check.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-check.sh\"", "timeout": 5 }
         ]
       }
     ],
@@ -13,32 +13,32 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/pre-bash-safety-check.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/banned-vocab-check.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/ship-baseline-check.sh\"", "timeout": 8 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/memory-read-check.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/secrets-scan.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-bash-safety-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/banned-vocab-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ship-baseline-check.sh\"", "timeout": 8 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/memory-read-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/secrets-scan.sh\"", "timeout": 5 }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/surface-advisories.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/memory-prompt-hint.sh\"", "timeout": 3 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/surface-advisories.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/memory-prompt-hint.sh\"", "timeout": 3 }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/residue-audit.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/sandbox-disposal-check.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/transcript-structure-scan.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/convention-cite-scan.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/session-exit-checkpoint.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/mem-audit.sh\"", "timeout": 5 },
-          { "type": "command", "command": "bash \"${PLUGIN_ROOT}/hooks/session-summary.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/residue-audit.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/sandbox-disposal-check.sh\"", "timeout": 3 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/transcript-structure-scan.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/convention-cite-scan.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-exit-checkpoint.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/mem-audit.sh\"", "timeout": 5 },
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-summary.sh\"", "timeout": 5 }
         ]
       }
     ]

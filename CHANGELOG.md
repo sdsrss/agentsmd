@@ -8,7 +8,7 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 ### Added
 
 - The Codex plugin manifest now explicitly selects its root `hooks.json` and
-  resolves all 15 commands through `PLUGIN_ROOT`. A trusted plugin-only
+  resolves all 15 commands through Codex's `CLAUDE_PLUGIN_ROOT`. A trusted plugin-only
   `SessionStart` injects the packaged core spec into the current session and
   announces the packaged extended-spec path without writing global Codex files.
 - Plugin-aware `status` and `doctor` validate the manifest, all registrations,

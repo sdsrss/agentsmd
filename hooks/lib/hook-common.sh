@@ -7,6 +7,11 @@
 # {hookEventName, additionalContext}}. This DIFFERS from Claude Code, which uses
 # hookSpecificOutput.permissionDecision:"deny" — the one porting delta.
 
+# Codex exposes the active plugin bundle through CLAUDE_PLUGIN_ROOT. Keep the
+# shorter name internal so standalone hooks remain root-agnostic and existing
+# fixture injection stays compatible.
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+
 # hook_kill_switch NAME — return 0 to proceed, 1 to short-circuit.
 hook_kill_switch() {
   [[ "${DISABLE_AGENTSMD_HOOKS:-0}" == "1" ]] && return 1

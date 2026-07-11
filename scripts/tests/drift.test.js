@@ -112,15 +112,15 @@ t('plugin: manifest explicitly selects its root hook wiring', () => {
   assert(plugin.hooks.startsWith('./'), 'plugin hook-manifest path must be plugin-root relative');
 });
 
-t('plugin: hook commands resolve scripts from PLUGIN_ROOT', () => {
+t('plugin: hook commands resolve scripts from Codex CLAUDE_PLUGIN_ROOT', () => {
   const wiring = JSON.parse(read('hooks.json'));
   for (const [event, groups] of Object.entries(wiring.hooks)) {
     for (const group of groups || []) {
       for (const hook of group.hooks || []) {
         assert.match(
           hook.command,
-          /^bash "\$\{PLUGIN_ROOT\}\/hooks\/[a-z0-9-]+\.sh"$/,
-          `${event} command is not anchored to PLUGIN_ROOT: ${hook.command}`
+          /^bash "\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/[a-z0-9-]+\.sh"$/,
+          `${event} command is not anchored to CLAUDE_PLUGIN_ROOT: ${hook.command}`
         );
       }
     }

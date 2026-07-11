@@ -459,8 +459,8 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     (groups || []).flatMap((group) => (group.hooks || []).map((hook) => hook.command))
   );
   assert(selectedCommands.length > 0, 'plugin-selected hook manifest must register commands');
-  assert(selectedCommands.every((command) => command.includes('${PLUGIN_ROOT}/hooks/')),
-    'plugin-selected commands must resolve from PLUGIN_ROOT');
+  assert(selectedCommands.every((command) => command.includes('${CLAUDE_PLUGIN_ROOT}/hooks/')),
+    'plugin-selected commands must resolve from Codex CLAUDE_PLUGIN_ROOT');
   for (const rel of ['hooks.json', 'hooks/hooks.json']) {
     const manifest = JSON.parse(fs.readFileSync(path.join(installedRoot, rel), 'utf8'));
     assert.deepStrictEqual(

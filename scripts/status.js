@@ -128,7 +128,7 @@ function inspectPluginBundle(env = process.env) {
           .map((hook) => hook.command))
       );
       const registered = REG.HOOK_BASENAMES.filter((basename) =>
-        commands.some((command) => command === `bash "\${PLUGIN_ROOT}/hooks/${basename}"`)
+        commands.some((command) => command === `bash "\${CLAUDE_PLUGIN_ROOT}/hooks/${basename}"`)
       );
       result.hooks.registered = registered.length;
       result.hooks.missingRegistrations = REG.HOOK_BASENAMES.filter((name) => !registered.includes(name));
