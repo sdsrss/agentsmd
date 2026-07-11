@@ -32,3 +32,11 @@
   smoke suite.
 - `npm run lint:shell`: exit 0; no diagnostics.
 - Baseline worktree before QA files: clean.
+
+## Round 1（2026-07-11）
+- 覆盖: 两个画像交替重放 18 个 CLI 入口、隔离 CODEX_HOME 的 install→status→doctor→update→restore-list→uninstall、中文/空格/emoji 项目的 init/analyze/design、治理/诊断非法参数、管道/重定向、npm package dry-run、完整测试与 shell lint（用例数: 80 个用户旅程场景 + 905 个自动化断言 + 1 个 shell lint 命令，对比上轮: 902 个断言 + 1 lint）
+- 新发现: P0:0 P1:0 P2:1 P3:0（ISSUE-004）
+- 修复并复验: ISSUE-001, ISSUE-002, ISSUE-003（71aa10e）；三项均按原复现步骤重放并标记 VERIFIED
+- 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；真实 Codex plugin UI/runtime、多版本 Node/macOS、远程 registry/CI 仍是沙箱盲区。
+- 退出判定: 未满足（本轮出现新 P2，连续干净轮归零；ISSUE-004 虽不阻塞 P0/P1/P2 总账条件，但需产品确认退出码兼容策略）
+- 下轮计划: 候选退出轮执行同等规模全功能回归；加深 standalone installer、恢复 dry-run/confirm fixture、重复/乱序参数与 hook 变体；若无 P0-P2 新发现，记为连续干净轮 1/2。
