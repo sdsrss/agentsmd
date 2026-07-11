@@ -96,3 +96,11 @@
 - 遗留 / 待确认: 无。
 - 退出判定: 未满足（release review 后连续干净轮 1/2）
 - 下轮计划: 再执行同等规模全功能回归；无新增问题则进入 push/publish。
+
+## Round 9（2026-07-11）
+- 覆盖: v4.0.0 候选退出全功能回归原样重放；全新 fixture 上 87 个双画像用户旅程、909 条自动化断言、npm package dry-run 与 shell lint（用例数: 87 + 909 + 1，对比上轮: 87 + 909 + 1）
+- 新发现: P0:0 P1:0 P2:0 P3:0（无）
+- 修复并复验: 无新增修复；8 个 VERIFIED 问题全部由完整回归覆盖
+- 遗留 / 待确认: 无。
+- 退出判定: 满足（release review 后连续干净轮 2/2；无 OPEN/FIXED/NEEDS_CONFIRMATION；完整测试、package 与 lint 通过）
+- 下轮计划: 无；执行 v4.0.0 ship closure。

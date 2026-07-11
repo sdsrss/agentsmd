@@ -3,10 +3,10 @@
 ## 执行摘要
 
 - 结果: 达到本任务定义的可发布质量退出条件。
-- 轮次: Round 0 准备 + 6 个循环轮；用户确认 CLI contract 后，Round 5、Round 6 为连续两轮无新增问题的全功能回归。
+- 轮次: Round 0 准备 + 9 个循环轮；release review 修复后，Round 8、Round 9 为连续两轮无新增问题的全功能回归。
 - 问题: 共 8 个，P0:0、P1:1、P2:4、P3:3。
 - 处理: 8 个均已修复并按原步骤复验为 VERIFIED；无 OPEN、FIXED 未复验、NEEDS_CONFIRMATION、WONTFIX 或 CANNOT_REPRODUCE。
-- 最终新鲜证据: `qa/user-journey.sh` 87 passed / 0 failed；其内 `npm run check` 完成 908 passed / 0 failed 的 Node+hook 自动化断言及 ShellCheck 0 diagnostics；`npm pack --dry-run` 发布包入口检查通过。
+- 最终新鲜证据: `qa/user-journey.sh` 87 passed / 0 failed；其内 `npm run check` 完成 909 passed / 0 failed 的 Node+hook 自动化断言及 ShellCheck 0 diagnostics；`npm pack --dry-run` 发布包入口检查通过。
 - Git: `qa/self-test`，基线 tag `qa-baseline`；所有修复为独立本地 commit；未 push、未 force、未合并。
 
 ## 修复清单
