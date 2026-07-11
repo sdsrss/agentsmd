@@ -48,3 +48,11 @@
 - 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；外部 runtime 与跨平台盲区不变。
 - 退出判定: 未满足（本轮发现新 P2，即使已修复也使连续干净轮归零）
 - 下轮计划: 执行不低于本轮规模的全功能回归，重点复验 ISSUE-005 与 restore confirm/rollback、action 重复/顺序变体；若无 P0-P2 新发现，记为连续干净轮 1/2。
+
+## Round 3（2026-07-11）
+- 覆盖: 候选退出全功能回归；87 个双画像用户旅程覆盖全部 18 个 CLI、isolated lifecycle、standalone installer 冲突/逆序/重复 action、项目生成/分析/设计、治理诊断、pipe/redirect、package；完整 906 条自动化断言覆盖 restore confirm/rollback、15 hooks 与并发/故障 fixture；shell lint（用例数: 87 + 906 + 1，对比上轮: 85 + 906 + 1）
+- 新发现: P0:0 P1:0 P2:0 P3:0（无）
+- 修复并复验: 无新增修复；ISSUE-005 的原顺序、逆序、重复 action 均复验通过
+- 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；外部 runtime 与跨平台盲区不变。
+- 退出判定: 未满足（连续干净轮 1/2；其余退出条件满足）
+- 下轮计划: 再执行一次不低于 87 + 906 + 1 的候选退出全功能回归；若仍无 P0-P2 新发现，生成 FINAL_REPORT 并停止。

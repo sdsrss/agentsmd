@@ -104,6 +104,8 @@ export CODEX_HOME="$ROOT/standalone-home"
 expect_status 0 'standalone installer accepts local source' sh "$REPO/install.sh" --source "$REPO"
 expect_status 1 'standalone installer rejects status plus uninstall' sh "$REPO/install.sh" --source "$REPO" --status --uninstall
 expect_contains 'standalone conflict error names both actions' "$ROOT/stderr" 'multiple action options: --status and --uninstall'
+expect_status 1 'standalone installer rejects inverse action order' sh "$REPO/install.sh" --source "$REPO" --uninstall --status
+expect_status 1 'standalone installer rejects repeated action' sh "$REPO/install.sh" --source "$REPO" --status --status
 expect_status 0 'standalone conflict leaves install intact' sh -c 'node "$1" status | jq -e ".installed == true" >/dev/null' sh "$CLI"
 expect_status 0 'standalone uninstall still works alone' sh "$REPO/install.sh" --source "$REPO" --uninstall
 
