@@ -235,8 +235,9 @@ cp "$HOOKS_DIR/../spec/AGENTS.md" "$PLUGIN_FIXTURE/spec/AGENTS.md"
 cp "$HOOKS_DIR/../spec/AGENTS-extended.md" "$PLUGIN_FIXTURE/spec/AGENTS-extended.md"
 OUT="$(printf '%s' '{"session_id":"plugin-only","hook_event_name":"SessionStart"}' | PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 PLUGIN_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"
 { [[ "$PLUGIN_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]] \
-    && [[ "$PLUGIN_CTX" == *"$PLUGIN_FIXTURE/spec/AGENTS-extended.md"* ]]; } \
+    && [[ "$PLUGIN_CTX" == *"$PLUGIN_EXT_REAL"* ]]; } \
   && ok "plugin-only session injects core spec + resolvable extended path" \
   || bad "plugin-only session injects core spec + extended path" "$PLUGIN_CTX"
 mkdir -p "$CODEX_HOME/.agentsmd-state" "$CODEX_HOME/agentsmd/hooks"
