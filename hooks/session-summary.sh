@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # session-summary.sh — Stop. Aggregates THIS session's enforcement telemetry
 # (denials / bypasses / most-active spec section) from the log tail and writes a
-# per-session summary file. session-start-check.sh surfaces the most-recent OTHER
-# session's summary ONCE at the next SessionStart as a one-line self-awareness
-# banner (§7 cross-session lens) after it expires — agent-facing additionalContext,
-# zero user action. Stop is a turn checkpoint, NOT evidence of SessionEnd; this
-# file may be refreshed repeatedly while the same session remains resumable.
+# per-session summary file for explicit operator inspection through `status`.
+# It is never injected into another session: Stop is a turn checkpoint, NOT
+# evidence of SessionEnd, so cross-session presentation would label stale state
+# as a completed session. Files older than 30 days are pruned on a later Stop.
 #
 # Cost: reads only the last 512 KiB of the log (windowed → O(1) per Stop, not
 # O(log)); a session's rows cluster at the tail, so the window captures them for any
@@ -18,6 +17,7 @@ set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="session-summary"
 hook_kill_switch "SESSION_SUMMARY" || exit 0
@@ -30,8 +30,9 @@ SKEY="$(hook_session_key "$SID")"
 
 STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
 LOG_FILE="${CODEX_HOME:-$HOME/.codex}/logs/agentsmd.jsonl"
-[[ -r "$LOG_FILE" ]] || exit 0
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+find "$STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' -mtime +30 -delete 2>/dev/null || true
+[[ -r "$LOG_FILE" ]] || exit 0
 
 # Aggregate this session's enforcement rows from the 512 KiB log tail. A clean
 # session (no denials / bypasses / advisories) prints nothing → nothing to surface.

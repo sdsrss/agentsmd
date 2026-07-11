@@ -446,6 +446,21 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
   assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));
   assert(!fs.existsSync(path.join(installedRoot, 'scripts', 'tests')));
+  const installedPlugin = JSON.parse(fs.readFileSync(
+    path.join(installedRoot, '.codex-plugin', 'plugin.json'), 'utf8'
+  ));
+  assert.strictEqual(installedPlugin.hooks, './hooks.json');
+  assert(installedPlugin.hooks.startsWith('./'), 'plugin hook path must be explicitly relative');
+  const selectedHookManifest = path.resolve(installedRoot, installedPlugin.hooks);
+  assert.strictEqual(selectedHookManifest, path.join(installedRoot, 'hooks.json'));
+  assert.notStrictEqual(selectedHookManifest, path.join(installedRoot, 'hooks', 'hooks.json'));
+  const selectedWiring = JSON.parse(fs.readFileSync(selectedHookManifest, 'utf8'));
+  const selectedCommands = Object.values(selectedWiring.hooks).flatMap((groups) =>
+    (groups || []).flatMap((group) => (group.hooks || []).map((hook) => hook.command))
+  );
+  assert(selectedCommands.length > 0, 'plugin-selected hook manifest must register commands');
+  assert(selectedCommands.every((command) => command.includes('${PLUGIN_ROOT}/hooks/')),
+    'plugin-selected commands must resolve from PLUGIN_ROOT');
   for (const rel of ['hooks.json', 'hooks/hooks.json']) {
     const manifest = JSON.parse(fs.readFileSync(path.join(installedRoot, rel), 'utf8'));
     assert.deepStrictEqual(

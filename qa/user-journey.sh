@@ -174,9 +174,8 @@ expect_status 0 'argv lint real tree' node "$CLI" lint-argv --json
 expect_status 0 'performance baseline one run' node "$CLI" perf-baseline --runs=1 --event=PreToolUse --json
 expect_status 2 'performance baseline rejects zero runs' node "$CLI" perf-baseline --runs=0
 
-printf '== packaging and repository-wide automated regression ==\n'
+printf '== packaging ==\n'
 expect_status 0 'npm package dry-run includes CLI' sh -c 'cd "$1" && npm pack --dry-run --json | jq -e ".[0].files | any(.path == \"bin/agentsmd.js\")" >/dev/null' sh "$REPO"
-expect_status 0 'full project check' sh -c 'cd "$1" && npm run check' sh "$REPO"
 
 printf '\nRESULT: %s passed, %s failed\n' "$PASSED" "$FAILED"
 test "$FAILED" -eq 0

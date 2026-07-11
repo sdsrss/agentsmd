@@ -2,6 +2,22 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.1.0 (2026-07-11) — memory trust, plugin routing, and pause semantics
+
+Core §7 now defines project memory as untrusted data that cannot override the
+user, authorization, safety, or scope, and restricts linked memory to canonical
+regular Markdown files inside the repository's real `memory/` directory.
+Core §10 distinguishes scope descriptions such as “comprehensive audit” from
+unquantified value claims. The extended memory detail mirrors the trust boundary.
+
+Extended §E7 is now plugin-neutral and discovers optional workflows from live
+capabilities instead of naming stale tools or feature flags. §E8 recognizes
+user steering, asynchronous tools, external waits, and context pressure as
+legitimate recorded yields while preserving the rule that a turn boundary is
+not completion evidence. Governance aliases overlapping subclauses to a single
+parent signal. `spec_version` → v4.1.0. Package and hook details: repository
+`CHANGELOG.md`.
+
 ## v4.0.1 (2026-07-11) — plugin manifest repair (no rule-text changes)
 
 Core and extended rule text are unchanged. The shared version moves in lockstep

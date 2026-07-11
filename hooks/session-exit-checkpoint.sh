@@ -13,15 +13,18 @@
 # stays the agent's §7 responsibility; this hook only observes + nudges). The flag
 # self-clears the moment a later turn validates. Fail-open throughout.
 #
-# Codex transcript shapes (verified on a real ~/.codex/sessions/*.jsonl):
+# Codex transcript shapes (verified on real ~/.codex/sessions/*.jsonl):
 #   file edit   → {type:"custom_tool_call", payload:{name:"apply_patch",...}}
 #   shell/exec  → {type:"function_call",    payload:{name:"exec_command", arguments:"…"}}
+#   orchestrator→ {type:"response_item", payload:{type:"custom_tool_call",
+#                  name:"exec", input:"...tools.apply_patch/exec_command..."}}
 #   user turn   → {type:"user_message"} (or a message/response_item with role user)
 
 set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="session-exit-checkpoint"
 hook_kill_switch "SESSION_EXIT_CHECKPOINT" || exit 0
@@ -46,6 +49,7 @@ FLAG="$STATE_DIR/unvalidated-$SKEY.flag"
 # (e.g. "3 0" = 3 edits, none validated). Empty/parse failure → stay silent.
 RESULT="$(node -e '
 const fs=require("fs");
+const {extractOrchestratorActions}=require(process.argv[2]);
 const p=process.argv[1];
 const CAP=1<<19;
 let lines;
@@ -63,6 +67,24 @@ const VAL=/\b(npm\s+(test|run\b[^\n]*\b(test|lint|check|typecheck|build))|yarn\s
 const MUT=/((?:npx\s+)?prettier\b[^\n]*(?:--write|-w\b)|eslint\b[^\n]*--fix\b|biome\b[^\n]*(?:--write|--fix)\b|gofmt\b[^\n]*-w\b|rustfmt\b|cargo\s+fmt\b|sed\b[^\n]*\s-i(?:\s|$)|perl\b[^\n]*\s-pi\b|npm\s+run\s+(?:format|fmt)\b)/i;
 const RUFF_MUT=/\bruff\s+format\b/i;
 const RUFF_CHECK=/\bruff\s+format\b[^\n]*--check\b/i;
+const parseValue=(value)=>{if(!value||typeof value!=="string")return value;try{return JSON.parse(value);}catch{return value;}};
+const outputFailed=(value)=>{
+  value=parseValue(value);
+  if(value&&typeof value==="object"){
+    for(const key of ["exit_code","exitCode"]){if(Number.isFinite(Number(value[key]))&&Number(value[key])!==0)return true;}
+    return Object.values(value).some(outputFailed);
+  }
+  return typeof value==="string"&&/(?:\b(?:Process\s+)?exited\s+(?:with\s+code\s+)?[1-9][0-9]*\b|\bexit[_ ]?code\s*[:=]?\s*[1-9][0-9]*\b|Script failed|tool_error)/i.test(value);
+};
+const execOutputs=new Map();
+for(let i=start;i<lines.length;i++){
+  let o;try{o=JSON.parse(lines[i]);}catch{continue;}
+  const pl=o&&o.payload!=null?o.payload:o,type=pl&&(pl.type||o.type),callId=pl&&(pl.call_id||pl.id);
+  if((type==="custom_tool_call_output"||type==="function_call_output")&&callId){
+    const out=pl.output!=null?pl.output:pl.content;
+    execOutputs.set(callId,{present:out!=null,failed:outputFailed(out)});
+  }
+}
 let mut=0,val=0;
 for(let i=start;i<lines.length;i++){
   let o;try{o=JSON.parse(lines[i]);}catch{continue;}
@@ -70,6 +92,17 @@ for(let i=start;i<lines.length;i++){
   // Validation counts only after the most-recent edit. A test before a later
   // apply_patch characterizes old bytes; it cannot validate the new bytes.
   if(name==="apply_patch"){mut++;val=0;continue;}
+  if(name==="exec"){
+    const source=typeof pl.input==="string"?pl.input:(typeof pl.arguments==="string"?pl.arguments:"");
+    const callId=pl.call_id||pl.id,outer=execOutputs.get(callId);
+    for(const action of extractOrchestratorActions(source)){
+      if(action.name==="apply_patch"){mut++;val=0;continue;}
+      const cmd=typeof action.command==="string"?action.command:"";
+      if(MUT.test(cmd)||(RUFF_MUT.test(cmd)&&!RUFF_CHECK.test(cmd))){mut++;val=0;}
+      if(mut>0&&outer&&outer.present&&!outer.failed&&VAL.test(cmd))val=1;
+    }
+    continue;
+  }
   if(name==="exec_command"){
     let a=pl&&pl.arguments;
     if(typeof a==="string"){try{a=JSON.parse(a);}catch{a=null;}}
@@ -83,7 +116,7 @@ for(let i=start;i<lines.length;i++){
   }
 }
 process.stdout.write(mut+" "+val);
-' "$TRANSCRIPT" 2>/dev/null)" || exit 0
+' "$TRANSCRIPT" "$LIB_DIR/orchestrator-source.js" 2>/dev/null)" || exit 0
 
 MUT="${RESULT%% *}"; VAL="${RESULT##* }"
 [[ "$MUT" =~ ^[0-9]+$ ]] || exit 0

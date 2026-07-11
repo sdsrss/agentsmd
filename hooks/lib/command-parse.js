@@ -260,32 +260,120 @@ function interpreterExecutesInput(command) {
   return isInterpreter(name);
 }
 
+// Remove here-document bodies that are data for commands such as cat/tee. The
+// ordinary lexer is line-oriented and would otherwise mistake examples inside a
+// heredoc for top-level commands. Preserve bodies consumed by an interpreter (or
+// piped to one): those bytes really are executable input and must stay visible.
+function stripDataHereDocs(source) {
+  const lines = source.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const header = lines[i];
+    const match = header.match(/<<(-)?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/);
+    if (!match || header[match.index - 1] === "<") continue; // here-string, not heredoc
+    const delimiter = match[2] || match[3] || match[4] || "";
+    if (!delimiter) continue;
+    const executableInput = lexSafetyCommands(header)
+      .some((command) => interpreterExecutesInput(command) || ["source", ".", "eval"].includes(safetyExecutable(command).name));
+    if (executableInput) continue;
+    const stripTabs = Boolean(match[1]);
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const probe = stripTabs ? lines[j].replace(/^\t+/, "") : lines[j];
+      if (probe === delimiter) {
+        for (let k = i + 1; k <= j; k += 1) lines[k] = "";
+        i = j;
+        break;
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+// Recognize one deliberately narrow proof shape:
+//   SAFE="$(realpath -- "$VAR")" &&
+//     [[ -n "$SAFE" && "$SAFE" == /tmp/* ]] && rm -rf "$SAFE"
+// Canonicalization closes symlink/.. escapes before the bounded-prefix check.
+// Every later check and the rm target must name that exact canonical variable.
+// Replace only the guarded rm target with a literal before safety parsing;
+// prefix-only or non-empty-only guards stay variable-bearing and remain blocked.
+function markStrictlyValidatedRmTargets(source) {
+  const guard = /(?<safe>[A-Za-z_][A-Za-z0-9_]*)=(?<outer>["'])\$\(realpath(?:\s+-e)?\s+--\s+(?<inner>["'])\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)\k<inner>\)\k<outer>\s+&&\s+\[\[\s+-n\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\4\s+&&\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\5\s+==\s+\/tmp\/\*\s+\]\]\s+&&\s+(?<rm>(?:(?:command|sudo)\s+)*(?:\/[^\s]+\/)?rm\b[^;\n]*)/g;
+  return source.replace(guard, (...args) => {
+    const groups = args.at(-1);
+    const whole = args[0];
+    const safe = groups.safe;
+    const rmText = groups.rm;
+    const expansion = new RegExp(`(["']?)\\$(?:\\{${safe}\\}|${safe})\\1`, "g");
+    if (!expansion.test(rmText)) return whole;
+    expansion.lastIndex = 0;
+    return whole.slice(0, whole.length - rmText.length)
+      + rmText.replace(expansion, "/tmp/agentsmd-validated-target");
+  });
+}
+
+function prepareSafetySource(source) {
+  return markStrictlyValidatedRmTargets(stripDataHereDocs(source));
+}
+
+function rmArgSets(command) {
+  const { name, args } = safetyExecutable(command);
+  if (name === "rm") return [{ args, indirect: false }];
+  if ((name === "busybox" || name === "toybox") && basename(args[0]?.value || "").toLowerCase() === "rm") {
+    return [{ args: args.slice(1), indirect: false }];
+  }
+  if (name === "find") {
+    const sets = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i].value !== "-exec" && args[i].value !== "-execdir") continue;
+      let end = i + 1;
+      while (end < args.length && args[end].value !== ";" && args[end].value !== "+") end += 1;
+      const nested = { words: args.slice(i + 1, end), opAfter: null };
+      const executable = safetyExecutable(nested);
+      if (executable.name === "rm") sets.push({ args: executable.args, indirect: false });
+      i = end;
+    }
+    return sets;
+  }
+  if (name === "xargs") {
+    const rmIndex = args.findIndex((arg) => basename(arg.value).toLowerCase() === "rm");
+    if (rmIndex >= 0) return [{ args: args.slice(rmIndex + 1), indirect: true }];
+  }
+  return [];
+}
+
 function rmRfState(commands) {
   let candidate = false;
   let variableTarget = false;
-  for (const command of commands) {
-    const { name, args } = safetyExecutable(command);
-    if (name !== "rm") continue;
-    let recursive = false;
-    let force = false;
-    let options = true;
-    const targets = [];
-    for (const arg of args) {
-      const value = arg.value;
-      if (options && value === "--") {
-        options = false;
-        continue;
+  for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+    const command = commands[commandIndex];
+    for (const invocation of rmArgSets(command)) {
+      const { args } = invocation;
+      let recursive = false;
+      let force = false;
+      let options = true;
+      const targets = [];
+      for (const arg of args) {
+        const value = arg.value;
+        if (options && value === "--") {
+          options = false;
+          continue;
+        }
+        if (options && value === "--recursive") recursive = true;
+        else if (options && value === "--force") force = true;
+        else if (options && /^-[^-]/.test(value)) {
+          recursive = recursive || /[rR]/.test(value.slice(1));
+          force = force || value.slice(1).includes("f");
+        } else if (!options || !value.startsWith("-")) targets.push(arg);
       }
-      if (options && value === "--recursive") recursive = true;
-      else if (options && value === "--force") force = true;
-      else if (options && /^-[^-]/.test(value)) {
-        recursive = recursive || /[rR]/.test(value.slice(1));
-        force = force || value.slice(1).includes("f");
-      } else if (!options || !value.startsWith("-")) targets.push(arg);
+      if (!recursive || !force) continue;
+      candidate = true;
+      if (targets.some((target) => target.expands)) variableTarget = true;
+      if (invocation.indirect) {
+        for (let i = commandIndex - 1; i >= 0; i -= 1) {
+          if (commands[i].words.some((word) => word.expands)) variableTarget = true;
+          if (commands[i].opAfter !== "|") break;
+        }
+      }
     }
-    if (!recursive || !force) continue;
-    candidate = true;
-    if (targets.some((target) => target.expands)) variableTarget = true;
   }
   return { candidate, variableTarget };
 }
@@ -349,7 +437,7 @@ function rmRfStateRecursive(commands, depth) {
   const state = rmRfState(commands);
   if (depth >= MAX_SAFETY_RECURSION || (state.candidate && state.variableTarget)) return state;
   for (const nested of nestedShellSources(commands)) {
-    const child = rmRfStateRecursive(lexSafetyCommands(nested), depth + 1);
+    const child = rmRfStateRecursive(lexSafetyCommands(prepareSafetySource(nested)), depth + 1);
     state.candidate = state.candidate || child.candidate;
     state.variableTarget = state.variableTarget || child.variableTarget;
     if (state.candidate && state.variableTarget) break;
@@ -513,6 +601,39 @@ function commandExecutesFile(command, file, cwd = "") {
   return comparablePath(executable, cwd) === comparablePath(file, cwd);
 }
 
+function transferPaths(command, tainted, cwd = "") {
+  const { name, args } = safetyExecutable(command);
+  if (!["cp", "mv", "ln", "install"].includes(name)) return [];
+  const positional = [];
+  let options = true;
+  for (const arg of args) {
+    if (options && arg.value === "--") { options = false; continue; }
+    if (options && arg.value.startsWith("-")) continue;
+    positional.push(arg.value);
+  }
+  if (positional.length < 2) return [];
+  const source = comparablePath(positional[positional.length - 2], cwd);
+  const destination = comparablePath(positional[positional.length - 1], cwd);
+  return tainted.has(source) ? [destination] : [];
+}
+
+function taintState(commands, initialPaths = [], cwd = "", includeDownloads = false) {
+  const tainted = new Set(initialPaths.map((file) => comparablePath(file, cwd)));
+  const initial = new Set(tainted);
+  let executed = false;
+  for (const command of commands) {
+    if (includeDownloads) {
+      const output = downloaderOutput(command);
+      if (output) tainted.add(comparablePath(output, cwd));
+    }
+    for (const destination of transferPaths(command, tainted, cwd)) tainted.add(destination);
+    if ([...tainted].some((file) => interpreterReadsFile(command, file, cwd) || commandExecutesFile(command, file, cwd))) {
+      executed = true;
+    }
+  }
+  return { executed, derived: [...tainted].filter((file) => !initial.has(file)) };
+}
+
 function remoteExecState(commands, depth = 0) {
   // A downloader anywhere upstream in one pipeline feeds a later interpreter.
   for (let i = 0; i < commands.length; i += 1) {
@@ -546,16 +667,10 @@ function remoteExecState(commands, depth = 0) {
     }
   }
 
-  // A file downloaded and then passed directly to an interpreter in the same
-  // tool call is still uninspected remote execution. Plain inspection commands
-  // such as `cat file` do not satisfy this predicate.
-  for (let i = 0; i < commands.length; i += 1) {
-    const output = downloaderOutput(commands[i]);
-    if (!output) continue;
-    for (let j = i + 1; j < commands.length; j += 1) {
-      if (interpreterReadsFile(commands[j], output) || commandExecutesFile(commands[j], output)) return true;
-    }
-  }
+  // Track downloaded files through common file-preserving transformations. This
+  // catches download → cp/mv/ln/install → interpreter without treating inspection
+  // commands such as cat or bash -n as execution.
+  if (taintState(commands, [], "", true).executed) return true;
   if (depth < MAX_SAFETY_RECURSION) {
     for (const nested of nestedShellSources(commands)) {
       if (remoteExecState(lexSafetyCommands(nested), depth + 1)) return true;
@@ -565,10 +680,15 @@ function remoteExecState(commands, depth = 0) {
 }
 
 function sourceExecutesFile(source, file, cwd = "", depth = 0) {
-  const commands = lexSafetyCommands(source);
-  if (commands.some((command) => interpreterReadsFile(command, file, cwd) || commandExecutesFile(command, file, cwd))) return true;
+  const commands = lexSafetyCommands(prepareSafetySource(source));
+  if (taintState(commands, [file], cwd).executed) return true;
   if (depth >= MAX_SAFETY_RECURSION) return false;
   return nestedShellSources(commands).some((nested) => sourceExecutesFile(nested, file, cwd, depth + 1));
+}
+
+function sourcePropagatesFile(source, file, cwd = "") {
+  const commands = lexSafetyCommands(prepareSafetySource(source));
+  return taintState(commands, [file], cwd).derived;
 }
 
 function collectDownloads(source, depth = 0) {
@@ -580,6 +700,7 @@ function collectDownloads(source, depth = 0) {
 }
 
 function analyzeSafety(source) {
+  source = prepareSafetySource(source);
   const commands = lexSafetyCommands(source);
   const rm = rmRfStateRecursive(commands, 0);
   return {
@@ -952,6 +1073,7 @@ function parseGit(words, wanted) {
 }
 
 function collectGitMatches(source, wanted, depth = 0) {
+  source = stripDataHereDocs(source);
   const matches = [];
   for (const words of lexCommands(source)) {
     const parsed = parseGit(words, wanted);
@@ -971,6 +1093,10 @@ function main() {
   }
   if (process.argv[2] === "--safety") {
     process.stdout.write(JSON.stringify(analyzeSafety(process.argv[3] || "")));
+    return;
+  }
+  if (process.argv[2] === "--propagates-file") {
+    process.stdout.write(JSON.stringify(sourcePropagatesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
     return;
   }
   const wanted = new Set((process.argv[2] || "").toLowerCase().split("|").filter(Boolean));

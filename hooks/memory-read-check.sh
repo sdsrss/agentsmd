@@ -11,6 +11,7 @@ set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="memory-read"
 hook_kill_switch "MEMORY_READ" || exit 0
@@ -101,19 +102,6 @@ fi
 CONSULTED_JSON="$(node -e '
 const fs = require("fs");
 const path = require("path");
-const CAP = 1 << 19; // 512 KiB tail — bound the read on long sessions (mirror of the Stop hooks); an unbounded readFileSync here degraded the ship gate to a timeout no-op on the longest sessions.
-let lines;
-try {
-  const fd = fs.openSync(process.argv[1], "r");
-  let buf;
-  try {
-    const size = fs.fstatSync(fd).size;
-    const start = size > CAP ? size - CAP : 0;
-    buf = Buffer.alloc(size - start);
-    if (buf.length) fs.readSync(fd, buf, 0, buf.length, start);
-  } finally { fs.closeSync(fd); }
-  lines = buf.toString("utf8").split(/\r?\n/).filter(Boolean);
-} catch { process.exit(2); }
 const calls = new Map();
 const outputs = new Map();
 const parseValue = (value) => {
@@ -130,27 +118,66 @@ const outputFailed = (value) => {
   }
   return typeof value === "string" && /(?:\b(?:Process\s+)?exited\s+(?:with\s+code\s+)?[1-9][0-9]*\b|\bexit[_ ]?code\s*[:=]?\s*[1-9][0-9]*\b|No such file or directory|Script failed|tool_error)/i.test(value);
 };
-for (const line of lines) {
+// Scan the complete JSONL instead of a tail window: a valid read early in a long
+// session remains evidence. Memory stays bounded by retaining only path-relevant
+// in-flight calls (max 1024) and successful pairs (max 256), never tool outputs.
+const pending = new Map();
+const MAX_PENDING = 1024;
+const MAX_SUCCESSFUL = 256;
+const MAX_LINE_BYTES = 1 << 20;
+const transcript = process.argv[1];
+let fd;
+try { fd = fs.openSync(transcript, "r"); } catch { process.exit(2); }
+let carry = "", droppingOversize = false;
+const processLine = (line) => {
+  if (!line || Buffer.byteLength(line) > MAX_LINE_BYTES) return;
   let o;
-  try { o = JSON.parse(line); } catch { continue; }
+  try { o = JSON.parse(line); } catch { return; }
   const p = o && o.payload != null ? o.payload : o;
-  if (!p || typeof p !== "object") continue;
+  if (!p || typeof p !== "object") return;
   const type = p.type || o.type;
   const callId = p.call_id || p.id;
   if ((type === "function_call" || type === "custom_tool_call") && callId) {
     const name = p.name || "";
     if (["exec_command", "exec", "read_file"].includes(name)) {
-      calls.set(callId, { name, arguments: parseValue(p.arguments != null ? p.arguments : p.input) });
+      const args = parseValue(p.arguments != null ? p.arguments : p.input);
+      const source = JSON.stringify(args == null ? "" : args);
+      if (/MEMORY\.md|[\\/]memory[\\/]/.test(source)) {
+        if (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value);
+        pending.set(callId, { name, arguments: args });
+      }
     }
-    continue;
+    return;
   }
   if ((type === "function_call_output" || type === "custom_tool_call_output") && callId) {
+    const call = pending.get(callId);
+    pending.delete(callId);
+    if (!call || calls.size >= MAX_SUCCESSFUL) return;
     const out = p.output != null ? p.output : p.content;
     if (out != null && JSON.stringify(out).length > 2 && !outputFailed(out)) {
-      outputs.set(callId, out);
+      calls.set(callId, call);
+      outputs.set(callId, true);
     }
   }
-}
+};
+try {
+  const chunk = Buffer.alloc(64 * 1024);
+  for (;;) {
+    const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+    if (!n) break;
+    carry += chunk.subarray(0, n).toString("utf8");
+    let nl;
+    while ((nl = carry.indexOf("\n")) >= 0) {
+      const line = carry.slice(0, nl).replace(/\r$/, "");
+      carry = carry.slice(nl + 1);
+      if (!droppingOversize) processLine(line);
+      droppingOversize = false;
+    }
+    if (Buffer.byteLength(carry) > MAX_LINE_BYTES) { carry = ""; droppingOversize = true; }
+  }
+  if (!droppingOversize && carry) processLine(carry.replace(/\r$/, ""));
+} catch { fs.closeSync(fd); process.exit(2); }
+fs.closeSync(fd);
 const consulted = process.argv.slice(2).filter((memory) => {
   // macOS exposes the same temp path as both /var/... and /private/var/....
   // Git canonicalizes to the latter while the transcript may retain the former.
@@ -280,11 +307,35 @@ const consulted = process.argv.slice(2).filter((memory) => {
   if (!wasRead(memory)) return false;
   let body;
   try { body = fs.readFileSync(memory, "utf8"); } catch { return false; }
+  const MAX_MEMORY_BYTES = 64 * 1024;
+  const root = path.dirname(memory);
+  const memoryDir = path.join(root, "memory");
+  let memoryDirStat, memoryReal;
+  try {
+    memoryDirStat = fs.lstatSync(memoryDir);
+    if (!memoryDirStat.isDirectory() || memoryDirStat.isSymbolicLink()) return true;
+    memoryReal = fs.realpathSync(memoryDir);
+  } catch { return true; }
   const links = [];
   for (const match of body.matchAll(/\]\(([^)]+)\)/g)) {
     const target = match[1].trim();
-    if (!target || target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
-    links.push(path.resolve(path.dirname(memory), target));
+    if (!target || target.includes("\\") || target.includes("\0") || path.isAbsolute(target)
+        || /^[A-Za-z]:[\\/]/.test(target) || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+    const parts = target.split("/");
+    if (parts[0] !== "memory" || parts.length < 2 || parts.some((part) => !part || part === "." || part === "..")
+        || !parts[parts.length - 1].endsWith(".md")) continue;
+    let cursor = memoryDir, unsafe = false;
+    for (const part of parts.slice(1)) {
+      cursor = path.join(cursor, part);
+      let stat;
+      try { stat = fs.lstatSync(cursor); } catch { unsafe = true; break; }
+      if (stat.isSymbolicLink()) { unsafe = true; break; }
+    }
+    if (unsafe) continue;
+    let stat, real;
+    try { stat = fs.statSync(cursor); real = fs.realpathSync(cursor); } catch { continue; }
+    if (!stat.isFile() || stat.size > MAX_MEMORY_BYTES || !real.startsWith(memoryReal + path.sep)) continue;
+    links.push(real);
   }
   return links.length === 0 || links.some(wasRead);
 });

@@ -18,6 +18,19 @@ hook_kill_switch() {
 # hook_require_jq — 0 if jq on PATH, else 1.
 hook_require_jq() { command -v jq >/dev/null 2>&1; }
 
+# Plugin and standalone are alternative delivery surfaces. When a plugin hook
+# sees a complete standalone install, yield to the standalone copy so hooks,
+# advisories, and telemetry are not emitted twice.
+hook_plugin_shadowed_by_standalone() {
+  [[ -n "${PLUGIN_ROOT:-}" ]] || return 1
+  local home="${CODEX_HOME:-$HOME/.codex}"
+  local manifest="$home/.agentsmd-state/manifest.json"
+  [[ -r "$manifest" && -d "$home/agentsmd/hooks" && -r "$home/AGENTS.md" ]] || return 1
+  grep -q '^# >>> agentsmd >>>' "$home/AGENTS.md" 2>/dev/null || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -e '.name == "agentsmd" and (.version | type == "string")' "$manifest" >/dev/null 2>&1
+}
+
 # hook_read_event — read stdin JSON to stdout; empty on error.
 hook_read_event() {
   local input

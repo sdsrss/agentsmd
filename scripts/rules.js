@@ -46,8 +46,10 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     const evaluatedObservations = bucket ? bucket.evaluatedObservations : 0;
     const live = section ? liveSections.has(section) : false;
     const policy = r.demote_policy || 'standard';
+    const governanceParent = r.governance_parent || null;
     let signal;
-    if (enforced && section && live) {
+    if (governanceParent) signal = 'inherited';
+    else if (enforced && section && live) {
       if (hits > 0) signal = 'active';
       else if (noData) signal = 'no-data';
       else if (eligibleSessions === 0) signal = 'no-opportunity';
@@ -66,7 +68,7 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     return {
       id: r.id, scope: r.scope, enforcement: r.enforcement, section, hits,
       eligibleSessions, evaluatedSessions, eligibleObservations, evaluatedObservations,
-      live, signal, policy, localHits, confidence: r.confidence,
+      live, signal, policy, governanceParent, localHits, confidence: r.confidence,
       lastDemoteReview: r.last_demote_review,
     };
   });
@@ -137,7 +139,8 @@ function formatReport(ra) {
     const flag = r.signal === 'demote-candidate' ? '  ⚠ DEMOTE?'
       : (r.signal === 'hook-value-review' ? '  ⚠ HOOK-VALUE?' : '');
     const local = (ra.projectFilter && r.localHits !== null) ? `  local:${r.localHits}` : '';
-    L.push(`  ${r.id.padEnd(24)} ${r.section || ''}  hits:${r.hits}  eligible:${r.eligibleSessions}  evaluated:${r.evaluatedSessions}  [${r.signal}]${flag}${local}`);
+    const inherited = r.governanceParent ? ` → ${r.governanceParent}` : '';
+    L.push(`  ${r.id.padEnd(24)} ${r.section || ''}  hits:${r.hits}  eligible:${r.eligibleSessions}  evaluated:${r.evaluatedSessions}  [${r.signal}${inherited}]${flag}${local}`);
   }
   L.push('');
   L.push(`self-enforced (not mechanically measured): ${ra.selfEnforced.length} rules`);

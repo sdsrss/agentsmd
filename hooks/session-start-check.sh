@@ -9,6 +9,7 @@ set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
@@ -38,17 +39,32 @@ if [[ "$SS_SOURCE" != "resume" ]]; then
 fi
 find "$STATE_DIR" -maxdepth 1 -type f -name 'remote-downloads-*.paths' -mtime +7 -delete 2>/dev/null || true
 
-# Resolve spec version from the installed core spec, if present. The fallback is a
-# non-version placeholder on purpose: a hardcoded vX.Y.Z here silently goes stale
-# every release (drift.test.js guards against reintroducing one). If we cannot read
-# the spec, we honestly do not know its version.
+# Resolve the active spec. Standalone installs already place the core in Codex's
+# discovery chain. Plugin-only installs do not, so a trusted plugin hook injects
+# the packaged core and announces the packaged extended-spec path explicitly.
+# The fallback remains version-neutral so release bumps cannot drift silently.
 VER="unknown"
+SPEC_ACTIVE=false
+SPEC_CONTEXT=""
 for spec in "${CODEX_HOME:-$HOME/.codex}/AGENTS.override.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"; do
   if [[ -r "$spec" ]]; then
     v="$(grep -m1 -oE 'CODEX-CODING-SPEC v[0-9]+\.[0-9]+\.[0-9]+' "$spec" 2>/dev/null | grep -oE 'v[0-9.]+')"
-    [[ -n "$v" ]] && { VER="$v"; break; }
+    [[ -n "$v" ]] && { VER="$v"; SPEC_ACTIVE=true; break; }
   fi
 done
+if [[ "$SPEC_ACTIVE" != "true" && -n "${PLUGIN_ROOT:-}" ]]; then
+  PLUGIN_BASE="$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd -P)"
+  PLUGIN_CORE="$PLUGIN_BASE/spec/AGENTS.md"
+  PLUGIN_EXTENDED="$PLUGIN_BASE/spec/AGENTS-extended.md"
+  if [[ -n "$PLUGIN_BASE" && -r "$PLUGIN_CORE" && -r "$PLUGIN_EXTENDED" ]]; then
+    v="$(grep -m1 -oE 'CODEX-CODING-SPEC v[0-9]+\.[0-9]+\.[0-9]+' "$PLUGIN_CORE" 2>/dev/null | grep -oE 'v[0-9.]+')"
+    if [[ -n "$v" ]]; then
+      VER="$v"
+      SPEC_ACTIVE=true
+      SPEC_CONTEXT=$'\n'"[agentsmd plugin] The packaged core spec follows. Extended spec: ${PLUGIN_EXTENDED} — read it on the core triggers."$'\n'"$(cat "$PLUGIN_CORE" 2>/dev/null)"
+    fi
+  fi
+fi
 
 # Cross-session §7 safety net: surface only EXPIRED (>7-day) non-self checkpoint
 # flags. A fresh OTHER flag may belong to a still-resumable session, so consuming
@@ -69,30 +85,10 @@ if [[ "$CP_FOUND" -gt 0 ]]; then
   CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/typecheck/build ran after the last mutation). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
 
-# B2 cross-session self-awareness: among EXPIRED (>7-day) non-self summaries,
-# surface and consume the most recent one. Older expired summaries remain for a
-# later start; fresh and self summaries remain untouched.
-SUMMARY_BANNER=""
-SELF_SUMMARY="session-summary-$SKEY.json"
-LATEST=""; LATEST_MT=0
-while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
-  [[ "$(basename "$f")" == "$SELF_SUMMARY" ]] && continue
-  mt="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)"
-  [[ "$mt" -gt "$LATEST_MT" ]] && { LATEST_MT="$mt"; LATEST="$f"; }
-done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' -mtime +7 2>/dev/null)
-if [[ -n "$LATEST" && -r "$LATEST" ]]; then
-  D="$(jq -r '.denies // 0' "$LATEST" 2>/dev/null || echo 0)"
-  BP="$(jq -r '.bypasses // 0' "$LATEST" 2>/dev/null || echo 0)"
-  TSEC="$(jq -r '.top_section // ""' "$LATEST" 2>/dev/null || echo '')"
-  TNUM="$(jq -r '.top_count // 0' "$LATEST" 2>/dev/null || echo 0)"
-  TOPCLAUSE=""
-  [[ -n "$TSEC" && "$TNUM" -gt 0 ]] && TOPCLAUSE=", most-active ${TSEC} (${TNUM})"
-  SUMMARY_BANNER=$'\n'"[agentsmd §7] Expired session summary: ${D} enforcement denial(s), ${BP} bypass(es)${TOPCLAUSE} (agentsmd telemetry)."
-  rm -f "$LATEST" 2>/dev/null || true
-fi
-
 hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
-hook_context \
-  "[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1.${CHECKPOINT}${SUMMARY_BANNER}" \
-  "SessionStart"
+if [[ "$SPEC_ACTIVE" == "true" ]]; then
+  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} active — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks enforce §8 (rm -rf \$VAR / remote-exec) and §10 banned-vocab on commits. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
+else
+  BANNER="[agentsmd] Native hooks are active, but no CODEX-CODING-SPEC core was found; SPINE/Iron-Law policy is not loaded. Reinstall the plugin or run the standalone installer."
+fi
+hook_context "${BANNER}${SPEC_CONTEXT}${CHECKPOINT}" "SessionStart"

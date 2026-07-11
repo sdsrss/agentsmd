@@ -17,11 +17,11 @@ Turns a frontend project's design tokens into a **facts-only `DESIGN.md`** the a
 
 ```bash
 node "$AGENTSMD_ROOT/scripts/design.js"           # preview — writes nothing
-node "$AGENTSMD_ROOT/scripts/design.js" --write   # commit DESIGN.md + the AGENTS.md pointer
+node "$AGENTSMD_ROOT/scripts/design.js" --write   # write DESIGN.md + the AGENTS.md pointer
 ```
 
 - **Deterministic, not AI**: tokens are facts, so this parses them directly (unlike `agentsmd-analyze`, which distills conventions with an AI step). Sources: `:root { --x: … }` custom properties and Tailwind v4 `@theme { --x: … }`.
-- **Consent-gated**: default **previews** the exact managed block + writes nothing; `--write` commits. The block is sentinel-delimited (`<!-- agentsmd:design … -->`) so a re-run refreshes it in place and preserves anything you wrote outside it.
+- **Consent-gated**: default **previews** the exact managed block + writes nothing; `--write` updates the two files but does not run `git commit`. The block is sentinel-delimited (`<!-- agentsmd:design … -->`) so a re-run refreshes it in place and preserves anything you wrote outside it.
 - **Budget-guarded**: refuses (never truncates) if the token block would exceed its size cap.
 - **Honest edges**: a non-frontend project is a no-op; if no `:root`/`@theme` tokens are found the DESIGN.md says so — and for a Tailwind v3 project (theme in `tailwind.config.js`), it points you there (config-object parsing is a documented future extension).
 

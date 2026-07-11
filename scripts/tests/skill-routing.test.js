@@ -81,7 +81,7 @@ function shellQuote(value) {
 }
 
 function resolveDocumentedRoot(name, skillFile, codexHome, cwd) {
-  const block = skillDocs[name].match(/```bash\n(SKILL_MD=.*?\nCANDIDATE_ROOT=.*?\nif .*? fi)\n```/s);
+  const block = skillDocs[name].match(/```bash\n(SKILL_MD=.*?\nCANDIDATE_ROOT=.*?[\s\S]*?)\n```/);
   assert(block, `${name}: resolver block missing`);
   const script = block[1]
     .replace(/^SKILL_MD=.*$/m, `SKILL_MD=${shellQuote(skillFile)}`)

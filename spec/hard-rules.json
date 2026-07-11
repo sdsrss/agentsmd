@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both.",
-  "spec_version": "v4.0.1",
+  "spec_version": "v4.1.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -10,7 +10,7 @@
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
   "operational_sections": ["§hooks-fail-open"],
   "_live_sections_doc": "spec_section values emitted or observed by a built and registered hook. A live section with zero rule-specific eligible/evaluated opportunities is no-opportunity, not a demotion signal. Update this array when a hook starts or stops emitting/observing a section.",
-  "_demote_policy_doc": "Optional per-rule governance policy used by scripts/rules.js. A standard live core rule becomes a demotion candidate only after the minimum distinct eligible and evaluated sessions with zero enforcement outcomes. deterrence rules are never demoted from telemetry alone. Extended rules have no lower prompt tier and receive hook-value-review instead. Every signal remains operator input, not an automatic edit.",
+  "_demote_policy_doc": "Optional per-rule governance policy used by scripts/rules.js. A standard live core rule becomes a demotion candidate only after the minimum distinct eligible and evaluated sessions with zero enforcement outcomes. deterrence rules are never demoted from telemetry alone. governance_parent marks an overlapping subclause whose promotion/demotion signal is inherited from one disjoint parent rule, preventing duplicate recommendations from the same telemetry bucket. Extended rules have no lower prompt tier and receive hook-value-review instead. Every signal remains operator input, not an automatic edit.",
   "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene", "§6-iron-law-2", "§10-honesty"],
   "rules": [
     {
@@ -148,6 +148,7 @@
     },
     {
       "id": "§6-bugfix-anchor",
+      "governance_parent": "§10-specificity",
       "name": "Bugfix anchor + banned phrasings (missing-evidence tokens)",
       "scope": "core",
       "section_anchor": "Banned phrasings (= missing evidence)",
@@ -391,6 +392,7 @@
     },
     {
       "id": "§8-env-key-commit",
+      "governance_parent": "§8-secrets",
       "name": "Never commit .env or private-key files",
       "scope": "core",
       "section_anchor": "commit `.env`/keys",

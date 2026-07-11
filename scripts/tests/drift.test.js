@@ -61,6 +61,18 @@ t('hard-rules: live_sections ⊆ manifest rule_hits_sections', () => {
   assert.strictEqual(orphan.length, 0, 'live_sections not in any rule: ' + orphan.join(', '));
 });
 
+t('hard-rules: governance parents resolve and cannot form chains or cycles', () => {
+  const byId = new Map(hr.rules.map((rule) => [rule.id, rule]));
+  for (const rule of hr.rules.filter((item) => item.governance_parent)) {
+    assert.notStrictEqual(rule.governance_parent, rule.id, `${rule.id} governs itself`);
+    const parent = byId.get(rule.governance_parent);
+    assert(parent, `${rule.id} has missing governance parent ${rule.governance_parent}`);
+    assert(!parent.governance_parent, `${rule.id} creates a governance chain through ${parent.id}`);
+    assert.strictEqual(parent.rule_hits_section, rule.rule_hits_section,
+      `${rule.id} and ${parent.id} do not share the telemetry bucket they deduplicate`);
+  }
+});
+
 // 3. every live_section is actually EMITTED by a hook script, not merely named in
 //    a comment. Full-line shell comments are stripped first: a section mentioned
 //    only in a `# …` line but never in a hook_record call would otherwise green
@@ -92,6 +104,27 @@ t('hooks: install-template and plugin-manifest wirings match', () => {
   assert.deepStrictEqual(Object.keys(a).sort(), [...hr.registered_hook_events].sort(), 'manifest registered_hook_events differ from wiring');
   const supported = new Set(hr.supported_hook_events || []);
   assert(hr.registered_hook_events.every((event) => supported.has(event)), 'registered hook event missing from supported_hook_events');
+});
+
+t('plugin: manifest explicitly selects its root hook wiring', () => {
+  const plugin = JSON.parse(read('.codex-plugin/plugin.json'));
+  assert.strictEqual(plugin.hooks, './hooks.json', 'plugin.json must explicitly select ./hooks.json');
+  assert(plugin.hooks.startsWith('./'), 'plugin hook-manifest path must be plugin-root relative');
+});
+
+t('plugin: hook commands resolve scripts from PLUGIN_ROOT', () => {
+  const wiring = JSON.parse(read('hooks.json'));
+  for (const [event, groups] of Object.entries(wiring.hooks)) {
+    for (const group of groups || []) {
+      for (const hook of group.hooks || []) {
+        assert.match(
+          hook.command,
+          /^bash "\$\{PLUGIN_ROOT\}\/hooks\/[a-z0-9-]+\.sh"$/,
+          `${event} command is not anchored to PLUGIN_ROOT: ${hook.command}`
+        );
+      }
+    }
+  }
 });
 
 // 5. version is consistent across package.json / plugin.json / marketplace pin /

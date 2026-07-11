@@ -3,6 +3,68 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.1.0 — 2026-07-11 — trusted plugin runtime and safety audit remediation
+
+### Added
+
+- The Codex plugin manifest now explicitly selects its root `hooks.json` and
+  resolves all 15 commands through `PLUGIN_ROOT`. A trusted plugin-only
+  `SessionStart` injects the packaged core spec into the current session and
+  announces the packaged extended-spec path without writing global Codex files.
+- Plugin-aware `status` and `doctor` validate the manifest, all registrations,
+  hook scripts and support files, both specs, prerequisites, and duplicate
+  plugin/standalone surfaces. Complete standalone installs suppress the plugin
+  hook copy to prevent duplicate execution.
+- CI now runs the full suite on macOS and a separate 86-case user journey on
+  Linux. The portable timeout fallback terminates the complete command process
+  group instead of leaving descendants behind.
+
+### Changed
+
+- Project memory is explicitly untrusted data. Hints emit only validated
+  repository-relative paths; ship evidence accepts only canonical, non-symlink,
+  regular Markdown files up to 64 KiB inside the repository's real `memory/`
+  directory. Transcript evidence is streamed across the complete session with
+  bounded retained metadata.
+- Session enforcement summaries remain available through explicit `status`
+  inspection and are never injected into another session. Reports with a
+  literal `Done:` label now require all four ordered outcome labels, including
+  one- and two-label incomplete reports.
+- Overlapping hard-rule subclauses inherit one governance parent so a shared
+  telemetry bucket cannot emit duplicate promotion/demotion recommendations.
+  Optional-workflow guidance is plugin-neutral, and turn-yield guidance records
+  asynchronous, user-steered, and external-dependency pauses without treating
+  them as completion.
+
+### Fixed
+
+- Shell safety detects `find -exec/-execdir rm`, BusyBox/Toybox `rm`, and
+  `xargs rm`; it preserves remote provenance through `cp`, `mv`, `ln`, and
+  `install`, while data heredocs no longer forge executable commands. A variable
+  delete is exempt only after canonical `realpath`, non-empty, `/tmp/*`-bounded
+  validation of the exact deleted variable.
+- Restore revalidates each shared-file snapshot immediately before writing, so
+  concurrent changes are rejected and already-restored files are rolled back.
+- Session checkpoints recognize successful `functions.exec`-orchestrated edits,
+  formatters, and validations without accepting markers inside strings/comments
+  or failed outer calls.
+
+### Quality
+
+- Release validation covers plugin-only health, indirect command variants,
+  malicious memory links, transcripts beyond 512 KiB, write-time restore races,
+  incomplete reports, process-tree timeout cleanup, and modern orchestration.
+  The hook smoke suite contains 274 passing cases and the user journey contains
+  86 passing cases.
+- On the same five-run synthetic baseline, `memory-prompt-hint` logic median
+  moved from 78.3 ms to 27.3 ms; combined `UserPromptSubmit` hook medians moved
+  from 93.3 ms to 42.6 ms.
+
+Rollback consumers with `npm install -g @sdsrs/agentsmd@4.0.1 && agentsmd
+update`; source/plugin users select `v4.0.1` and reinstall. Revert the v4.1.0
+release commit for source rollback. Published npm versions are immutable and can
+only be deprecated.
+
 ## v4.0.1 — 2026-07-11 — valid plugin hooks manifests and release synchronization
 
 ### Fixed

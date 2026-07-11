@@ -70,6 +70,16 @@ t('each hook file calls hook_kill_switch "<envVarSuffix>" (registry <-> hook sou
   }
 });
 
+t('each plugin hook yields to an existing standalone surface', () => {
+  for (const hook of REG.HOOK_REGISTRY) {
+    const source = fs.readFileSync(path.join(ROOT, 'hooks', hook.basename), 'utf8');
+    assert(
+      source.includes('hook_plugin_shadowed_by_standalone && exit 0'),
+      `${hook.basename} does not suppress its duplicate plugin copy when standalone is active`
+    );
+  }
+});
+
 t('derived exports (BASENAMES / ENV_SUFFIXES / NAME_TO_ENV) are consistent', () => {
   assert.strictEqual(REG.HOOK_BASENAMES.length, 15);
   assert.strictEqual(REG.HOOK_ENV_SUFFIXES.length, 15);

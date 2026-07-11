@@ -4,6 +4,7 @@
 // observable, not just asserted).
 
 const fs = require('fs');
+const path = require('path');
 const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
@@ -16,6 +17,16 @@ const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return 
 const SEMVER_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SHA256_RE = /^[a-f0-9]{64}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const PLUGIN_HOOK_SUPPORT = [
+  'hooks/banned-vocab.patterns',
+  'hooks/secrets.patterns',
+  'hooks/lib/hook-common.sh',
+  'hooks/lib/platform.sh',
+  'hooks/lib/platform-timeout.js',
+  'hooks/lib/rule-hits.sh',
+  'hooks/lib/command-parse.js',
+  'hooks/lib/orchestrator-source.js',
+];
 
 function validateOwnedRecord(record, label) {
   if (!isObject(record)) return `manifest ${label} must be an object`;
@@ -61,9 +72,138 @@ function readInstallManifest() {
     : { manifest, valid: true, error: null };
 }
 
+function inspectPluginBundle(env = process.env) {
+  const configuredRoot = typeof env.AGENTSMD_PLUGIN_ROOT === 'string'
+    ? env.AGENTSMD_PLUGIN_ROOT.trim()
+    : '';
+  const root = configuredRoot ? path.resolve(configuredRoot) : null;
+  const result = {
+    detected: Boolean(root),
+    root,
+    complete: false,
+    errors: [],
+    manifest: { present: false, valid: false, hooksPath: null },
+    hooks: {
+      present: false,
+      valid: false,
+      registered: 0,
+      expected: REG.HOOK_REGISTRY.length,
+      missingRegistrations: [...REG.HOOK_BASENAMES],
+      missingScripts: [...REG.HOOK_BASENAMES],
+      missingSupport: [...PLUGIN_HOOK_SUPPORT],
+    },
+    spec: { core: false, extended: false },
+  };
+  if (!root) return result;
+
+  const pluginPath = path.join(root, '.codex-plugin', 'plugin.json');
+  const pluginRaw = read(pluginPath);
+  result.manifest.present = pluginRaw !== null;
+  let plugin = null;
+  if (pluginRaw === null) {
+    result.errors.push('missing .codex-plugin/plugin.json');
+  } else {
+    try { plugin = JSON.parse(pluginRaw); }
+    catch { result.errors.push('.codex-plugin/plugin.json is not valid JSON'); }
+  }
+  if (plugin) {
+    result.manifest.hooksPath = typeof plugin.hooks === 'string' ? plugin.hooks : null;
+    result.manifest.valid = plugin.name === 'agentsmd' && plugin.hooks === './hooks.json';
+    if (plugin.name !== 'agentsmd') result.errors.push('plugin manifest identity must be agentsmd');
+    if (plugin.hooks !== './hooks.json') result.errors.push('plugin manifest hooks must be ./hooks.json');
+  }
+
+  const hooksPath = path.join(root, 'hooks.json');
+  const hooksRaw = read(hooksPath);
+  result.hooks.present = hooksRaw !== null;
+  if (hooksRaw === null) {
+    result.errors.push('missing plugin hooks.json');
+  } else {
+    try {
+      const wiring = JSON.parse(hooksRaw);
+      const commands = Object.values(wiring.hooks || {}).flatMap((groups) =>
+        (groups || []).flatMap((group) => (group.hooks || [])
+          .filter((hook) => hook && hook.type === 'command')
+          .map((hook) => hook.command))
+      );
+      const registered = REG.HOOK_BASENAMES.filter((basename) =>
+        commands.some((command) => command === `bash "\${PLUGIN_ROOT}/hooks/${basename}"`)
+      );
+      result.hooks.registered = registered.length;
+      result.hooks.missingRegistrations = REG.HOOK_BASENAMES.filter((name) => !registered.includes(name));
+      result.hooks.valid = result.hooks.missingRegistrations.length === 0
+        && commands.length === REG.HOOK_REGISTRY.length;
+      if (!result.hooks.valid) {
+        result.errors.push(`plugin hooks.json registers ${registered.length}/${REG.HOOK_REGISTRY.length} expected hooks`);
+      }
+    } catch {
+      result.errors.push('plugin hooks.json is not valid JSON');
+    }
+  }
+
+  result.hooks.missingScripts = REG.HOOK_BASENAMES.filter((basename) => {
+    try { return !fs.statSync(path.join(root, 'hooks', basename)).isFile(); }
+    catch { return true; }
+  });
+  if (result.hooks.missingScripts.length) {
+    result.errors.push(`missing plugin hook scripts: ${result.hooks.missingScripts.join(', ')}`);
+  }
+  result.hooks.missingSupport = PLUGIN_HOOK_SUPPORT.filter((relative) => {
+    try { return !fs.statSync(path.join(root, relative)).isFile(); }
+    catch { return true; }
+  });
+  if (result.hooks.missingSupport.length) {
+    result.errors.push(`missing plugin hook support: ${result.hooks.missingSupport.join(', ')}`);
+  }
+  result.spec.core = read(path.join(root, 'spec', 'AGENTS.md')) !== null;
+  result.spec.extended = read(path.join(root, 'spec', 'AGENTS-extended.md')) !== null;
+  if (!result.spec.core) result.errors.push('missing spec/AGENTS.md');
+  if (!result.spec.extended) result.errors.push('missing spec/AGENTS-extended.md');
+  result.complete = result.manifest.valid
+    && result.hooks.valid
+    && result.hooks.missingScripts.length === 0
+    && result.hooks.missingSupport.length === 0
+    && result.spec.core
+    && result.spec.extended;
+  return result;
+}
+
+function inspectSessionSummaries() {
+  let entries;
+  try {
+    entries = fs.readdirSync(P.stateDir(), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^session-summary-[A-Za-z0-9_.-]+\.json$/.test(entry.name));
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return { count: 0, latest: null };
+    return { count: 0, latest: null, error: error.message };
+  }
+  let latest = null;
+  for (const entry of entries) {
+    const file = path.join(P.stateDir(), entry.name);
+    try {
+      const stat = fs.statSync(file);
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!latest || stat.mtimeMs > latest.mtimeMs) {
+        latest = {
+          mtimeMs: stat.mtimeMs,
+          sid: typeof parsed.sid === 'string' ? parsed.sid : null,
+          denies: Number.isInteger(parsed.denies) ? parsed.denies : 0,
+          bypasses: Number.isInteger(parsed.bypasses) ? parsed.bypasses : 0,
+          topSection: typeof parsed.top_section === 'string' ? parsed.top_section : null,
+          topCount: Number.isInteger(parsed.top_count) ? parsed.top_count : 0,
+        };
+      }
+    } catch { /* malformed summary is omitted from latest, but remains counted */ }
+  }
+  if (latest) delete latest.mtimeMs;
+  return { count: entries.length, latest };
+}
+
 function status() {
   const manifestState = readInstallManifest();
   const manifest = manifestState.manifest;
+  const pluginBundle = inspectPluginBundle();
+  const standaloneManifestPresent = fs.existsSync(P.manifestPath());
   const hooksContent = read(P.hooksJsonPath());
   const cfg = read(P.configTomlPath()) || '';
 
@@ -91,6 +231,9 @@ function status() {
     specBlockInAgentsMd: AM.hasSpecBlock(read(P.agentsMdPath())),
     extendedMdInstalled: fs.existsSync(P.agentsExtendedMdPath()),
     telemetryRows: readRows(P.logPath()).length,
+    sessionSummaries: inspectSessionSummaries(),
+    pluginBundle,
+    dualSurface: pluginBundle.detected && standaloneManifestPresent,
     // Which hooks are currently switched off via env kill-switches (registry-
     // enumerated; global DISABLE_AGENTSMD_HOOKS or per-hook DISABLE_<SUFFIX>_HOOK).
     // Usually { global:false, disabled:[] } — a non-empty list explains "why did a
@@ -136,4 +279,4 @@ if (require.main === module) {
   }
   console.log(JSON.stringify(status(), null, 2));
 }
-module.exports = { status, validateInstallManifest, readInstallManifest, parseNoArgs, usage };
+module.exports = { status, inspectPluginBundle, inspectSessionSummaries, validateInstallManifest, readInstallManifest, parseNoArgs, usage, PLUGIN_HOOK_SUPPORT };

@@ -188,6 +188,32 @@ try {
     } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
   });
 
+  for (const targetName of ['hooks.json', 'config.toml', 'AGENTS.md']) {
+    t(`restore refuses a concurrent ${targetName} change immediately before its write`, () => {
+      const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-restore-cas-'));
+      process.env.CODEX_HOME = SB;
+      try {
+        const names = ['hooks.json', 'config.toml', 'AGENTS.md'];
+        for (const name of names) fs.writeFileSync(path.join(SB, name), `backup-${name}`);
+        const backup = B.createBackup(`cas-${targetName}`, 'pre-install');
+        for (const name of names) fs.writeFileSync(path.join(SB, name), `live-${name}`);
+
+        const write = (file, content, options) => {
+          if (path.basename(file) === targetName) fs.writeFileSync(file, `concurrent-${targetName}`);
+          B.writeFileAtomic(file, content, options);
+        };
+        assert.throws(
+          () => B.restoreBackup(backup.id, { write }),
+          /concurrent change detected.*refusing to overwrite newer bytes/i
+        );
+        for (const name of names) {
+          const expected = name === targetName ? `concurrent-${targetName}` : `live-${name}`;
+          assert.strictEqual(fs.readFileSync(path.join(SB, name), 'utf8'), expected, name);
+        }
+      } finally { process.env.CODEX_HOME = SANDBOX; fs.rmSync(SB, { recursive: true, force: true }); }
+    });
+  }
+
   t('restore CLI reports filesystem failures without a Node stack trace or partial write', () => {
     const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-restore-cli-'));
     process.env.CODEX_HOME = SB;

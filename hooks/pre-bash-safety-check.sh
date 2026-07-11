@@ -20,6 +20,7 @@ set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="pre-bash-safety"
 hook_kill_switch "PRE_BASH_SAFETY" || exit 0
@@ -61,7 +62,7 @@ if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfCandidate // false')" == "true" ]];
     hook_record "$HOOK" "block" '{"pattern":"rm-rf-var"}' '§8-rm-rf-var' "$SID"
     hook_block \
       "Blocked: rm -rf on an unvalidated variable ( spec/AGENTS.md §8, immutable )." \
-      "§8 SAFETY (immutable): 'rm -rf \$VAR without validating VAR' is banned. Validate the variable is non-empty and points where you intend, or append [allow-rm-rf-var] to the command to confirm you have. Command: ${CMD}" \
+      "§8 SAFETY (immutable): 'rm -rf \$VAR without validating VAR' is banned. Canonicalize with realpath, require a non-empty path inside /tmp/*, then delete that canonical variable — or append [allow-rm-rf-var] after an equivalent explicit validation. Command: ${CMD}" \
       "PreToolUse"
   fi
 fi
@@ -71,7 +72,16 @@ REMOTE_EXEC="$(printf '%s' "$SAFETY" | jq -r '.remoteExec // false')"
 REMOTE_KIND="same-tool"
 SKEY="$(hook_session_key "$SID")"
 REMOTE_STATE="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state/remote-downloads-$SKEY.paths"
+remember_remote_path() {
+  local download_path="$1" resolved
+  [[ -n "$download_path" && "$SKEY" != "global" ]] || return 0
+  resolved="$(node -e 'const p=require("path");process.stdout.write(p.resolve(process.argv[1],process.argv[2]));' "$CWD" "$download_path" 2>/dev/null)"
+  [[ -n "$resolved" ]] || return 0
+  mkdir -p "$(dirname "$REMOTE_STATE")" 2>/dev/null || return 0
+  grep -Fxq -- "$resolved" "$REMOTE_STATE" 2>/dev/null || printf '%s\n' "$resolved" >> "$REMOTE_STATE" 2>/dev/null || true
+}
 if [[ "$SKEY" != "global" && -r "$REMOTE_STATE" ]]; then
+  REMOTE_SNAPSHOT="$(cat "$REMOTE_STATE" 2>/dev/null)"
   while IFS= read -r remote_path; do
     [[ -n "$remote_path" && -f "$remote_path" ]] || continue
     if [[ "$(node "$LIB_DIR/command-parse.js" --executes-file "$CMD" "$remote_path" "$CWD" 2>/dev/null)" == "true" ]]; then
@@ -79,7 +89,10 @@ if [[ "$SKEY" != "global" && -r "$REMOTE_STATE" ]]; then
       REMOTE_KIND="cross-tool"
       break
     fi
-  done < "$REMOTE_STATE"
+    while IFS= read -r propagated_path; do
+      remember_remote_path "$propagated_path"
+    done < <(node "$LIB_DIR/command-parse.js" --propagates-file "$CMD" "$remote_path" "$CWD" 2>/dev/null | jq -r '.[]?' 2>/dev/null)
+  done <<< "$REMOTE_SNAPSHOT"
 fi
 
 if [[ "$REMOTE_EXEC" == "true" ]]; then
@@ -96,16 +109,12 @@ if [[ "$REMOTE_EXEC" == "true" ]]; then
   fi
 fi
 
-# Remember statically-resolved download destinations for this session. The next
-# PreToolUse only treats them as provenance when the file actually exists and
-# the new command executes that exact path. State is bounded and session-scoped.
+# Remember statically-resolved download destinations and derived cp/mv/ln/install
+# paths for this session. The next PreToolUse treats them as provenance only when
+# the recorded source exists. State is bounded and session-scoped.
 if [[ "$SKEY" != "global" ]]; then
   while IFS= read -r download_path; do
-    [[ -n "$download_path" ]] || continue
-    resolved="$(node -e 'const p=require("path");process.stdout.write(p.resolve(process.argv[1],process.argv[2]));' "$CWD" "$download_path" 2>/dev/null)"
-    [[ -n "$resolved" ]] || continue
-    mkdir -p "$(dirname "$REMOTE_STATE")" 2>/dev/null || continue
-    grep -Fxq -- "$resolved" "$REMOTE_STATE" 2>/dev/null || printf '%s\n' "$resolved" >> "$REMOTE_STATE" 2>/dev/null || true
+    remember_remote_path "$download_path"
   done < <(printf '%s' "$SAFETY" | jq -r '.downloads[]?')
   if [[ -r "$REMOTE_STATE" && "$(wc -l < "$REMOTE_STATE" 2>/dev/null || echo 0)" -gt 20 ]]; then
     tail -n 20 "$REMOTE_STATE" > "$REMOTE_STATE.tmp" 2>/dev/null && mv -f "$REMOTE_STATE.tmp" "$REMOTE_STATE" 2>/dev/null

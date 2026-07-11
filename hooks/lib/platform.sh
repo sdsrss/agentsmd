@@ -25,9 +25,9 @@ platform_find_newer() {
 
 # platform_timeout SECONDS CMD [ARGS...] — run CMD with a wall-clock ceiling.
 # `timeout` is GNU coreutils; stock macOS has neither `timeout` nor `gtimeout`.
-# Prefer timeout → gtimeout → a portable bash watchdog so the ceiling survives
-# without coreutils. Returns the command's exit status (124 on watchdog timeout,
-# matching GNU `timeout`).
+# Prefer timeout → gtimeout → a Node process-group watchdog so the ceiling and
+# descendant cleanup survive without coreutils. Returns the command's exit status
+# (124 on watchdog timeout, matching GNU `timeout`).
 platform_timeout() {
   local secs="${1:-}"; shift || true
   [[ -n "$secs" && "$#" -gt 0 ]] || return 1
@@ -35,6 +35,14 @@ platform_timeout() {
     if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"; return $?; fi
     if command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"; return $?; fi
   fi
+  if command -v node >/dev/null 2>&1; then
+    local platform_dir
+    platform_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    node "$platform_dir/platform-timeout.js" "$secs" "$@"
+    return $?
+  fi
+  # Last-resort parent-only watchdog for environments lacking both coreutils and
+  # Node. agentsmd's supported hook runtime requires Node, so this is defensive.
   "$@" &
   local cmd_pid=$!
   ( sleep "$secs" 2>/dev/null; kill -TERM "$cmd_pid" 2>/dev/null ) &

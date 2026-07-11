@@ -48,8 +48,8 @@ t('scanOrder: out-of-order four-section report is flagged', () => {
 t('scanOrder: a clearly structured report missing one required section is flagged', () => {
   assert.strictEqual(scanOrder('Done: a\nNot done: b\nFailed: c'), true);
 });
-t('scanOrder: fewer than 2 trailing markers is not judged (not clearly a report)', () => {
-  assert.strictEqual(scanOrder('Done: shipped the fix.'), false);
+t('scanOrder: a Done-only structured report is incomplete', () => {
+  assert.strictEqual(scanOrder('Done: shipped the fix.'), true);
 });
 t('parseArgs rejects an unsafe --limit integer instead of disabling the cap downstream', () => {
   const raw = '999999999999999999999999999999';
@@ -79,8 +79,8 @@ try {
   ], day(1));
   mk('2026/06/30/rollout-b.jsonl', [
     user('again'),
-    asst('Done: fixed the crash (12/12 tests passed).'), // clean
-    asst('Another comprehensive rewrite here.'),         // §10-V ("comprehensive")
+    asst('Done: fixed the crash (12/12 tests passed).\nNot done: none\nFailed: none\nUncertain: none'), // clean
+    asst('Another comprehensive audit here.'),           // scope wording, not a value claim
   ], day(2));
   mk('2026/07/03/rollout-future.jsonl', [
     user('future'), asst('This significantly improves a future result.'),
@@ -105,9 +105,9 @@ try {
   t('samplingAudit counts assistant turns scanned', () => {
     assert.strictEqual(r.turns, 4);
   });
-  t('samplingAudit §10-V: 2 violating turns across 2 transcripts', () => {
-    assert.strictEqual(r.byRule['§10-V'].hits, 2);
-    assert.strictEqual(r.byRule['§10-V'].transcriptsAffected, 2);
+  t('samplingAudit §10-V: 1 violating turn in 1 transcript', () => {
+    assert.strictEqual(r.byRule['§10-V'].hits, 1);
+    assert.strictEqual(r.byRule['§10-V'].transcriptsAffected, 1);
   });
   t('samplingAudit §10-four-section-order: 1 violating turn in 1 transcript', () => {
     assert.strictEqual(r.byRule['§10-four-section-order'].hits, 1);

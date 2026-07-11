@@ -47,20 +47,18 @@ function scanVocab(text, patterns) {
 
 // Mirror order_pos: first line-anchored position of a section label (or -1).
 function labelPos(text, label) {
-  const re = new RegExp('(^|\\n)[\\s>*-]*' + label + '\\b', 'i');
+  const re = new RegExp('(^|\\n)[\\s>*-]*(?:\\*\\*)?' + label + '(?:\\*\\*)?[\\s]*:', 'i');
   const m = re.exec(text);
   return m ? m.index : -1;
 }
 
 // Four-section completeness/order (Done → Not done → Failed → Uncertain). Only
-// judged when it is clearly a four-section report (Done + ≥2 trailing markers),
-// exactly
-// like transcript-structure-scan.sh:74-87.
+// judged whenever a literal `Done:` label makes the turn a structured report,
+// exactly like transcript-structure-scan.sh.
 function scanOrder(text) {
   const done = labelPos(text, 'Done');
   const parts = [labelPos(text, 'Not done'), labelPos(text, 'Failed'), labelPos(text, 'Uncertain')];
-  const markers = parts.filter((p) => p >= 0).length;
-  if (done < 0 || markers < 2) return false;
+  if (done < 0) return false;
   if (parts.some((p) => p < 0)) return true;
   let prev = done, bad = false;
   for (const p of parts) { if (p < 0) continue; if (p < prev) bad = true; prev = p; }

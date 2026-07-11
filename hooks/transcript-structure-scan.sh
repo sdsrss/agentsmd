@@ -2,7 +2,7 @@
 # transcript-structure-scan.sh — Stop. Post-hoc scan of the last assistant
 # message for spec §10 violations: (a) banned vocabulary (§10 Specificity), and
 # (b) four-section REPORT order Done → Not done → Failed → Uncertain (§10 Order),
-# only when the message is clearly a four-section report. Non-blocking: telemetry
+# whenever a literal `Done:` label identifies a structured report. Non-blocking: telemetry
 # + a queued advisory surfaced at the next UserPromptSubmit. Parses the Codex session JSONL
 # ({timestamp,type,payload}); if it can't locate an assistant message it stays
 # silent (fail-open — a scan that can't parse must not misfire).
@@ -11,6 +11,7 @@ set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 # shellcheck source=/dev/null
 source "$LIB_DIR/hook-common.sh" 2>/dev/null || exit 0
+hook_plugin_shadowed_by_standalone && exit 0
 PATTERNS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/banned-vocab.patterns"
 
 HOOK="transcript-structure"
@@ -70,15 +71,16 @@ if [[ -r "$PATTERNS_FILE" ]]; then
   done < "$PATTERNS_FILE"
 fi
 
-# (b) four-section completeness/order — only when clearly a four-section report
-# (Done + ≥2 trailing markers), so compact L0/L1 reports remain outside scope.
-order_pos() { printf '%s' "$LAST" | grep -aboiE "(^|\n)[[:space:]>*-]*${1}\b" 2>/dev/null | head -1 | cut -d: -f1; }
+# (b) four-section completeness/order. A literal Done label makes the message a
+# structured report, even when later labels are absent; requiring two trailing
+# labels created a blind spot for precisely the incomplete reports this checks.
+# The colon is mandatory so ordinary prose such as "Done is a status" is outside
+# scope. Compact L0/L1 prose therefore remains unaffected.
+order_pos() { printf '%s' "$LAST" | grep -aboiE "^[[:space:]>*-]*(\*\*)?${1}(\*\*)?[[:space:]]*:" 2>/dev/null | head -1 | cut -d: -f1; }
 P_DONE="$(order_pos 'Done')"; P_NOT="$(order_pos 'Not done')"
 P_FAIL="$(order_pos 'Failed')"; P_UNC="$(order_pos 'Uncertain')"
-MARKERS=0
-for v in "$P_NOT" "$P_FAIL" "$P_UNC"; do [[ -n "$v" ]] && MARKERS=$((MARKERS+1)); done
 ORDER_ELIGIBLE=false
-if [[ -n "$P_DONE" && "$MARKERS" -ge 2 ]]; then
+if [[ -n "$P_DONE" ]]; then
   ORDER_ELIGIBLE=true
   prev="$P_DONE"; bad=0
   if [[ -z "$P_NOT" || -z "$P_FAIL" || -z "$P_UNC" ]]; then

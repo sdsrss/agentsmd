@@ -1,372 +1,303 @@
-# agentsmd
+# agentsmd — OpenAI Codex CLI 编程规范与原生 Hooks
 
 **[English](./README.md) · 中文**
 
-> 一套面向 **OpenAI Codex CLI** 的编程纪律规范：原生 hook 覆盖可机械检测的规则子集，rule-specific opportunity telemetry 为人工治理提供证据。它可独立安装，不依赖 oh-my-codex。
+agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 插件。它提供证据驱动工作流、15 个有边界的安全与报告检查、项目级指令工具，以及供人工复审的规则遥测。
 
-![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/hooks-native%20Codex-blue) ![independent](https://img.shields.io/badge/independent%20of-oh--my--codex-orange)
+![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-15-blue)
 
-> **前身为 `codexmd`。** 项目在 v2.0.0 更名为 `agentsmd` 以与仓库名一致。安装器只迁移 provenance 可验证的 codexmd artifact——[详见下文](#从-codexmd-升级)。
-
----
-
-## agentsmd 是什么?
-
-**agentsmd 是一套面向 Codex CLI 的全局编程纪律规范,并用原生 hook 观察其中可机械检测的子集。** `spec/AGENTS.md` 是 always-on 核心,`spec/AGENTS-extended.md` 保存按需加载的展开流程。hook 对能识别的命令模式执行阻断或提示;需要语义判断的规则仍由 agent 与 operator 执行。
-
-## 为什么要 hook + 遥测,而不只是一份 `AGENTS.md`?
-
-一份规范文件的强度,取决于模型在会话中途是否愿意遵守。长规则列表的真实代价是**注意力稀释**:规则越多,在长任务中段每条的约束力越弱——而这个代价任何 token 计数都测不出来。
-
-agentsmd 用「系统」而非「文档」的方式回应这一点:
-
-- **Hook** 阻断可识别的危险命令、secret commit 与已知红色 CI 分支 push;缺少前置工具或无法解析时 fail-open,并尽量记录原因。
-- **遥测** 分开记录 eligible/evaluated 机会与 enforcement 命中,避免把「没有触发机会」误判成规则无价值。
-
-治理不以原始 token 或命中数单独下结论。core 体量、detector coverage、opportunity 与 outcome 是不同信号,operator 复审后才调整 always-on 规则。
-
-## 它强制什么
-
-横跨 4 个 Codex 事件(SessionStart、PreToolUse、UserPromptSubmit、Stop——无 PostToolUse)的十五个原生 hook。阻断类是硬闸门;Stop 时刻的那些会排队成一条 advisory,在你下一次输入时呈现。
-
-用户明确要求“提交并发版/发布”时,该请求直接授权当前仓库的标准 ship
-流程,不再重复确认。完成条件包括合入默认分支、验证 tag/artifact,以及删除
-本地和远端已合并的任务/发布分支。未点名的生产环境、live 配置或其他
-仓库/package/registry 不在该授权范围内。
-
-| Hook | 事件 | 强制内容 |
-|---|---|---|
-| `pre-bash-safety-check` | PreToolUse:Bash | §8 SAFETY——阻断不安全变量删除及同一/跨 tool 的远程下载执行,含相对路径和嵌套 shell 来源;对未固定版本的 `npx` 告警 |
-| `banned-vocab-check` | PreToolUse:Bash | §10——阻断 `git commit` 信息里没有量化的价值声明 |
-| `ship-baseline-check` | PreToolUse:Bash | §E3——当共享分支的 CI 为红时,阻断 `git push` |
-| `memory-read-check` | PreToolUse:Bash | §7——ship 前若没有成功 `read_file` 或明确读取项目 memory index 及一个链接 memory 的命令证据,则阻断 |
-| `session-start-check` | SessionStart | 注入 active-spec 横幅;重置 advisory 队列 |
-| `surface-advisories` | UserPromptSubmit | 呈现上一轮 Stop hook 排队的 advisory |
-| `memory-prompt-hint` | UserPromptSubmit | 呈现与本次 prompt 匹配的 `MEMORY.md` 条目 |
-| `residue-audit` | Stop | §7/§9——标记 `~/.codex/tmp` 增长 |
-| `sandbox-disposal-check` | Stop | §8.V4——标记疑似任务临时目录,排除 Codex runtime 路径,删除前要求验证所有权 |
-| `transcript-structure-scan` | Stop | §10/§6——检查报告标签完整性/顺序、违禁词、证据锚点与对冲措辞 |
-| `secrets-scan` | PreToolUse:Bash | §8——阻断新增密钥内容或高置信 `.env`/私钥文件名的 `git commit` |
-| `convention-cite-scan` | Stop | 追踪 `@conv-*` 项目约定引用,供 `analyze --adoption` |
-| `session-exit-checkpoint` | Stop | §7——跟踪 patch/formatter 写入,标记没有 test/lint/typecheck/build 证据的字节 |
-| `mem-audit` | Stop | §7——标记 `MEMORY.md` 索引/文件漂移 + 缺失 verified 头 |
-| `session-summary` | Stop | 记录本会话的强制计数(下次 SessionStart 呈现) |
-
-Stop hook 的 advisory 会排队,在下一次 `UserPromptSubmit` 通过已验证的 `additionalContext` 通道呈现,而非在 Stop 内联发出。每次命中都追加写入 `~/.codex/logs/agentsmd.jsonl`。
-
-## 依赖
-
-- **Codex CLI** 且启用原生 hook——`config.toml` → `[features] hooks = true`。安装器会设置它,并自动迁移 0.142 之前的旧名 `codex_hooks`。如果用户还没有配置 `[tui] status_line`,安装器也会恢复一组有用的 Codex 内置 footer 字段。
-- `PATH` 上要有 **`jq`** 和 **`node` ≥ 18**。
-
-已安装 artifact、运行时状态、日志与 standalone 生命周期命令尊重 `$CODEX_HOME`
-(默认 `~/.codex`)。`init`、`analyze`、`design` 等项目命令作用于当前工作目录;
-Codex 自行管理 plugin cache。
+- **证据驱动流程：** 对任务进行分级、授权检查、规划、执行、验证，并用新鲜证据报告结果。
+- **有边界的原生检查：** 阻断部分可机械检测的风险并呈现结构化提示，不宣称自动执行所有语义规则。
+- **项目级工具：** 生成 `AGENTS.md`、提炼编码约定、提取前端设计令牌。
 
 ## 安装
 
-选择一条安装路径:
+### Codex 插件——推荐
 
-- **独立 curl 安装器:** 多数本地 Codex CLI 用户的最短路径。
-- **npm 包:** 版本固定的全局 `agentsmd` CLI(`npm install -g @sdsrs/agentsmd`),或用 `npx --package` 一次性运行。
-- **Codex 插件市场:** 用 Codex 的插件浏览器;较新的 CLI 也提供自动化命令。
-- **本地 checkout:** 用于开发或安装前审阅改动。
-
-### 独立安装器
-
-如果你希望 agentsmd 直接管理 `$CODEX_HOME` 里的 manifest-owned artifact 与 marker-scoped 共享条目,使用这条路径。
-安装器会下载最新仓库快照,运行与本地开发相同的幂等 Node 安装器,并在退出时清理临时文件。
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh
-```
-
-GitHub 不会从 `https://github.com/sdsrss/agentsmd/install.sh` 返回可执行的 raw 文件内容;
-curl 管道安装请使用上面的 `raw.githubusercontent.com` URL。
-
-常用选项:
-
-```bash
-# 固定到某个 branch、tag 或 commit
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --ref v2.2.1
-
-# 显式更新:与安装是同一个幂等操作,可反复运行
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
-
-# 安装后的检查
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --status
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --doctor
-```
-
-如果你的本地策略阻断 `curl | sh`,使用可检查的两步形式:
-
-```bash
-curl -fsSLo /tmp/agentsmd-install.sh https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh
-sh /tmp/agentsmd-install.sh
-```
-
-### npm 包
-
-包内自带 `agentsmd` CLI,所以 npm 用户不再需要 `npm explore`。它以
-`@sdsrs/agentsmd` 作用域发布(npm 拒绝了无作用域的 `agentsmd` 名,认为它与已有
-包过于相似);安装进 Codex 的运行时足迹名仍是 `agentsmd`。
-
-全局安装 CLI 后直接调用:
-
-```bash
-npm install -g @sdsrs/agentsmd
-agentsmd install     # 之后:update、uninstall、status、doctor、audit、rules
-```
-
-想要一次性、不留全局安装?用 `npx` 时必须**显式写出命令名**——作用域包需要把命令
-拼出来,即 `npx --package … agentsmd …`,而不是裸的 `npx @sdsrs/agentsmd …`(部分
-npm/npx 版本无法解析后者):
-
-```bash
-npx --package @sdsrs/agentsmd agentsmd install
-```
-
-`agentsmd --help` 是项目、生命周期、诊断和治理子命令的权威清单。裸调用
-`agentsmd` 只打印这份帮助,不安装任何东西。`install` 和 `update` 默认输出简洁结果;
-自动化需要完整安装 manifest 时传入 `--json`。
-
-所有子命令使用一致的退出码:`0` 表示成功或帮助,`1` 表示有效命令得到负面结果或
-运行时失败,`2` 表示 argv/usage 使用错误。
-
-### Codex plugin marketplace
-
-如果你希望 Codex 把 agentsmd 当作插件安装,并由 Codex 的 plugin cache 管理 bundle,使用这条路径。
-仓库自带 `.agents/plugins/marketplace.json`,marketplace 名称是 `agentsmd`;其中条目固定指向
-已发布的 `@sdsrs/agentsmd` npm artifact,不会把整个仓库 checkout 当成 plugin payload。
-
-> **plugin bundle 声明什么、仓库验证什么。** bundle 声明 agentsmd 的 hooks 与
-> skills;仓库 drift test 证明其 wiring 与 standalone template 一致,但没有对每个
-> Codex plugin runtime/version 做端到端激活测试。完整安装的其余部分——把核心规范注入 `~/.codex/AGENTS.md`、设置
-> `config.toml` 的 `[features] hooks = true`、以及迁移旧的 codexmd 安装——由脚本
-> 安装器完成。需要仓库测试覆盖的完整 surface 时,加插件后再跑一次安装器:
->
-> ```bash
-> npm install -g @sdsrs/agentsmd && agentsmd install
-> ```
-
-通用安装路径是 Codex 的插件浏览器:
-
-- 在 Codex app 中打开 **插件**,浏览 marketplace,选择 **添加到 Codex**。
-- 在 Codex CLI 中运行 `codex`,输入 `/plugins`,打开 marketplace 条目并选择安装。
-
-需要自动化时,较新的 Codex CLI 还提供实验性的 `codex plugin` 命令:
+从 agentsmd 的 Codex marketplace 安装：
 
 ```bash
 codex plugin marketplace add sdsrss/agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 ```
 
-Codex 也接受 `codex plugin add agentsmd@agentsmd`。`--marketplace` 形式在脚本里更清晰,
-也与当前 CLI reference 一致。如果你本机的 `codex plugin` 子命令还不可用,先更新 Codex,
-或使用上面的独立/npm 安装器。
-
-### 本地开发 checkout
+第二条也可以简写为：
 
 ```bash
-node scripts/install.js     # 并入 ~/.codex、设置 hooks + status_line、注入规范块
-node scripts/status.js      # 确认:agentsmd hook 已注册,其他租户被保留
-node scripts/doctor.js      # 健康检查
+codex plugin add agentsmd@agentsmd
 ```
 
-安装是**幂等的**,保留其他租户的 hook object;install/uninstall round trip 会逐字节恢复测试中的共享 fixture。
-
-## 更新
-
-独立安装器的更新路径就是重跑:curl 安装器会抓取当前仓库快照,刷新 agentsmd 文件,
-无重复地重新并入 hook,并拉取新的规范。
+安装后新开一个 Codex 会话，让插件中的 hooks 和 skills 生效。验证命令：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --update
-
-# 从 checkout 运行:
-node scripts/install.js     # = 更新(幂等);或:npm run spec:update
+codex plugin list --marketplace agentsmd --json
 ```
 
-对于 npm 安装,先刷新包,再重跑 install(幂等):
+Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 15 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
+
+偏好图形界面？在 Codex app 中打开 **插件**；或运行 `codex`，输入 `/plugins`，打开 `agentsmd` marketplace 条目并选择安装。
+
+> 插件通过 Codex plugin cache 提供 hooks、skills 和规范。可信的 `SessionStart` hook 会把打包的 core spec 加入当前会话，并给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
+
+插件与 standalone 是两种安装面，建议只选一种。若检测到完整 standalone，插件 hooks 会主动退出以避免重复执行；`status` 和 `doctor` 仍会报告 `dualSurface: true`，提示移除其中一套。
+
+### 完整 standalone 安装
+
+这个幂等安装器在 `$CODEX_HOME`（默认 `~/.codex`）中管理全局规范、原生 hook 配置、状态栏默认值、旧版迁移和 standalone 生命周期。先下载并审查，再执行：
 
 ```bash
-npm install -g @sdsrs/agentsmd@latest
+curl -fsSLo /tmp/agentsmd-install.sh https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh
+less /tmp/agentsmd-install.sh
+sh /tmp/agentsmd-install.sh
+```
+
+要固定到 branch、tag 或 commit，传入 `--ref`；下面的历史 tag 仅作示例：
+
+```bash
+sh /tmp/agentsmd-install.sh --ref v2.2.1
+```
+
+### npm CLI
+
+全局安装固定版本的 CLI，再运行同一套 standalone 生命周期：
+
+```bash
+npm install -g @sdsrs/agentsmd
 agentsmd install
-# …或一次性、不留全局安装:
-npx --package @sdsrs/agentsmd@latest agentsmd install
+agentsmd doctor
 ```
 
-插件更新先刷新已配置的 marketplace 快照,再从该 marketplace 重新安装插件。重装后开启一个新的
-Codex 线程,让新的 skills/hooks 被加载。
-
-marketplace 条目固定到精确的 npm artifact 版本。发版人员使用
-`npm run release:version -- --version=<X.Y.Z>` 一次同步六个结构化版本位置;测试会拒绝陈旧的
-marketplace pin,并验证 npm 制品内的 hooks manifest。仅发布 npm 包不会替换已经安装的
-Codex cache 条目,所以现有安装仍需执行“刷新 marketplace + 重装插件”,然后新开线程。
+不全局安装 CLI 的一次性形式：
 
 ```bash
-codex plugin marketplace upgrade agentsmd --json
-codex plugin add agentsmd --marketplace agentsmd --json
+npx --package @sdsrs/agentsmd agentsmd install
 ```
 
-## 卸载
+直接运行 `agentsmd` 只打印帮助，不写入文件。退出码统一为：`0` 表示成功/帮助，`1` 表示负面结果或运行时失败，`2` 表示 argv/usage 错误。
 
-独立卸载会移除 agentsmd owned runtime 条目,同时保留其他插件和用户配置:
+### 从本地 checkout 安装
+
+适合贡献者或安装前审查：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh | sh -s -- --uninstall
-
-# 从 checkout 运行:
-node scripts/uninstall.js
+node scripts/install.js
+node scripts/status.js
+node scripts/doctor.js
 ```
 
-卸载先验证 ownership,再以 transaction 移除已注册 hook、skills、`AGENTS.md` 块、install manifest、known session runtime state 与 extended spec。快照检查与 rollback 会拒绝覆盖在最终文件系统操作前已观察到的外部修改;POSIX 没有可移植的 compare-and-replace 原语,因此不承诺排除 check 与 rename/unlink 之间的非协作写入。`.agentsmd-state/backups/` recovery snapshot 与 unknown/foreign state entry 会保留,因此 state dir 通常仍存在。按 §5 **保留 `config.toml` 的 hook/status-line 设置**。卸载还会在 `$CODEX_HOME/agentsmd/hooks/` 留下未注册的 no-op shim,避免当前会话缓存的旧命令报 exit 127;之后 install 会覆盖这些 shim。
+## 环境要求
 
-对于 npm 安装,先卸载 agentsmd 的 Codex 足迹,再移除全局包:
+- 支持原生 hooks 的 OpenAI Codex CLI，以及可用的 `bash`。
+- `PATH` 中有 Node.js 18 或更高版本和 `jq`；Git 工作流还需要 `git`。
+- standalone 安装会启用 `[features] hooks = true`；插件安装依赖 Codex plugin runtime。
+- 共享分支 GitHub 状态检查可选依赖 `gh`。
+- 自动化覆盖 Linux 与 macOS；Windows 建议在 WSL 中运行 Bash hooks。
 
-```bash
-agentsmd uninstall
-npm uninstall -g @sdsrs/agentsmd
+当输入或依赖不足以完成判断时，hooks 会 fail-open，并在可行时记录失败。
+
+## agentsmd 能做什么
+
+常驻 core 与按条件加载的 extended spec 定义这条流程：
+
+```text
+CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 ```
 
-插件卸载会移除 Codex 的插件安装/cache 条目。如果你不希望 Codex 继续跟踪本仓库作为 source,
-也移除 marketplace:
+系统提供：
 
-```bash
-codex plugin remove agentsmd --marketplace agentsmd --json
-codex plugin marketplace remove agentsmd --json
-```
+- 按任务级别验证，并要求新鲜证据；
+- 对破坏性或外部可见操作设置授权门槛；
+- 针对 secrets、不安全删除和远程执行的不可降级安全底线；
+- 有固定顺序、以证据为锚点的任务报告；
+- 对规范中可机械检测部分执行原生检查；
+- 记录规则机会与结果，供 operator 人工复审；
+- 15 个 Codex skills，用于复用诊断与项目工作流。
 
-如果你同时使用过独立安装和插件安装,两套清理都要运行;它们管理的是不同的 Codex surface。
+用户明确要求 commit 并 release/publish 时，会授权指定仓库或包的标准发版流程。未命名的生产环境、live 配置和无关 scope 不在授权范围内。
 
-### 从 codexmd 升级
+## 工作方式
 
-如果你之前装过 **codexmd**(v1.4.0–v1.4.3),运行 agentsmd 安装器会检测旧 hook 与 manifest。它只迁移 provenance 可验证的 legacy artifact;同名目录来源不明或内容已修改时会保留并报告,不会按前缀删除。
+| 层 | 作用 | 主要内容 |
+|---|---|---|
+| 规范 | 定义流程、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-extended.md` |
+| 原生 hooks | 在四类 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
+| 管理层 | 安装、诊断、恢复、审计和治理 | `scripts/*.js`、`agentsmd` CLI |
+| 项目工具 | 生成项目事实、编码约定和设计令牌引用 | `agentsmd init`、`analyze`、`design` |
 
-## 它如何独立于 oh-my-codex?
+Stop observers 会把提示放入队列，在下一次 `UserPromptSubmit` 呈现，而不是在 `Stop` 时直接输出。遥测追加到 `$CODEX_HOME/logs/agentsmd.jsonl`。
 
-agentsmd 用当前 `CODEX_HOME/agentsmd` 命令路径识别自己的 `hooks.json` 条目,用 sentinel 识别 `AGENTS.md` 块;deploy、extended spec 与 skills 要求 manifest exact path + content hash。install/update 与 uninstall 都先 preflight;快照检查覆盖最终文件系统操作前已观察到的并发修改,但不把可移植 POSIX 无法消除的 check-to-rename/unlink 间隔描述为原子 CAS。旧 manifest 在 hash baseline 前持久备份到 owner-only `.agentsmd-legacy-backup-*`。`config.toml` 只补缺失值且卸载不删;共享文件不可解析或 owned artifact hash 不匹配时操作中止。fixture 覆盖 OMX 共存、ownership collision、故障注入、mode preservation 与并发写入。
+## 原生 Hook 覆盖
 
-OMX(若在)是编排框架,agentsmd 是纪律/执行力层。二者互补——且 agentsmd **不依赖** OMX。
+agentsmd 在 `SessionStart`、`PreToolUse`、`UserPromptSubmit` 和 `Stop` 上注册 15 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
 
-## 治理——基于机会分母的人工复审
+| Hook | Event | 可检测职责 |
+|---|---|---|
+| `pre-bash-safety-check` | PreToolUse:Bash | 检测直接/间接变量删除、远程下载经复制或移动后执行；提示未固定版本的 `npx` |
+| `banned-vocab-check` | PreToolUse:Bash | 阻断 `git commit` 消息中未量化的价值表述 |
+| `ship-baseline-check` | PreToolUse:Bash | 已知 CI 基线为红色时阻断推送共享分支 |
+| `memory-read-check` | PreToolUse:Bash | ship 前要求读取项目 memory index 与同仓库、经 canonical 校验的关联 memory |
+| `secrets-scan` | PreToolUse:Bash | 阻断检测到 secrets 或高置信 secret 文件名的 commit |
+| `session-start-check` | SessionStart | 注入当前规范 banner，并重置提示队列 |
+| `surface-advisories` | UserPromptSubmit | 呈现上一轮排队的提示 |
+| `memory-prompt-hint` | UserPromptSubmit | 呈现与 prompt 匹配的 `MEMORY.md` 条目 |
+| `residue-audit` | Stop | 标记 Codex 临时存储中的任务残留增长 |
+| `sandbox-disposal-check` | Stop | 标记可能属于任务的 scratch，并排除 runtime-owned 路径 |
+| `transcript-structure-scan` | Stop | 检查 §10 报告结构/词汇和 §6 证据锚点 |
+| `convention-cite-scan` | Stop | 记录有效的 `@conv-*` 项目约定引用 |
+| `session-exit-checkpoint` | Stop | 标记修改后没有 test/lint/typecheck/build 证据的字节 |
+| `mem-audit` | Stop | 检查 memory index/file 漂移和 verified header |
+| `session-summary` | Stop | 保存滚动强制统计，供 `status` 显式查看；不会注入其他会话 |
 
-```bash
-node scripts/audit.js --days=30    # 按规范章节聚合命中率遥测
-node scripts/audit.js --project=X  # 只查看路径中包含 X 的项目(也可用于 rules)
-node scripts/rules.js --days=30    # 对照 spec/hard-rules.json 给出升/降级信号
-```
+## 项目工作流
 
-只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hit,规则才进入人工降级评审。`--project` 对 rules 仅作信息透镜,逐规则显示本地命中,降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据;高命中只证明活跃度。门槛见 `spec/OPERATOR.md`。
+### 生成项目 `AGENTS.md`
 
-## 生成项目级 AGENTS.md
-
-agentsmd 安装到 `~/.codex/AGENTS.md` 的是全局纪律规范(通用的“怎么做”)。要为当前
-项目生成包含技术栈、目录与命令事实的项目级 `AGENTS.md`(项目的“是什么”),在项目根目录运行:
+在项目根目录运行：
 
 ```bash
 agentsmd init
-# 或从已部署目录直接运行:
-node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/init.js"
 ```
 
-它检测 Node/Rust/Python/Go,写入 sentinel 管理块;重跑会原位更新并保留块外手写内容。
-`--check` 检查漂移,`--dry-run` 只预览。`--check`、`--dry-run` 与 `--local` 是互斥执行模式。
+`init` 检测 Node、Rust、Python、Go、包管理命令和常见前端技术栈。它更新 sentinel 管理块，并保留块外内容。
 
-`agentsmd init --local` 会创建仅供个人使用、加入 `.gitignore` 的 `AGENTS.local.md`。
-该文件只创建一次,不会覆盖已有内容;命令会提示如何在 Codex 的
-`project_doc_fallback_filenames` 中启用它。
+- `--check` 报告漂移。
+- `--dry-run` 只预览，不写文件。
+- `--local` 创建加入 `.gitignore`、只创建一次的 `AGENTS.local.md`，并打印 Codex 加载该文件所需的 fallback 设置。
+- `--no-frontend` 跳过 React/Vue/Svelte/Angular/Solid/Preact 及相关框架事实。
 
-对于前端项目,`agentsmd init` 会识别 React/Vue/Svelte/Angular/Solid/Preact 及
-Next/Nuxt/Remix/Astro/SvelteKit 等框架,并加入确定性的 `## Frontend` 技术栈事实。
-不需要这部分时传 `--no-frontend`;非前端项目不受影响。
+`--check`、`--dry-run` 和 `--local` 是互斥执行模式。
 
-## 提炼项目约定
-
-`init` 只生成技术栈事实。要从源码提炼命名、import、错误处理和注释等隐含约定,
-可在 Codex 会话中使用 `agentsmd-analyze` skill,或先直接运行确定性的收集阶段:
+### 提炼编码约定
 
 ```bash
 agentsmd analyze --gather
+agentsmd analyze --write --from conventions.md
 ```
 
-收集结果是带上限、遵循 ignore 规则的源码图。阅读并提炼内容是唯一的 AI 步骤;
-完成后用 `agentsmd analyze --write --from <file>` 写入 `AGENTS.md` 的
-`agentsmd:conventions` 管理块。约定块超过 6 KiB 或整个文件接近默认 32 KiB 上限时,
-命令会拒绝写入而不是静默截断。
+`analyze --gather` 生成有上限、遵循 ignore 规则的源码图。AI skill 从中提炼命名、imports、错误处理和注释；`--write --from` 把审核后的结果写入 conventions 管理块。内容超过 6 KiB 预算时，命令会拒绝而不是截断。
 
-## 查看约定采用情况
-
-`analyze --write` 会为已识别的约定标题加入稳定的 `@conv-*` anchor。Stop hook 只记录
-当前项目 `AGENTS.md` 中真实存在且被输出引用的 anchor;伪造的 anchor 不计数。查看采用情况:
+查看已知约定 anchor 是否被引用：
 
 ```bash
 agentsmd analyze --adoption
 agentsmd analyze --adoption --days=7 --project=X
 ```
 
-零引用只表示需要人工复审,不是自动删除依据;当前 citation 层尚未记录每个 anchor 的
-evaluated opportunity。`@conv-*` 引用统计与全局 `§*` enforcement ledger 分开保存。
+零引用只触发人工复审，不会自动删除；当前尚未记录每个 anchor 的 evaluated opportunities。
 
-## 提取设计令牌
-
-对于前端项目,`agentsmd design` 会从 CSS `:root` custom properties 与 Tailwind v4
-`@theme` 提取事实,生成 `DESIGN.md` 管理块并在 `AGENTS.md` 中加入一行指针:
+### 提取设计令牌
 
 ```bash
-agentsmd design          # 默认预览,不写文件
-agentsmd design --write  # 写入 DESIGN.md 与 AGENTS.md 指针
+agentsmd design
+agentsmd design --write
 ```
 
-输出按颜色、间距、字体、圆角、阴影等类别分组,并受预算保护;超限时拒绝而不截断。
-非前端项目是 no-op。Tailwind v3 的主题位于 `tailwind.config.js` 时,命令会如实说明
-尚未解析配置对象,不会假装已提取令牌。
+`design` 预览 CSS `:root` 变量和 Tailwind v4 `@theme` 事实；`design --write` 创建受管理的 `DESIGN.md` 块及 `AGENTS.md` 指针。非前端项目是 no-op。Tailwind v3 配置对象会被识别，但尚不解析。
+
+## CLI 参考
+
+| 命令 | 用途 |
+|---|---|
+| `install`、`update`、`uninstall` | 管理 standalone 安装 |
+| `status`、`doctor`、`restore` | 检查健康状态或恢复安装前快照（`restore` 不带 `--confirm` 时为 dry-run） |
+| `init`、`analyze`、`design` | 管理项目指令和设计事实 |
+| `audit`、`rules`、`sparkline` | 查看规则活动和治理信号 |
+| `sampling-audit`、`lesson-bypass-audit` | 测量 transcript 合规与 memory hint 后续采用情况 |
+| `safety-coverage-audit`、`lint-argv` | 检查静态安全 wiring 和严格 CLI 参数解析 |
+| `perf-baseline`、`version-cascade` | 测量 hook 成本并检测 README 中过期的版本文本 |
+
+运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
+
+## 更新、验证与卸载
+
+### Codex 插件
+
+```bash
+# 更新
+codex plugin marketplace upgrade agentsmd --json
+codex plugin add agentsmd --marketplace agentsmd --json
+
+# 卸载
+codex plugin remove agentsmd --marketplace agentsmd --json
+codex plugin marketplace remove agentsmd --json
+```
+
+插件更新后新开一个 Codex 会话，并重新审查发生变化的 hook 命令。
+
+### Standalone 或 npm
+
+```bash
+# 更新并检查
+agentsmd update
+agentsmd status
+agentsmd doctor
+
+# 先卸载 Codex footprint，再移除可选的全局 CLI
+agentsmd uninstall
+npm uninstall -g @sdsrs/agentsmd
+```
+
+curl 安装器通过 `--update`、`--status`、`--doctor` 和 `--uninstall` 提供同一套生命周期。若同时安装了 plugin 与 standalone，需要分别卸载两套 surface。
+
+## 安全、所有权与共存
+
+standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件或 hash 不匹配的 owned file 时拒绝操作。安装、卸载与恢复使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
+
+卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state 和 extended spec。它保留恢复备份、未知状态、遥测、已启用的 hook/status-line 设置，以及当前会话可能仍需要的未注册 no-op shims。
+
+agentsmd 独立于 oh-my-codex。若存在 OMX，agentsmd 会把它的条目视为其他 tenant 并原样保留。
+
+从 `codexmd` v1.4.0–v1.4.3 升级时，standalone 安装器只迁移 legacy provenance 可验证的 artifact。项目在 v2.0.0 更名为 agentsmd。
+
+## 治理与遥测
+
+```bash
+agentsmd audit --days=30
+node scripts/audit.js --project=X
+agentsmd rules --days=30
+agentsmd sparkline --windows=6 --bucket-days=7
+```
+
+只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
 
 ## 开发
 
 ```bash
-npm test    # 安装/独立性 + 闭环遥测 + drift + distribution + hook 冒烟 套件
+npm test
+npm run lint:shell
 ```
 
-`scripts/tests/drift.test.js` 是 CI 门禁,让 `spec/`、`hard-rules.json`、两处 hook 接线与版本号保持同步。架构与分阶段历史见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。
+测试覆盖安装隔离、插件分发、hook wiring、drift、遥测、诊断、项目工作流和 shell smoke fixtures。设计边界见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，版本记录见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
-## 布局
-
-```
-bin/         npm CLI 入口——`agentsmd` CLI 对 scripts/ 的 dispatcher
-spec/        正典规范(core、extended、changelog、hard-rules.json、OPERATOR.md)
-hooks/       L1 强制层——原生 hook + 共享 lib + 冒烟测试
-scripts/     L2 管理层——install/uninstall/status/doctor/audit/rules(+ migrate + 测试)
-skills/      L3 命令层——每个面向用户的脚本对应一个 agentsmd-* skill stub(见 skills/)
-.agents/     repo marketplace metadata,固定指向 npm artifact
-.codex-plugin/plugin.json   Codex 插件清单
-hooks.json   插件根的 hook 接线(相对路径)
-install.sh   适合 curl 的独立安装/更新/卸载入口
+```text
+bin/          npm CLI dispatcher
+spec/         core、extended spec、hard-rule manifest、operator guide
+hooks/        原生 hooks、共享 shell libraries、smoke tests
+scripts/      生命周期、诊断、治理、项目工具、测试
+skills/       15 个 Codex skill routers
+.agents/      Codex marketplace metadata
+.codex-plugin/plugin.json
+hooks.json    plugin-root hook wiring
+install.sh    standalone installer 与 lifecycle wrapper
 ```
 
 ## 常见问题
 
-**agentsmd 和 codexmd 是同一个吗?**
-是。`codexmd` 是旧名;项目在 v2.0.0 更名为 `agentsmd` 以与仓库一致。同一个系统、同一份 `CODEX-CODING-SPEC`,只是工具身份变了。旧 artifact 只有在 provenance 可验证时才迁移。
+### agentsmd 只是一份 `AGENTS.md` 模板吗？
 
-**必须装 oh-my-codex 才能用 agentsmd 吗?**
-不必。agentsmd 可独立安装运行。若恰好装了 OMX,两者共存且互不触碰对方的配置。
+不是。agentsmd 组合了全局编码规范、有边界的原生检查、项目工具、诊断命令和规则复审遥测。
 
-**它能用于原生的 OpenAI Codex CLI 吗?**
-standalone installer 面向原生 hook 配置,`doctor` 检查部署 wiring、可执行位、依赖、flag、manifest 与 spec inventory。仓库 smoke suite 覆盖 snake_case fixture 和 block/advisory/context JSON;fixture 之外的 runtime compatibility 取决于具体 Codex 版本。
+### Codex 插件会安装全局规范吗？
 
-**它会改动我现有的 `~/.codex` 配置吗?**
-只改已识别的共享条目与 manifest-owned standalone artifact,并拒绝触碰不可解析的共享文件或 hash 不匹配的 artifact。model、profile 与其他插件配置不在 mutation set 内。
+不会。插件把 hooks 和 skills 安装到 Codex plugin cache。若还需要受管理的全局 `AGENTS.md` 块和 standalone 配置生命周期，请运行 `agentsmd install` 或 standalone 安装器。
 
-**如何更新或移除?**
-独立安装:重跑 curl 安装器或 `node scripts/install.js`;用 `install.sh --uninstall`
-或 `node scripts/uninstall.js` 移除。npm:重跑
-`npm install -g @sdsrs/agentsmd@latest` 后 `agentsmd install`(或一次性
-`npx --package @sdsrs/agentsmd@latest agentsmd install`);用 `agentsmd uninstall` 后
-`npm uninstall -g @sdsrs/agentsmd` 移除。插件安装:先
-`codex plugin marketplace upgrade agentsmd`,再
-`codex plugin add agentsmd --marketplace agentsmd`;用
-`codex plugin remove agentsmd --marketplace agentsmd` 移除。
+### agentsmd 依赖 oh-my-codex 吗？
+
+不依赖。agentsmd 可以独立安装；存在其他 tenant 时也会保留它们。
+
+### agentsmd 会取代人工复审吗？
+
+不会。Hooks 只覆盖部分可检测模式。语义授权、正确性以及规则升降级仍由 agent/operator 基于证据判断。
 
 ## 许可
 

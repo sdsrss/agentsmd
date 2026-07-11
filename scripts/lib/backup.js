@@ -237,7 +237,11 @@ function restoreBackup(id, { write = writeFileAtomic } = {}) {
   const committed = [];
   try {
     for (const record of prepared) {
-      write(record.file, record.content, { mode: record.mode, preserveMode: false });
+      write(record.file, record.content, {
+        expectedSnapshot: record.before,
+        mode: record.mode,
+        preserveMode: false,
+      });
       record.after = { present: true, content: Buffer.from(record.content), mode: record.mode };
       committed.push(record);
     }

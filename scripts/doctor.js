@@ -9,7 +9,7 @@ const CT = require('./lib/config-toml');
 const H = require('./lib/codex-hooks');
 const REG = require('./lib/hook-registry');
 const F = require('./lib/fs-atomic');
-const { parseNoArgs } = require('./status');
+const { parseNoArgs, inspectPluginBundle } = require('./status');
 
 const REQUIRED_HOOK_SUPPORT = [
   'hooks.json',
@@ -17,8 +17,10 @@ const REQUIRED_HOOK_SUPPORT = [
   'secrets.patterns',
   'lib/hook-common.sh',
   'lib/platform.sh',
+  'lib/platform-timeout.js',
   'lib/rule-hits.sh',
   'lib/command-parse.js',
+  'lib/orchestrator-source.js',
 ];
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -30,6 +32,60 @@ function doctor() {
 
   add('jq present', has('jq'), 'hooks require jq');
   add('node present', has('node'), 'transcript scan + scripts require node');
+
+  const pluginBundle = inspectPluginBundle();
+  if (pluginBundle.detected) {
+    const dualSurface = fs.existsSync(P.manifestPath());
+    add(
+      'plugin manifest selects ./hooks.json',
+      pluginBundle.manifest.valid,
+      pluginBundle.manifest.valid
+        ? './hooks.json'
+        : (pluginBundle.manifest.hooksPath || pluginBundle.errors[0] || 'missing')
+    );
+    add(
+      'plugin hooks registered',
+      pluginBundle.hooks.valid,
+      `${pluginBundle.hooks.registered}/${pluginBundle.hooks.expected}`
+    );
+    add(
+      'plugin hook scripts present',
+      pluginBundle.hooks.missingScripts.length === 0,
+      pluginBundle.hooks.missingScripts.length
+        ? `missing: ${pluginBundle.hooks.missingScripts.join(', ')}`
+        : `${pluginBundle.hooks.expected}/${pluginBundle.hooks.expected}`
+    );
+    add(
+      'plugin hook support present',
+      pluginBundle.hooks.missingSupport.length === 0,
+      pluginBundle.hooks.missingSupport.length
+        ? `missing: ${pluginBundle.hooks.missingSupport.join(', ')}`
+        : '8/8'
+    );
+    add(
+      'plugin core spec present',
+      pluginBundle.spec.core,
+      pluginBundle.spec.core ? 'spec/AGENTS.md' : 'missing spec/AGENTS.md'
+    );
+    add(
+      'plugin extended spec present',
+      pluginBundle.spec.extended,
+      pluginBundle.spec.extended ? 'spec/AGENTS-extended.md' : 'missing spec/AGENTS-extended.md'
+    );
+    add(
+      'dual surface absent',
+      !dualSurface,
+      dualSurface
+        ? 'dualSurface=true — plugin bundle and standalone manifest are both active; remove one hook surface to avoid duplicate execution'
+        : 'dualSurface=false'
+    );
+    return {
+      ok: checks.every((check) => check.ok),
+      surface: 'plugin',
+      dualSurface,
+      checks,
+    };
+  }
 
   const cfg = read(P.configTomlPath()) || '';
   add('config.toml features.hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)');
@@ -194,7 +250,7 @@ function doctor() {
       : `global AGENTS.md ${globalBytes}B EXCEEDS cap ${budget.cap}B by ${-budget.headroom}B — raise project_doc_max_bytes in config.toml`
   );
 
-  return { ok: checks.every((c) => c.ok), checks };
+  return { ok: checks.every((c) => c.ok), surface: 'standalone', dualSurface: false, checks };
 }
 
 if (require.main === module) {

@@ -585,6 +585,14 @@ try {
     assert(!ra.demoteCandidates.some((x) => x.id === '§6-iron-law-2'), 'a foundational Iron Law must never be a demote-candidate');
   });
   t('rules: a still-self-enforced Iron Law (#1) is labeled self-enforced', () => { const r = ra.rules.find((x) => x.id === '§6-iron-law-1'); assert(r && r.signal === 'self-enforced', 'got ' + (r && r.signal)); });
+  t('rules: overlapping subclauses inherit governance instead of duplicating demote signals', () => {
+    for (const id of ['§6-bugfix-anchor', '§8-env-key-commit']) {
+      const r = ra.rules.find((x) => x.id === id);
+      assert(r && r.signal === 'inherited', `${id} got ${r && r.signal}`);
+      assert(r.governanceParent, `${id} lacks a governance parent`);
+      assert(!ra.demoteCandidates.some((x) => x.id === id), `${id} duplicated a demote candidate`);
+    }
+  });
   t('rules: demoteCandidates only include hook-enforced rules', () => assert(ra.demoteCandidates.every((r) => r.enforcement === 'hook' || r.enforcement === 'both')));
   // Thin window: another rule's activity is not opportunity for a 0-hit rule.
   const thin = path.join(tmp, 'thin.jsonl');
