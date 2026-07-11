@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.0.1 (2026-07-11) — plugin manifest repair (no rule-text changes)
+
+Core and extended rule text are unchanged. The shared version moves in lockstep
+with a package patch that fixes the Codex plugin hook-manifest schema and adds
+release-version synchronization plus packaged-artifact schema checks. No hard
+rule, manifest row, hook behavior, event, or live telemetry section changed.
+`spec_version` → v4.0.1. Detail: repository `CHANGELOG.md`.
+
 ## v4.0.0 (2026-07-11) — package CLI contract major (no rule-text changes)
 
 Core and extended rule text are unchanged. The shared spec version moves in

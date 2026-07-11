@@ -1,5 +1,5 @@
 {
-  "_doc": "Plugin-root hook manifest for the Codex plugin system. Commands are RELATIVE to the plugin dir (the figma-plugin convention), so Codex auto-wires + auto-manages them on plugin install/uninstall — giving lifecycle isolation for free. This is the plugin-install path. The manual-install path uses `node scripts/install.js`, which marker-merges absolute-path entries from hooks/hooks.json into the global ~/.codex/hooks.json instead. scripts/tests/drift.test.js asserts these two wirings never diverge.",
+  "description": "Plugin-root hook manifest for the Codex plugin system. Commands are RELATIVE to the plugin dir (the figma-plugin convention), so Codex auto-wires + auto-manages them on plugin install/uninstall — giving lifecycle isolation for free. This is the plugin-install path. The manual-install path uses `node scripts/install.js`, which marker-merges absolute-path entries from hooks/hooks.json into the global ~/.codex/hooks.json instead. scripts/tests/drift.test.js asserts these two wirings never diverge.",
   "hooks": {
     "SessionStart": [
       {

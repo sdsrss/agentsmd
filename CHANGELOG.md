@@ -3,6 +3,35 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.0.1 — 2026-07-11 — valid plugin hooks manifests and release synchronization
+
+### Fixed
+
+- Both shipped hook manifests now use the Codex-supported top-level
+  `description` field instead of the project-local `_doc` field. Codex's strict
+  plugin loader no longer rejects the npm plugin bundle with `unknown field
+  _doc`.
+
+### Quality
+
+- `npm run release:version -- --version=<X.Y.Z>` synchronizes the package,
+  plugin manifest, npm-backed marketplace pin, hard-rules manifest, and both
+  shared spec headers with snapshot-checked writes. A failed later write rolls
+  back earlier unchanged version edits without overwriting concurrent bytes.
+- Version drift now checks all six structured release locations. The npm
+  tarball E2E additionally reads both packaged hook manifests and enforces the
+  strict `description` + `hooks` top-level schema, covering the artifact that
+  Codex actually caches. npm publication runs the full `npm run check` suite
+  through `prepublishOnly`.
+- Documentation now states the update boundary explicitly: publishing a new npm
+  version does not replace an already-installed Codex cache entry. Refresh the
+  marketplace snapshot, reinstall the plugin, and start a new thread.
+
+Rollback consumers with `npm install -g @sdsrs/agentsmd@4.0.0 && agentsmd
+update`; source/plugin users select `v4.0.0` and reinstall. Revert the v4.0.1
+release commit for source rollback. Published npm versions are immutable and can
+only be deprecated.
+
 ## v4.0.0 — 2026-07-11 — consistent CLI usage failures and release QA
 
 ### Changed

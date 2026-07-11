@@ -222,6 +222,14 @@ plugin from that marketplace. In the plugin browser, open agentsmd and reinstall
 or update it from the marketplace entry. Start a new Codex thread after
 reinstall so newly packaged skills/hooks are loaded.
 
+The marketplace entry pins an exact npm artifact version. Release authors update
+all six structured version locations with
+`npm run release:version -- --version=<X.Y.Z>`;
+the test suite rejects a stale marketplace pin and validates the hook manifests
+inside the packed npm artifact. Publishing npm alone does not replace an
+already-installed Codex cache entry, so the refresh + reinstall steps remain
+required for existing installations.
+
 For CLIs with `codex plugin` automation:
 
 ```bash

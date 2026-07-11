@@ -199,6 +199,11 @@ npx --package @sdsrs/agentsmd@latest agentsmd install
 插件更新先刷新已配置的 marketplace 快照,再从该 marketplace 重新安装插件。重装后开启一个新的
 Codex 线程,让新的 skills/hooks 被加载。
 
+marketplace 条目固定到精确的 npm artifact 版本。发版人员使用
+`npm run release:version -- --version=<X.Y.Z>` 一次同步六个结构化版本位置;测试会拒绝陈旧的
+marketplace pin,并验证 npm 制品内的 hooks manifest。仅发布 npm 包不会替换已经安装的
+Codex cache 条目,所以现有安装仍需执行“刷新 marketplace + 重装插件”,然后新开线程。
+
 ```bash
 codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json

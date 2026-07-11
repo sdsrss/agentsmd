@@ -390,6 +390,8 @@ t('package.json bin maps agentsmd to the dispatcher and files[] ships it', () =>
   assert.strictEqual(pkg.bin.agentsmd, 'bin/agentsmd.js');
   assert(fs.existsSync(path.join(ROOT, pkg.bin.agentsmd)));
   assert(pkg.files.includes('bin'));
+  assert.strictEqual(pkg.scripts['release:version'], 'node scripts/version-sync.js');
+  assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run check');
 });
 
 t('package.json carries repository, homepage, and bugs metadata', () => {
@@ -409,7 +411,10 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const packDir = path.join(dir, 'pack');
   fs.mkdirSync(packDir, { recursive: true });
   const packResult = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
-    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT,
+    env: { ...process.env, npm_config_dry_run: 'false' },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   }))[0];
   const tarball = path.join(packDir, packResult.filename);
   assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
@@ -426,6 +431,7 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
 
   const prefix = path.join(dir, 'prefix');
   cp.execFileSync('npm', ['install', '-g', '--prefix', prefix, '--no-audit', '--no-fund', tarball], {
+    env: { ...process.env, npm_config_dry_run: 'false' },
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
   const binLink = path.join(prefix, 'bin', 'agentsmd');
@@ -440,6 +446,16 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
   assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));
   assert(!fs.existsSync(path.join(installedRoot, 'scripts', 'tests')));
+  for (const rel of ['hooks.json', 'hooks/hooks.json']) {
+    const manifest = JSON.parse(fs.readFileSync(path.join(installedRoot, rel), 'utf8'));
+    assert.deepStrictEqual(
+      Object.keys(manifest).sort(),
+      ['description', 'hooks'],
+      `${rel} in the npm artifact must satisfy Codex's strict hook-manifest schema`
+    );
+    assert.strictEqual(typeof manifest.description, 'string');
+    assert.ok(manifest.description.trim(), `${rel} in the npm artifact needs a description`);
+  }
 
   assert(installedCli(['install']).includes('agentsmd installed:'));
   const status = JSON.parse(installedCli(['status']));

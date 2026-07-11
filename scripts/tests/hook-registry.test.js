@@ -39,6 +39,17 @@ t('HOOK_REGISTRY has 15 entries (matches drift #8 hook count)', () => {
 });
 
 for (const rel of ['hooks/hooks.json', 'hooks.json']) {
+  t(`${rel} uses only Codex hook-manifest top-level fields`, () => {
+    const wiring = JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
+    assert.deepStrictEqual(
+      Object.keys(wiring).sort(),
+      ['description', 'hooks'],
+      `${rel} top level must match Codex's strict hook-manifest schema`
+    );
+    assert.strictEqual(typeof wiring.description, 'string');
+    assert.ok(wiring.description.trim(), `${rel} description must be non-empty`);
+  });
+
   t(`registry <-> ${rel} agree on basename/event/matcher/timeout (both ways)`, () => {
     const w = wiringMap(rel);
     for (const h of REG.HOOK_REGISTRY) {
