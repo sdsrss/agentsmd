@@ -4,8 +4,8 @@
 
 - 结果: 达到本任务定义的可发布质量退出条件。
 - 轮次: Round 0 准备 + 6 个循环轮；用户确认 CLI contract 后，Round 5、Round 6 为连续两轮无新增问题的全功能回归。
-- 问题: 共 5 个，P0:0、P1:0、P2:3、P3:2。
-- 处理: 5 个均已修复并按原步骤复验为 VERIFIED；无 OPEN、FIXED 未复验、NEEDS_CONFIRMATION、WONTFIX 或 CANNOT_REPRODUCE。
+- 问题: 共 8 个，P0:0、P1:1、P2:4、P3:3。
+- 处理: 8 个均已修复并按原步骤复验为 VERIFIED；无 OPEN、FIXED 未复验、NEEDS_CONFIRMATION、WONTFIX 或 CANNOT_REPRODUCE。
 - 最终新鲜证据: `qa/user-journey.sh` 87 passed / 0 failed；其内 `npm run check` 完成 908 passed / 0 failed 的 Node+hook 自动化断言及 ShellCheck 0 diagnostics；`npm pack --dry-run` 发布包入口检查通过。
 - Git: `qa/self-test`，基线 tag `qa-baseline`；所有修复为独立本地 commit；未 push、未 force、未合并。
 
@@ -16,6 +16,9 @@
 - ISSUE-003 ↔ `71aa10e` — 补齐治理 `--project` 示例与仅信息透镜/跨项目降级边界。
 - ISSUE-004 ↔ `827d4f1` — 顶层 dispatcher、所有子命令与 standalone installer 的 argv/usage 错误统一为 exit 2；有效负面/运行时结果保持 exit 1。
 - ISSUE-005 ↔ `8413d06` — standalone installer 拒绝冲突或重复 lifecycle action；结合 ISSUE-004 后返回 exit 2，安装状态保持 true。
+- ISSUE-006 ↔ `cfd5bb9` — 用户旅程从 package manifest 读取版本，正常版本升级不再产生假失败。
+- ISSUE-007 ↔ `0bb7d0f` — standalone value option 拒绝后续 option-like token，解析阶段 exit 2 且不触碰 CODEX_HOME。
+- ISSUE-008 ↔ `427f850` — shared argv helper 注释与 v4 exit-code contract 同步。
 
 ## ⚠️ 需要逐条确认的事项
 

@@ -2,6 +2,16 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.0.0 (2026-07-11) — package CLI contract major (no rule-text changes)
+
+Core and extended rule text are unchanged. The shared spec version moves in
+lockstep with a package major release that standardizes argv/usage failures on
+exit 2 while reserving exit 1 for valid negative/runtime/health results. The
+standalone installer also rejects conflicting lifecycle action flags before
+mutation, and the Chinese user documentation regains parity for project-level
+commands. No hard rule, manifest row, hook, event, or live telemetry section
+changed. `spec_version` → v4.0.0. Detail: repository `CHANGELOG.md`.
+
 ## v3.3.0 (2026-07-11) — explicit ship authorization and closure
 
 An explicit current-turn request to commit and release now supplies the

@@ -3,6 +3,38 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.0.0 — 2026-07-11 — consistent CLI usage failures and release QA
+
+### Changed
+
+- All top-level, subcommand, and standalone-installer argv/usage errors now exit
+  with status 2. Status 1 is reserved for valid commands that report a negative,
+  runtime, or health result; status 0 remains success/help. This is a breaking
+  contract for automation that previously expected status 1 from malformed
+  `init`, `analyze`, audit/governance, trend, or performance invocations.
+- Top-level help, standalone help, and both READMEs document the shared
+  `0`/`1`/`2` exit-code contract.
+
+### Fixed
+
+- The standalone installer rejects conflicting or repeated lifecycle actions
+  before reading or mutating `CODEX_HOME`; a command such as
+  `--status --uninstall` can no longer silently execute the final action.
+- The Chinese README again exposes the project init/analyze/adoption/design
+  workflows, plugin-browser fallback, and governance project lens.
+
+### Quality
+
+- Added a repeatable 87-case user journey using isolated multilingual/emoji
+  fixtures, pipes, redirects, lifecycle misuse, package checks, and a full test
+  run. All eight QA issues are verified. Release review additionally caught and
+  closed option-like installer values before publication.
+
+Rollback consumers with `npm install -g @sdsrs/agentsmd@3.3.0 && agentsmd
+update`; source/plugin users select `v3.3.0` and reinstall. Revert the v4.0.0
+release commit for source rollback. Published npm versions are immutable and can
+only be deprecated.
+
 ## v3.3.0 — 2026-07-11 — ship authorization reuse and release closure
 
 ### Changed

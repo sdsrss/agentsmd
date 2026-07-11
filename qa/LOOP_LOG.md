@@ -80,3 +80,11 @@
 - 遗留 / 待确认: 无；外部 runtime 与跨平台盲区不变。
 - 退出判定: 满足（用户确认后的连续干净轮 2/2；5 个问题全部 VERIFIED；完整测试、发布包 E2E 与 shell lint 通过）
 - 下轮计划: 无；更新 FINAL_REPORT 后停止，不合并、不 push。
+
+## Round 7（2026-07-11，v4.0.0 release review）
+- 覆盖: v4.0.0 结构化版本/两个 changelog、version cascade、drift、distribution、package 86-file dry-run、publish dry-run、safety coverage、argv lint、secret scan、独立 release review；复验用户旅程版本动态读取与 standalone value-option misuse
+- 新发现: P0:0 P1:1 P2:1 P3:1（ISSUE-006, ISSUE-007, ISSUE-008）
+- 修复并复验: ISSUE-006（cfd5bb9）、ISSUE-007（0bb7d0f）、ISSUE-008（427f850）；均按原步骤重放并标记 VERIFIED
+- 遗留 / 待确认: 无；reviewer live 安装事故由用户确认保留，发布后正式 latest 覆盖。
+- 退出判定: 未满足（本轮出现新 P1/P2，连续干净轮归零）
+- 下轮计划: 执行两轮 87 + 909 + 1 全功能候选回归；连续无新增问题后方可 push/publish。
