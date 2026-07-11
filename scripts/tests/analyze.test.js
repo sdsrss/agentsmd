@@ -380,12 +380,12 @@ const { adoptionReport, formatAdoptionReport, parseArgs } = require('../analyze'
   });
   t('analyze CLI rejects adoption-only filters in gather mode', () => {
     const r = cp.spawnSync('node', [path.join(__dirname, '..', 'analyze.js'), '--days=7'], { encoding: 'utf8' });
-    assert.strictEqual(r.status, 1);
+    assert.strictEqual(r.status, 2);
     assert.ok(r.stderr.includes('--days and --project require --adoption'), r.stderr);
   });
   t('analyze CLI rejects multiple explicit modes', () => {
     const r = cp.spawnSync('node', [path.join(__dirname, '..', 'analyze.js'), '--adoption', '--gather'], { encoding: 'utf8' });
-    assert.strictEqual(r.status, 1);
+    assert.strictEqual(r.status, 2);
     assert.ok(r.stderr.includes('choose only one mode'), r.stderr);
   });
 }

@@ -181,7 +181,7 @@ if (require.main === module) {
   if (parsed.error) {
     console.error(`agentsmd rules: ${parsed.error}`);
     console.error('Usage: agentsmd-rules [--days=N] [--project=SUBSTR] [--include-test]');
-    process.exit(1);
+    process.exit(2);
   }
   console.log(formatReport(rulesAudit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }

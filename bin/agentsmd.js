@@ -72,6 +72,8 @@ function usage() {
     '  -v, --version      Print the agentsmd version.',
     '  -h, --help         Show this help.',
     '',
+    'Exit status: 0 = success/help, 1 = valid command reported a negative/runtime result, 2 = argv/usage error.',
+    '',
     'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, `analyze`, and `design`, which target the current project directory instead.',
     'Docs: https://github.com/sdsrss/agentsmd#readme',
   ].join('\n');
@@ -95,7 +97,7 @@ function main(argv) {
   if (!script) {
     console.error(`agentsmd: unknown command: ${cmd}\n`);
     console.error(usage());
-    return 1;
+    return 2;
   }
 
   // Spawn the script, inheriting stdio so its output/prompts/exit code are ours.

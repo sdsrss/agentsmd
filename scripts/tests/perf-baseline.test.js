@@ -35,13 +35,13 @@ t('runs, exits 0, covers every registry hook with non-negative numeric medians',
   } finally { fs.rmSync(ambient, { recursive: true, force: true }); }
 });
 
-t('--event filters to that group; unknown flag exits 2; unknown --event exits 1', () => {
+t('--event filters to that group; all usage errors exit 2', () => {
   const out = cp.execFileSync(process.execPath, [script, '--runs=1', '--event=PreToolUse', '--json'], { encoding: 'utf8' });
   const r = JSON.parse(out);
   assert.ok(r.results.length === 5 && r.results.every((x) => x.event === 'PreToolUse'), 'only the 5 PreToolUse:Bash hooks');
   assert.strictEqual(cp.spawnSync(process.execPath, [script, '--nope']).status, 2);
-  assert.strictEqual(cp.spawnSync(process.execPath, [script, '--event=Nope']).status, 1);
-  assert.strictEqual(cp.spawnSync(process.execPath, [script, '--runs=abc']).status, 1);
+  assert.strictEqual(cp.spawnSync(process.execPath, [script, '--event=Nope']).status, 2);
+  assert.strictEqual(cp.spawnSync(process.execPath, [script, '--runs=abc']).status, 2);
 });
 
 t('median: odd N picks the middle; even N averages the two middles', () => {

@@ -99,10 +99,10 @@ if (require.main === module) {
   let runs = 10;
   if (opts.values.runs !== undefined) {
     runs = parsePositiveInt(opts.values.runs);
-    if (runs === null) { console.error(`agentsmd perf-baseline: invalid --runs value: ${opts.values.runs}`); process.exit(1); }
+    if (runs === null) { console.error(`agentsmd perf-baseline: invalid --runs value: ${opts.values.runs}\n${usage}`); process.exit(2); }
   }
   const event = opts.values.event || null;
-  if (event && !EVENTS.includes(event)) { console.error(`agentsmd perf-baseline: unknown --event: ${event} (expected ${EVENTS.join('|')})`); process.exit(1); }
+  if (event && !EVENTS.includes(event)) { console.error(`agentsmd perf-baseline: unknown --event: ${event} (expected ${EVENTS.join('|')})\n${usage}`); process.exit(2); }
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-perf-'));
   try {
     const r = perfBaseline({ runs, event, sandbox });

@@ -49,6 +49,7 @@ Environment:
 
 Notes:
   --update, --uninstall, --status, and --doctor are mutually exclusive.
+  Exit status: 0 = success/help, 1 = runtime/health failure, 2 = argv/usage error.
   GitHub does not serve raw files from https://github.com/sdsrss/agentsmd/install.sh.
   Use the raw.githubusercontent.com URL above for curl-piped installs.
 EOF
@@ -63,11 +64,16 @@ die() {
   exit 1
 }
 
+usage_die() {
+  printf 'agentsmd installer: %s\n' "$*" >&2
+  exit 2
+}
+
 select_action() {
   option="$1"
   action="$2"
   if [ -n "$ACTION_OPTION" ]; then
-    die "multiple action options: $ACTION_OPTION and $option"
+    usage_die "multiple action options: $ACTION_OPTION and $option"
   fi
   ACTION_OPTION="$option"
   ACTION="$action"
@@ -219,17 +225,17 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --repo)
-      [ "$#" -ge 2 ] || die "--repo requires a value"
+      [ "$#" -ge 2 ] || usage_die "--repo requires a value"
       REPO="$2"
       shift 2
       ;;
     --ref)
-      [ "$#" -ge 2 ] || die "--ref requires a value"
+      [ "$#" -ge 2 ] || usage_die "--ref requires a value"
       REF="$2"
       shift 2
       ;;
     --source)
-      [ "$#" -ge 2 ] || die "--source requires a value"
+      [ "$#" -ge 2 ] || usage_die "--source requires a value"
       SOURCE_DIR="$2"
       shift 2
       ;;
@@ -241,7 +247,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      die "unknown option: $1 (run with --help)"
+      usage_die "unknown option: $1 (run with --help)"
       ;;
   esac
 done

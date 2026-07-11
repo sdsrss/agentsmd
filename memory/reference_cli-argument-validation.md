@@ -1,4 +1,4 @@
-verified: 2026-07-11 | source: `scripts/audit.js`, `scripts/rules.js`, `scripts/status.js`, `scripts/doctor.js`, and their tests
+verified: 2026-07-11 | source: `bin/agentsmd.js`, `install.sh`, CLI scripts, and distribution/argv tests
 
 # CLI Argument Validation
 
@@ -16,5 +16,9 @@ Current policy:
 - `--days` must be a positive safe integer and no greater than `MAX_DAYS` in `scripts/audit.js`.
 - Repeating `--days` is invalid; CLIs must not silently let the later value overwrite the earlier one.
 - `status.js` and `doctor.js` accept no args, `--help`, and `-h`.
-- `audit.js` and `rules.js` exit 1 on invalid arguments; `status.js` and
-  `doctor.js` exit 2. All print usage text for invalid arguments.
+- Every CLI argv/usage error exits 2, including the top-level dispatcher,
+  standalone `install.sh`, hand-written parsers, and semantic flag-value checks.
+- Exit 1 is reserved for a valid command that reports a negative result or a
+  runtime/health failure, such as detected drift, an unhealthy installation, or
+  a missing input file. Exit 0 means success/help.
+- Invalid arguments print usage text where the command has a usage block.

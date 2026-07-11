@@ -295,7 +295,7 @@ if (require.main === module) {
   if (parsed.error) {
     console.error(`agentsmd audit: ${parsed.error}`);
     console.error('Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test]');
-    process.exit(1);
+    process.exit(2);
   }
   console.log(formatReport(audit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }

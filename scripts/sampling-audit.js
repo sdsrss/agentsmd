@@ -205,7 +205,7 @@ if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   const usage = 'Usage: agentsmd-sampling-audit [--days=N] [--limit=N]';
   if (parsed.help) { console.log(usage); process.exit(0); }
-  if (parsed.error) { console.error(`agentsmd sampling-audit: ${parsed.error}`); console.error(usage); process.exit(1); }
+  if (parsed.error) { console.error(`agentsmd sampling-audit: ${parsed.error}`); console.error(usage); process.exit(2); }
   console.log(formatReport(samplingAudit({ days: parsed.days, limit: parsed.limit })));
 }
 

@@ -130,6 +130,9 @@ npx --package @sdsrs/agentsmd agentsmd install
 `agentsmd` 只打印这份帮助,不安装任何东西。`install` 和 `update` 默认输出简洁结果;
 自动化需要完整安装 manifest 时传入 `--json`。
 
+所有子命令使用一致的退出码:`0` 表示成功或帮助,`1` 表示有效命令得到负面结果或
+运行时失败,`2` 表示 argv/usage 使用错误。
+
 ### Codex plugin marketplace
 
 如果你希望 Codex 把 agentsmd 当作插件安装,并由 Codex 的 plugin cache 管理 bundle,使用这条路径。

@@ -72,7 +72,7 @@ expect_absent 'bare CLI does not install' "$ROOT/bare-home/agentsmd"
 expect_status 0 '--help exits 0' node "$CLI" --help
 expect_status 0 '--version exits 0' node "$CLI" --version
 expect_contains '--version prints package version' "$ROOT/stdout" '^3\.3\.0$'
-expect_status 1 'unknown command exits 1' node "$CLI" 'instlal-手滑-😵'
+expect_status 2 'unknown command exits 2' node "$CLI" 'instlal-手滑-😵'
 expect_contains 'unknown command is actionable' "$ROOT/stderr" 'unknown command'
 
 COMMANDS='init analyze design install update uninstall restore status doctor audit rules sampling-audit lesson-bypass-audit sparkline safety-coverage-audit version-cascade perf-baseline lint-argv'
@@ -102,10 +102,10 @@ expect_status 2 'uninstall rejects extra positional' node "$CLI" uninstall '算�
 printf '== expert persona: standalone installer action safety ==\n'
 export CODEX_HOME="$ROOT/standalone-home"
 expect_status 0 'standalone installer accepts local source' sh "$REPO/install.sh" --source "$REPO"
-expect_status 1 'standalone installer rejects status plus uninstall' sh "$REPO/install.sh" --source "$REPO" --status --uninstall
+expect_status 2 'standalone installer rejects status plus uninstall' sh "$REPO/install.sh" --source "$REPO" --status --uninstall
 expect_contains 'standalone conflict error names both actions' "$ROOT/stderr" 'multiple action options: --status and --uninstall'
-expect_status 1 'standalone installer rejects inverse action order' sh "$REPO/install.sh" --source "$REPO" --uninstall --status
-expect_status 1 'standalone installer rejects repeated action' sh "$REPO/install.sh" --source "$REPO" --status --status
+expect_status 2 'standalone installer rejects inverse action order' sh "$REPO/install.sh" --source "$REPO" --uninstall --status
+expect_status 2 'standalone installer rejects repeated action' sh "$REPO/install.sh" --source "$REPO" --status --status
 expect_status 0 'standalone conflict leaves install intact' sh -c 'node "$1" status | jq -e ".installed == true" >/dev/null' sh "$CLI"
 expect_status 0 'standalone uninstall still works alone' sh "$REPO/install.sh" --source "$REPO" --uninstall
 
@@ -123,7 +123,7 @@ expect_file 'init created AGENTS.md' "$PROJECT/AGENTS.md"
 expect_status 0 'init --check sees no drift' sh -c 'cd "$1" && node "$2" init --check' sh "$PROJECT" "$CLI"
 expect_status 0 'init --local creates personal file' sh -c 'cd "$1" && node "$2" init --local' sh "$PROJECT" "$CLI"
 expect_file 'init --local created AGENTS.local.md' "$PROJECT/AGENTS.local.md"
-expect_status 1 'init rejects conflicting modes (known inconsistent usage status)' sh -c 'cd "$1" && node "$2" init --check --dry-run' sh "$PROJECT" "$CLI"
+expect_status 2 'init rejects conflicting modes' sh -c 'cd "$1" && node "$2" init --check --dry-run' sh "$PROJECT" "$CLI"
 
 expect_status 0 'analyze gather maps real source' sh -c 'cd "$1" && node "$2" analyze --gather' sh "$PROJECT" "$CLI"
 expect_contains 'analyze gather includes app.js' "$ROOT/stdout" 'src/app\.js'
@@ -131,7 +131,7 @@ printf '%s\n' '## Naming' '- Use camelCase for JavaScript functions.' >"$PROJECT
 expect_status 0 'analyze writes supplied conventions' sh -c 'cd "$1" && node "$2" analyze --write --from "conventions-输入.md"' sh "$PROJECT" "$CLI"
 expect_contains 'analyze stamped naming anchor' "$PROJECT/AGENTS.md" '@conv-naming'
 expect_status 0 'analyze adoption handles empty telemetry' sh -c 'cd "$1" && node "$2" analyze --adoption --days=7 --project="你好"' sh "$PROJECT" "$CLI"
-expect_status 1 'analyze rejects option-like from value (known inconsistent usage status)' sh -c 'cd "$1" && node "$2" analyze --write --from --adoption' sh "$PROJECT" "$CLI"
+expect_status 2 'analyze rejects option-like from value' sh -c 'cd "$1" && node "$2" analyze --write --from --adoption' sh "$PROJECT" "$CLI"
 
 expect_status 0 'design preview parses tokens' sh -c 'cd "$1" && node "$2" design' sh "$PROJECT" "$CLI"
 expect_absent 'design preview writes nothing' "$PROJECT/DESIGN.md"
@@ -145,22 +145,22 @@ export CODEX_HOME="$ROOT/expert-home"
 mkdir -p "$CODEX_HOME/logs" "$CODEX_HOME/sessions"
 expect_status 0 'audit empty telemetry' node "$CLI" audit --days=30 --project='中英 mix'
 expect_status 0 'audit output redirects cleanly' sh -c 'node "$1" audit --days=1 >"$2/audit.txt" && test -s "$2/audit.txt"' sh "$CLI" "$ROOT"
-expect_status 1 'audit rejects negative days (known inconsistent usage status)' node "$CLI" audit --days=-1
-expect_status 1 'audit rejects duplicate days (known inconsistent usage status)' node "$CLI" audit --days=7 --days=8
+expect_status 2 'audit rejects negative days' node "$CLI" audit --days=-1
+expect_status 2 'audit rejects duplicate days' node "$CLI" audit --days=7 --days=8
 expect_status 0 'rules empty telemetry' node "$CLI" rules --days=30 --project='中英 mix'
-expect_status 1 'rules rejects empty project (known inconsistent usage status)' node "$CLI" rules --project=
+expect_status 2 'rules rejects empty project' node "$CLI" rules --project=
 expect_status 0 'sampling audit empty transcripts' node "$CLI" sampling-audit --days=7 --limit=3
-expect_status 1 'sampling audit rejects decimal limit (known inconsistent usage status)' node "$CLI" sampling-audit --limit=1.5
+expect_status 2 'sampling audit rejects decimal limit' node "$CLI" sampling-audit --limit=1.5
 expect_status 0 'lesson bypass audit empty telemetry' node "$CLI" lesson-bypass-audit --days=7
-expect_status 1 'lesson bypass audit rejects junk days (known inconsistent usage status)' node "$CLI" lesson-bypass-audit --days=tomorrow
+expect_status 2 'lesson bypass audit rejects junk days' node "$CLI" lesson-bypass-audit --days=tomorrow
 expect_status 0 'sparkline empty telemetry markdown' node "$CLI" sparkline --windows=2 --bucket-days=1 --markdown
-expect_status 1 'sparkline rejects one window (known inconsistent usage status)' node "$CLI" sparkline --windows=1
+expect_status 2 'sparkline rejects one window' node "$CLI" sparkline --windows=1
 expect_status 0 'safety coverage audit real tree' node "$CLI" safety-coverage-audit --json
 expect_status 2 'safety coverage rejects unknown hook filter' node "$CLI" safety-coverage-audit --hook=missing.sh
 expect_status 0 'version cascade real tree' node "$CLI" version-cascade --json
 expect_status 0 'argv lint real tree' node "$CLI" lint-argv --json
 expect_status 0 'performance baseline one run' node "$CLI" perf-baseline --runs=1 --event=PreToolUse --json
-expect_status 1 'performance baseline rejects zero runs (known inconsistent usage status)' node "$CLI" perf-baseline --runs=0
+expect_status 2 'performance baseline rejects zero runs' node "$CLI" perf-baseline --runs=0
 
 printf '== packaging and repository-wide automated regression ==\n'
 expect_status 0 'npm package dry-run includes CLI' sh -c 'cd "$1" && npm pack --dry-run --json | jq -e ".[0].files | any(.path == \"bin/agentsmd.js\")" >/dev/null' sh "$REPO"

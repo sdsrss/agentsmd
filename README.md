@@ -140,6 +140,10 @@ and governance subcommands. A bare `agentsmd` prints that help and installs
 nothing. `install` and `update` print a concise result by default; pass `--json`
 when automation needs the full install manifest.
 
+CLI exit codes are consistent across subcommands: `0` means success/help, `1`
+means a valid command reported a negative or runtime result, and `2` means an
+argv/usage error.
+
 ### Codex plugin marketplace
 
 Use this when you want Codex to install agentsmd as a plugin and keep the bundle

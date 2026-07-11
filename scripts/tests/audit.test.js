@@ -380,7 +380,7 @@ try {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--project='],
         { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
+      (e) => e.status === 2 && /invalid --project value: \(empty\)/.test(String(e.stderr))
     );
   });
 
@@ -644,44 +644,44 @@ try {
   t('audit CLI rejects invalid --days instead of silently using default', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=abc'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /invalid --days value: abc/.test(String(e.stderr))
+      (e) => e.status === 2 && /invalid --days value: abc/.test(String(e.stderr))
     );
   });
   t('audit CLI rejects oversized --days instead of throwing a RangeError', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=999999999999999999999999999999'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
+      (e) => e.status === 2 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
     );
   });
   t('audit CLI rejects duplicate --days instead of silently taking the last value', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'audit.js'), '--days=7', '--days=30'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /duplicate option: --days/.test(String(e.stderr))
+      (e) => e.status === 2 && /duplicate option: --days/.test(String(e.stderr))
     );
   });
   t('rules CLI rejects unknown options instead of silently using default', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--wat'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /unknown option: --wat/.test(String(e.stderr))
+      (e) => e.status === 2 && /unknown option: --wat/.test(String(e.stderr))
     );
   });
   t('rules CLI rejects oversized --days instead of throwing a RangeError', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--days=999999999999999999999999999999'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
+      (e) => e.status === 2 && /invalid --days value: 999999999999999999999999999999/.test(String(e.stderr)) && !/RangeError/.test(String(e.stderr))
     );
   });
   t('rules CLI rejects duplicate --days instead of silently taking the last value', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--days=7', '--days=30'], { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /duplicate option: --days/.test(String(e.stderr))
+      (e) => e.status === 2 && /duplicate option: --days/.test(String(e.stderr))
     );
   });
   t('rules CLI rejects empty --project=', () => {
     assert.throws(
       () => cp.execFileSync('node', [path.join(__dirname, '..', 'rules.js'), '--project='],
         { env: { ...process.env, CODEX_HOME: tmp }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-      (e) => e.status === 1 && /invalid --project value: \(empty\)/.test(String(e.stderr))
+      (e) => e.status === 2 && /invalid --project value: \(empty\)/.test(String(e.stderr))
     );
   });
   t('rules CLI --include-test is documented and includes tagged telemetry end-to-end', () => {

@@ -192,7 +192,7 @@ if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   const usage = 'Usage: agentsmd-sparkline [--windows=N] [--bucket-days=D] [--markdown] [--include-test]';
   if (parsed.help) { console.log(usage); process.exit(0); }
-  if (parsed.error) { console.error(`agentsmd sparkline: ${parsed.error}`); console.error(usage); process.exit(1); }
+  if (parsed.error) { console.error(`agentsmd sparkline: ${parsed.error}`); console.error(usage); process.exit(2); }
   const r = sparkline({ windows: parsed.windows, bucketDays: parsed.bucketDays, includeTest: parsed.includeTest });
   console.log(parsed.markdown ? formatMarkdown(r) : formatReport(r));
 }

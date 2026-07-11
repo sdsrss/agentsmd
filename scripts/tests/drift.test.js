@@ -247,7 +247,15 @@ t('README zh: governance project lens remains documented', () => {
   assert(zh.includes('降级信号仍跨项目'), 'README.zh-CN.md missing cross-project demotion boundary');
 });
 
-// 15. Skill frontmatter is always loaded for routing. Keep it compact and force
+t('README: EN + zh document the shared CLI exit-code contract', () => {
+  for (const f of ['README.md', 'README.zh-CN.md']) {
+    const src = read(f);
+    assert(src.includes('`0`') && src.includes('`1`') && src.includes('`2`'), `${f} missing exit-code values`);
+    assert(/argv\/usage/.test(src), `${f} missing argv/usage classification`);
+  }
+});
+
+// 16. Skill frontmatter is always loaded for routing. Keep it compact and force
 //     a negative boundary so neighboring audit/init skills do not blur together.
 t('skills: descriptions stay compact and declare a Not for boundary', () => {
   const skillsDir = path.join(ROOT, 'skills');

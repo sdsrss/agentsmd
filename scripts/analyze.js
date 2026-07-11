@@ -200,7 +200,7 @@ function parseArgs(argv) {
 if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) { console.log(USAGE); process.exit(0); }
-  if (parsed.error) { console.error(`agentsmd analyze: ${parsed.error}`); console.error(USAGE); process.exit(1); }
+  if (parsed.error) { console.error(`agentsmd analyze: ${parsed.error}`); console.error(USAGE); process.exit(2); }
   if (parsed.mode === 'write') {
     let md;
     try { md = fs.readFileSync(parsed.from, 'utf8'); }

@@ -128,7 +128,7 @@ const USAGE = 'Usage: agentsmd-init [--check | --dry-run | --local] [--no-fronte
 if (require.main === module) {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) { console.log(USAGE); process.exit(0); }
-  if (parsed.error) { console.error(`agentsmd init: ${parsed.error}`); console.error(USAGE); process.exit(1); }
+  if (parsed.error) { console.error(`agentsmd init: ${parsed.error}`); console.error(USAGE); process.exit(2); }
   const r = init({ projectRoot: process.cwd(), check: parsed.check, dryRun: parsed.dryRun, local: parsed.local, noFrontend: parsed.noFrontend });
   if (r.action === 'check') {
     console.log(r.inSync ? `in sync: ${r.target}` : `drift: ${r.target} — run agentsmd-init to regenerate`);

@@ -53,14 +53,16 @@ t('install.sh help documents curl install, update, uninstall, and raw URL caveat
   assert(out.includes('raw.githubusercontent.com/sdsrss/agentsmd/main/install.sh'));
   assert(out.includes('--update'));
   assert(out.includes('--uninstall'));
+  assert.match(out, /Exit status:.*2 = argv\/usage error/);
   assert(out.includes('GitHub does not serve raw files from https://github.com/sdsrss/agentsmd/install.sh'));
 });
 
 t('install.sh rejects unknown options before touching CODEX_HOME', () => withSandbox((dir) => {
-  assert.throws(
-    () => run(['--nope'], { CODEX_HOME: dir }),
-    /unknown option: --nope/
-  );
+  const result = cp.spawnSync('sh', [path.join(ROOT, 'install.sh'), '--nope'], {
+    cwd: ROOT, env: { ...process.env, CODEX_HOME: dir }, encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 2, result.stdout + result.stderr);
+  assert.match(result.stderr, /unknown option: --nope/);
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
 }));
 
@@ -73,7 +75,7 @@ t('install.sh rejects conflicting lifecycle actions without uninstalling', () =>
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  assert.notStrictEqual(result.status, 0, result.stdout + result.stderr);
+  assert.strictEqual(result.status, 2, result.stdout + result.stderr);
   assert.match(result.stderr, /multiple action options|conflicting.*action/i);
   assert.strictEqual(JSON.parse(cli(['status'], env)).installed, true, 'conflicting action must not mutate CODEX_HOME');
 }));
@@ -188,6 +190,7 @@ t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => wi
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
   assert.match(out, /sparkline .*--include-test/, 'top-level help must expose sparkline --include-test');
+  assert.match(out, /Exit status:.*2 = argv\/usage error/);
   assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'help must not install');
 }));
 
@@ -200,6 +203,27 @@ t('agentsmd with no args prints usage and does NOT install (safe npx bare-run)',
 t('agentsmd unknown command exits non-zero with usage and does not install', () => withSandbox((dir) => {
   assert.throws(() => cli(['frobnicate'], { CODEX_HOME: dir }), /unknown command/);
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
+}));
+
+t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  const cases = [
+    ['frobnicate'],
+    ['init', '--check', '--dry-run'],
+    ['analyze', '--write', '--from', '--adoption'],
+    ['audit', '--days=-1'],
+    ['rules', '--project='],
+    ['sampling-audit', '--limit=1.5'],
+    ['lesson-bypass-audit', '--days=tomorrow'],
+    ['sparkline', '--windows=1'],
+    ['perf-baseline', '--runs=0'],
+  ];
+  for (const args of cases) {
+    const result = cliResult(args, env);
+    assert.strictEqual(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /Usage:|unknown command|invalid |requires |cannot be combined|out of range/i, args.join(' '));
+  }
+  assert(!fs.existsSync(path.join(dir, 'agentsmd')), 'usage errors must not install');
 }));
 
 t('agentsmd init dispatches to scripts/init.js, targeting the invoking directory rather than CODEX_HOME', () => withSandbox((dir) => {
