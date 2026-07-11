@@ -16,6 +16,7 @@ const REQUIRED_HOOK_SUPPORT = [
   'banned-vocab.patterns',
   'secrets.patterns',
   'lib/hook-common.sh',
+  'lib/memory-links.js',
   'lib/platform.sh',
   'lib/platform-timeout.js',
   'lib/rule-hits.sh',
@@ -60,7 +61,7 @@ function doctor() {
       pluginBundle.hooks.missingSupport.length === 0,
       pluginBundle.hooks.missingSupport.length
         ? `missing: ${pluginBundle.hooks.missingSupport.join(', ')}`
-        : '8/8'
+        : '9/9'
     );
     add(
       'plugin core spec present',

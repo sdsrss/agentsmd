@@ -48,6 +48,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 - Session checkpoints recognize successful `functions.exec`-orchestrated edits,
   formatters, and validations without accepting markers inside strings/comments
   or failed outer calls.
+- Memory-hint parsing runs from a packaged Node helper instead of a large
+  command-substitution heredoc, preserving valid English and Chinese hints under
+  stock macOS Bash 3.2.
 
 ### Quality
 

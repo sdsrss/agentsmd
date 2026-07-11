@@ -21,6 +21,7 @@ const PLUGIN_HOOK_SUPPORT = [
   'hooks/banned-vocab.patterns',
   'hooks/secrets.patterns',
   'hooks/lib/hook-common.sh',
+  'hooks/lib/memory-links.js',
   'hooks/lib/platform.sh',
   'hooks/lib/platform-timeout.js',
   'hooks/lib/rule-hits.sh',
