@@ -3,6 +3,7 @@ set -u
 
 REPO=$(cd -- "$(dirname -- "$0")/.." && pwd)
 CLI="$REPO/bin/agentsmd.js"
+PACKAGE_VERSION=$(cd "$REPO" && node -p 'require("./package.json").version')
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-user-journey.XXXXXX")
 PASSED=0
 FAILED=0
@@ -66,12 +67,23 @@ expect_contains() {
   fi
 }
 
+expect_exact() {
+  name=$1
+  path=$2
+  expected=$3
+  if [ "$(sed -n '1p' "$path")" = "$expected" ]; then
+    pass "$name"
+  else
+    fail "$name (expected: $expected)"
+  fi
+}
+
 printf '== beginner persona: discovery and typo recovery ==\n'
 expect_status 0 'bare CLI prints help' env CODEX_HOME="$ROOT/bare-home" node "$CLI"
 expect_absent 'bare CLI does not install' "$ROOT/bare-home/agentsmd"
 expect_status 0 '--help exits 0' node "$CLI" --help
 expect_status 0 '--version exits 0' node "$CLI" --version
-expect_contains '--version prints package version' "$ROOT/stdout" '^3\.3\.0$'
+expect_exact '--version prints package version' "$ROOT/stdout" "$PACKAGE_VERSION"
 expect_status 2 'unknown command exits 2' node "$CLI" 'instlal-手滑-😵'
 expect_contains 'unknown command is actionable' "$ROOT/stderr" 'unknown command'
 
