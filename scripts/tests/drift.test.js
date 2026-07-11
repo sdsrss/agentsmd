@@ -221,7 +221,33 @@ t('README: EN + zh hook-table row counts match the wiring', () => {
   }
 });
 
-// 14. Skill frontmatter is always loaded for routing. Keep it compact and force
+// 14. The Chinese README must retain the same discoverable user-command surface
+//     as the English README. These are intentionally semantic anchors rather than
+//     translated heading equality so either document can use natural wording.
+t('README zh: project init/analyze/adoption/design workflows remain discoverable', () => {
+  const zh = read('README.zh-CN.md');
+  for (const command of ['agentsmd init', 'analyze --gather', '--write --from', 'analyze --adoption', 'agentsmd design', 'design --write']) {
+    assert(zh.includes(command), `README.zh-CN.md missing project workflow: ${command}`);
+  }
+  for (const boundary of ['--check', '--dry-run', '--local', '--no-frontend', '6 KiB', 'Tailwind v3']) {
+    assert(zh.includes(boundary), `README.zh-CN.md missing project workflow boundary: ${boundary}`);
+  }
+});
+
+t('README zh: plugin browser fallback remains actionable', () => {
+  const zh = read('README.zh-CN.md');
+  assert(zh.includes('**插件**'), 'README.zh-CN.md missing Codex app Plugins action');
+  assert(zh.includes('`/plugins`'), 'README.zh-CN.md missing Codex CLI plugin browser action');
+});
+
+t('README zh: governance project lens remains documented', () => {
+  const zh = read('README.zh-CN.md');
+  assert(zh.includes('audit.js --project=X'), 'README.zh-CN.md missing audit project example');
+  assert(zh.includes('仅作信息透镜'), 'README.zh-CN.md missing rules project-lens boundary');
+  assert(zh.includes('降级信号仍跨项目'), 'README.zh-CN.md missing cross-project demotion boundary');
+});
+
+// 15. Skill frontmatter is always loaded for routing. Keep it compact and force
 //     a negative boundary so neighboring audit/init skills do not blur together.
 t('skills: descriptions stay compact and declare a Not for boundary', () => {
   const skillsDir = path.join(ROOT, 'skills');
