@@ -64,3 +64,11 @@
 - 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；外部 runtime 与跨平台盲区不变。
 - 退出判定: 满足（连续干净轮 2/2；无 OPEN 或 FIXED 未复验的 P0/P1/P2；完整测试、发布包 E2E 与 shell lint 通过）
 - 下轮计划: 无；生成 FINAL_REPORT 后停止，等待用户决定 ISSUE-004，不合并、不 push。
+
+## Round 5（2026-07-11，用户确认后的续测）
+- 覆盖: 用户确认 ISSUE-004 方案 A 后，重放 10 个 argv/usage 入口与 3 个有效负面/运行时路径；dispatcher、standalone installer、中英 contract 文档、argv static gate；完整 87 个用户旅程与 908 条自动化断言、shell lint（另独立重复执行一次完整 `npm run check`）
+- 新发现: P0:0 P1:0 P2:0 P3:0（无）
+- 修复并复验: ISSUE-004（827d4f1）；原复现矩阵全部 exit 2，有效负面/运行时路径保持 exit 1，标记 VERIFIED
+- 遗留 / 待确认: 无；外部 runtime 与跨平台盲区不变。
+- 退出判定: 未满足（公开 CLI contract 刚变更，续测干净轮 1/2）
+- 下轮计划: 重读 QA 状态后再执行一次 87 + 908 + 1 的全功能回归；无新增问题则恢复连续干净轮 2/2 并更新 FINAL_REPORT。

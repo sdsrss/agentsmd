@@ -18,11 +18,11 @@
 - 期望: 中文用户能发现按项目查看 telemetry/rules 的命令与“仅信息透镜、降级信号仍跨项目”的边界 / 实际: 只能看到未限定范围的 `--days=30` 示例。
 - 根因与备注: governance 文档后续参数扩展未同步中文。与 ISSUE-001 同根因合并修复；Round 1 原复现步骤重放后，`audit.js --project=X`、仅作信息透镜、降级信号仍跨项目三项均可定位。
 
-### ISSUE-004 | P2 | NEEDS_CONFIRMATION | 非法参数在不同子命令间返回 1 或 2
-- 发现轮次: 1    修复 commit: —
+### ISSUE-004 | P2 | VERIFIED | 非法参数在不同子命令间返回 1 或 2
+- 发现轮次: 1    修复 commit: 827d4f1
 - 复现: run `node bin/agentsmd.js init --check --dry-run; node bin/agentsmd.js audit --days=-1; node bin/agentsmd.js design --bogus; node bin/agentsmd.js status --bogus` and record statuses → `init`/`audit` return 1 while `design`/`status` return 2 for the same class of CLI usage error.
 - 期望: 自动化调用者能用一致退出码区分“命令使用错误”和“有效命令得到不健康/有缺口结果” / 实际: 手写 parser 的 `init`、`analyze`、`audit`、`rules`、`sampling-audit`、`lesson-bypass-audit`、`sparkline` 及 `perf-baseline` 的部分值校验返回 1；基于 `ArgvError` 的入口通常返回 2。
-- 根因与备注: 各脚本独立演进，参数错误的退出码约定未统一。方案 A: 全部非法 argv 统一为 2（推荐，符合现有 `ArgvError`、status/doctor/install/uninstall/restore 约定，风险是依赖旧 exit=1 的脚本需调整）；方案 B: 保留现状但在 help/README 逐命令记录退出码（零兼容风险，但自动化体验继续不一致）；方案 C: 全部归一为 1（实现简单，但会失去 usage/runtime/result 分类且改变更多既有入口）。这是外部调用者可见行为，未经产品确认不直接修改。
+- 根因与备注: 各脚本独立演进，参数错误的退出码约定未统一。用户在最终报告后确认采用方案 A。新增 dispatcher contract 矩阵与中英/installer 文档断言；所有 argv/usage 错误现为 2，有效命令的负面结果或运行时/健康失败保持 1。原复现矩阵重放为 10/10 exit 2；`init --check` 漂移、缺失 analyze 输入、doctor 不健康分别保持 exit 1。
 
 ### ISSUE-005 | P2 | VERIFIED | Standalone installer 静默接受冲突 action 并执行最后一个
 - 发现轮次: 2    修复 commit: 8413d06
