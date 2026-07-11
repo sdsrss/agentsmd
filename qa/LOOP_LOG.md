@@ -40,3 +40,11 @@
 - 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；真实 Codex plugin UI/runtime、多版本 Node/macOS、远程 registry/CI 仍是沙箱盲区。
 - 退出判定: 未满足（本轮出现新 P2，连续干净轮归零；ISSUE-004 虽不阻塞 P0/P1/P2 总账条件，但需产品确认退出码兼容策略）
 - 下轮计划: 候选退出轮执行同等规模全功能回归；加深 standalone installer、恢复 dry-run/confirm fixture、重复/乱序参数与 hook 变体；若无 P0-P2 新发现，记为连续干净轮 1/2。
+
+## Round 2（2026-07-11）
+- 覆盖: 重读三份 QA 状态文件；完整双画像用户旅程；新增 standalone local-source install→冲突 action→状态不变→uninstall 场景；隔离 restore list/非法参数；全部 CLI、项目命令、治理诊断、hook、package 与 shell lint 回归（用例数: 85 个用户旅程场景 + 906 个自动化断言 + 1 个 shell lint 命令，对比上轮: 80 + 905 + 1）
+- 新发现: P0:0 P1:0 P2:1 P3:0（ISSUE-005）
+- 修复并复验: ISSUE-005（8413d06）；原复现命令重放为 `before=true exit=1 after=true`，已标记 VERIFIED
+- 遗留 / 待确认: ISSUE-004 为 NEEDS_CONFIRMATION；外部 runtime 与跨平台盲区不变。
+- 退出判定: 未满足（本轮发现新 P2，即使已修复也使连续干净轮归零）
+- 下轮计划: 执行不低于本轮规模的全功能回归，重点复验 ISSUE-005 与 restore confirm/rollback、action 重复/顺序变体；若无 P0-P2 新发现，记为连续干净轮 1/2。

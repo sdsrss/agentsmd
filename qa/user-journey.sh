@@ -99,6 +99,14 @@ expect_status 0 'status after uninstall' node "$CLI" status
 expect_contains 'status after uninstall says false' "$ROOT/stdout" '"installed": false'
 expect_status 2 'uninstall rejects extra positional' node "$CLI" uninstall '算了'
 
+printf '== expert persona: standalone installer action safety ==\n'
+export CODEX_HOME="$ROOT/standalone-home"
+expect_status 0 'standalone installer accepts local source' sh "$REPO/install.sh" --source "$REPO"
+expect_status 1 'standalone installer rejects status plus uninstall' sh "$REPO/install.sh" --source "$REPO" --status --uninstall
+expect_contains 'standalone conflict error names both actions' "$ROOT/stderr" 'multiple action options: --status and --uninstall'
+expect_status 0 'standalone conflict leaves install intact' sh -c 'node "$1" status | jq -e ".installed == true" >/dev/null' sh "$CLI"
+expect_status 0 'standalone uninstall still works alone' sh "$REPO/install.sh" --source "$REPO" --uninstall
+
 printf '== beginner persona: project init/analyze/design ==\n'
 PROJECT="$ROOT/你好 mixed project 🚀"
 mkdir -p "$PROJECT/src"
