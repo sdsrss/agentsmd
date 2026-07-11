@@ -127,6 +127,10 @@ t('plugin: hook commands resolve scripts from Codex CLAUDE_PLUGIN_ROOT', () => {
   }
 });
 
+t('plugin: architecture separates runtime entry root from self-derived support paths', () => {
+  assert(read('ARCHITECTURE.md').includes('`${CLAUDE_PLUGIN_ROOT}` 仅用于定位入口脚本'));
+});
+
 // 5. version is consistent across package.json / plugin.json / marketplace pin /
 //    manifest / BOTH spec headers. Core + extended carry ONE shared version and move together
 //    (AGENTS-CHANGELOG.md, since v1.4.0) — the extended header must be asserted

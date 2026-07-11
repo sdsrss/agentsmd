@@ -3,12 +3,39 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.1.1 — 2026-07-11 — plugin hook root repair
+
+### Fixed
+
+- Plugin hook commands now resolve from Codex's `CLAUDE_PLUGIN_ROOT` instead of
+  the undefined `PLUGIN_ROOT`, so all 15 packaged hooks can start rather than
+  exiting with code 127. The shared hook library maps that runtime variable to
+  its internal plugin-root path for plugin-only spec injection and dual-surface
+  suppression.
+- Plugin-aware `status` and `doctor` validate the same runtime-root command
+  contract that the packaged manifest executes.
+- Tracked architecture documentation now distinguishes the runtime variable that locates
+  a plugin entry hook from the support/spec paths scripts derive after startup.
+
+### Quality
+
+- Drift and packaged-distribution gates require all 15 commands to use
+  `CLAUDE_PLUGIN_ROOT`. Hook smoke tests exercise plugin-only spec injection and
+  standalone shadowing with only the Codex runtime variable present.
+- Release validation covers 15/15 manifest commands, 274/274 hook smoke cases,
+  978/978 full-suite assertions, and the 86-case user journey.
+
+Rollback consumers with `npm install -g @sdsrs/agentsmd@4.1.0 && agentsmd
+update`; source/plugin users select `v4.1.0` and reinstall. Revert the v4.1.1
+release commit for source rollback. Published npm versions are immutable and can
+only be deprecated.
+
 ## v4.1.0 — 2026-07-11 — trusted plugin runtime and safety audit remediation
 
 ### Added
 
 - The Codex plugin manifest now explicitly selects its root `hooks.json` and
-  resolves all 15 commands through Codex's `CLAUDE_PLUGIN_ROOT`. A trusted plugin-only
+  resolves all 15 commands through `PLUGIN_ROOT`. A trusted plugin-only
   `SessionStart` injects the packaged core spec into the current session and
   announces the packaged extended-spec path without writing global Codex files.
 - Plugin-aware `status` and `doctor` validate the manifest, all registrations,

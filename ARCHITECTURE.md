@@ -50,7 +50,10 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 
 证据锚点：`hooks.json`、`hooks/hooks.json`、`scripts/lib/hook-registry.js` 与 `hooks/tests/smoke.sh`。这些证明仓库模型内部一致；外部 Codex harness compatibility 仍需对应版本的官方契约或脱敏实机 capture。
 
-**路径自派生**（沿用 claudemd 不变式）：脚本用 `${BASH_SOURCE[0]}`/`__dirname` 自推基址，不依赖 `${CLAUDE_PLUGIN_ROOT}` 类变量——跨版本安全，也回避 Codex plugin-root 变量的不确定性。
+**两段式路径解析**：plugin manifest 使用 Codex 提供的
+`${CLAUDE_PLUGIN_ROOT}` 仅用于定位入口脚本；脚本启动后再用
+`${BASH_SOURCE[0]}`/`__dirname` 自推 support、spec 与管理脚本路径。Standalone
+manifest 仍写入绝对 hook 路径，不依赖 plugin runtime 变量。
 
 ---
 
