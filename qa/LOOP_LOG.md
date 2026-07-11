@@ -72,3 +72,11 @@
 - 遗留 / 待确认: 无；外部 runtime 与跨平台盲区不变。
 - 退出判定: 未满足（公开 CLI contract 刚变更，续测干净轮 1/2）
 - 下轮计划: 重读 QA 状态后再执行一次 87 + 908 + 1 的全功能回归；无新增问题则恢复连续干净轮 2/2 并更新 FINAL_REPORT。
+
+## Round 6（2026-07-11）
+- 覆盖: 重读三份 QA 状态文件；全新 fixture 原样重放 87 个双画像用户旅程，包括统一后的顶层/子命令/standalone argv exit=2 contract；内嵌完整 908 条自动化断言、npm package dry-run 与 shell lint（用例数: 87 + 908 + 1，对比上轮: 87 + 908 + 1，另有 Round 5 独立重复 check）
+- 新发现: P0:0 P1:0 P2:0 P3:0（无）
+- 修复并复验: 无新增修复；ISSUE-004 及全部历史 VERIFIED 问题由完整回归覆盖
+- 遗留 / 待确认: 无；外部 runtime 与跨平台盲区不变。
+- 退出判定: 满足（用户确认后的连续干净轮 2/2；5 个问题全部 VERIFIED；完整测试、发布包 E2E 与 shell lint 通过）
+- 下轮计划: 无；更新 FINAL_REPORT 后停止，不合并、不 push。
