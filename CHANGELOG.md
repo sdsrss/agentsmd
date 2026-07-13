@@ -58,6 +58,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   5/5, structured drift passed 25/25, and distribution/package lifecycle passed
   35/35. The npm dry-run artifact contains 93 files, including the repair and
   surface-arbitration runtime modules, while source-only tests remain excluded.
+- Codex-dependent config-health tests now place a deterministic validator
+  process on the test PATH, so CI exercises both accepted and rejected config
+  results without inheriting a developer workstation's Codex installation.
 - Independent architecture, quality, and spec re-reviews confirmed the original
   TOML false-health High and the hook-order/SemVer/freshness/exact-once wording
   findings closed, with no new High finding.

@@ -4,6 +4,8 @@ set -u
 REPO=$(cd -- "$(dirname -- "$0")/.." && pwd)
 CLI="$REPO/bin/agentsmd.js"
 PACKAGE_VERSION=$(cd "$REPO" && node -p 'require("./package.json").version')
+PATH="$REPO/scripts/tests/fixtures:$PATH"
+export PATH
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-user-journey.XXXXXX")
 PASSED=0
 FAILED=0

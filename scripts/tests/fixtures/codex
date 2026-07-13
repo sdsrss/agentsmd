@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+'use strict';
+
+// Deterministic stand-in for the external Codex config-validation boundary.
+// It is intentionally not a TOML parser: the tests below exercise whether
+// agentsmd honors the validator process's accept/reject result. Production
+// code still invokes the real `codex features list` command and fails closed
+// when that executable is unavailable.
+
+const fs = require('fs');
+const path = require('path');
+
+if (process.argv[2] !== 'features' || process.argv[3] !== 'list') process.exit(2);
+
+let config;
+try {
+  config = fs.readFileSync(path.join(process.env.CODEX_HOME || '', 'config.toml'), 'utf8');
+} catch {
+  process.exit(1);
+}
+
+const rejectedFixtures = [
+  /=\s*\[\s*not\s+valid\s*\]/,
+  /status_line\s*=\s*\[\s*broken(?:\s|$)/,
+];
+
+process.exit(rejectedFixtures.some((pattern) => pattern.test(config)) ? 1 : 0);
