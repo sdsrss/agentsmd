@@ -83,6 +83,23 @@ function ownedStateFiles(manifest) {
   return files;
 }
 
+// Per-message advisory queues are directories (pending-advisories[-<key>].d), so
+// the file sweep above never touches them; enumerate them separately so uninstall
+// removes the queue rather than orphaning it and leaving stateDir non-empty.
+function ownedStateDirs(manifest) {
+  if (!manifest) return [];
+  const state = P.stateDir();
+  const ownedDir = /^pending-advisories(?:-.+)?\.d$/;
+  const dirs = [];
+  let entries = [];
+  try { entries = fs.readdirSync(state, { withFileTypes: true }); }
+  catch (error) { if (error && error.code === 'ENOENT') return dirs; throw error; }
+  for (const entry of entries) {
+    if (entry.isDirectory() && ownedDir.test(entry.name)) dirs.push(path.join(state, entry.name));
+  }
+  return dirs;
+}
+
 function sameSnapshot(left, right) {
   return left.present === right.present
     && (!left.present || (left.mode === right.mode && left.content.equals(right.content)));
@@ -254,6 +271,7 @@ function uninstall() {
   const hooksRemoval = beforeHooks === null ? null : H.removeAgentsmdHooks(beforeHooks);
   const agentsRemoval = beforeAgents === null ? null : AM.removeSpecBlock(beforeAgents);
   const stateFiles = ownedStateFiles(manifest);
+  const stateDirs = ownedStateDirs(manifest);
   const legacy = M.legacyArtifacts();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-uninstall-stage-${process.pid}-${Date.now()}`);
   fs.mkdirSync(stageRoot, { mode: 0o700 });
@@ -264,7 +282,7 @@ function uninstall() {
       P.hooksJsonPath(), P.agentsMdPath(), P.agentsExtendedMdPath(),
       ...stateFiles, ...legacy.files,
     ]);
-    snapshotDirectories(transaction, legacy.directories);
+    snapshotDirectories(transaction, [...legacy.directories, ...stateDirs]);
     // 1. Shared files are marker-scoped and tracked byte-for-byte for rollback.
     if (hooksRemoval && hooksRemoval.removed > 0) {
       result.hooksRemoved = hooksRemoval.removed;
@@ -304,6 +322,12 @@ function uninstall() {
         mutateFile(transaction, file, () => F.unlinkFileIfUnchanged(file, expected));
       }
     }
+    // Remove owned advisory-queue directories (snapshotted above for rollback;
+    // markDirectorySnapshotsAfter records their absence) so the state dir can empty.
+    for (const dir of stateDirs) {
+      if (F.pathExists(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    }
+
     try { fs.rmdirSync(P.stateDir()); result.stateDirRemoved = true; }
     catch (error) {
       if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error;

@@ -71,6 +71,8 @@ SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
 if [[ "$SS_SOURCE" != "resume" ]]; then
   rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
   rm -f "$(hook_advisory_file "$SID")" 2>/dev/null || true
+  rm -rf "$STATE_DIR/pending-advisories.d" 2>/dev/null || true
+  rm -rf "$(hook_advisory_dir "$SID")" 2>/dev/null || true
   rm -f "$STATE_DIR/remote-downloads-$SKEY.paths" 2>/dev/null || true
 fi
 find "$STATE_DIR" -maxdepth 1 -type f -name 'remote-downloads-*.paths' -mtime +7 -delete 2>/dev/null || true

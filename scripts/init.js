@@ -42,39 +42,44 @@ const LOCAL_SKELETON = [
   '- AUTONOMY_LEVEL: ', '- Notes: ', '',
 ].join('\n');
 
-function ensureGitignore(root, line) {
-  const p = path.join(root, '.gitignore');
-  const before = F.snapshotFile(p);
+function ensureGitignore(gitignorePath, line, before, commit) {
   const cur = before.present ? before.content.toString('utf8') : '';
   if (cur.split('\n').some((l) => l.trim() === line)) return false;
-  F.writeFileAtomic(p, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n', { expectedSnapshot: before });
+  F.writeFileAtomic(gitignorePath, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n', { expectedSnapshot: before });
+  commit(gitignorePath, before);
   return true;
 }
 
-function writeLocal(root) {
-  const localPath = path.join(root, 'AGENTS.local.md');
+function writeLocal(localPath, gitignorePath, localBefore, gitignoreBefore, commit) {
   let created = false;
-  let createdSnapshot = null;
   try {
     fs.writeFileSync(localPath, LOCAL_SKELETON, { flag: 'wx', mode: 0o600 });
     created = true;
-    createdSnapshot = F.snapshotFile(localPath);
+    commit(localPath, localBefore);
   } catch (error) {
     if (!error || error.code !== 'EEXIST') throw error;
   }
-  let gitignore;
+  const gitignore = ensureGitignore(gitignorePath, 'AGENTS.local.md', gitignoreBefore, commit);
+  return { path: localPath, created, gitignore };
+}
+
+// All-or-nothing multi-file write. body() performs the writes and calls
+// commit(file, preSnapshot) after each one that lands; any throw restores every
+// committed file to its pre-run snapshot (reverse order) then rethrows the
+// original error. A file absent pre-run is restored to absent. The write that
+// throws left nothing to undo (writeFileAtomic renames or cleans up its tmp;
+// the exclusive-create either creates or throws), so only committed writes roll
+// back — a concurrent-change rejection on the first write clobbers nothing.
+function transact(body) {
+  const committed = [];
   try {
-    gitignore = ensureGitignore(root, 'AGENTS.local.md');
+    return body((file, snapshot) => committed.push([file, snapshot]));
   } catch (error) {
-    if (created) {
-      try { F.unlinkFileIfUnchanged(localPath, createdSnapshot); }
-      catch (rollbackError) {
-        throw new Error(`${error.message}; AGENTS.local.md rollback failed: ${rollbackError.message}`);
-      }
+    for (let i = committed.length - 1; i >= 0; i--) {
+      try { F.restoreFile(committed[i][0], committed[i][1]); } catch { /* best-effort rollback */ }
     }
     throw error;
   }
-  return { path: localPath, created, gitignore };
 }
 
 function init({ projectRoot, check = false, dryRun = false, local = false, noFrontend = false } = {}) {
@@ -102,10 +107,23 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
 
   if (check) return { action: 'check', target, detection, inSync: existing !== null && existing === content };
   if (dryRun) return { action: 'dry-run', target, detection, content };
-  F.writeFileAtomic(target, content, { expectedSnapshot: before });
-  const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend, frontendFirstAdded };
-  if (local) result.local = writeLocal(root);
-  return result;
+
+  // init writes up to three files (main AGENTS.md, plus AGENTS.local.md and
+  // .gitignore in --local mode). Snapshot every file the run may touch BEFORE
+  // any write so a failure at any point rolls the whole set back — otherwise a
+  // torn multi-file command leaves AGENTS.md modified after a later step fails.
+  const localPath = path.join(root, 'AGENTS.local.md');
+  const gitignorePath = path.join(root, '.gitignore');
+  const localBefore = local ? F.snapshotFile(localPath) : null;
+  const gitignoreBefore = local ? F.snapshotFile(gitignorePath) : null;
+
+  return transact((commit) => {
+    F.writeFileAtomic(target, content, { expectedSnapshot: before });
+    commit(target, before);
+    const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend, frontendFirstAdded };
+    if (local) result.local = writeLocal(localPath, gitignorePath, localBefore, gitignoreBefore, commit);
+    return result;
+  });
 }
 
 function parseArgs(argv) {

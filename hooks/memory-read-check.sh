@@ -35,9 +35,17 @@ if ! GIT_INVOCATIONS="$(hook_git_invocations_json 'push|merge' "$CMD" 2>/dev/nul
   exit 0
 fi
 [[ -n "$GIT_INVOCATIONS" ]] || GIT_INVOCATIONS='[]'
+# Detect non-git publishers structurally (npm/pnpm/yarn/cargo publish; gh release
+# create|upload|edit|delete|delete-asset) so a publisher word appearing as an
+# argument or inside quotes — `rg "npm publish"`, `echo "gh release create"` — and
+# read-only forms — `gh release list|view|download`, `npm pack` — never trip the
+# gate. Fail-open (no gate) if the parser cannot classify, mirroring the git path.
 NON_GIT_PUBLISH=0
-printf '%s' "$CMD" | grep -qiE '(npm|pnpm|yarn)[[:space:]]+publish\b|(^|[[:space:]])(gh[[:space:]]+release|cargo[[:space:]]+publish)\b' \
-  && NON_GIT_PUBLISH=1
+PUBLISHERS="$(hook_publisher_invocations_json "$CMD" 2>/dev/null)"
+[[ -n "$PUBLISHERS" ]] || PUBLISHERS='[]'
+PUB_COUNT="$(printf '%s' "$PUBLISHERS" | jq -r 'length' 2>/dev/null || echo 0)"
+[[ "$PUB_COUNT" =~ ^[0-9]+$ ]] || PUB_COUNT=0
+[[ "$PUB_COUNT" -gt 0 ]] && NON_GIT_PUBLISH=1
 GIT_COUNT="$(printf '%s' "$GIT_INVOCATIONS" | jq -r 'length' 2>/dev/null || echo 0)"
 [[ "$GIT_COUNT" =~ ^[0-9]+$ ]] || GIT_COUNT=0
 [[ "$GIT_COUNT" -gt 0 || "$NON_GIT_PUBLISH" -eq 1 ]] || exit 0

@@ -19,8 +19,20 @@ function pendingFor(message) {
     const event = JSON.stringify({ session_id: 'report-test', transcript_path: transcript });
     const result = cp.spawnSync('bash', [HOOK], { input: event, encoding: 'utf8', env: { ...process.env, CODEX_HOME: sandbox } });
     assert.strictEqual(result.status, 0, result.stderr);
-    const pending = path.join(sandbox, '.agentsmd-state', 'pending-advisories-report-test');
-    return fs.existsSync(pending) ? fs.readFileSync(pending, 'utf8') : '';
+    const state = path.join(sandbox, '.agentsmd-state');
+    // Advisories are per-message files under pending-advisories-<key>.d, named so a
+    // lexicographic sort reflects arrival order. Concatenate them; fall back to the
+    // ≤4.3.0 single-file queue.
+    const dir = path.join(state, 'pending-advisories-report-test.d');
+    if (fs.existsSync(dir)) {
+      return fs.readdirSync(dir)
+        .filter((name) => /^[0-9]/.test(name))
+        .sort()
+        .map((name) => fs.readFileSync(path.join(dir, name), 'utf8'))
+        .join('');
+    }
+    const legacy = path.join(state, 'pending-advisories-report-test');
+    return fs.existsSync(legacy) ? fs.readFileSync(legacy, 'utf8') : '';
   } finally { fs.rmSync(sandbox, { recursive: true, force: true }); }
 }
 

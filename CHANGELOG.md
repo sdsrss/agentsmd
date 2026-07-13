@@ -3,6 +3,49 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.4.0 — 2026-07-13 — quick-win batch: structured publish gate, atomic advisories, init transaction, pinned CI
+
+The audit roadmap's Tier-1 quick wins (R4-02, R4-04, R4-03, R3-03).
+
+### Fixed
+
+- The non-git ship gate classifies publishers structurally instead of grepping
+  the whole command string (M-04): `npm|pnpm|yarn|cargo publish` and
+  `gh release create|upload|edit|delete|delete-asset` in actual command
+  position gate; `gh release list|view|download`, `npm pack`, and any
+  publisher phrase inside quotes or as data to rg/grep/echo no longer trip it.
+  Detection reuses the quote/wrapper/nested-shell-aware command parser the git
+  path already uses, including its anti-evasion recursion.
+- The advisory queue can no longer lose messages under concurrent
+  produce/consume (M-10): each advisory is its own atomically-renamed file;
+  the consumer claims by rename into a private dir (a lost claim race skips,
+  never deletes unseen data); the 20-message cap prunes oldest-by-name.
+  Queues written by ≤4.3.0 are migrated (surfaced once, then removed) and
+  uninstall now removes the pending dir instead of orphaning it.
+- `agentsmd init --local` is a three-file transaction (M-09): main
+  `AGENTS.md`, `AGENTS.local.md`, and `.gitignore` are snapshotted before any
+  write and all committed writes roll back byte-identically (absent stays
+  absent) on any failure, which no longer leaves a torn main `AGENTS.md`;
+  the original error is rethrown unwrapped.
+
+### Added
+
+- CI supply chain (M-12): `actions/checkout` and `actions/setup-node` are
+  pinned to full commit SHAs, and a new drift gate rejects any mutable
+  tag/branch `uses:` ref in `.github/workflows/`.
+
+### Quality
+
+- Suite growth: hook smoke 293 → 326 (publish classifier 11 gate + 11
+  near-negative cases; advisory concurrency/migration/cap cases), init
+  96 → 106 (per-write-point failure injection), drift 25 → 26. Full gate
+  `npm run check` exit 0; live-guard reports the live CODEX_HOME unchanged.
+
+Rollback consumers by pinning `npm install -g @sdsrs/agentsmd@4.3.0` and
+running `agentsmd update`; source/plugin users select `v4.3.0` and reinstall.
+Revert the v4.4.0 release commit for source rollback. Published npm versions
+are immutable and can only be deprecated.
+
 ## v4.3.0 — 2026-07-13 — audit remediation: hot-path arbitration cache, symlink boundary, private telemetry
 
 Remediates the highest-priority findings of the 2026-07-13 v4.2.0 audit

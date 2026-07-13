@@ -1086,6 +1086,63 @@ function collectGitMatches(source, wanted, depth = 0) {
   return matches;
 }
 
+// Publish verbs that carry ship intent, keyed by the tool that owns them. `gh`
+// is two-level: only the release subcommands that create or mutate a published
+// release gate; the read-only ones (list/view/download) never do.
+const PUBLISH_TOOLS = new Set(["npm", "pnpm", "yarn", "cargo"]);
+const GH_RELEASE_GATED = new Set(["create", "upload", "edit", "delete", "delete-asset"]);
+
+// Leading positional (non-option) argument words, up to `limit`. Option-looking
+// tokens are skipped so the subcommand is still found after a global flag
+// (e.g. `npm --loglevel=silly publish`). The shapes gated below place their
+// subcommand first, so this never mistakes an option's value for a subcommand.
+function leadingPositionals(args, limit) {
+  const out = [];
+  for (const arg of args) {
+    if (arg.startsWith("-") && arg !== "-") continue;
+    out.push(arg);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// Classify one lexed command as a non-git publish invocation, or null. The
+// executable must sit in an actual command position — commandStart skips env
+// assignments and command/exec/nohup/env/sudo wrappers — so a publisher word
+// inside a quoted argument, or passed as data to rg/grep/echo, is never matched.
+function parsePublisher(words) {
+  const executableIndex = commandStart(words);
+  if (executableIndex < 0) return null;
+  const name = basename(words[executableIndex] || "").toLowerCase();
+  const args = words.slice(executableIndex + 1);
+  if (PUBLISH_TOOLS.has(name)) {
+    const [sub] = leadingPositionals(args, 1);
+    if (sub && sub.toLowerCase() === "publish") return { publisher: name, subcommand: "publish" };
+    return null;
+  }
+  if (name === "gh") {
+    const [group, action] = leadingPositionals(args, 2);
+    if (group && group.toLowerCase() === "release" && action && GH_RELEASE_GATED.has(action.toLowerCase())) {
+      return { publisher: "gh", subcommand: `release ${action.toLowerCase()}` };
+    }
+  }
+  return null;
+}
+
+function collectPublisherMatches(source, depth = 0) {
+  source = stripDataHereDocs(source);
+  const matches = [];
+  for (const words of lexCommands(source)) {
+    const parsed = parsePublisher(words);
+    if (parsed) matches.push(parsed);
+  }
+  if (depth >= MAX_SAFETY_RECURSION) return matches;
+  for (const nested of nestedShellSources(lexSafetyCommands(source))) {
+    matches.push(...collectPublisherMatches(nested, depth + 1));
+  }
+  return matches;
+}
+
 function main() {
   if (process.argv[2] === "--executes-file") {
     process.stdout.write(JSON.stringify(sourceExecutesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
@@ -1097,6 +1154,10 @@ function main() {
   }
   if (process.argv[2] === "--propagates-file") {
     process.stdout.write(JSON.stringify(sourcePropagatesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
+    return;
+  }
+  if (process.argv[2] === "--publishers") {
+    process.stdout.write(JSON.stringify(collectPublisherMatches(process.argv[3] || "")));
     return;
   }
   const wanted = new Set((process.argv[2] || "").toLowerCase().split("|").filter(Boolean));

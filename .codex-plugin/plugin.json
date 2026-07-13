@@ -1,6 +1,6 @@
 {
   "name": "agentsmd",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "surfaceProtocolVersion": 1,
   "description": "CODEX-CODING-SPEC — global Codex workflow and evidence guidance, with native hooks for selected safety/report checks and rule-specific opportunity telemetry. Installs independently of oh-my-codex.",
   "author": {

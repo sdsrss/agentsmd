@@ -225,6 +225,21 @@ PARSED="$(node "$HOOKS_DIR/lib/command-parse.js" push $'cat <<\'EOF\'\ngit push 
 PARSED="$(node "$HOOKS_DIR/lib/command-parse.js" push $'bash <<\'EOF\'\ngit push origin main\nEOF')"
 [[ "$(printf '%s' "$PARSED" | jq 'length')" == "1" ]] && ok "Git push in interpreter heredoc remains executable" || bad "interpreter heredoc Git push → parsed" "$PARSED"
 
+echo "== command-parse.js --publishers (structured non-git publish detection) =="
+pub_len() { node "$HOOKS_DIR/lib/command-parse.js" --publishers "$1" | jq 'length' 2>/dev/null; }
+# Publishers in an actual command position gate.
+for CASE in 'npm publish' 'pnpm publish' 'yarn publish' 'cargo publish' 'cd x && npm publish' \
+            'ENV=1 gh release create v1' 'gh release upload v1 a.tgz' 'gh release edit v1' \
+            'gh release delete v1' 'gh release delete-asset v1 a.tgz' 'sudo npm publish'; do
+  [[ "$(pub_len "$CASE")" -ge 1 ]] && ok "publisher gates: $CASE" || bad "publisher must gate: $CASE" "len=$(pub_len "$CASE")"
+done
+# Non-publishers and publisher words used as data/arguments do NOT gate.
+for CASE in 'gh release list' 'gh release view v1' 'gh release download v1' 'npm pack' 'npm run publish' \
+            'rg "npm publish" docs/' 'echo "gh release create"' 'echo npm publish' 'git push origin main' \
+            'grep -r "cargo publish" .' 'printf "%s" "npm publish"'; do
+  [[ "$(pub_len "$CASE")" == "0" ]] && ok "not a publisher: $CASE" || bad "must NOT gate: $CASE" "len=$(pub_len "$CASE")"
+done
+
 echo "== session-start-check.sh =="
 OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
@@ -419,7 +434,18 @@ OUT="$(FAKE_GH_ARGS_FILE="$GHARGS" FAKE_GH_CONCLUSION=failure run_hook ship-base
 
 STOP='{"session_id":"smoke1","hook_event_name":"Stop"}'
 PENDING="$CODEX_HOME/.agentsmd-state/pending-advisories-smoke1"
-pending_has() { [[ -f "$PENDING" ]] && grep -qF "$1" "$PENDING"; }
+PENDING_DIR="$CODEX_HOME/.agentsmd-state/pending-advisories-smoke1.d"
+# Advisories are now per-message files under PENDING_DIR (the legacy single file
+# PENDING is only consumed for ≤4.3.0 migration). Search both; reset both.
+pending_has() {
+  { [[ -d "$PENDING_DIR" ]] && grep -rqF "$1" "$PENDING_DIR" 2>/dev/null; } \
+    || { [[ -f "$PENDING" ]] && grep -qF "$1" "$PENDING" 2>/dev/null; }
+}
+pending_empty() {
+  { [[ ! -d "$PENDING_DIR" ]] || [[ -z "$(find "$PENDING_DIR" -maxdepth 1 -type f -name '[0-9]*' 2>/dev/null | head -n1)" ]]; } \
+    && [[ ! -s "$PENDING" ]]
+}
+clear_pending() { rm -f "$PENDING" 2>/dev/null || true; rm -rf "$PENDING_DIR" 2>/dev/null || true; }
 TRJSON() { jq -cn --arg p "$1" '{session_id:"smoke1",transcript_path:$p,hook_event_name:"Stop"}'; }
 # Telemetry-log helpers (shared by the transcript-structure + convention-cite sections):
 # capture new rows written between a before-count and now, to assert their spec_section.
@@ -427,14 +453,14 @@ clog_count() { telemetry_count; }
 clog_new()   { telemetry_new "$1"; }
 
 echo "== residue-audit.sh (Stop → queue, no inline emit) =="
-mkdir -p "$CODEX_HOME/tmp"; rm -f "$PENDING"
+mkdir -p "$CODEX_HOME/tmp"; clear_pending
 run_hook residue-audit.sh "$STOP" >/dev/null 2>&1   # run 1: establish baseline (silent)
 : > "$CODEX_HOME/tmp/orphan1"                        # tmp grows by 1
 B="$(clog_count)"; OUT="$(run_hook residue-audit.sh "$STOP")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "§9" && rows_have_observe "$NEW" '§7-user-global-state' true true; } && ok "tmp grew → queued + evaluated observation" || bad "tmp grew → observe" "out=[$OUT] new=[$NEW]"
 
 echo "== sandbox-disposal-check.sh (Stop → queue) =="
-rm -f "$PENDING"; export TMPDIR="$SANDBOX/tmproot"; mkdir -p "$TMPDIR"
+clear_pending; export TMPDIR="$SANDBOX/tmproot"; mkdir -p "$TMPDIR"
 mkdir -p "$CODEX_HOME/.agentsmd-state"
 node -e '
 const fs = require("fs");
@@ -444,7 +470,7 @@ fs.utimesSync(process.argv[1], stamp, stamp);
 mkdir -p "$TMPDIR/agentsmd-smoke-scratch"            # matches prefix, newer than ref
 B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "§8.V4" && rows_have_observe "$NEW" '§8.V4' true true; } && ok "mkdtemp residue → queued + evaluated observation" || bad "mkdtemp residue → observe" "out=[$OUT] new=[$NEW]"
-rm -f "$PENDING"; rm -r "$TMPDIR/agentsmd-smoke-scratch"
+clear_pending; rm -r "$TMPDIR/agentsmd-smoke-scratch"
 mkdir -p "$TMPDIR/codex-bwrap-synthetic-mount-targets-1000"
 B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && ! pending_has "§8.V4" && rows_have_observe "$NEW" '§8.V4' true true \
@@ -454,14 +480,14 @@ B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(c
 unset TMPDIR
 
 echo "== transcript-structure-scan.sh (Stop → queue) =="
-TR="$SANDBOX/transcript.jsonl"; rm -f "$PENDING"
+TR="$SANDBOX/transcript.jsonl"; clear_pending
 printf '%s\n' '{"timestamp":"t","type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: significantly improved the parser.\nNot done: none\nFailed: none\nUncertain: none"}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "§10"; } && ok "banned-vocab → queued" || bad "banned-vocab → queued" "out=[$OUT]"
 { rows_have_event "$NEW" '§10-V' advisory && rows_have_no_event "$NEW" '§10-four-section-order' advisory; } && ok "banned-vocab enforcement tagged §10-V only" || bad "banned-vocab enforcement section" "new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the crash (12/12 tests passed).\nNot done: none\nFailed: none\nUncertain: none"}]}}' > "$TR"
 B="$(clog_count)"; OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && ! pending_has "§10" \
@@ -479,24 +505,24 @@ B="$(clog_count)"; OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")
   && rows_have_no_observe "$NEW" '§10-honesty'; } \
   && ok "readable transcript without assistant message → no opportunity" \
   || bad "no assistant message → no observe" "out=[$OUT] new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed parser (12/12 tests passed).\nNot done: none\nFailed: none\nUncertain: none\n\n```\nconst word = \"significantly\";\n```"}]}}' > "$TR"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 { is_empty "$OUT" && ! pending_has "§10"; } && ok "banned-vocab inside fenced code → silent" || bad "banned-vocab inside fenced code → silent" "out=[$OUT]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Not done: a\nDone: b\nFailed: c\nUncertain: d"}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "four-section"; } && ok "four-section out-of-order → queued" || bad "four-section → queued" "out=[$OUT]"
 { rows_have_event "$NEW" '§10-four-section-order' advisory && rows_have_no_event "$NEW" '§10-V' advisory; } && ok "four-section enforcement tagged §10-four-section-order only" || bad "four-section enforcement section" "new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: a\nNot done: b\nFailed: c"}]}}' > "$TR"
 B="$(clog_count)"; OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "four-section" && rows_have_event "$NEW" '§10-four-section-order' advisory; } \
   && ok "four-section missing required label → queued" \
   || bad "four-section missing label → queued" "out=[$OUT] new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 # both classes in one report → one row per section (the mislabel fix's core proof).
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Not done: a\nDone: significantly better\nFailed: c\nUncertain: d"}]}}' > "$TR"
 B="$(clog_count)"
@@ -504,26 +530,26 @@ OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { rows_have_event "$NEW" '§10-V' advisory && rows_have_event "$NEW" '§10-four-section-order' advisory; } && ok "report with both vocab+order → one enforcement row per section" || bad "both vocab+order enforcement rows" "new=[$NEW]"
 # (c) iron-law-2 evidence-fingerprint: a fix claim with no evidence anchor → §6-iron-law-2.
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the login bug."}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "iron-law-2" && rows_have_event "$NEW" '§6-iron-law-2' advisory; } && ok "fix claim w/o evidence → §6-iron-law-2 queued" || bad "fix claim w/o evidence → §6-iron-law-2" "out=[$OUT] new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the login crash in auth.js:42 (3 tests passed)."}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { is_empty "$OUT" && ! pending_has "iron-law-2" && rows_have_no_event "$NEW" '§6-iron-law-2' advisory; } && ok "fix claim WITH evidence (file:line + tests passed) → silent" || bad "fix claim with evidence → silent" "out=[$OUT] new=[$NEW]"
 # (d) uncertain-hedge: Uncertain section hedges without a because → §10-honesty.
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: shipped.\nUncertain: the cache may go stale under load."}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "uncertain-hedge" && rows_have_event "$NEW" '§10-honesty' advisory; } && ok "uncertain hedge w/o because → §10-honesty queued" || bad "uncertain hedge → §10-honesty" "out=[$OUT] new=[$NEW]"
-rm -f "$PENDING"
+clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Uncertain: the cache may go stale because the TTL is unverified."}]}}' > "$TR"
 B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
@@ -741,7 +767,7 @@ echo "== mem-audit.sh (Stop → §7 memory-hygiene, 24h debounce) =="
 MA_STATE="$CODEX_HOME/.agentsmd-state"; mkdir -p "$MA_STATE"; rm -f "$MA_STATE"/mem-audit-*.stamp
 MAJSON() { jq -cn --arg cwd "$1" '{session_id:"smoke1",cwd:$cwd,hook_event_name:"Stop"}'; }
 # (a) index_orphan (index line → missing file) → surfaced advisory + §7-memory-hygiene telemetry + stamp.
-MA_ORPH="$SANDBOX/memorphan"; mkdir -p "$MA_ORPH/memory"; rm -f "$PENDING"
+MA_ORPH="$SANDBOX/memorphan"; mkdir -p "$MA_ORPH/memory"; clear_pending
 printf '%s\n' '- [auth](memory/auth.md) — login flow' '- [gone](memory/gone.md) — deleted, index still points here' > "$MA_ORPH/MEMORY.md"
 printf '%s\n' 'verified: 2026-01-01 | source: PR #1' 'auth notes' > "$MA_ORPH/memory/auth.md"
 B="$(clog_count)"
@@ -750,28 +776,28 @@ NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "index lists a missing file" && printf '%s\n' "$NEW" | grep -q '"spec_section":"§7-memory-hygiene"' && printf '%s\n' "$NEW" | grep -q '"surfaced":true'; } && ok "index_orphan → advisory queued + §7-memory-hygiene telemetry (surfaced)" || bad "index_orphan → advisory + telemetry" "out=[$OUT] new=[$NEW]"
 [[ -n "$(ls "$MA_STATE"/mem-audit-*.stamp 2>/dev/null)" ]] && ok "mem-audit writes a per-dir debounce stamp" || bad "mem-audit writes a debounce stamp" "(no stamp)"
 # (b) second Stop within 24h → debounced (silent, no re-scan / no new telemetry).
-rm -f "$PENDING"; B="$(clog_count)"
+clear_pending; B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
-{ is_empty "$OUT" && [[ -z "$NEW" ]] && [[ ! -f "$PENDING" ]]; } && ok "second Stop within 24h → debounced" || bad "debounce within 24h" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" && [[ -z "$NEW" ]] && pending_empty; } && ok "second Stop within 24h → debounced" || bad "debounce within 24h" "out=[$OUT] new=[$NEW]"
 # (c) stamp aged past 24h → audits again.
 node -e 'const fs=require("fs"); const old=new Date(Date.now()-25*60*60*1000); for (const p of process.argv.slice(1)) fs.utimesSync(p, old, old);' "$MA_STATE"/mem-audit-*.stamp
-rm -f "$PENDING"; B="$(clog_count)"
+clear_pending; B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_ORPH")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && pending_has "index lists a missing file" && printf '%s\n' "$NEW" | grep -q '§7-memory-hygiene'; } && ok "stamp >24h → re-audits" || bad "stamp >24h → re-audits" "out=[$OUT] new=[$NEW]"
 # (d) missing_header ONLY → telemetry recorded, NOT surfaced (用户无感: measured, not nagged).
-MA_HDR="$SANDBOX/memheader"; mkdir -p "$MA_HDR/memory"; rm -f "$PENDING"
+MA_HDR="$SANDBOX/memheader"; mkdir -p "$MA_HDR/memory"; clear_pending
 printf '%s\n' '- [notes](memory/notes.md) — some notes' > "$MA_HDR/MEMORY.md"
 printf '%s\n' 'a note missing the mandated verified/source header' > "$MA_HDR/memory/notes.md"
 B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_HDR")")"; NEW="$(clog_new "$B")"
-{ is_empty "$OUT" && [[ ! -f "$PENDING" ]] && printf '%s\n' "$NEW" | grep -q '"missing_header":1' && printf '%s\n' "$NEW" | grep -q '"surfaced":false'; } && ok "missing_header only → telemetry (surfaced:false), no queued nag" || bad "missing_header only → measured, not surfaced" "out=[$OUT] new=[$NEW] pending=$([[ -f "$PENDING" ]] && echo yes || echo no)"
+{ is_empty "$OUT" && pending_empty && printf '%s\n' "$NEW" | grep -q '"missing_header":1' && printf '%s\n' "$NEW" | grep -q '"surfaced":false'; } && ok "missing_header only → telemetry (surfaced:false), no queued nag" || bad "missing_header only → measured, not surfaced" "out=[$OUT] new=[$NEW] pending=$(pending_empty && echo no || echo yes)"
 # (e) clean dir (indexed + on disk + verified/source header) → silent, nothing recorded.
-MA_CLEAN="$SANDBOX/memclean"; mkdir -p "$MA_CLEAN/memory"; rm -f "$PENDING"
+MA_CLEAN="$SANDBOX/memclean"; mkdir -p "$MA_CLEAN/memory"; clear_pending
 printf '%s\n' '- [ok](memory/ok.md) — clean entry' > "$MA_CLEAN/MEMORY.md"
 printf '%s\n' 'verified: 2026-02-02 | source: user correction' 'body' > "$MA_CLEAN/memory/ok.md"
 B="$(clog_count)"
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$MA_CLEAN")")"; NEW="$(clog_new "$B")"
-{ is_empty "$OUT" && rows_have_observe "$NEW" '§7-memory-hygiene' true true && [[ ! -f "$PENDING" ]]; } && ok "clean memory dir → evaluated observation only" || bad "clean memory dir → observe" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" && rows_have_observe "$NEW" '§7-memory-hygiene' true true && pending_empty; } && ok "clean memory dir → evaluated observation only" || bad "clean memory dir → observe" "out=[$OUT] new=[$NEW]"
 # (f) no MEMORY.md anywhere → silent.
 OUT="$(run_hook mem-audit.sh "$(MAJSON "$SANDBOX/no-such-proj")")"; is_empty "$OUT" && ok "no MEMORY.md → silent" || bad "no MEMORY.md → silent" "$OUT"
 rm -f "$MA_STATE"/mem-audit-*.stamp
@@ -782,20 +808,83 @@ printf '%s\n' "[agentsmd §9] queued advisory" > "$PENDING"
 OUT="$(run_hook surface-advisories.sh "$UPS")"
 { is_context "$OUT" && [[ ! -f "$PENDING" ]]; } && ok "queued advisory → surfaced via UserPromptSubmit + cleared" || bad "surface + clear" "out=[$OUT]"
 OUT="$(run_hook surface-advisories.sh "$UPS")"; is_empty "$OUT" && ok "empty queue → silent" || bad "empty queue → silent" "$OUT"
-TR2="$SANDBOX/transcript-session-a.jsonl"; rm -f "$CODEX_HOME/.agentsmd-state"/pending-advisories*
+TR2="$SANDBOX/transcript-session-a.jsonl"; rm -rf "$CODEX_HOME/.agentsmd-state"/pending-advisories*
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: significantly improved parser."}]}}' > "$TR2"
 run_hook transcript-structure-scan.sh "$(jq -cn --arg p "$TR2" '{session_id:"session-a",transcript_path:$p,hook_event_name:"Stop"}')" >/dev/null 2>&1
 OUT="$(run_hook surface-advisories.sh "$(jq -cn '{prompt:"unrelated",session_id:"session-b",hook_event_name:"UserPromptSubmit"}')")"
 OUT2="$(run_hook surface-advisories.sh "$(jq -cn '{prompt:"continue",session_id:"session-a",hook_event_name:"UserPromptSubmit"}')")"
 { is_empty "$OUT" && is_context "$OUT2"; } && ok "queued advisory stays scoped to its session" || bad "queued advisory stays scoped to its session" "session-b=[$OUT] session-a=[$OUT2]"
 
+echo "== advisory queue atomic produce/consume (R4-04) =="
+ADV_HEADER='[agentsmd] Advisories from your previous turn (address or acknowledge):'
+# Producer primitive: each Stop hook is its own process, so source the lib in a
+# subshell and queue one advisory into the per-session pending dir.
+q_adv() {  # q_adv MESSAGE SESSION_ID
+  bash -c 'source "$1/lib/hook-common.sh" 2>/dev/null || exit 0; hook_queue_advisory "$2" "$3"' _ "$HOOKS_DIR" "$1" "$2"
+}
+adv_ctx() { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
+dir_msg_count() { find "$1" -maxdepth 1 -type f -name '[0-9]*' 2>/dev/null | wc -l | tr -d ' '; }
+
+# 1. Normal per-file roundtrip: producer writes a per-message file, consumer
+#    surfaces it with the SAME envelope the single-file consumer emitted, and drains.
+QRT="qroundtrip"; QRT_DIR="$CODEX_HOME/.agentsmd-state/pending-advisories-qroundtrip.d"; rm -rf "$QRT_DIR"
+q_adv "[agentsmd §9] roundtrip advisory" "$QRT"
+OUT="$(run_hook surface-advisories.sh "$(jq -cn --arg s "$QRT" '{prompt:"go",session_id:$s,hook_event_name:"UserPromptSubmit"}')")"
+RT_CTX="$(adv_ctx "$OUT")"
+{ is_context "$OUT" && [[ "$RT_CTX" == "$ADV_HEADER"* ]] && [[ "$RT_CTX" == *'[agentsmd §9] roundtrip advisory'* ]] \
+    && [[ "$(dir_msg_count "$QRT_DIR")" -eq 0 ]]; } \
+  && ok "per-file queue → surfaced with unchanged envelope + drained" || bad "per-file roundtrip envelope" "ctx=[$RT_CTX] pending=$(dir_msg_count "$QRT_DIR")"
+
+# 2. Two concurrent producers + an interleaved consumer: every message is surfaced
+#    exactly once and none is lost (the shared-.tmp collision + delete-just-appended
+#    races the single-file queue had).
+QCON="qconc"; QCON_DIR="$CODEX_HOME/.agentsmd-state/pending-advisories-qconc.d"; rm -rf "$QCON_DIR"
+UPS_CON="$(jq -cn --arg s "$QCON" '{prompt:"go",session_id:$s,hook_event_name:"UserPromptSubmit"}')"
+SURF_CON="$SANDBOX/surfaced-qconc.txt"; : > "$SURF_CON"
+prod_con() { local label="$1" k; for ((k=1;k<=10;k++)); do q_adv "$label-$k" "$QCON"; done; }
+( prod_con A ) & P1=$!
+( prod_con B ) & P2=$!
+for _ in 1 2 3 4 5 6; do adv_ctx "$(run_hook surface-advisories.sh "$UPS_CON")" >> "$SURF_CON"; done
+wait "$P1" "$P2"
+adv_ctx "$(run_hook surface-advisories.sh "$UPS_CON")" >> "$SURF_CON"   # final drain
+CON_SURFACED=$(grep -oE '[AB]-[0-9]+' "$SURF_CON" | sort -u | wc -l | tr -d ' ')
+CON_DUP=$(grep -oE '[AB]-[0-9]+' "$SURF_CON" | sort | uniq -d | wc -l | tr -d ' ')
+CON_PENDING="$(dir_msg_count "$QCON_DIR")"
+{ [[ "$CON_SURFACED" -eq 20 && "$CON_DUP" -eq 0 && "$CON_PENDING" -eq 0 ]]; } \
+  && ok "2 producers + interleaved consumer: all 20 surfaced once, none lost/dup" \
+  || bad "concurrent produce/consume conservation" "surfaced=$CON_SURFACED dup=$CON_DUP pending=$CON_PENDING"
+
+# 3. Legacy ≤4.3.0 single-file queue is surfaced once, then removed.
+QLEG="qlegacy"; LEG_FILE="$CODEX_HOME/.agentsmd-state/pending-advisories-qlegacy"
+rm -rf "$CODEX_HOME/.agentsmd-state/pending-advisories-qlegacy"*
+printf '%s\n' 'legacy advisory one' 'legacy advisory two' > "$LEG_FILE"
+OUT="$(run_hook surface-advisories.sh "$(jq -cn --arg s "$QLEG" '{prompt:"go",session_id:$s,hook_event_name:"UserPromptSubmit"}')")"
+LEG_CTX="$(adv_ctx "$OUT")"
+{ is_context "$OUT" && [[ "$LEG_CTX" == *'legacy advisory one'* && "$LEG_CTX" == *'legacy advisory two'* ]] && [[ ! -e "$LEG_FILE" ]]; } \
+  && ok "≤4.3.0 single-file queue migrated once then removed" \
+  || bad "legacy queue migration" "ctx=[$LEG_CTX] file=$([[ -e "$LEG_FILE" ]] && echo present || echo gone)"
+
+# 4. Cap: 25 queued (single process → filenames sort by arrival) → oldest 5 pruned,
+#    exactly 20 retained, newest kept.
+QCAP="qcap"; CAP_DIR="$CODEX_HOME/.agentsmd-state/pending-advisories-qcap.d"; rm -rf "$CAP_DIR"
+bash -c 'source "$1/lib/hook-common.sh" 2>/dev/null || exit 0; for ((k=1;k<=25;k++)); do hook_queue_advisory "cap-$k" "$2"; done' _ "$HOOKS_DIR" "$QCAP"
+CAP_N="$(dir_msg_count "$CAP_DIR")"
+OUT="$(run_hook surface-advisories.sh "$(jq -cn --arg s "$QCAP" '{prompt:"go",session_id:$s,hook_event_name:"UserPromptSubmit"}')")"
+CAP_CTX="$(adv_ctx "$OUT")"
+{ [[ "$CAP_N" -eq 20 ]] \
+    && printf '%s\n' "$CAP_CTX" | grep -qxF 'cap-25' && printf '%s\n' "$CAP_CTX" | grep -qxF 'cap-6' \
+    && ! printf '%s\n' "$CAP_CTX" | grep -qxF 'cap-5' && ! printf '%s\n' "$CAP_CTX" | grep -qxF 'cap-1'; } \
+  && ok "queue capped at 20: oldest-by-arrival pruned, newest retained" \
+  || bad "cap prunes oldest" "n=$CAP_N ctx=[$CAP_CTX]"
+
 echo "== session-start clears queue on startup, PRESERVES on resume =="
-printf 'stale advisory\n' > "$PENDING"
+printf 'stale advisory\n' > "$PENDING"; q_adv "stale per-file advisory" "smoke1"
 run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"startup"}' >/dev/null 2>&1
-[[ ! -f "$PENDING" ]] && ok "SessionStart(startup) drops stale queue" || bad "SessionStart(startup) drops stale queue" "(still exists)"
-printf 'in-session advisory\n' > "$PENDING"
+{ [[ ! -f "$PENDING" ]] && [[ ! -d "$PENDING_DIR" ]]; } && ok "SessionStart(startup) drops stale queue (file + per-message dir)" || bad "SessionStart(startup) drops stale queue" "(still exists)"
+printf 'in-session advisory\n' > "$PENDING"; q_adv "in-session per-file advisory" "smoke1"
 run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"resume"}' >/dev/null 2>&1
-[[ -f "$PENDING" ]] && ok "SessionStart(resume) PRESERVES queue (I5 empirical fix)" || bad "SessionStart(resume) preserves queue" "(cleared)"
+{ [[ -f "$PENDING" ]] && [[ "$(dir_msg_count "$PENDING_DIR")" -ge 1 ]]; } && ok "SessionStart(resume) PRESERVES queue (I5 empirical fix)" || bad "SessionStart(resume) preserves queue" "(cleared)"
+clear_pending
 # per-session baseline isolation: two sessions keep SEPARATE session-start refs, so
 # one session's SessionStart can't reset another's residue/disposal baseline.
 run_hook session-start-check.sh '{"session_id":"sessAAAAA","hook_event_name":"SessionStart","source":"startup"}' >/dev/null 2>&1
@@ -884,6 +973,15 @@ B="$(clog_count)"; OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origi
 { is_empty "$OUT" && rows_have_no_observe "$NEW" '§7-memory-read'; } && ok "ship + no MEMORY.md → allow without opportunity" || bad "ship + no MEMORY → no observe" "out=[$OUT] new=[$NEW]"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main [allow-unread-memory]' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_empty "$OUT" && ok "ship + bypass → allow" || bad "ship + bypass → allow" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'ls -la' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_empty "$OUT" && ok "non-ship → allow" || bad "non-ship → allow" "$OUT"
+# Non-git publishers gate the memory-read check exactly like git push (R4-02).
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'npm publish' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_block "$OUT" && ok "npm publish + unread MEMORY.md → block" || bad "npm publish ship gate → block" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'cd sub && cargo publish' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_block "$OUT" && ok "cargo publish (after cd) + unread MEMORY.md → block" || bad "cargo publish ship gate → block" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'ENV=1 gh release create v1' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_block "$OUT" && ok "gh release create + unread MEMORY.md → block" || bad "gh release create ship gate → block" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'npm publish' "$PROJ" "$SANDBOX/tr-tool-read.jsonl")")"; is_empty "$OUT" && ok "npm publish + MEMORY.md consulted → allow" || bad "npm publish + consulted → allow" "$OUT"
+# Read-only and quoted-data publisher words do NOT trip the gate.
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'gh release list' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_empty "$OUT" && ok "gh release list (read-only) → allow, no gate" || bad "gh release list → allow" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'npm pack' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_empty "$OUT" && ok "npm pack → allow, no gate" || bad "npm pack → allow" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'rg "npm publish" docs/' "$PROJ" "$SANDBOX/tr-noread.jsonl")")"; is_empty "$OUT" && ok "rg \"npm publish\" (data) → allow, no gate" || bad "rg npm publish data → allow" "$OUT"
 NONGIT="$SANDBOX/non-git-proj"; mkdir -p "$NONGIT/child"
 printf '%s\n' '- [billing](memory/billing.md) — billing invoice handling' > "$NONGIT/MEMORY.md"
 B="$(clog_count)"; OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$NONGIT/child" "$SANDBOX/tr-noread.jsonl")")"; NEW="$(clog_new "$B")"

@@ -2,6 +2,18 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.4.0 (2026-07-13) — quick-win remediation batch (no rule-text changes)
+
+Core and extended rule text are unchanged. The shared version moves in lockstep
+with a package minor that lands the audit roadmap's Tier-1 quick wins: the
+non-git ship gate now classifies publishers structurally (no more
+`gh release list` / quoted-text false positives), the advisory queue is
+atomic per-message with claim-by-rename, `init --local` is a three-file
+transaction, and CI action refs are pinned to immutable commit SHAs with a
+drift gate. No hard rule, manifest row, registered hook, event, or live
+telemetry section changed. `spec_version` → v4.4.0. Detail: repository
+`CHANGELOG.md`.
+
 ## v4.3.0 (2026-07-13) — audit gap anchors G-1..G-4 (rule-text additions, one new rule)
 
 Closes the four structural gaps found by the 2026-07-13 spec comparison against

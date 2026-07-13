@@ -310,5 +310,23 @@ t('skills: descriptions stay compact and declare a Not for boundary', () => {
   }
 });
 
+// 17. Supply chain: workflow action refs must be immutable commit SHAs, not
+//     mutable tags/branches a compromised upstream repo could repoint (M-12).
+t('workflows: every uses: ref is pinned to a full commit SHA', () => {
+  const wfDir = path.join(ROOT, '.github', 'workflows');
+  const offenders = [];
+  for (const name of fs.readdirSync(wfDir).filter((n) => /\.ya?ml$/.test(n))) {
+    const src = fs.readFileSync(path.join(wfDir, name), 'utf8');
+    for (const line of src.split('\n')) {
+      const m = line.match(/^\s*(?:-\s*)?uses:\s*(\S+)/);
+      if (!m) continue;
+      const ref = m[1];
+      if (ref.startsWith('./')) continue; // local composite actions have no ref
+      if (!/@[0-9a-f]{40}$/.test(ref)) offenders.push(`${name}: ${ref}`);
+    }
+  }
+  assert.strictEqual(offenders.length, 0, `mutable action refs: ${offenders.join(', ')}`);
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

@@ -346,6 +346,99 @@ withProject({ 'package.json': JSON.stringify({ name: 'local-race' }) }, (dir) =>
     assert.strictEqual(result.local.created, false);
   });
 });
+// ── --local three-file transaction: any write point fails → full rollback ─────
+// The run touches main AGENTS.md, AGENTS.local.md, and .gitignore. A failure at
+// ANY write point must leave all three byte-identical to (or as-absent as) their
+// pre-run state, and must rethrow the original error unwrapped.
+
+// Write point 1: main AGENTS.md write fails → nothing else touched.
+withProject({
+  'package.json': JSON.stringify({ name: 'tx-main' }),
+  'AGENTS.md': '# main original\n',
+  'AGENTS.local.md': 'LOCAL ORIGINAL',
+  '.gitignore': '# gi original\n',
+}, (dir) => {
+  const agents = path.join(dir, 'AGENTS.md');
+  const localP = path.join(dir, 'AGENTS.local.md');
+  const gi = path.join(dir, '.gitignore');
+  const snap = { agents: fs.readFileSync(agents, 'utf8'), local: fs.readFileSync(localP, 'utf8'), gi: fs.readFileSync(gi, 'utf8') };
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  const boom = new Error('injected main-write failure');
+  F.writeFileAtomic = (file, content, options) => {
+    if (path.resolve(String(file)) === path.resolve(agents)) throw boom;
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('tx: main-write failure rethrows the injected error unwrapped', () => assert.strictEqual(error, boom));
+  t('tx: main-write failure leaves all three files at pre-run bytes', () => {
+    assert.strictEqual(fs.readFileSync(agents, 'utf8'), snap.agents);
+    assert.strictEqual(fs.readFileSync(localP, 'utf8'), snap.local);
+    assert.strictEqual(fs.readFileSync(gi, 'utf8'), snap.gi);
+  });
+});
+
+// Write point 2: AGENTS.local.md create fails after main already written →
+// main must roll back to pre-run bytes; local stays absent; .gitignore untouched.
+withProject({
+  'package.json': JSON.stringify({ name: 'tx-local' }),
+  'AGENTS.md': '# main original\n',
+  '.gitignore': '# gi original\n',
+}, (dir) => {
+  const agents = path.join(dir, 'AGENTS.md');
+  const localP = path.join(dir, 'AGENTS.local.md');
+  const gi = path.join(dir, '.gitignore');
+  const snapAgents = fs.readFileSync(agents, 'utf8');
+  const snapGi = fs.readFileSync(gi, 'utf8');
+  const realWrite = fs.writeFileSync;
+  const boom = new Error('injected local-write failure');
+  fs.writeFileSync = (file, content, options) => {
+    if (path.resolve(String(file)) === path.resolve(localP) && options && options.flag === 'wx') throw boom;
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { fs.writeFileSync = realWrite; }
+  t('tx: local-write failure rethrows the injected error unwrapped', () => assert.strictEqual(error, boom));
+  t('tx: local-write failure rolls the already-written main AGENTS.md back to pre-run bytes', () => assert.strictEqual(fs.readFileSync(agents, 'utf8'), snapAgents));
+  t('tx: local-write failure leaves AGENTS.local.md absent', () => assert.strictEqual(fs.existsSync(localP), false));
+  t('tx: local-write failure leaves .gitignore at pre-run bytes', () => assert.strictEqual(fs.readFileSync(gi, 'utf8'), snapGi));
+});
+
+// Write point 3: .gitignore update fails after main + local already written →
+// this is the defect the fix targets: main AGENTS.md must roll back (old code
+// left it modified), the newly-created local file must roll back to absent.
+withProject({
+  'package.json': JSON.stringify({ name: 'tx-gi' }),
+  'AGENTS.md': '# main original\n',
+  '.gitignore': '# gi original\n',
+}, (dir) => {
+  const agents = path.join(dir, 'AGENTS.md');
+  const localP = path.join(dir, 'AGENTS.local.md');
+  const gi = path.join(dir, '.gitignore');
+  const snapAgents = fs.readFileSync(agents, 'utf8');
+  const snapGi = fs.readFileSync(gi, 'utf8');
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  const boom = new Error('injected gitignore-write failure');
+  F.writeFileAtomic = (file, content, options) => {
+    if (path.resolve(String(file)) === path.resolve(gi)) throw boom;
+    return realWrite(file, content, options);
+  };
+  let error;
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t('tx: gitignore-write failure rethrows the injected error unwrapped', () => assert.strictEqual(error, boom));
+  t('tx: gitignore-write failure rolls the already-written main AGENTS.md back to pre-run bytes', () => assert.strictEqual(fs.readFileSync(agents, 'utf8'), snapAgents));
+  t('tx: gitignore-write failure rolls the newly-created AGENTS.local.md back to absent', () => assert.strictEqual(fs.existsSync(localP), false));
+  t('tx: gitignore-write failure leaves .gitignore at pre-run bytes', () => assert.strictEqual(fs.readFileSync(gi, 'utf8'), snapGi));
+});
+
 t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));
 t('parseArgs rejects --check with --dry-run instead of silently ignoring --dry-run', () =>
   assert.match(require('../init').parseArgs(['--check', '--dry-run']).error, /cannot be combined/));

@@ -153,6 +153,9 @@ hook_session_key() {
   printf '%s' "$sid" | tr -c 'a-zA-Z0-9_.-' '_'
 }
 
+# hook_advisory_file [SID] — the ≤4.3.0 single-file queue path. Retained only so
+# the current producer/consumer can migrate a queue left by an older install;
+# new advisories are per-message files under hook_advisory_dir instead.
 hook_advisory_file() {
   local key d
   d="$(hook_state_dir)"
@@ -162,6 +165,14 @@ hook_advisory_file() {
   else
     printf '%s/pending-advisories-%s' "$d" "$key"
   fi
+}
+
+# hook_advisory_dir [SID] — per-session directory holding one file per queued
+# advisory. A directory (not a shared file) is what makes produce/consume atomic:
+# each message is created by temp-then-rename and claimed by rename, so a producer
+# and a consumer can never corrupt or drop each other's messages.
+hook_advisory_dir() {
+  printf '%s.d' "$(hook_advisory_file "${1:-}")"
 }
 
 hook_find_memory_file() {
@@ -186,20 +197,45 @@ hook_find_memory_file() {
   return 1
 }
 
-# hook_queue_advisory MESSAGE — queue a Stop-time advisory to be surfaced at the
-# NEXT UserPromptSubmit. additionalContext on the Stop event is not a verified
+# hook_queue_advisory MESSAGE [SID] — queue a Stop-time advisory to be surfaced at
+# the NEXT UserPromptSubmit. additionalContext on the Stop event is not a verified
 # surfacing channel; UserPromptSubmit/SessionStart is (matches OMX's usage), so
-# Stop advisories are deferred there instead of emitted inline on Stop. The queue
-# is capped and cleared at SessionStart (session-scoped).
+# Stop advisories are deferred there instead of emitted inline on Stop.
+#
+# Each advisory is its own file under the per-session pending dir, written to a
+# temp name then renamed in — atomic, so a concurrent consumer never sees a
+# half-written message and two concurrent producers never collide. File names sort
+# lexicographically by arrival (zero-padded epoch + pid + counter). The queue is
+# capped at 20 (producer prunes oldest-by-name) and cleared at a fresh SessionStart.
 hook_queue_advisory() {
-  local msg="$1" sid="${2:-}" f
-  f="$(hook_advisory_file "$sid")"
-  printf '%s\n' "$msg" >> "$f" 2>/dev/null || return 0
-  local n
-  n=$(wc -l < "$f" 2>/dev/null || echo 0)
-  if [[ "$n" =~ ^[0-9]+$ && "$n" -gt 20 ]]; then
-    tail -n 20 "$f" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" 2>/dev/null
-  fi
+  local msg="$1" sid="${2:-}" dir ts name tmp
+  dir="$(hook_advisory_dir "$sid")"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  ts="$(date +%s 2>/dev/null)" || ts=0
+  [[ "$ts" =~ ^[0-9]+$ ]] || ts=0
+  : "${AGENTSMD_ADVISORY_SEQ:=0}"
+  AGENTSMD_ADVISORY_SEQ=$((AGENTSMD_ADVISORY_SEQ + 1))
+  name="$(printf '%010d-%05d-%03d' "$ts" "$$" "$AGENTSMD_ADVISORY_SEQ" 2>/dev/null)"
+  [[ -n "$name" ]] || return 0
+  tmp="$dir/.tmp-$$-$AGENTSMD_ADVISORY_SEQ"
+  printf '%s\n' "$msg" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  mv -f "$tmp" "$dir/$name" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  hook_prune_advisories "$dir"
+}
+
+# hook_prune_advisories DIR — keep at most the 20 newest advisory files (by name,
+# which is arrival order). A prune racing a consumer's claim is benign: rm of an
+# already-moved file simply fails. Message files are digit-prefixed; the consumer's
+# claim dir (.claim-*) and in-flight temp files (.tmp-*) are dot-prefixed and skipped.
+hook_prune_advisories() {
+  local dir="$1" cap=20 files=() f n excess i
+  for f in "$dir"/[0-9]*; do
+    [[ -f "$f" ]] && files+=("$f")
+  done
+  n=${#files[@]}
+  (( n > cap )) || return 0
+  excess=$((n - cap))
+  for (( i = 0; i < excess; i++ )); do rm -f "${files[$i]}" 2>/dev/null || true; done
 }
 
 # hook_record HOOK EVENT [EXTRA_JSON] [SECTION] [SESSION_ID] — append telemetry.
@@ -260,6 +296,18 @@ hook_git_invocations_json() {
 # Backward-compatible single-invocation accessor for out-of-tree hook consumers.
 hook_git_invocation_json() {
   hook_git_invocations_json "$1" "$2" | jq -c '.[0] // empty' 2>/dev/null
+}
+
+# hook_publisher_invocations_json CMD — print a JSON array of every non-git
+# publish command (npm/pnpm/yarn/cargo publish; gh release create|upload|edit|
+# delete|delete-asset) that appears in an actual command position. Uses the same
+# quote/wrapper-aware lexer as the Git parser, so a publisher word inside a quoted
+# argument or passed as data to rg/grep/echo is not a match. Never evaluated.
+hook_publisher_invocations_json() {
+  local cmd="$1" lib_dir
+  command -v node >/dev/null 2>&1 || return 1
+  lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  node "$lib_dir/command-parse.js" --publishers "$cmd" 2>/dev/null
 }
 
 # hook_cmd_invokes_git SUBCMD_ALT CMD — 0 if CMD contains an actual matching Git
