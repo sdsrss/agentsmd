@@ -221,15 +221,84 @@ function scanFeatures(content) {
   return { enabledNew, enabledOld, enabled: enabledNew || enabledOld, oldTrueIdx, falseIdx, falseEntries, hasFeatures, featuresHeaderIdx, inlineIdx, inlineInner, lines };
 }
 
-// True when the hook feature is enabled under [features] by EITHER name.
+// Replace TOML multiline-string bodies before scanning for tables or assignments.
+// A literal `[features]\nhooks = true` inside a user string is data, not config.
+// Newlines are retained so line-oriented rewrites and diagnostics keep their shape.
+function maskMultilineStrings(input) {
+  const content = typeof input === 'string' ? input : '';
+  const out = content.split('');
+  let mode = null;
+  let inDouble = false, inSingle = false, escaped = false, comment = false;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (mode !== null) {
+      if (ch === '\n') { out[i] = '\n'; escaped = false; continue; }
+      const quote = mode === 'basic' ? '"' : "'";
+      let quoteRun = 0;
+      while (content[i + quoteRun] === quote) quoteRun++;
+      if (quoteRun >= 3 && (mode !== 'basic' || !escaped)) {
+        for (let offset = 0; offset < quoteRun; offset++) out[i + offset] = ' ';
+        i += quoteRun - 1; mode = null; escaped = false;
+        continue;
+      }
+      out[i] = ' ';
+      if (mode === 'basic') {
+        if (ch === '\\') escaped = !escaped; else escaped = false;
+      }
+      continue;
+    }
+    if (ch === '\n') {
+      if (inDouble || inSingle) return { content: out.join(''), valid: false };
+      comment = false; escaped = false;
+      continue;
+    }
+    if (comment) continue;
+    if (inDouble) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) { if (ch === "'") inSingle = false; continue; }
+    if (ch === '#') { comment = true; continue; }
+    if (content.startsWith('"""', i)) {
+      out[i] = '"'; out[i + 1] = '"'; out[i + 2] = ' ';
+      i += 2; mode = 'basic'; escaped = false;
+      continue;
+    }
+    if (content.startsWith("'''", i)) {
+      out[i] = "'"; out[i + 1] = "'"; out[i + 2] = ' ';
+      i += 2; mode = 'literal';
+      continue;
+    }
+    if (ch === '"') inDouble = true;
+    else if (ch === "'") inSingle = true;
+  }
+  return { content: out.join(''), valid: mode === null && !inDouble && !inSingle };
+}
+
+function codexHooksHealth(input) {
+  const masked = maskMultilineStrings(input);
+  return {
+    enabled: masked.valid && scanFeatures(masked.content).enabled,
+    lexicallyValid: masked.valid,
+  };
+}
+
+// True when a lexically isolated hook flag is enabled under [features] by either name.
+// Full TOML syntax validation is performed by surface-arbitration through the
+// installed Codex CLI, which is the runtime authority for config.toml.
 function isCodexHooksEnabled(input) {
-  return scanFeatures(typeof input === 'string' ? input : '').enabled;
+  return codexHooksHealth(typeof input === 'string' ? input : '').enabled;
 }
 
 // Returns { content, changed, reason }. Prefers/sets the canonical `hooks`.
 function ensureCodexHooksFlag(input) {
   const content = typeof input === 'string' ? input : '';
-  const s = scanFeatures(content);
+  const masked = maskMultilineStrings(content);
+  if (!masked.valid) throw new Error('cannot safely update config.toml with an unterminated TOML string');
+  const s = scanFeatures(masked.content);
+  s.lines = content.split('\n');
 
   if (s.enabledNew) return { content, changed: false, reason: 'already-enabled' };
 
@@ -478,6 +547,7 @@ module.exports = {
   ensureTuiStatusLine,
   getTuiStatusLine,
   isAgentsmdStatusLineEnabled,
+  codexHooksHealth,
   isCodexHooksEnabled,
   projectDocMaxBytes,
   chainBudget,

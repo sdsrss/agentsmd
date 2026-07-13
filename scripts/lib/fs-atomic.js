@@ -98,6 +98,24 @@ function sha256Tree(root) {
   return crypto.createHash('sha256').update(JSON.stringify(treeEntries(root))).digest('hex');
 }
 
+function describePath(target) {
+  let stat;
+  try { stat = fs.lstatSync(target); }
+  catch (error) {
+    if (error && error.code === 'ENOENT') return { present: false };
+    throw error;
+  }
+  const mode = stat.mode & 0o777;
+  if (stat.isSymbolicLink()) return { present: true, type: 'symlink', mode, target: fs.readlinkSync(target) };
+  if (stat.isFile()) return { present: true, type: 'file', mode, sha256: sha256File(target) };
+  if (stat.isDirectory()) return { present: true, type: 'tree', mode, sha256: sha256Tree(target) };
+  return { present: true, type: 'unsupported', mode };
+}
+
+function sameDescriptor(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function snapshotFile(file) {
   try {
     return { present: true, content: fs.readFileSync(file), mode: fs.statSync(file).mode & 0o777 };
@@ -117,6 +135,7 @@ function restoreFile(file, snapshot) {
 
 module.exports = {
   ensurePrivateDir,
+  describePath,
   fileMode,
   pathExists,
   readFileOptional,
@@ -124,6 +143,7 @@ module.exports = {
   sameSnapshot,
   sha256File,
   sha256Tree,
+  sameDescriptor,
   snapshotFile,
   treeEntries,
   unlinkFileIfUnchanged,

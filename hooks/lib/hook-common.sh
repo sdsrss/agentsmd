@@ -11,6 +11,7 @@
 # shorter name internal so standalone hooks remain root-agnostic and existing
 # fixture injection stays compatible.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+SURFACE_ARBITRATION_JSON=""
 
 # hook_kill_switch NAME — return 0 to proceed, 1 to short-circuit.
 hook_kill_switch() {
@@ -23,17 +24,34 @@ hook_kill_switch() {
 # hook_require_jq — 0 if jq on PATH, else 1.
 hook_require_jq() { command -v jq >/dev/null 2>&1; }
 
-# Plugin and standalone are alternative delivery surfaces. When a plugin hook
-# sees a complete standalone install, yield to the standalone copy so hooks,
-# advisories, and telemetry are not emitted twice.
+# Plugin and standalone are alternative delivery surfaces. When both current
+# protocol surfaces can see the plugin root, the losing physical hook copy
+# yields. Legacy standalone hooks remain non-cooperative and are reported by
+# status/doctor as non-exclusive.
 hook_plugin_shadowed_by_standalone() {
   [[ -n "${PLUGIN_ROOT:-}" ]] || return 1
   local home="${CODEX_HOME:-$HOME/.codex}"
   local manifest="$home/.agentsmd-state/manifest.json"
-  [[ -r "$manifest" && -d "$home/agentsmd/hooks" && -r "$home/AGENTS.md" ]] || return 1
-  grep -q '^# >>> agentsmd >>>' "$home/AGENTS.md" 2>/dev/null || return 1
+  local inspector="$PLUGIN_ROOT/scripts/lib/surface-arbitration.js"
+  local current_hooks plugin_hooks
+  current_hooks="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)"
+  plugin_hooks="$(cd "$PLUGIN_ROOT/hooks" 2>/dev/null && pwd -P)"
+  # CLAUDE_PLUGIN_ROOT may be inherited by a globally registered standalone
+  # command. Only the hook physically loaded from this plugin root may yield.
+  [[ -n "$current_hooks" && -n "$plugin_hooks" ]] || return 1
+  # The normal plugin-only path has no extra process. A dual surface is already
+  # an operator-visible degraded configuration, so pay for the full manifest,
+  # tree-hash, active-spec, and SemVer check instead of guessing in shell.
+  [[ -r "$manifest" ]] || return 1
+  command -v node >/dev/null 2>&1 || return 1
+  [[ -r "$inspector" ]] || return 1
+  SURFACE_ARBITRATION_JSON="$(node "$inspector" --hook-json 2>/dev/null)" || { SURFACE_ARBITRATION_JSON=""; return 1; }
   command -v jq >/dev/null 2>&1 || return 1
-  jq -e '.name == "agentsmd" and (.version | type == "string")' "$manifest" >/dev/null 2>&1
+  local selected current_surface="unknown"
+  selected="$(printf '%s' "$SURFACE_ARBITRATION_JSON" | jq -r '.selection.selected // empty' 2>/dev/null)"
+  [[ "$current_hooks" == "$plugin_hooks" ]] && current_surface="plugin"
+  [[ "$current_hooks" == "$(cd "$home/agentsmd/hooks" 2>/dev/null && pwd -P)" ]] && current_surface="standalone"
+  [[ -n "$selected" && "$current_surface" != "unknown" && "$current_surface" != "$selected" ]]
 }
 
 # hook_read_event — read stdin JSON to stdout; empty on error.

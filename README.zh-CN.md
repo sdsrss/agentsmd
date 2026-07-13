@@ -39,7 +39,7 @@ Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plug
 
 > 插件通过 Codex plugin cache 提供 hooks、skills 和规范。可信的 `SessionStart` hook 会把打包的 core spec 加入当前会话，并给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
 
-插件与 standalone 是两种安装面，建议只选一种。若检测到完整 standalone，插件 hooks 会主动退出以避免重复执行；`status` 和 `doctor` 仍会报告 `dualSurface: true`，提示移除其中一套。
+插件与 standalone 是两种安装面，建议只选一种。双面进程先验证 manifest-backed standalone 完整性，再比较 SemVer：健康的同版/新版 standalone 胜出并让 protocol-v1 plugin hooks 退出；缺失、manifest 损坏、artifact 损坏、hooks 被禁用/错接、core 内容不一致或版本较旧的 standalone 不能遮蔽健康 plugin。`status` 在不改变既有 standalone 字段语义的前提下新增 `selectedSurface` 和稳定的 `surfaceArbitration`。`doctor` 把任何 manifest-backed 双面都保留为要求清理的红色状态，即使 protocol-v1 fixture 已证明其中一份 hook 会退出。新版 plugin 无法关闭旧 standalone 已注册的命令，也无法移除 SessionStart 前已进入 discovery context 的旧 global core；逻辑选择 plugin 只会加入 packaged core，不能证明它是唯一 policy/hook。需要 update/uninstall 旧面才能消除这个不协作边界。
 
 ### 完整 standalone 安装
 
@@ -199,7 +199,7 @@ agentsmd design --write
 | 命令 | 用途 |
 |---|---|
 | `install`、`update`、`uninstall` | 管理 standalone 安装 |
-| `status`、`doctor`、`restore` | 检查健康状态或恢复安装前快照（`restore` 不带 `--confirm` 时为 dry-run） |
+| `status`、`doctor`、`repair`、`restore` | 检查健康状态、修复缺失的 manifest-owned artifact，或恢复共享文件快照 |
 | `init`、`analyze`、`design` | 管理项目指令和设计事实 |
 | `audit`、`rules`、`sparkline` | 查看规则活动和治理信号 |
 | `sampling-audit`、`lesson-bypass-audit` | 测量 transcript 合规与 memory hint 后续采用情况 |
@@ -232,16 +232,46 @@ agentsmd update
 agentsmd status
 agentsmd doctor
 
+# standalone 损坏：先审查只读计划，再用摘要绑定 apply
+agentsmd repair --plan
+agentsmd repair --confirm=<planDigest>
+
 # 先卸载 Codex footprint，再移除可选的全局 CLI
 agentsmd uninstall
 npm uninstall -g @sdsrs/agentsmd
 ```
 
-curl 安装器通过 `--update`、`--status`、`--doctor` 和 `--uninstall` 提供同一套生命周期。若同时安装了 plugin 与 standalone，需要分别卸载两套 surface。
+curl 安装器提供 install/update/status/doctor/uninstall。`repair` 需要固定版本的
+npm CLI 或已审查的本地 checkout，才能在修改前识别替换 artifact。若同时安装了
+plugin 与 standalone，需要分别卸载两套 surface。
+
+plugin context 只接受 Codex runtime 的 `CLAUDE_PLUGIN_ROOT`，或 status/doctor
+skill 已解析的 `AGENTSMD_PLUGIN_ROOT`。CLI 不扫描 plugin cache，因为 cache 中存在
+artifact 不代表 Codex 已启用它。有 context 时，`surfaceArbitration` 会给出两面
+版本、健康证据、赢家、稳定 reason code，以及静态协作协议是否支持 exclusive
+execution。该字段不是 runtime exact-once 证明，真实 Codex E2E 仍是独立 Gate。
+仲裁不是信任边界；在实现不可变 artifact provenance 前，plugin integrity 仅为
+structural。
+为了 JSON 兼容，顶层旧字段 `dualSurface` 仍表示 manifest 是否同时存在；无
+manifest 的 partial footprint 会出现在 `surfaceArbitration.candidates.standalone`。
+doctor 的旧 `surface` 仍表示诊断调用 context，逻辑赢家使用 `selectedSurface`。
 
 ## 安全、所有权与共存
 
-standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件或 hash 不匹配的 owned file 时拒绝操作。安装、卸载与恢复使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
+standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
+
+`repair --plan` 是只读操作，会区分可普通更新的完整安装、缺少 manifest-owned
+文件的安装，以及无法证明 ownership 的状态。自动 repair 只处理有效 exact-path
+manifest 下缺失的文件/目录，并要求 source artifact 的版本和 deploy digest 与
+该 manifest 完全相同；内容被修改、出现额外文件、manifest 损坏，以及无
+manifest 的 partial install 都会阻断并要求人工复核。`--confirm=<planDigest>` 会
+重新检查 source/live descriptor，先完整快照 deploy、skills、extended、manifest
+和共享文件，再复用 installer transaction；artifact、目标或共享文件发生变化都会
+使摘要失效。
+
+`restore` 的语义不同：历史 pre-install backup 只包含 `hooks.json`、
+`config.toml` 和 `AGENTS.md`，不能修复 deploy、skills、extended spec 或 ownership
+manifest。
 
 卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state 和 extended spec。它保留恢复备份、未知状态、遥测、已启用的 hook/status-line 设置，以及当前会话可能仍需要的未注册 no-op shims。
 

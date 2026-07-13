@@ -39,7 +39,7 @@ Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugin
 
 > The plugin bundle provides hooks, skills, and the specification through Codex's plugin cache. A trusted `SessionStart` hook adds the packaged core spec to the current session and announces the actual extended-spec path. It does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or migrate a previous `codexmd` installation. Use standalone/npm when you need global files and the full lifecycle.
 
-Plugin and standalone are alternative installation surfaces; choose one. When a complete standalone install is detected, plugin hooks exit to avoid duplicate execution. `status` and `doctor` still report `dualSurface: true` so you can remove one surface.
+Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
 ### Full standalone installation
 
@@ -199,7 +199,7 @@ agentsmd design --write
 | Command | Purpose |
 |---|---|
 | `install`, `update`, `uninstall` | Manage the standalone installation |
-| `status`, `doctor`, `restore` | Inspect health or restore a pre-install snapshot (`restore` is dry-run without `--confirm`) |
+| `status`, `doctor`, `repair`, `restore` | Inspect health, repair missing manifest-owned artifacts, or restore a shared-file snapshot |
 | `init`, `analyze`, `design` | Maintain project guidance and design facts |
 | `audit`, `rules`, `sparkline` | Review rule activity and governance signals |
 | `sampling-audit`, `lesson-bypass-audit` | Measure transcript compliance and memory-hint follow-through |
@@ -232,16 +232,51 @@ agentsmd update
 agentsmd status
 agentsmd doctor
 
+# damaged standalone: review a read-only plan, then bind apply to its digest
+agentsmd repair --plan
+agentsmd repair --confirm=<planDigest>
+
 # uninstall the Codex footprint, then the optional global CLI
 agentsmd uninstall
 npm uninstall -g @sdsrs/agentsmd
 ```
 
-The curl installer exposes the same lifecycle through `--update`, `--status`, `--doctor`, and `--uninstall`. If both plugin and standalone surfaces are installed, remove both separately.
+The curl installer exposes install/update/status/doctor/uninstall. `repair` requires a
+versioned npm CLI or reviewed local checkout so the replacement artifact can be
+identified before mutation. If both plugin and standalone surfaces are installed,
+remove both separately.
+
+Plugin context is accepted only from Codex's runtime `CLAUDE_PLUGIN_ROOT` or the
+root resolved by the status/doctor skill (`AGENTSMD_PLUGIN_ROOT`). The CLI does not
+scan plugin caches, because a cached artifact does not prove that Codex enabled it.
+When context is available, `surfaceArbitration` reports both candidates' version,
+health evidence, the selected surface, a stable reason code, and whether exclusive
+execution is supported by the static cooperation protocol. That field is not
+runtime exact-once proof; the real Codex E2E gate remains separate. Selection is
+not a trust boundary: plugin integrity remains
+structural until immutable artifact provenance is implemented.
+The legacy top-level `dualSurface` field retains its manifest-presence meaning for
+JSON compatibility; manifest-less partial footprints appear in
+`surfaceArbitration.candidates.standalone`. Doctor's legacy `surface` field remains
+the diagnostic invocation context, while `selectedSurface` is the logical winner.
 
 ## Safety, ownership, and coexistence
 
-Standalone installation is manifest-backed and marker-scoped. It preserves other hook tenants and user content outside agentsmd-managed blocks, validates owned artifacts before mutation, and refuses unparseable shared files or hash-mismatched owned files. Install, uninstall, and restore use staged changes, snapshot checks, write-time compare-and-swap, and rollback. A non-cooperating writer causes refusal instead of silently overwriting changed shared files.
+Standalone installation is manifest-backed and marker-scoped. It preserves other hook tenants and user content outside agentsmd-managed blocks, validates owned artifacts before mutation, and refuses unparseable shared files or hash-mismatched owned files. Install and uninstall use staged changes, snapshot checks, write-time compare-and-swap, and rollback. A non-cooperating writer causes refusal instead of silently overwriting changed shared files.
+
+`repair --plan` is read-only. It distinguishes an intact update path from missing
+manifest-owned files and from states where ownership cannot be proved. Automatic
+repair is deliberately limited to missing files/directories under a valid exact-path
+manifest and requires a source artifact whose version and deploy digest exactly match
+that manifest; modified bytes, unexpected files, malformed manifests, and manifest-less
+partial installs remain blocked for manual review. `--confirm=<planDigest>` rechecks
+the source and live descriptors, saves deploy/skills/extended/manifest plus shared
+files in a full pre-repair snapshot, then reuses the installer transaction. The
+digest becomes stale if the artifact or any target/shared file changes.
+
+`restore` is different: its historical pre-install backups contain only
+`hooks.json`, `config.toml`, and `AGENTS.md`. It cannot repair deploy, skills,
+the extended spec, or the ownership manifest.
 
 Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, and the extended spec. It retains recovery backups, unknown state, telemetry, enabled hook/status-line settings, and unregistered no-op shims needed by already-running sessions.
 

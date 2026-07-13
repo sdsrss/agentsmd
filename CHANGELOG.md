@@ -3,6 +3,70 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.2.0 — 2026-07-14 — health-first surface arbitration and guarded repair
+
+### Added
+
+- Added health-first standalone/plugin arbitration with full SemVer precedence,
+  stable reason codes, candidate evidence, and an explicit exclusivity result.
+  `status` now reports `selectedSurface` and `surfaceArbitration`; a selected
+  plugin SessionStart names the winner and adds its packaged core when an older
+  or damaged global standalone loses; it explicitly does not claim that a
+  legacy global core or registered hook copy was removed.
+- Standalone and plugin manifests now declare surface protocol version 1. Plugin
+  shadowing performs the complete manifest/tree/spec inspection only in the
+  already-degraded dual-surface path; plugin-only hooks retain the fast path.
+
+- Added `agentsmd repair --plan` and digest-bound `--confirm=<planDigest>` for
+  standalone installs whose valid ownership manifest proves that registered
+  files or directories are missing. Planning reports manifest/live inventory,
+  local artifact identity, plugin availability, shared-only backups, blockers,
+  and the recommended action without writing to `CODEX_HOME`.
+- Confirmed repair captures a full pre-repair snapshot of deploy, skills,
+  extended spec, manifest, and shared files before reusing the install
+  transaction. Modified/unexpected bytes and unprovable ownership remain
+  fail-closed. Apply also requires the source artifact version and complete
+  deploy digest to match the ownership manifest, preventing repair from becoming
+  an implicit update.
+
+### Fixed
+
+- Plugin hooks no longer yield merely because a standalone manifest, directory,
+  and sentinel exist. Only a healthy same/newer standalone can shadow the plugin.
+  Legacy standalone commands that a new plugin cannot disable remain an explicit
+  doctor failure with an update/uninstall recovery action.
+- Active global-spec inspection now honors `AGENTS.override.md` replacement
+  precedence instead of falling through to `AGENTS.md` when the override exists
+  without an agentsmd spec. Standalone health also requires the selected core
+  bytes, ordered live wiring, and enabled hooks to match the deployed contract.
+- Standalone config health now delegates full syntax/semantic acceptance to the
+  installed Codex CLI in an isolated temporary home, while the text-preserving
+  writer ignores feature-looking text inside TOML multiline strings. Malformed
+  containers cannot manufacture health, and valid arrays-of-tables or multiline
+  quote endings are not rejected by a partial local parser.
+- Doctor freshness is directional: only a newer source recommends update; a
+  newer deploy or build-metadata-only difference no longer suggests downgrade.
+
+- Doctor no longer recommends a blind install for manifest-less partial or
+  damaged states that the ownership preflight would reject; it directs users to
+  the read-only repair classifier and reserves ordinary update for intact owned
+  artifacts.
+
+### Quality
+
+- Release gates found zero README version-cascade offenders; version sync passed
+  5/5, structured drift passed 25/25, and distribution/package lifecycle passed
+  35/35. The npm dry-run artifact contains 93 files, including the repair and
+  surface-arbitration runtime modules, while source-only tests remain excluded.
+- Independent architecture, quality, and spec re-reviews confirmed the original
+  TOML false-health High and the hook-order/SemVer/freshness/exact-once wording
+  findings closed, with no new High finding.
+
+Rollback consumers by pinning `npm install -g @sdsrs/agentsmd@4.1.1` and running
+`agentsmd update`; source/plugin users select `v4.1.1` and reinstall. Revert the
+v4.2.0 release commit for source rollback. Published npm versions are immutable
+and can only be deprecated.
+
 ## v4.1.1 — 2026-07-11 — plugin hook root repair
 
 ### Fixed

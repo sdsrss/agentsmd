@@ -404,8 +404,8 @@ withSandbox((dir) => {
     const p = path.join(dir, 'AGENTS.md');
     const orig = fs.readFileSync(p, 'utf8');
     fs.writeFileSync(p, orig.replace(/CODEX-CODING-SPEC v\d+\.\d+\.\d+/, 'CODEX-CODING-SPEC v1.0.0'));
-    const c = doctor().checks.find((x) => x.name === 'installed spec is current');
-    assert(c && c.ok === false && /re-run install/.test(c.detail), 'expected stale-spec fail; got: ' + JSON.stringify(c));
+    const c = doctor().checks.find((x) => x.name === 'installed spec is not older than doctor source');
+    assert(c && c.ok === false && /agentsmd update/.test(c.detail) && /agentsmd repair --plan/.test(c.detail), 'expected classified stale-spec remediation; got: ' + JSON.stringify(c));
     fs.writeFileSync(p, orig); // restore so later checks in this sandbox are unaffected
   });
   t('doctor reports discovery-chain headroom, and flags an over-tiny cap', () => {
@@ -424,19 +424,19 @@ withSandbox((dir) => {
     assert.strictEqual(d.ok, false);
     assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === false && c.detail === 'unparseable'));
   });
-  fs.writeFileSync(path.join(dir, 'config.toml'), "[features]\nhooks = true\n\n[tui]\nstatus_line = ['model']\n");
+  fs.writeFileSync(path.join(dir, 'config.toml'), "[features]\nhooks = true\n\n[tui]\nstatus_line = ['git-branch']\n");
   t('doctor accepts a single-quoted custom tui.status_line', () => {
     const d = doctor();
     assert.strictEqual(d.ok, true);
     assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === true && c.detail === 'custom'));
   });
-  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "model",\n]\n');
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "git-branch",\n]\n');
   t('doctor accepts a multiline custom tui.status_line', () => {
     const d = doctor();
     assert.strictEqual(d.ok, true);
     assert(d.checks.some((c) => c.name === 'config.toml tui.status_line configured' && c.ok === true && c.detail === 'custom'));
   });
-  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "model", # keep footer small\n]\n');
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [\n  "git-branch", # keep footer small\n]\n');
   t('doctor accepts comments inside a multiline custom tui.status_line', () => {
     const d = doctor();
     assert.strictEqual(d.ok, true);

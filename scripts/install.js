@@ -13,6 +13,7 @@ const M = require('./lib/migrate');
 const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
+const R = require('./lib/release-artifact');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -37,15 +38,6 @@ function writeTracked(transaction, file, content, expectedSnapshot = null) {
   markTransactionFile(transaction, file);
 }
 
-function chmodShells(dir) {
-  if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) chmodShells(file);
-    else if (entry.isFile() && entry.name.endsWith('.sh')) fs.chmodSync(file, 0o755);
-  }
-}
-
 function parsePriorManifest(snapshot = F.snapshotFile(P.manifestPath())) {
   const raw = snapshotText(snapshot);
   if (raw === null) return null;
@@ -62,25 +54,49 @@ function priorSkillRecord(manifest, name, target) {
   return records.find((record) => record && record.name === name && path.resolve(record.path || '') === path.resolve(target)) || null;
 }
 
-function verifyOwnedSkill(manifest, name, target) {
+function assertRepairArtifact(repair, target) {
+  if (!repair || !Array.isArray(repair.ownedArtifacts)) return false;
+  const record = repair.ownedArtifacts.find((candidate) => path.resolve(candidate.path) === path.resolve(target));
+  if (!record) return false;
+  const current = F.describePath(target);
+  if (!F.sameDescriptor(current, record.live)) {
+    const error = new Error(`repair plan changed for ${target}; refusing to overwrite newer state`);
+    error.code = 'AGENTSMD_REPAIR_PLAN_CHANGED';
+    throw error;
+  }
+  return true;
+}
+
+function assertRepairSharedFiles(repair) {
+  if (!repair || !Array.isArray(repair.sharedFiles)) return;
+  for (const record of repair.sharedFiles) {
+    if (!F.sameDescriptor(F.describePath(record.path), record.live)) {
+      throw new Error(`repair plan changed for shared file ${record.path}; refusing to mutate`);
+    }
+  }
+}
+
+function verifyOwnedSkill(manifest, name, target, repair = null) {
+  const repairAuthorized = assertRepairArtifact(repair, target);
   if (!F.pathExists(target)) return;
   const record = priorSkillRecord(manifest, name, target);
   if (record) {
     let actual;
     try { actual = F.sha256Tree(target); } catch {}
-    if (record.sha256 === actual) return;
+    if (record.sha256 === actual || repairAuthorized) return;
     throw new Error(`ownership collision: installed skill ${name} differs from manifest hash`);
   }
   throw new Error(`ownership collision: ${target} exists but is not owned by this agentsmd manifest`);
 }
 
-function verifyOwnedExtended(manifest, target) {
+function verifyOwnedExtended(manifest, target, repair = null) {
+  const repairAuthorized = assertRepairArtifact(repair, target);
   if (!F.pathExists(target)) return;
   const record = manifest && manifest.ownedArtifacts && manifest.ownedArtifacts.extended;
   if (record && path.resolve(record.path || '') === path.resolve(target)) {
     let actual;
     try { actual = F.sha256File(target); } catch {}
-    if (record.sha256 === actual) return;
+    if (record.sha256 === actual || repairAuthorized) return;
     throw new Error('ownership collision: AGENTS-extended.md differs from manifest hash');
   }
   if (manifest && !manifest.ownedArtifacts && manifest.extendedMdAddedByUs === true) {
@@ -91,13 +107,14 @@ function verifyOwnedExtended(manifest, target) {
   throw new Error('ownership collision: AGENTS-extended.md exists without an exact agentsmd manifest record');
 }
 
-function verifyOwnedDeploy(manifest, target) {
+function verifyOwnedDeploy(manifest, target, repair = null) {
+  const repairAuthorized = assertRepairArtifact(repair, target);
   if (!F.pathExists(target)) return;
   const record = manifest && manifest.ownedArtifacts && manifest.ownedArtifacts.deploy;
   if (record && path.resolve(record.path || '') === path.resolve(target)) {
     let actual;
     try { actual = F.sha256Tree(target); } catch {}
-    if (actual === record.sha256) return;
+    if (actual === record.sha256 || repairAuthorized) return;
     throw new Error('ownership collision: deploy tree differs from manifest hash');
   }
   // Uninstall intentionally leaves a fixed no-op shim tree for commands cached
@@ -146,33 +163,6 @@ function migrateLegacyAgentsmdManifest(manifest, stamp) {
     ownedArtifacts,
   }, null, 2) + '\n');
   return { manifest: { ...manifest, ownedArtifacts }, backup };
-}
-
-function includeStandaloneDeploySource(repo, source) {
-  const relative = path.relative(repo, source);
-  const segments = relative.split(path.sep);
-  return !(segments.length >= 2
-    && segments[1] === 'tests'
-    && (segments[0] === 'hooks' || segments[0] === 'scripts'));
-}
-
-function stageSources(repo, stageRoot) {
-  const deploy = path.join(stageRoot, 'deploy');
-  fs.mkdirSync(deploy, { recursive: true });
-  for (const name of ['hooks', 'spec', 'scripts', 'skills']) {
-    const source = path.join(repo, name);
-    if (fs.existsSync(source)) fs.cpSync(source, path.join(deploy, name), {
-      recursive: true,
-      filter: (entry) => includeStandaloneDeploySource(repo, entry),
-    });
-  }
-  const packageJson = path.join(repo, 'package.json');
-  if (fs.existsSync(packageJson)) fs.copyFileSync(packageJson, path.join(deploy, 'package.json'));
-  for (const required of ['hooks', 'spec', 'scripts', 'skills']) {
-    if (!fs.existsSync(path.join(deploy, required))) throw new Error(`install source is incomplete: missing ${required}/`);
-  }
-  chmodShells(path.join(deploy, 'hooks'));
-  return deploy;
 }
 
 function swapDirectory(staged, target, transaction) {
@@ -246,7 +236,7 @@ function cleanupTransaction(transaction, stageRoot) {
   try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
 }
 
-function install(nowIso) {
+function install(nowIso, options = {}) {
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);
@@ -254,15 +244,25 @@ function install(nowIso) {
   let transaction = null;
 
   try {
+    assertRepairSharedFiles(options.repair);
     const existingHooks = readOrNull(P.hooksJsonPath());
     if (existingHooks !== null && existingHooks.trim() !== '' && !H.parseHooksConfig(existingHooks)) {
       throw new Error(`${P.hooksJsonPath()} exists but is not valid JSON — agentsmd will not overwrite it. Fix or remove it, then re-run install.`);
     }
     const priorManifestBaseline = F.snapshotFile(P.manifestPath());
+    if (options.repair && !F.sameDescriptor(F.describePath(P.manifestPath()), options.repair.manifest)) {
+      throw new Error('repair plan changed for the ownership manifest; refusing to mutate');
+    }
     let priorManifest = parsePriorManifest(priorManifestBaseline);
-    const legacyAgentsmd = migrateLegacyAgentsmdManifest(priorManifest, stamp);
+    const legacyAgentsmd = options.repair
+      ? { manifest: priorManifest, backup: null }
+      : migrateLegacyAgentsmdManifest(priorManifest, stamp);
     priorManifest = legacyAgentsmd.manifest;
-    const stagedDeploy = stageSources(repo, stageRoot);
+    const stagedDeploy = R.stageSources(repo, stageRoot);
+    if (options.repair && F.sha256Tree(stagedDeploy) !== options.repair.source.deploySha256) {
+      throw new Error('repair source artifact changed after planning; refusing to mutate');
+    }
+    assertRepairSharedFiles(options.repair);
     const stagedSkillsDir = path.join(stageRoot, 'user-skills');
     fs.mkdirSync(stagedSkillsDir, { recursive: true });
     const skillNames = fs.readdirSync(path.join(stagedDeploy, 'skills'), { withFileTypes: true })
@@ -270,24 +270,24 @@ function install(nowIso) {
       .map((entry) => entry.name)
       .sort();
 
-    verifyOwnedDeploy(priorManifest, P.installDir());
+    verifyOwnedDeploy(priorManifest, P.installDir(), options.repair);
     const extendedBaseline = F.snapshotFile(P.agentsExtendedMdPath());
-    verifyOwnedExtended(priorManifest, P.agentsExtendedMdPath());
+    verifyOwnedExtended(priorManifest, P.agentsExtendedMdPath(), options.repair);
     for (const name of skillNames) {
       const target = path.join(P.codexSkillsDir(), name);
-      verifyOwnedSkill(priorManifest, name, target);
+      verifyOwnedSkill(priorManifest, name, target, options.repair);
       fs.cpSync(path.join(stagedDeploy, 'skills', name), path.join(stagedSkillsDir, name), { recursive: true });
     }
     const priorNames = priorManifest && priorManifest.ownedArtifacts && Array.isArray(priorManifest.ownedArtifacts.skills)
       ? priorManifest.ownedArtifacts.skills.map((record) => record.name)
       : (priorManifest && Array.isArray(priorManifest.installedSkills) ? priorManifest.installedSkills : []);
     const staleSkillNames = [...new Set(priorNames)].filter((name) => name.startsWith('agentsmd-') && !skillNames.includes(name));
-    for (const name of staleSkillNames) verifyOwnedSkill(priorManifest, name, path.join(P.codexSkillsDir(), name));
+    for (const name of staleSkillNames) verifyOwnedSkill(priorManifest, name, path.join(P.codexSkillsDir(), name), options.repair);
 
-    const backupInfo = B.createBackup(stamp, 'pre-install');
-    B.pruneBackups();
+    const backupInfo = options.repair ? null : B.createBackup(stamp, 'pre-install');
+    if (!options.repair) B.pruneBackups();
 
-    const legacy = M.legacyArtifacts();
+    const legacy = options.repair ? { files: [], directories: [] } : M.legacyArtifacts();
     transaction = {
       files: [
         P.hooksJsonPath(), P.configTomlPath(), P.agentsMdPath(),
@@ -306,8 +306,12 @@ function install(nowIso) {
 
     // Legacy migration remains marker-scoped. It runs only after every new artifact
     // collision has been validated, so a foreign collision is a zero-mutation abort.
-    const migratedFromCodexmd = M.removeLegacyCodexmd();
-    const migratedTelemetry = M.migrateLegacyTelemetry();
+    const migratedFromCodexmd = options.repair ? {
+      detected: false, hooksRemoved: 0, agentsBlockRemoved: false,
+      skillsRemoved: 0, installDirRemoved: false, stateDirRemoved: false,
+      ownershipConflicts: [],
+    } : M.removeLegacyCodexmd();
+    const migratedTelemetry = options.repair ? { migrated: 0 } : M.migrateLegacyTelemetry();
     for (const record of transaction.files) record.after = F.snapshotFile(record.file);
     for (const record of transaction.directories) {
       record.afterPresent = F.pathExists(record.target);
@@ -317,6 +321,7 @@ function install(nowIso) {
     const hooksBaseline = F.snapshotFile(P.hooksJsonPath());
     const configBaseline = F.snapshotFile(P.configTomlPath());
     const agentsBaseline = F.snapshotFile(P.agentsMdPath());
+    assertRepairSharedFiles(options.repair);
     const hooksDir = P.installHooksDir();
     const managed = H.buildManagedConfig(hooksDir, path.join(stagedDeploy, 'hooks', 'hooks.json'));
     const mergedHooks = H.mergeAgentsmdHooks(snapshotText(hooksBaseline), managed);
@@ -335,8 +340,9 @@ function install(nowIso) {
     const manifest = {
       name: 'agentsmd',
       version: packageInfo.version || null,
+      surfaceProtocolVersion: 1,
       installedAt: stamp,
-      backup: backupInfo ? backupInfo.id : null,
+      backup: options.repair ? (priorManifest.backup || null) : (backupInfo ? backupInfo.id : null),
       installDir: P.installDir(),
       hooksDir,
       hookCount: H.countAgentsmdHooks(mergedHooks),
@@ -357,19 +363,24 @@ function install(nowIso) {
       migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
       migratedTelemetryRows: migratedTelemetry.migrated,
       legacyArtifactBackup: legacyAgentsmd.backup,
+      ...(options.repair ? {
+        operation: 'repair',
+        repairedAt: stamp,
+        recoverySnapshot: options.recoverySnapshot,
+      } : {}),
     };
 
     // Commit directories first; all hook commands already point at the final path.
-    verifyOwnedDeploy(priorManifest, P.installDir());
+    verifyOwnedDeploy(priorManifest, P.installDir(), options.repair);
     swapDirectory(stagedDeploy, P.installDir(), transaction);
     for (const name of skillNames) {
       const target = path.join(P.codexSkillsDir(), name);
-      verifyOwnedSkill(priorManifest, name, target);
+      verifyOwnedSkill(priorManifest, name, target, options.repair);
       swapDirectory(path.join(stagedSkillsDir, name), target, transaction);
     }
     for (const name of staleSkillNames) if (F.pathExists(path.join(P.codexSkillsDir(), name))) {
       const target = path.join(P.codexSkillsDir(), name);
-      verifyOwnedSkill(priorManifest, name, target);
+      verifyOwnedSkill(priorManifest, name, target, options.repair);
       swapDirectory(null, target, transaction);
     }
 

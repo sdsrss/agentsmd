@@ -21,7 +21,7 @@ bin/        npm CLI 入口  bin/agentsmd.js（Node）：`agentsmd <cmd>` / `npx 
               —— 薄 dispatcher，spawn（而非 import）对应 L2 脚本，透传参数/输出/退出码；不属于三层，不引入 L1↔L2 耦合
 L3  命令层    15 个 Codex skills（dir + SKILL.md）：init / analyze / design / audit / doctor / rules / status / restore / perf 等
               —— stub，告诉 agent 去跑对应的 L2 脚本
-L2  管理脚本  scripts/*.js（Node）：install / uninstall / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
+L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
               —— 处理安装、scoped merge/remove、遥测聚合与治理信号
 L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 4 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
@@ -86,8 +86,11 @@ spec/AGENTS*.md 的 (HARD) 规则
 **装卸语义**：
 - **安装/更新 = stage + preflight + transaction**：先构建完整 release tree 并验证既有 manifest ownership，再更新共享文件和 live tree；注入失败时用快照条件检查回滚，拒绝覆盖在最终文件系统操作前已观察到的事务外写入。
 - **卸载 = preflight + transaction**：先验证全部 manifest-owned artifact，任一冲突都零 mutation；通过后 quarantine owned tree 并更新共享文件，失败时以快照条件检查回滚。可移植 POSIX 不提供原子 compare-and-replace，因此 check 到 rename/unlink 之间的非协作写入仍是明确边界。
+- **修复 = read-only plan + digest-bound confirm**：只对 valid exact-path manifest 下“缺失而未修改”且 source version/deploy digest 与 manifest 完全一致的 owned artifact 开放 apply；确认时重算 source/live/shared descriptor，创建包含 deploy、skills、extended、manifest 和 3 个共享文件的 pre-repair snapshot，再复用 install transaction。修改、额外文件、manifest-less partial、artifact 不匹配或摘要漂移均拒绝写入。
+- **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 15 条 wiring/support/order。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。`CLAUDE_PLUGIN_ROOT` 与 skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 是唯一 plugin context；不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
 - 天然处理两种边界：目标文件**不存在**（从 `{}` 起，创建自己的）· **有没有 OMX**（OMX 条目只是「其他条目」，原样保留）。
 - 安装器把 deploy、extended spec、skills 的 exact path + hash，以及共享面变更结果写入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`；共享配置仍由 hook path/sentinel 识别。
+- standalone manifest 与 plugin manifest 都声明 `surfaceProtocolVersion: 1`；未知/旧值按 legacy 处理，不能据此宣称双面 exact-once。
 
 **每个共享面的隔离策略**：
 
@@ -136,7 +139,7 @@ agentsmd/
     hooks.json               agentsmd 的 hook 条目（供安装器 append 进 ~/.codex/hooks.json）
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
-  scripts/                   L2 管理脚本（Phase 3）
+  scripts/                   L2 管理脚本（含 install/uninstall/repair 生命周期）
   skills/                    L3 命令层，15 个 agentsmd-* Codex skills
   ARCHITECTURE.md            ✅ 本文件
   docs/                      设计笔记（gitignored scratch：agentsmd.txt 等）

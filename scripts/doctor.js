@@ -9,7 +9,8 @@ const CT = require('./lib/config-toml');
 const H = require('./lib/codex-hooks');
 const REG = require('./lib/hook-registry');
 const F = require('./lib/fs-atomic');
-const { parseNoArgs, inspectPluginBundle } = require('./status');
+const SA = require('./lib/surface-arbitration');
+const { parseNoArgs, status: readStatus } = require('./status');
 
 const REQUIRED_HOOK_SUPPORT = [
   'hooks.json',
@@ -27,16 +28,56 @@ const REQUIRED_HOOK_SUPPORT = [
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const has = (bin) => { try { cp.execSync(`command -v ${bin}`, { stdio: 'ignore' }); return true; } catch { return false; } };
 
+function classifySpecFreshness(srcVer, depVer, manifestInstalled) {
+  const srcSemver = SA.parseSemver(srcVer);
+  const depSemver = SA.parseSemver(depVer);
+  if (!depVer || !depSemver) {
+    return {
+      ok: false,
+      state: 'deployed-invalid',
+      detail: `no valid CODEX-CODING-SPEC block in ~/.codex/AGENTS.md — run agentsmd ${manifestInstalled ? 'repair --plan' : 'install'}`,
+    };
+  }
+  if (!srcSemver) return { ok: false, state: 'source-invalid', detail: `doctor source carries invalid semantic version ${srcVer}` };
+  const precedence = SA.compareSemver(depVer, srcVer);
+  if (precedence < 0) {
+    return {
+      ok: false,
+      state: 'deployed-older',
+      detail: `deployed v${depVer} is older than source v${srcVer} — run agentsmd update when owned artifacts are intact; otherwise run agentsmd repair --plan`,
+    };
+  }
+  if (precedence > 0) {
+    return {
+      ok: true,
+      state: 'deployed-newer',
+      detail: `deployed v${depVer} is newer than doctor source v${srcVer}; run doctor from the deployed/newer artifact`,
+    };
+  }
+  if (depVer !== srcVer) {
+    return {
+      ok: true,
+      state: 'equal-precedence-metadata-differs',
+      detail: `deployed v${depVer} and source v${srcVer} have equal SemVer precedence but different metadata; no update direction inferred`,
+    };
+  }
+  return { ok: true, state: 'same-version', detail: `v${depVer}` };
+}
+
 function doctor() {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail: detail || '' });
 
   add('jq present', has('jq'), 'hooks require jq');
   add('node present', has('node'), 'transcript scan + scripts require node');
+  add('codex present', has('codex'), 'standalone config health uses the Codex CLI parser');
 
-  const pluginBundle = inspectPluginBundle();
-  if (pluginBundle.detected) {
-    const dualSurface = fs.existsSync(P.manifestPath());
+  const surfaceStatus = readStatus();
+  const arbitration = surfaceStatus.surfaceArbitration;
+  const pluginBundle = arbitration.candidates.plugin;
+  if (pluginBundle.detected && arbitration.selection.selected !== 'standalone') {
+    const dualSurface = surfaceStatus.dualSurface;
+    const standaloneCandidate = arbitration.candidates.standalone;
     add(
       'plugin manifest selects ./hooks.json',
       pluginBundle.manifest.valid,
@@ -77,19 +118,71 @@ function doctor() {
       'dual surface absent',
       !dualSurface,
       dualSurface
-        ? 'dualSurface=true — plugin bundle and standalone manifest are both active; remove one hook surface to avoid duplicate execution'
+        ? `dualSurface=true — selected plugin (${arbitration.selection.reasonCode}), but a standalone manifest remains; run agentsmd update with the matching standalone artifact or uninstall one surface`
         : 'dualSurface=false'
     );
+    add(
+      'surface arbitration selected a healthy candidate',
+      arbitration.selection.selected === 'plugin' && pluginBundle.healthy,
+      arbitration.selection.selected
+        ? `selected=${arbitration.selection.selected}; reason=${arbitration.selection.reasonCode}`
+        : `selected=none; reason=${arbitration.selection.reasonCode}`
+    );
+    add(
+      'surface arbitration has no non-cooperative loser',
+      arbitration.selection.exclusive,
+      arbitration.selection.exclusive
+        ? 'static protocol condition satisfied; runtime exact-once remains an end-to-end gate'
+        : 'legacy/non-cooperative standalone hooks may still execute until that surface is updated or removed'
+    );
+    if (standaloneCandidate.detected) {
+      add(
+        'standalone candidate healthy',
+        standaloneCandidate.healthy,
+        standaloneCandidate.healthy
+          ? `v${standaloneCandidate.version}`
+          : standaloneCandidate.reasons.slice(0, 3).join('; ')
+      );
+    }
     return {
       ok: checks.every((check) => check.ok),
       surface: 'plugin',
+      selectedSurface: arbitration.selection.selected,
       dualSurface,
+      surfaceArbitration: arbitration,
       checks,
     };
   }
 
+  add(
+    'surface arbitration selected a healthy candidate',
+    arbitration.selection.selected === 'standalone' && arbitration.candidates.standalone.healthy,
+    arbitration.selection.selected
+      ? `selected=${arbitration.selection.selected}; reason=${arbitration.selection.reasonCode}`
+      : `selected=none; reason=${arbitration.selection.reasonCode}`
+  );
+  if (pluginBundle.detected) {
+    add(
+      'dual surface absent',
+      !surfaceStatus.dualSurface,
+      surfaceStatus.dualSurface
+        ? `dualSurface=true — standalone wins (${arbitration.selection.reasonCode}); plugin hooks must yield, but remove one delivery surface to eliminate configuration ambiguity`
+        : 'dualSurface=false'
+    );
+  }
+
   const cfg = read(P.configTomlPath()) || '';
-  add('config.toml features.hooks=true', CT.isCodexHooksEnabled(cfg), 'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)');
+  const standaloneConfig = arbitration.candidates.standalone.config;
+  add(
+    'config.toml accepted by Codex parser',
+    standaloneConfig.parseable,
+    standaloneConfig.parseable ? standaloneConfig.validator : standaloneConfig.errorCode
+  );
+  add(
+    'config.toml features.hooks=true',
+    standaloneConfig.hooksEnabled,
+    'Codex native hooks enabled ([features] hooks; legacy codex_hooks also recognized)'
+  );
   const statusLine = CT.getTuiStatusLine(cfg);
   const statusLineOk = statusLine.exists && statusLine.items !== null;
   add(
@@ -129,7 +222,7 @@ function doctor() {
     'install state consistent (manifest vs live hooks)',
     !(!manifestInstalled && registeredHooks > 0),
     (!manifestInstalled && registeredHooks > 0)
-      ? `partial install — ${registeredHooks} hooks live in hooks.json but no manifest (crash mid-install or state dir removed) — re-run install.js`
+      ? `partial install — ${registeredHooks} hooks live in hooks.json but no manifest (crash mid-install or state dir removed) — run agentsmd repair --plan; automatic apply requires valid ownership evidence`
       : 'ok'
   );
 
@@ -151,7 +244,7 @@ function doctor() {
   if (!manifestInstalled) {
     integrityFailures.push('not installed');
   } else if (!manifest || !Array.isArray(manifest.deployedFiles)) {
-    integrityFailures.push('manifest has no deployed file inventory — re-run install');
+    integrityFailures.push('manifest has no deployed file inventory — run agentsmd repair --plan');
   } else {
     const root = path.resolve(P.installDir());
     if (manifest.name !== 'agentsmd' || typeof manifest.version !== 'string' || !manifest.version) {
@@ -194,7 +287,9 @@ function doctor() {
   add(
     'installed hook and support files intact',
     integrityFailures.length === 0,
-    integrityFailures.length ? [...new Set(integrityFailures)].slice(0, 5).join(', ') : `${manifest.deployedFiles.length}/${manifest.deployedFiles.length}`
+    integrityFailures.length
+      ? `${[...new Set(integrityFailures)].slice(0, 5).join(', ')} — ${!manifestInstalled && registeredHooks === 0 ? 'run agentsmd install' : 'run agentsmd repair --plan'}`
+      : `${manifest.deployedFiles.length}/${manifest.deployedFiles.length}`
   );
 
   // hard-rules anchors resolve against the spec (drift guard).
@@ -216,7 +311,9 @@ function doctor() {
   add(
     'AGENTS-extended.md installed at ~/.codex/',
     extTop !== null && extSrc !== null && extTop === extSrc,
-    extTop === null ? 'missing — run install' : (extSrc === null ? 'not installed' : (extTop === extSrc ? 'ok' : 'stale — re-run install'))
+    extTop === null
+      ? `missing — run agentsmd ${manifestInstalled ? 'repair --plan' : 'install'}`
+      : (extSrc === null ? 'not installed' : (extTop === extSrc ? 'ok' : 'stale — run agentsmd repair --plan'))
   );
 
   // Installed-spec freshness: the spec version deployed into ~/.codex/AGENTS.md vs
@@ -225,14 +322,14 @@ function doctor() {
   // loop starves (OPERATOR §O4). Only meaningful when doctor runs from a source
   // newer than the deploy (repo / freshly-updated package); run from the installed
   // copy the two match by construction, so this never false-fails there.
-  const srcVer = ((read(path.join(P.repoRoot(), 'spec', 'AGENTS.md')) || '').match(/CODEX-CODING-SPEC v(\d+\.\d+\.\d+)/) || [])[1];
-  const depVer = ((read(P.agentsMdPath()) || '').match(/CODEX-CODING-SPEC v(\d+\.\d+\.\d+)/) || [])[1];
+  const srcVer = SA.specVersion(read(path.join(P.repoRoot(), 'spec', 'AGENTS.md')) || '');
+  const depVer = SA.specVersion(read(P.agentsMdPath()) || '');
   if (srcVer) {
+    const freshness = classifySpecFreshness(srcVer, depVer, manifestInstalled);
     add(
-      'installed spec is current',
-      depVer === srcVer,
-      !depVer ? 'no CODEX-CODING-SPEC block in ~/.codex/AGENTS.md — run install.js'
-        : (depVer === srcVer ? `v${depVer}` : `deployed v${depVer} != source v${srcVer} — re-run install.js`)
+      'installed spec is not older than doctor source',
+      freshness.ok,
+      freshness.detail
     );
   }
 
@@ -251,7 +348,14 @@ function doctor() {
       : `global AGENTS.md ${globalBytes}B EXCEEDS cap ${budget.cap}B by ${-budget.headroom}B — raise project_doc_max_bytes in config.toml`
   );
 
-  return { ok: checks.every((c) => c.ok), surface: 'standalone', dualSurface: false, checks };
+  return {
+    ok: checks.every((c) => c.ok),
+    surface: pluginBundle.detected ? 'plugin' : 'standalone',
+    selectedSurface: arbitration.selection.selected,
+    dualSurface: surfaceStatus.dualSurface,
+    surfaceArbitration: arbitration,
+    checks,
+  };
 }
 
 if (require.main === module) {
@@ -274,4 +378,4 @@ if (require.main === module) {
   console.log(r.ok ? '\nagentsmd doctor: all checks passed' : '\nagentsmd doctor: some checks failed');
   process.exit(r.ok ? 0 : 1);
 }
-module.exports = { doctor };
+module.exports = { classifySpecFreshness, doctor };

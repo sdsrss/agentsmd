@@ -229,10 +229,7 @@ echo "== session-start-check.sh =="
 OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
 [ -f "$CODEX_HOME/.agentsmd-state/session-start-smoke1.ref" ] && ok "session start refreshes per-session sandbox-disposal ref (I3)" || bad "session start refreshes per-session sandbox-disposal ref (I3)" "(no ref file)"
-PLUGIN_FIXTURE="$SANDBOX/plugin-root"
-mkdir -p "$PLUGIN_FIXTURE/spec"
-cp "$HOOKS_DIR/../spec/AGENTS.md" "$PLUGIN_FIXTURE/spec/AGENTS.md"
-cp "$HOOKS_DIR/../spec/AGENTS-extended.md" "$PLUGIN_FIXTURE/spec/AGENTS-extended.md"
+PLUGIN_FIXTURE="$(cd "$HOOKS_DIR/.." && pwd -P)"
 OUT="$(printf '%s' '{"session_id":"plugin-only","hook_event_name":"SessionStart"}' | CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 PLUGIN_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"
@@ -240,14 +237,66 @@ PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"
     && [[ "$PLUGIN_CTX" == *"$PLUGIN_EXT_REAL"* ]]; } \
   && ok "plugin-only session injects core spec + resolvable extended path" \
   || bad "plugin-only session injects core spec + extended path" "$PLUGIN_CTX"
-mkdir -p "$CODEX_HOME/.agentsmd-state" "$CODEX_HOME/agentsmd/hooks"
-printf '%s\n' '{"name":"agentsmd","version":"4.0.1","ownedArtifacts":{"deploy":{"path":"fixture","sha256":"fixture"}}}' > "$CODEX_HOME/.agentsmd-state/manifest.json"
-printf '%s\n' '# >>> agentsmd >>>' 'CODEX-CODING-SPEC v4.0.1' '# <<< agentsmd <<<' > "$CODEX_HOME/AGENTS.md"
-OUT="$(printf '%s' '{"session_id":"dual-surface","hook_event_name":"SessionStart"}' | CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
-is_empty "$OUT" && ok "plugin hook yields when standalone surface is active" || bad "plugin hook yields to standalone" "$OUT"
-rm -f "$CODEX_HOME/.agentsmd-state/manifest.json"
-rm -f "$CODEX_HOME/AGENTS.md"
-rm -rf "$CODEX_HOME/agentsmd"
+BROKEN_DUAL_HOME="$SANDBOX/broken-dual-home"
+mkdir -p "$BROKEN_DUAL_HOME/.agentsmd-state" "$BROKEN_DUAL_HOME/agentsmd/hooks"
+printf '%s\n' '{"name":"agentsmd","version":"4.0.1","ownedArtifacts":{"deploy":{"path":"fixture","sha256":"fixture"}}}' > "$BROKEN_DUAL_HOME/.agentsmd-state/manifest.json"
+printf '%s\n' '# >>> agentsmd >>>' 'CODEX-CODING-SPEC v4.0.1' '# <<< agentsmd <<<' > "$BROKEN_DUAL_HOME/AGENTS.md"
+OUT="$(printf '%s' '{"session_id":"dual-broken","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+DUAL_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$DUAL_CTX" == *'selected=plugin'* ]] && [[ "$DUAL_CTX" == *'reason=standalone-unhealthy'* ]] \
+    && [[ "$DUAL_CTX" == *'exclusive=false'* ]] && [[ "$DUAL_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+  && ok "broken/old standalone does not shadow the selected healthy plugin" \
+  || bad "broken/old standalone → plugin selected with packaged core" "$DUAL_CTX"
+
+FALLBACK_PLUGIN="$SANDBOX/plugin-without-inspector"
+mkdir -p "$FALLBACK_PLUGIN/.codex-plugin" "$FALLBACK_PLUGIN/spec" "$FALLBACK_PLUGIN/hooks/lib"
+cp "$PLUGIN_FIXTURE/.codex-plugin/plugin.json" "$FALLBACK_PLUGIN/.codex-plugin/plugin.json"
+cp "$PLUGIN_FIXTURE/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS.md"
+cp "$PLUGIN_FIXTURE/spec/AGENTS-extended.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"
+cp "$PLUGIN_FIXTURE/hooks/session-start-check.sh" "$FALLBACK_PLUGIN/hooks/session-start-check.sh"
+cp "$PLUGIN_FIXTURE/hooks/lib/"* "$FALLBACK_PLUGIN/hooks/lib/"
+OUT="$(printf '%s' '{"session_id":"dual-no-inspector","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$FALLBACK_PLUGIN" bash "$FALLBACK_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
+FALLBACK_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$FALLBACK_CTX" == *'selected=plugin'* ]] && [[ "$FALLBACK_CTX" == *'reason=arbitration-unavailable'* ]] \
+    && [[ "$FALLBACK_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+  && ok "unavailable arbitration fails open toward the executing plugin spec" \
+  || bad "unavailable arbitration → plugin spec remains visible" "$FALLBACK_CTX"
+SEMVER_FIXTURE_VERSION='4.2.3-rc.1+build.7'
+node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],j=JSON.parse(fs.readFileSync(p));j.version=v;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$FALLBACK_PLUGIN/.codex-plugin/plugin.json" "$SEMVER_FIXTURE_VERSION"
+for SPEC_FILE in "$FALLBACK_PLUGIN/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"; do
+  node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(/CODEX-CODING-SPEC v\S+/,`CODEX-CODING-SPEC v${v}`))' "$SPEC_FILE" "$SEMVER_FIXTURE_VERSION"
+done
+OUT="$(printf '%s' '{"session_id":"semver-fallback","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$FALLBACK_PLUGIN" bash "$FALLBACK_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
+SEMVER_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$SEMVER_CTX" == *"CODEX-CODING-SPEC v${SEMVER_FIXTURE_VERSION} selected"* ]] \
+  && ok "SessionStart preserves prerelease and build metadata in the selected version" \
+  || bad "SessionStart full SemVer banner" "$SEMVER_CTX"
+for INVALID_SEMVER in '4.1.1-01' '4.1.1-alpha..1' '4.1.1-alpha.'; do
+  node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(/CODEX-CODING-SPEC v\S+/,`CODEX-CODING-SPEC v${v}`))' "$FALLBACK_PLUGIN/spec/AGENTS.md" "$INVALID_SEMVER"
+  OUT="$(printf '%s' '{"session_id":"invalid-semver","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$FALLBACK_PLUGIN" bash "$FALLBACK_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
+  INVALID_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+  { [[ "$INVALID_CTX" != *"CODEX-CODING-SPEC v${INVALID_SEMVER} selected"* ]] && [[ "$INVALID_CTX" != *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+    && ok "SessionStart rejects invalid SemVer ${INVALID_SEMVER}" \
+    || bad "SessionStart invalid SemVer ${INVALID_SEMVER}" "$INVALID_CTX"
+done
+
+HEALTHY_DUAL_HOME="$SANDBOX/healthy-dual-home"
+CODEX_HOME="$HEALTHY_DUAL_HOME" node "$HOOKS_DIR/../scripts/install.js" >/dev/null 2>&1
+OUT="$(printf '%s' '{"session_id":"dual-same","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+is_empty "$OUT" && ok "same-version healthy standalone wins and plugin SessionStart yields" || bad "same-version standalone → plugin yields" "$OUT"
+INSTALLED_SESSION_START="$HEALTHY_DUAL_HOME/agentsmd/hooks/session-start-check.sh"
+OUT="$(printf '%s' '{"session_id":"dual-same-standalone","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$INSTALLED_SESSION_START" 2>/dev/null)"
+INSTALLED_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$INSTALLED_CTX" == *'selected=standalone'* ]] && [[ "$INSTALLED_CTX" == *'reason=same-version-standalone'* ]]; } \
+  && ok "standalone hook inherited plugin root still runs as the selected surface" \
+  || bad "standalone hook inherited plugin root → remains active" "$INSTALLED_CTX"
+printf '\n// fixture drift\n' >> "$HEALTHY_DUAL_HOME/agentsmd/scripts/audit.js"
+PLUGIN_OUT="$(printf '%s' '{"session_id":"dual-plugin-wins","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+STANDALONE_OUT="$(printf '%s' '{"session_id":"dual-plugin-wins","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$INSTALLED_SESSION_START" 2>/dev/null)"
+PLUGIN_WIN_CTX="$(printf '%s' "$PLUGIN_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$PLUGIN_WIN_CTX" == *'selected=plugin'* ]] && [[ "$PLUGIN_WIN_CTX" == *'reason=standalone-unhealthy'* ]] && is_empty "$STANDALONE_OUT"; } \
+  && ok "protocol-v1 damaged standalone yields when the healthy plugin wins" \
+  || bad "protocol-v1 plugin winner → exactly one SessionStart" "plugin=[$PLUGIN_WIN_CTX] standalone=[$STANDALONE_OUT]"
 
 echo "== ship-baseline-check.sh (gh stubbed) =="
 mkdir -p "$SANDBOX/bin"

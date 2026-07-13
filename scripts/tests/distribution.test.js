@@ -197,7 +197,7 @@ t('agentsmd --version prints the package version', () => {
 t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => withSandbox((dir) => {
   const out = cli(['--help'], { CODEX_HOME: dir });
   for (const c of [
-    'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore',
+    'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore', 'repair',
     'status', 'doctor', 'audit', 'sampling-audit', 'lesson-bypass-audit',
     'sparkline', 'safety-coverage-audit', 'version-cascade', 'perf-baseline',
     'lint-argv', 'rules',
@@ -232,6 +232,8 @@ t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
     ['lesson-bypass-audit', '--days=tomorrow'],
     ['sparkline', '--windows=1'],
     ['perf-baseline', '--runs=0'],
+    ['repair'],
+    ['repair', '--confirm=not-a-digest'],
   ];
   for (const args of cases) {
     const result = cliResult(args, env);
@@ -476,6 +478,18 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 15);
+  const healthyPlan = JSON.parse(installedCli(['repair', '--plan']));
+  assert.strictEqual(healthyPlan.classification, 'healthy');
+  fs.unlinkSync(path.join(codexHome, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));
+  const deployedPlan = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(codexHome, 'agentsmd', 'scripts', 'repair.js'), '--plan',
+  ], { env, encoding: 'utf8' }));
+  assert.strictEqual(deployedPlan.classification, 'ownership-unprovable');
+  assert.strictEqual(deployedPlan.artifactCandidates[0].complete, false);
+  const repairPlan = JSON.parse(installedCli(['repair', '--plan']));
+  assert.strictEqual(repairPlan.classification, 'owned-files-missing');
+  const repairResult = JSON.parse(installedCli(['repair', `--confirm=${repairPlan.planDigest}`]));
+  assert.strictEqual(repairResult.repaired, true);
   assert.match(installedCli(['doctor']), /agentsmd doctor: all checks passed/);
   assert(installedCli(['uninstall']).includes('agentsmd uninstalled:'));
   assert.strictEqual(JSON.parse(installedCli(['status'])).installed, false);
