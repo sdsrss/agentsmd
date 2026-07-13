@@ -83,6 +83,37 @@ withProject({
   });
 });
 
+// ── gather: symlink safety (H-06) ────────────────────────────────────────────
+// An untrusted checkout must not make gather follow a symlink out of the project
+// root and read/leak an outside file. We reject ALL symlinks — files and dirs,
+// including root-internal aliases — the simplest safe rule.
+{
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-analyze-outside.'));
+  fs.writeFileSync(path.join(outside, 'secret.js'), 'const leaked = "SECRET"');
+  try {
+    withProject({
+      'package.json': JSON.stringify({ name: 'symlink' }),
+      'src/real.js': 'const real = 1',
+    }, (dir) => {
+      fs.symlinkSync(path.join(outside, 'secret.js'), path.join(dir, 'src', 'leak.js'));    // file symlink out of root
+      fs.symlinkSync(outside, path.join(dir, 'linkdir'));                                    // directory symlink out of root
+      fs.symlinkSync(path.join(dir, 'src', 'real.js'), path.join(dir, 'src', 'alias.js'));   // symlink aliasing a file inside root
+      fs.symlinkSync(path.join(outside, 'nope.js'), path.join(dir, 'src', 'broken.js'));     // broken symlink
+      const g = gather(dir);
+      const rels = g.files.map((f) => path.relative(dir, f.path));
+      t('gather: control regular file still gathered', () => assert(rels.includes(path.join('src', 'real.js'))));
+      t('gather: file symlink pointing outside the root is not gathered', () =>
+        assert(!g.files.some((f) => /leak\.js$/.test(f.path) || f.path.includes(outside)), rels.join(', ')));
+      t('gather: directory symlink pointing outside the root is not traversed', () =>
+        assert(!rels.some((r) => r.startsWith('linkdir')), rels.join(', ')));
+      t('gather: symlink aliasing a file inside the root is also rejected', () =>
+        assert(!rels.includes(path.join('src', 'alias.js')), rels.join(', ')));
+      t('gather: broken symlink is skipped without crashing', () =>
+        assert(!rels.includes(path.join('src', 'broken.js')), rels.join(', ')));
+    });
+  } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+}
+
 // ── writeConventions ────────────────────────────────────────────────────────
 const { writeConventions } = require('../analyze');
 const AM = require('../lib/agents-md');

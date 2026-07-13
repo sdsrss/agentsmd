@@ -120,6 +120,23 @@ try {
       }
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
+  // ── symlink safety (H-06): never follow a link out of the project root ───────
+  t('parseDesignTokens: .css symlinks escaping the root are not token sources; a real file still is', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt-symlink-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt-outside-'));
+    try {
+      fs.writeFileSync(path.join(outside, 'secret.css'), ':root { --color-leaked: #666; }');
+      fs.writeFileSync(path.join(s, 'real.css'), ':root { --color-real: #111; }');
+      fs.symlinkSync(path.join(outside, 'secret.css'), path.join(s, 'leak.css'));  // file symlink out of root
+      fs.symlinkSync(outside, path.join(s, 'linkdir'));                            // directory symlink out of root
+      fs.symlinkSync(path.join(s, 'real.css'), path.join(s, 'alias.css'));         // symlink aliasing a file inside root
+      fs.symlinkSync(path.join(outside, 'missing.css'), path.join(s, 'broken.css')); // broken symlink → must not crash
+      const r = D.parseDesignTokens(s);
+      assert.ok(!(r.tokens.color || []).some((x) => x.name === '--color-leaked'), 'outside token must not leak in');
+      assert.ok(r.tokens.color.some((x) => x.name === '--color-real'), 'control regular .css still parsed');
+      assert.deepStrictEqual(r.sources, ['real.css'], 'only the real file is a source: ' + r.sources.join(', '));
+    } finally { fs.rmSync(s, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
+  });
   t('extractBlocks: a } inside a /* comment */ does not prematurely close the block (no silent token loss)', () => {
     const bodies = D.extractBlocks(':root { --a: 1; /* a } here */ --b: 2; }');
     assert.strictEqual(bodies.length, 1);

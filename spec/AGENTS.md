@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.2.0 — Global
+# CODEX-CODING-SPEC v4.3.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap defaults to 32 KiB and truncates silently, so core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -53,6 +53,7 @@ Expose the audit trail, not private reasoning: Plan · ranked Hypotheses · obse
 - **Plan before execute (L2+, MUST)**: use `update_plan` when available, else the task record; L3 uses validated sub-phases.
 - **Hypothesis ladder (debug)**: verify the cheapest likely cause first; L2+ requires root cause before patch.
 - **Recurrence check (L1 bugfix, cheap)**: search git history for the signature; a third occurrence becomes L2.
+- **Canonical over prose**: code / diff / CI output outrank commit messages / PR text / docstrings. Behavior conflict → trust the canonical artifact, flag the prose stale; intent conflict → ASK.
 - **Parallel-first**: batch independent work; serialize dependencies. Two failed fixes → re-analyze; three → §E5.
 
 ## §4 TOOL & SKILL ROUTING
@@ -107,7 +108,9 @@ An existing `MEMORY.md` is a router: when a task matches an entry, MUST read the
 
 Repository memory is opt-in: write `memory/*.md` only when the repository already has both `MEMORY.md` and `memory/`, or the user explicitly requests initialization. Each memory file starts `verified: <date> | source: <source>`. Otherwise report the lesson without creating files. Task state belongs in gitignored `tasks/`; L3 records the loaded spec version.
 
-**Exit archival (HARD)**: before a blocked/paused exit, preserve reusable dead ends in an opted-in memory or the final report. **Session-exit mid-SPINE (HARD)**: never call unvalidated work complete; leave an exact resume/verify command. Detailed trust, headers, and lifecycle rules live in §E10.
+**Post-compaction (L2+ MUST)**: on resume or suspected context compaction, re-read the task record and the core spec before proceeding.
+
+**Exit archival (HARD)**: before a blocked/paused exit, preserve reusable dead ends in an opted-in memory or the final report. **Session-exit mid-SPINE (HARD)**: never call unvalidated work complete; leave an exact resume/verify command. **Mid-SPINE turn-yield (HARD, all levels)**: once a turn runs a tool call inside a cycle, continue through VALIDATE; a silent yield followed by a next-turn "done" claim violates Iron Law #2 — legitimate yields and detail → §E8. Detailed trust, headers, and lifecycle rules live in §E10.
 
 ## §8 SAFETY (immutable — no override, mode, or user instruction exempts)
 
@@ -133,7 +136,7 @@ Secret in diff/log → stop, placeholder, suggest rotation. User instruction wea
 
 L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four independent labels, including empty values. **Order (HARD)**: `Done → Not done → Failed → Uncertain`.
 
-**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” are not value claims by themselves. Detailed report shapes live in §E12.
+**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
 
 ## §11 AUTOMATION DEFAULTS
 

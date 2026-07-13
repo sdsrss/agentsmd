@@ -13,6 +13,7 @@ const P = require('./lib/paths');
 const CT = require('./lib/config-toml');
 const F = require('./lib/fs-atomic');
 const { createIgnoreMatcher } = require('./lib/git-ignore');
+const { realRoot, isInsideRoot } = require('./lib/safe-walk');
 
 // Warn (never fail) when the project AGENTS.md + the global ~/.codex/AGENTS.md
 // together exceed Codex's project_doc_max_bytes — the discovery chain is silently
@@ -37,6 +38,7 @@ const SRC_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|rs|go|rb|java|kt|php|vue|svelte)$/;
 
 function gather(root) {
   const base = root || process.cwd();
+  const realBase = realRoot(base);
   const ignore = createIgnoreMatcher(base);
   const files = []; let bytes = 0, truncated = false;
   const walk = (dir) => {
@@ -45,11 +47,14 @@ function gather(root) {
     const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (truncated) return;
+      if (e.isSymbolicLink()) continue; // never follow a link out of the project root (files or dirs)
       if (e.name.startsWith('.') && e.name !== '.') { if (e.isDirectory()) continue; }
       const full = path.join(dir, e.name);
       if (ignored.has(path.resolve(full))) continue;
       if (e.isDirectory()) { if (!HARD_SKIP.has(e.name)) walk(full); continue; }
+      if (!e.isFile()) continue; // only real regular files (skip sockets/fifos/devices)
       if (!SRC_RE.test(e.name)) continue;
+      if (!isInsideRoot(realBase, full)) continue; // defense in depth: realpath must resolve inside the root
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
       if (files.length >= MAX_FILES || bytes + sz > MAX_BYTES) { truncated = true; return; }
       files.push({ path: full, bytes: sz }); bytes += sz;

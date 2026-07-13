@@ -397,7 +397,7 @@ withSandbox((dir) => {
   fs.writeFileSync(path.join(dir, 'logs', 'agentsmd.jsonl'), [
     JSON.stringify({ ts: '2026-07-03T00:00:00.000Z', hook: 'pre-bash-safety', event: 'block' }),
     'not json',
-  ].join('\n') + '\n');
+  ].join('\n') + '\n', { mode: 0o600 }); // hooks create telemetry under umask 077 (M-02)
   t('status telemetryRows counts parseable telemetry, not malformed lines', () => assert.strictEqual(status().telemetryRows, 1));
   t('doctor reports a healthy standalone install', () => assert.strictEqual(doctor().ok, true));
   t('doctor flags a stale deployed spec version (install lags the source)', () => {
@@ -417,6 +417,27 @@ withSandbox((dir) => {
     const bad = doctor().checks.find((x) => x.name === 'discovery-chain headroom for project docs');
     assert(bad && bad.ok === false && /EXCEEDS/.test(bad.detail), 'expected over-budget fail; got: ' + JSON.stringify(bad));
     fs.writeFileSync(cfgP, orig); // restore
+  });
+  t('doctor flags group/other-accessible telemetry/state artifacts (M-02)', () => {
+    const logP = path.join(dir, 'logs', 'agentsmd.jsonl');
+    fs.chmodSync(logP, 0o664); // the live pre-fix mode found by the 2026-07-13 audit
+    const c = doctor().checks.find((x) => x.name === 'telemetry/state artifacts are private (0700/0600)');
+    assert(c && c.ok === false && /agentsmd update/.test(c.detail), 'expected wide-mode fail; got: ' + JSON.stringify(c));
+    fs.chmodSync(logP, 0o600);
+    const ok = doctor().checks.find((x) => x.name === 'telemetry/state artifacts are private (0700/0600)');
+    assert(ok && ok.ok === true, 'expected private pass; got: ' + JSON.stringify(ok));
+  });
+  t('update tightens pre-existing wide-mode telemetry/state artifacts (M-02)', () => {
+    const logP = path.join(dir, 'logs', 'agentsmd.jsonl');
+    const refP = path.join(dir, '.agentsmd-state', 'legacy-wide.ref');
+    fs.writeFileSync(refP, 'x\n', { mode: 0o644 });
+    fs.chmodSync(logP, 0o664);
+    fs.chmodSync(path.join(dir, '.agentsmd-state'), 0o755);
+    install('2026-07-02T01:00:00.000Z'); // idempotent re-run = the update path
+    assert.strictEqual(fs.statSync(logP).mode & 0o777, 0o600, 'telemetry log not tightened');
+    assert.strictEqual(fs.statSync(refP).mode & 0o777, 0o600, 'state file not tightened');
+    assert.strictEqual(fs.statSync(path.join(dir, '.agentsmd-state')).mode & 0o777, 0o700, 'state dir not tightened');
+    fs.rmSync(refP, { force: true }); // keep the sandbox's owned-state inventory exact for later cases
   });
   fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n\n[tui]\nstatus_line = [broken\n');
   t('doctor fails on an unparseable tui.status_line', () => {

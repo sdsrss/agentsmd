@@ -18,6 +18,11 @@ const SHA256_RE = /^[a-f0-9]{64}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const CONFIG_PARSE_CACHE = new Map();
 
+// Schema of the arbitration cache the dual-surface hook check consumes. Bump in
+// lockstep with the AGENTSMD_ARBITRATION_CACHE_SCHEMA constant in
+// hooks/lib/hook-common.sh whenever the payload shape changes.
+const ARBITRATION_CACHE_SCHEMA = 1;
+
 const PLUGIN_HOOK_SUPPORT = [
   'hooks/banned-vocab.patterns',
   'hooks/secrets.patterns',
@@ -436,9 +441,17 @@ function removeConfigParserSandbox(root) {
   fs.rmSync(realRoot, { recursive: true, force: true });
 }
 
+function codexBinary() {
+  const override = typeof process.env.AGENTSMD_CODEX_BIN === 'string' ? process.env.AGENTSMD_CODEX_BIN.trim() : '';
+  return override || 'codex';
+}
+
 function validateCodexConfigSyntax(content) {
+  const codexBin = codexBinary();
   const cacheKey = crypto.createHash('sha256')
     .update(process.env.PATH || '')
+    .update('\0')
+    .update(codexBin)
     .update('\0')
     .update(content)
     .digest('hex');
@@ -460,11 +473,11 @@ function validateCodexConfigSyntax(content) {
     };
     delete env.CLAUDE_PLUGIN_ROOT;
     delete env.AGENTSMD_PLUGIN_ROOT;
-    const parsed = cp.spawnSync('codex', ['features', 'list'], {
+    const parsed = cp.spawnSync(codexBin, ['features', 'list'], {
       env,
       encoding: 'utf8',
       stdio: 'ignore',
-      timeout: 5000,
+      timeout: 2000,
     });
     const result = parsed.error
       ? { valid: false, validator: 'codex-cli', errorCode: parsed.error.code === 'ENOENT' ? 'codex-cli-unavailable' : 'codex-cli-error' }
@@ -643,8 +656,55 @@ function arbitrateSurfaces(standalone, plugin) {
   };
 }
 
+function arbitrationCachePath() {
+  return path.join(P.stateDir(), 'arbitration-cache.json');
+}
+
+// Freshness key for the standalone manifest: whole-second mtime + byte size. The
+// dual-surface hook check re-derives this with `stat` (GNU %Y/%s, BSD %m/%z), so
+// Node's sub-second mtimeMs is deliberately floored to keep both sides identical.
+function manifestFreshnessKey() {
+  try {
+    const stat = fs.statSync(P.manifestPath());
+    const mtime = Math.floor(stat.mtimeMs / 1000);
+    return { path: P.manifestPath(), mtime, size: stat.size, key: `${mtime}:${stat.size}` };
+  } catch { return null; }
+}
+
+// Persist the arbitration result so the per-hook dual-surface check can decide
+// which physical copy yields WITHOUT spawning node (the source of N-01's budget
+// blowout). Best-effort and self-limiting: it never creates the state dir (an
+// absent dir means there is no standalone install to arbitrate against), and a
+// write failure must never break inspection for status/doctor/SessionStart.
+function writeArbitrationCache(arbitration, env = process.env) {
+  try {
+    let dirStat;
+    try { dirStat = fs.statSync(P.stateDir()); } catch { return; }
+    if (!dirStat.isDirectory()) return;
+    const context = pluginRootFromEnv(env);
+    if (!context.root) return;
+    let pluginRoot;
+    try { pluginRoot = fs.realpathSync(context.root); } catch { pluginRoot = path.resolve(context.root); }
+    const freshness = manifestFreshnessKey();
+    if (!freshness) return;
+    const payload = {
+      schemaVersion: ARBITRATION_CACHE_SCHEMA,
+      generatedAt: new Date().toISOString(),
+      pluginRoot,
+      manifest: freshness,
+      selection: {
+        selected: arbitration.selection.selected,
+        reasonCode: arbitration.selection.reasonCode,
+      },
+    };
+    F.writeFileAtomic(arbitrationCachePath(), `${JSON.stringify(payload)}\n`, { mode: 0o600 });
+  } catch { /* cache is advisory; never propagate a failure to the inspection */ }
+}
+
 function inspectAndArbitrate(env = process.env) {
-  return arbitrateSurfaces(inspectStandaloneSurface(), inspectPluginBundle(env));
+  const arbitration = arbitrateSurfaces(inspectStandaloneSurface(), inspectPluginBundle(env));
+  writeArbitrationCache(arbitration, env);
+  return arbitration;
 }
 
 if (require.main === module) {
@@ -661,11 +721,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ARBITRATION_CACHE_SCHEMA,
   PLUGIN_HOOK_SUPPORT,
   SEMVER_RE,
   arbitrateSurfaces,
+  arbitrationCachePath,
   compareSemver,
   inspectAndArbitrate,
+  manifestFreshnessKey,
+  writeArbitrationCache,
   inspectPluginBundle,
   inspectStandaloneSurface,
   parseSemver,

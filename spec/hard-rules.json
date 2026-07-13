@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both.",
-  "spec_version": "v4.2.0",
+  "spec_version": "v4.3.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -184,6 +184,19 @@
       "confidence": "high",
       "last_demote_review": null,
       "note": "Hook fires on git push/merge/publish Bash; requires successful tool-output evidence for the selected MEMORY.md index and a linked local memory file when the index contains local Markdown links."
+    },
+    {
+      "id": "§7-post-compaction",
+      "name": "Post-compaction (L2+ MUST) — re-read task record and core spec on resume/compaction",
+      "scope": "core",
+      "section_anchor": "**Post-compaction (L2+ MUST)**",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v4.3.0",
+      "confidence": "medium",
+      "last_demote_review": null,
+      "note": "Audit 2026-07-13 gap G-3: Codex sessions compact/resume like any harness, but the re-read duty previously existed nowhere in core. Self-enforced; no hook can observe context loss directly."
     },
     {
       "id": "§7-exit-archival",

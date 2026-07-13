@@ -127,7 +127,21 @@ if (require.main === module) {
     console.error(parsed.usage);
     process.exit(2);
   }
-  console.log(JSON.stringify(status(), null, 2));
+  const result = status();
+  console.log(JSON.stringify(result, null, 2));
+  // Explain a null selectedSurface on stderr (stdout stays pure JSON). Without
+  // this, `node scripts/status.js` with no plugin-root env silently reports
+  // selectedSurface:null / no-healthy-surface and looks like a real fault.
+  if (result.selectedSurface === null) {
+    const pb = result.pluginBundle;
+    if (!pb.detected && !pb.contextSource) {
+      console.error('note: no plugin bundle detected — set AGENTSMD_PLUGIN_ROOT (or CLAUDE_PLUGIN_ROOT) to the plugin checkout to evaluate the plugin surface; only a standalone install can be checked without it.');
+    }
+    const standaloneConfig = result.surfaceArbitration.candidates.standalone.config;
+    if (standaloneConfig && standaloneConfig.errorCode === 'codex-cli-unavailable') {
+      console.error('note: standalone surface health is unverifiable — the codex CLI was not found (install codex or set AGENTSMD_CODEX_BIN); this is distinct from an invalid config.');
+    }
+  }
 }
 module.exports = {
   status,

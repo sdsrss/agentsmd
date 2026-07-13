@@ -282,21 +282,87 @@ done
 
 HEALTHY_DUAL_HOME="$SANDBOX/healthy-dual-home"
 CODEX_HOME="$HEALTHY_DUAL_HOME" node "$HOOKS_DIR/../scripts/install.js" >/dev/null 2>&1
-OUT="$(printf '%s' '{"session_id":"dual-same","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
-is_empty "$OUT" && ok "same-version healthy standalone wins and plugin SessionStart yields" || bad "same-version standalone → plugin yields" "$OUT"
 INSTALLED_SESSION_START="$HEALTHY_DUAL_HOME/agentsmd/hooks/session-start-check.sh"
+CACHE_FILE="$HEALTHY_DUAL_HOME/.agentsmd-state/arbitration-cache.json"
+DUAL_MANIFEST="$HEALTHY_DUAL_HOME/.agentsmd-state/manifest.json"
+cache_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+
+# A freshly installed dual surface has no cache yet. The SELECTED (standalone)
+# surface is never shadowed, runs, and writes the arbitration cache.
+rm -f "$CACHE_FILE"
 OUT="$(printf '%s' '{"session_id":"dual-same-standalone","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$INSTALLED_SESSION_START" 2>/dev/null)"
 INSTALLED_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 { [[ "$INSTALLED_CTX" == *'selected=standalone'* ]] && [[ "$INSTALLED_CTX" == *'reason=same-version-standalone'* ]]; } \
-  && ok "standalone hook inherited plugin root still runs as the selected surface" \
-  || bad "standalone hook inherited plugin root → remains active" "$INSTALLED_CTX"
+  && ok "same-version standalone runs as the selected surface" \
+  || bad "standalone selected surface → runs" "$INSTALLED_CTX"
+{ [ -f "$CACHE_FILE" ] && [[ "$(cache_mode "$CACHE_FILE")" == "600" ]] \
+    && [[ "$(jq -r '.schemaVersion' "$CACHE_FILE" 2>/dev/null)" == "1" ]] \
+    && [[ "$(jq -r '.selection.selected' "$CACHE_FILE" 2>/dev/null)" == "standalone" ]]; } \
+  && ok "SessionStart writes a private (0600) arbitration cache naming the selected surface" \
+  || bad "SessionStart writes arbitration cache (mode 0600, selected)" "mode=[$(cache_mode "$CACHE_FILE" 2>/dev/null)] body=[$(cat "$CACHE_FILE" 2>/dev/null)]"
+
+# With a fresh cache naming standalone, the plugin SessionStart copy reads it and yields.
+OUT="$(printf '%s' '{"session_id":"dual-same","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+is_empty "$OUT" && ok "fresh cache naming standalone → plugin SessionStart yields" || bad "cached standalone → plugin yields" "$OUT"
+
+echo "== dual-surface cache-gated per-hook yield (N-01) =="
+run_safety() { printf '%s' "$1" | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$2" 2>/dev/null; }
+SAFETY_PLUGIN="$HOOKS_DIR/pre-bash-safety-check.sh"
+SAFETY_STANDALONE="$HEALTHY_DUAL_HOME/agentsmd/hooks/pre-bash-safety-check.sh"
+RM_EVENT="$(j 'rm -rf $VAR')"
+# Cache naming standalone is present: the plugin safety copy stands down (no §8
+# double-fire), the selected standalone copy still enforces §8.
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_PLUGIN")"; is_empty "$OUT" && ok "cache names standalone → plugin safety hook yields" || bad "plugin safety hook yields on cache" "$OUT"
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_STANDALONE")"; is_block "$OUT" && ok "cache names standalone → standalone safety hook still blocks rm -rf \$VAR" || bad "standalone safety hook enforces" "$OUT"
+# Cache computed for a DIFFERENT plugin root → not trusted → plugin copy enforces.
+node -e 'const fs=require("fs"),p=process.argv[1],j=JSON.parse(fs.readFileSync(p));j.pluginRoot="/nonexistent/other-root";fs.writeFileSync(p,JSON.stringify(j)+"\n")' "$CACHE_FILE"
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_PLUGIN")"; is_block "$OUT" && ok "cache for a different plugin root → no yield, plugin still blocks rm -rf \$VAR" || bad "wrong-root cache → enforce" "$OUT"
+# Malformed cache → not trusted → plugin copy enforces.
+printf 'not json{' > "$CACHE_FILE"
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_PLUGIN")"; is_block "$OUT" && ok "malformed cache → no yield, plugin still blocks rm -rf \$VAR" || bad "malformed cache → enforce" "$OUT"
+# Stale cache: rebuild a valid cache, then change the manifest so its freshness key drifts.
+CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" node "$HOOKS_DIR/../scripts/lib/surface-arbitration.js" --hook-json >/dev/null 2>&1
+[[ "$(jq -r '.selection.selected' "$CACHE_FILE" 2>/dev/null)" == "standalone" ]] || bad "cache rebuild names standalone" "$(cat "$CACHE_FILE" 2>/dev/null)"
+printf ' ' >> "$DUAL_MANIFEST"
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_PLUGIN")"; is_block "$OUT" && ok "stale cache (manifest freshness key changed) → no yield, plugin still blocks rm -rf \$VAR" || bad "stale cache → enforce" "$OUT"
+# No cache at all → no yield, plugin copy enforces without spawning node (timing guard).
+rm -f "$CACHE_FILE"
+OUT="$(run_safety "$RM_EVENT" "$SAFETY_PLUGIN")"; is_block "$OUT" && ok "no cache → plugin safety hook does NOT yield, still blocks rm -rf \$VAR (timing guard)" || bad "no cache → enforce" "$OUT"
+
+# After a rebuild the cache again names standalone; the standalone SessionStart is
+# the selected surface, so damaging its deploy tree (manifest bytes unchanged) is
+# only observed on the NEXT full inspection. The standalone copy re-inspects, finds
+# itself unhealthy, and hands the cache to the healthy plugin; then the plugin runs
+# and the standalone yields — exactly one SessionStart in steady state.
+CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" node "$HOOKS_DIR/../scripts/lib/surface-arbitration.js" --hook-json >/dev/null 2>&1
 printf '\n// fixture drift\n' >> "$HEALTHY_DUAL_HOME/agentsmd/scripts/audit.js"
+REFRESH_OUT="$(printf '%s' '{"session_id":"dual-refresh","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$INSTALLED_SESSION_START" 2>/dev/null)"
+REFRESH_CTX="$(printf '%s' "$REFRESH_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$REFRESH_CTX" == *'selected=plugin'* ]] && [[ "$REFRESH_CTX" == *'reason=standalone-unhealthy'* ]]; } \
+  && ok "damaged standalone re-inspects and refreshes the cache to the healthy plugin" \
+  || bad "damaged standalone → cache refreshed to plugin" "$REFRESH_CTX"
 PLUGIN_OUT="$(printf '%s' '{"session_id":"dual-plugin-wins","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 STANDALONE_OUT="$(printf '%s' '{"session_id":"dual-plugin-wins","hook_event_name":"SessionStart"}' | CODEX_HOME="$HEALTHY_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$INSTALLED_SESSION_START" 2>/dev/null)"
 PLUGIN_WIN_CTX="$(printf '%s' "$PLUGIN_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-{ [[ "$PLUGIN_WIN_CTX" == *'selected=plugin'* ]] && [[ "$PLUGIN_WIN_CTX" == *'reason=standalone-unhealthy'* ]] && is_empty "$STANDALONE_OUT"; } \
-  && ok "protocol-v1 damaged standalone yields when the healthy plugin wins" \
-  || bad "protocol-v1 plugin winner → exactly one SessionStart" "plugin=[$PLUGIN_WIN_CTX] standalone=[$STANDALONE_OUT]"
+{ [[ "$PLUGIN_WIN_CTX" == *'selected=plugin'* ]] && is_empty "$STANDALONE_OUT"; } \
+  && ok "healthy plugin wins and damaged standalone yields (exactly one SessionStart)" \
+  || bad "plugin winner → exactly one SessionStart" "plugin=[$PLUGIN_WIN_CTX] standalone=[$STANDALONE_OUT]"
+
+echo "== session-start degraded no-healthy-surface banner (N-03) =="
+NOHEALTH_PLUGIN="$SANDBOX/nohealth-plugin"
+mkdir -p "$NOHEALTH_PLUGIN"
+for NH in .codex-plugin package.json hooks.json hooks spec scripts; do cp -R "$PLUGIN_FIXTURE/$NH" "$NOHEALTH_PLUGIN/$NH"; done
+# Break the plugin hook wiring (bundle unhealthy) but leave spec/AGENTS.md readable
+# and the inspector runnable, with no standalone install → arbitration selects no
+# healthy surface, yet the packaged core is still injected.
+node -e 'const fs=require("fs"),p=process.argv[1],j=JSON.parse(fs.readFileSync(p));j.hooks.SessionStart[0].matcher="wrong-matcher";fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$NOHEALTH_PLUGIN/hooks.json"
+NOHEALTH_HOME="$SANDBOX/nohealth-home"; mkdir -p "$NOHEALTH_HOME"
+OUT="$(printf '%s' '{"session_id":"nohealth","hook_event_name":"SessionStart"}' | CODEX_HOME="$NOHEALTH_HOME" CLAUDE_PLUGIN_ROOT="$NOHEALTH_PLUGIN" bash "$NOHEALTH_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
+NOHEALTH_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$NOHEALTH_CTX" == *'DEGRADED no-healthy-surface'* ]] && [[ "$NOHEALTH_CTX" == *'selected=none'* ]] \
+    && [[ "$NOHEALTH_CTX" != *'selected — SPINE'* ]]; } \
+  && ok "no-healthy-surface: banner says DEGRADED and agrees with the selected=none surface line (N-03)" \
+  || bad "N-03 banner/surface-line agreement" "$NOHEALTH_CTX"
 
 echo "== ship-baseline-check.sh (gh stubbed) =="
 mkdir -p "$SANDBOX/bin"
@@ -1014,6 +1080,22 @@ if node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1],"
 else
   bad "telemetry jq-less fallback writes valid JSON" "$(cat "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
 fi
+
+echo "== permissions (M-02) =="
+# Telemetry rows carry project path slugs; creation must stay private (0700/0600)
+# even under a permissive caller umask — both via the bare library...
+PERMHOME="$SANDBOX/permtest"; mkdir -p "$PERMHOME"
+( umask 022; CODEX_HOME="$PERMHOME" bash -c 'source hooks/lib/rule-hits.sh; rule_hits_append "h" "block" "null" "§8-rm-rf-var" "sid-permcase"' )
+LOGMODE="$(cache_mode "$PERMHOME/logs/agentsmd.jsonl")"
+LOGDIRMODE="$(cache_mode "$PERMHOME/logs")"
+[[ "$LOGMODE" == "600" && "$LOGDIRMODE" == "700" ]] && ok "telemetry log/dir created private under umask 022 (600/700)" || bad "telemetry created private under umask 022" "log=${LOGMODE:-missing} dir=${LOGDIRMODE:-missing}"
+# ...and via a full hook entry that sources hook-common.sh (state refs).
+PERMHOME2="$SANDBOX/permtest2"; mkdir -p "$PERMHOME2"
+( umask 022; printf '%s' '{"session_id":"permsess1","cwd":"'"$SANDBOX"'"}' | CODEX_HOME="$PERMHOME2" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1 )
+PERMREF="$(find "$PERMHOME2/.agentsmd-state" -maxdepth 1 -name 'session-start-*.ref' 2>/dev/null | head -1)"
+REFMODE="$(cache_mode "$PERMREF")"
+STATEMODE="$(cache_mode "$PERMHOME2/.agentsmd-state")"
+[[ "$REFMODE" == "600" && "$STATEMODE" == "700" ]] && ok "session state ref/dir created private under umask 022 (600/700)" || bad "state created private under umask 022" "ref=${REFMODE:-missing} dir=${STATEMODE:-missing}"
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"

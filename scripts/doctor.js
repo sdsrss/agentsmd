@@ -176,7 +176,11 @@ function doctor() {
   add(
     'config.toml accepted by Codex parser',
     standaloneConfig.parseable,
-    standaloneConfig.parseable ? standaloneConfig.validator : standaloneConfig.errorCode
+    standaloneConfig.parseable
+      ? standaloneConfig.validator
+      : (standaloneConfig.errorCode === 'codex-cli-unavailable'
+        ? 'surface health unverifiable (codex CLI not found — install codex or set AGENTSMD_CODEX_BIN)'
+        : standaloneConfig.errorCode)
   );
   add(
     'config.toml features.hooks=true',
@@ -347,6 +351,40 @@ function doctor() {
       ? `global AGENTS.md ${globalBytes}B / cap ${budget.cap}B — ${budget.headroom}B left for project chains`
       : `global AGENTS.md ${globalBytes}B EXCEEDS cap ${budget.cap}B by ${-budget.headroom}B — raise project_doc_max_bytes in config.toml`
   );
+
+  // Telemetry rows and state refs carry project path slugs — they must stay
+  // private to the user (M-02). Hooks create new files under umask 077;
+  // install/update tightens older artifacts; this check surfaces whatever is
+  // still group/other-accessible. POSIX modes only (Windows support is WSL).
+  if (process.platform !== 'win32') {
+    const wide = [];
+    const modeOf = (target) => { try { return fs.lstatSync(target); } catch { return null; } };
+    const checkFile = (file) => {
+      const stat = modeOf(file);
+      if (stat && stat.isFile() && (stat.mode & 0o077) !== 0) wide.push(path.basename(file));
+    };
+    const stateStat = modeOf(P.stateDir());
+    if (stateStat && stateStat.isDirectory() && (stateStat.mode & 0o077) !== 0) wide.push('.agentsmd-state/');
+    const walkState = (dir) => {
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isDirectory()) walkState(full);
+        else if (entry.isFile()) checkFile(full);
+      }
+    };
+    if (stateStat && stateStat.isDirectory()) walkState(P.stateDir());
+    for (const suffix of ['', '.1', '.2']) checkFile(`${P.logPath()}${suffix}`);
+    add(
+      'telemetry/state artifacts are private (0700/0600)',
+      wide.length === 0,
+      wide.length
+        ? `group/other-accessible: ${[...new Set(wide)].slice(0, 6).join(', ')}${wide.length > 6 ? ', …' : ''} — run agentsmd update to tighten`
+        : 'state dir + telemetry log private'
+    );
+  }
 
   return {
     ok: checks.every((c) => c.ok),

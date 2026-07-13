@@ -72,7 +72,7 @@ function validateOwnership(manifest) {
 function ownedStateFiles(manifest) {
   if (!manifest) return [];
   const state = P.stateDir();
-  const ownedName = /^(?:pending-advisories-.+|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json)$/;
+  const ownedName = /^(?:pending-advisories-.+|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|arbitration-cache\.json)$/;
   const files = [P.manifestPath()];
   let entries = [];
   try { entries = fs.readdirSync(state, { withFileTypes: true }); }

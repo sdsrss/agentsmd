@@ -3,6 +3,69 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.3.0 — 2026-07-13 — audit remediation: hot-path arbitration cache, symlink boundary, private telemetry
+
+Remediates the highest-priority findings of the 2026-07-13 v4.2.0 audit
+(N-01/N-02/N-03, H-06, M-02, plus the qa-* sandbox-residue lesson and spec gaps
+G-1..G-4). Roadmap tasks R0-04, R0-06, R1-02, R1-04, R1-05, R5-06 and the
+banner half of R0-03.
+
+### Fixed
+
+- Dual-surface hooks no longer spawn the full arbitration inspector in every
+  hook process (N-01). Yield decisions now read a private (0600) arbitration
+  cache that SessionStart, `status`, `doctor`, and the inspector CLI refresh on
+  every full inspection; the cache is validated against schema, resolved plugin
+  root, and a manifest freshness key, and ANY missing/stale/malformed cache
+  keeps both surfaces running — enforcement never silently vanishes. The
+  SessionStart inspector run is bounded at 3s and the inner Codex config probe
+  at 2000ms (was 5000ms), so the 3s-budget pre-Bash §8 safety hook can no
+  longer be killed by its own surface check under dual-surface states.
+- Project scanners no longer follow symlinks (H-06): `analyze` and `design`
+  walkers reject every symlink (file, directory, in-root alias) and
+  additionally confine each candidate read to the realpath of the project
+  root. An untrusted checkout can no longer route out-of-repo file contents
+  into AI context or generated docs.
+- A no-healthy-surface SessionStart no longer claims the spec was "selected"
+  while the surface line reports `selected=none` (N-03); the banner now names
+  the degraded state and points at `agentsmd doctor`.
+- `codex-cli-unavailable` now renders as "surface health unverifiable (codex
+  CLI not found — install codex or set AGENTSMD_CODEX_BIN)" in status/doctor
+  instead of implying a broken config, `AGENTSMD_CODEX_BIN` overrides PATH
+  resolution, and a bare `node scripts/status.js` explains on stderr why no
+  plugin bundle is discoverable when the plugin-root env vars are unset (N-02).
+
+### Added
+
+- Telemetry and state artifacts are now private by construction (M-02): hooks
+  set `umask 077` (new logs/state files 0600, dirs 0700), install/update
+  tightens pre-existing wide-mode agentsmd-owned artifacts (the audited live
+  log was 0664), and a new doctor check reports anything still
+  group/other-accessible. The shared `logs/` directory mode itself is left to
+  the platform.
+- The npm test chain now snapshots and verifies the live `$CODEX_HOME`
+  surfaces (`scripts/tests/live-guard.js`): any test that writes through the
+  sandbox constraint fails the suite instead of leaving residue (lesson from
+  the qa-* session refs found in the live state dir).
+- Spec v4.3.0 (G-1..G-4, see `spec/AGENTS-CHANGELOG.md`): core §7 always-loaded
+  Mid-SPINE turn-yield anchor; core §3 canonical-over-prose trust rule; core §7
+  post-compaction re-read (new self-enforced manifest rule
+  `§7-post-compaction`, 39 → 40 rules); core §10 anti-defensive-PARTIAL
+  clause. Core stays under the 15 KiB gate (14,056 → ~14.8 KB).
+
+### Quality
+
+- Suite growth: hook smoke 282 → 293, install 195 → 197, plugin-surface
+  28 → 32, analyze 54 → 59, design-tokens 15 → 16, design 14 → 15; drift,
+  safety-coverage, repair, version gates green; ShellCheck clean. New smoke
+  coverage proves the §8 pre-Bash guard still blocks under every cache-degraded
+  dual-surface state and that permissions hold under a permissive caller umask.
+
+Rollback consumers by pinning `npm install -g @sdsrs/agentsmd@4.2.0` and
+running `agentsmd update`; source/plugin users select `v4.2.0` and reinstall.
+Revert the v4.3.0 release commit for source rollback. Published npm versions
+are immutable and can only be deprecated.
+
 ## v4.2.0 — 2026-07-14 — health-first surface arbitration and guarded repair
 
 ### Added

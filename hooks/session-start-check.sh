@@ -33,17 +33,25 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 
 # Plugin-only skips the dual-surface fast-path above. SessionStart still computes
 # one structural arbitration record so the banner names the candidate and reason.
-if [[ -n "${PLUGIN_ROOT:-}" && -z "${SURFACE_ARBITRATION_JSON:-}" ]]; then
-  INSPECTOR="$PLUGIN_ROOT/scripts/lib/surface-arbitration.js"
-  if command -v node >/dev/null 2>&1 && [[ -r "$INSPECTOR" ]]; then
-    SURFACE_ARBITRATION_JSON="$(node "$INSPECTOR" --hook-json 2>/dev/null)" || SURFACE_ARBITRATION_JSON=""
+# The inspector ALSO (re)writes the arbitration cache the cheap per-hook check
+# consumes, so this is the once-per-session cache producer. Bound it with a
+# wall-clock ceiling well under SessionStart's 5s budget: a slow codex probe must
+# never kill this hook. On timeout/failure the banner degrades and any existing
+# cache is left untouched (its freshness key protects it from going stale).
+run_surface_inspector() {
+  local inspector="$1"
+  command -v node >/dev/null 2>&1 && [[ -r "$inspector" ]] || return 1
+  if declare -F platform_timeout >/dev/null 2>&1; then
+    platform_timeout 3 node "$inspector" --hook-json 2>/dev/null
+  else
+    node "$inspector" --hook-json 2>/dev/null
   fi
+}
+if [[ -n "${PLUGIN_ROOT:-}" && -z "${SURFACE_ARBITRATION_JSON:-}" ]]; then
+  SURFACE_ARBITRATION_JSON="$(run_surface_inspector "$PLUGIN_ROOT/scripts/lib/surface-arbitration.js")" || SURFACE_ARBITRATION_JSON=""
 fi
 if [[ -z "${SURFACE_ARBITRATION_JSON:-}" ]]; then
-  INSPECTOR="$LIB_DIR/../../scripts/lib/surface-arbitration.js"
-  if command -v node >/dev/null 2>&1 && [[ -r "$INSPECTOR" ]]; then
-    SURFACE_ARBITRATION_JSON="$(node "$INSPECTOR" --hook-json 2>/dev/null)" || SURFACE_ARBITRATION_JSON=""
-  fi
+  SURFACE_ARBITRATION_JSON="$(run_surface_inspector "$LIB_DIR/../../scripts/lib/surface-arbitration.js")" || SURFACE_ARBITRATION_JSON=""
 fi
 
 # Refresh the per-session reference timestamp that sandbox-disposal-check.sh
@@ -90,8 +98,13 @@ fi
 SELECTED_SURFACE=""
 SELECTION_REASON=""
 SELECTION_EXCLUSIVE=""
+# True when arbitration ran but NO surface passed health checks. In that state a
+# packaged plugin core may still be injected below, but it must be announced as a
+# degraded fallback, not as a "selected" surface (the surface line says selected=none).
+DEGRADED_NO_SURFACE=false
 if [[ -n "${SURFACE_ARBITRATION_JSON:-}" ]]; then
   SELECTED_SURFACE="$(printf '%s' "$SURFACE_ARBITRATION_JSON" | jq -r '.selection.selected // empty' 2>/dev/null)"
+  [[ -n "$SELECTED_SURFACE" ]] || DEGRADED_NO_SURFACE=true
   SELECTION_REASON="$(printf '%s' "$SURFACE_ARBITRATION_JSON" | jq -r '.selection.reasonCode // empty' 2>/dev/null)"
   SELECTION_EXCLUSIVE="$(printf '%s' "$SURFACE_ARBITRATION_JSON" | jq -r '.selection.exclusive // false' 2>/dev/null)"
   if [[ "$SELECTED_SURFACE" == "plugin" ]]; then
@@ -162,7 +175,11 @@ if [[ "$CP_FOUND" -gt 0 ]]; then
 fi
 
 hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
-if [[ "$SPEC_ACTIVE" == "true" ]]; then
+if [[ "$SPEC_ACTIVE" == "true" && "$DEGRADED_NO_SURFACE" == "true" ]]; then
+  # Packaged core injected, but arbitration selected no healthy surface. Say so —
+  # the appended surface line reads selected=none, and the two must agree (N-03).
+  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} packaged core injected in a DEGRADED no-healthy-surface state — SPINE gates, Iron Laws, and §8 SAFETY policy apply, but no delivery surface passed health checks so enforcement-hook coverage is unverified. Run agentsmd doctor. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
+elif [[ "$SPEC_ACTIVE" == "true" ]]; then
   BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} selected — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks cover selected detectable patterns, fail open on missing prerequisites, and are not a security boundary. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
 elif [[ "$SPEC_FOUND" == "true" ]]; then
   BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} was found, but surface health could not be verified; do not treat the policy or hooks as fully active. Run agentsmd status and agentsmd doctor."

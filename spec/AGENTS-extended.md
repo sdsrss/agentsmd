@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.2.0 — Extended
+# CODEX-CODING-SPEC v4.3.0 — Extended
 
 Location: `~/.codex/AGENTS-extended.md`. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -64,7 +64,7 @@ Optional plugins may contribute skills or tools. Discover them from the live cap
 
 ## §E8 MID-SPINE TURN-YIELD (per-turn continuity, binds all levels)
 
-Core §7's Session-exit rule covers the SESSION ending mid-cycle; this covers yielding a single TURN. Once a turn has run ≥1 tool call inside an active SPINE cycle, continue through VALIDATE while required inputs and the execution window remain available. A turn boundary must preserve exact state; it is not evidence of completion.
+Core §7 carries the always-loaded anchor for this rule (its Session-exit clause covers the SESSION ending mid-cycle; this section details yielding a single TURN). Once a turn has run ≥1 tool call inside an active SPINE cycle, continue through VALIDATE while required inputs and the execution window remain available. A turn boundary must preserve exact state; it is not evidence of completion.
 
 - **Not a turn boundary**: `<system-reminder>` / hook `additionalContext` injections · mid-turn tool results · PostToolUse flushes · a single Edit that "feels done". Running one tool call then stopping with planned steps unrun is a silent yield.
 - **Legitimate yields**: `[AUTH REQUIRED]` (core §5 hard) · direction genuinely ambiguous (ASK) · user steering/cancellation · an asynchronous tool or approved monitor still running · external rate limit/service outage/dependency wait · context pressure. Record landed changes, validation state, remaining work, and the exact resume command in `tasks/<slug>.md` or the report.

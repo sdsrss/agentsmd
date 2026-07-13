@@ -147,6 +147,19 @@ t("no AGENTS.md → DESIGN.md still written, pointer skipped (creating AGENTS.md
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
 });
 
+t('designReport: a .css symlink escaping the project root is not scanned (H-06)', () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-design-outside-'));
+  fs.writeFileSync(path.join(outside, 'secret.css'), ':root { --color-leaked: #666; }');
+  const sb = frontendFixture(); // src/app.css → 3 real tokens
+  try {
+    fs.symlinkSync(path.join(outside, 'secret.css'), path.join(sb, 'src', 'leak.css'));
+    const r = DZ.designReport(sb);
+    assert.ok(!r.tokens.sources.includes(path.join('src', 'leak.css')), 'symlinked-out css must not be a source');
+    assert.ok(!(r.tokens.tokens.color || []).some((x) => x.name === '--color-leaked'), 'outside token must not leak');
+    assert.strictEqual(r.tokens.count, 3, 'the real fixture tokens are still parsed');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
+});
+
 t('non-frontend project → skip no-op (writes nothing)', () => {
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-design-be-'));
   try {

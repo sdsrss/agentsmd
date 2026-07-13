@@ -472,5 +472,82 @@ for (const skill of ['agentsmd-status', 'agentsmd-doctor']) {
   });
 }
 
+withEnv((codexHome) => {
+  const { install, arbitration } = loadModules();
+  install('2026-07-14T00:00:00.000Z');
+  const arb = arbitration.inspectAndArbitrate();
+  const cachePath = path.join(codexHome, '.agentsmd-state', 'arbitration-cache.json');
+  t('inspectAndArbitrate writes a private arbitration cache the hook check consumes', () => {
+    assert(fs.existsSync(cachePath), 'cache file missing');
+    assert.strictEqual(fs.statSync(cachePath).mode & 0o777, 0o600);
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    assert.strictEqual(cache.schemaVersion, arbitration.ARBITRATION_CACHE_SCHEMA);
+    assert.strictEqual(cache.selection.selected, arb.selection.selected);
+    assert.strictEqual(cache.selection.selected, 'standalone');
+    assert.strictEqual(cache.pluginRoot, fs.realpathSync(ROOT));
+    assert.strictEqual(cache.manifest.key, arbitration.manifestFreshnessKey().key);
+  });
+});
+
+withEnv((codexHome) => {
+  const { arbitration } = loadModules();
+  arbitration.inspectAndArbitrate();
+  t('no arbitration cache is written without a standalone state dir (plugin-only)', () => {
+    assert(!fs.existsSync(path.join(codexHome, '.agentsmd-state', 'arbitration-cache.json')));
+    assert(!fs.existsSync(path.join(codexHome, '.agentsmd-state')));
+  });
+});
+
+withEnv((codexHome) => {
+  const { install } = loadModules();
+  install('2026-07-14T00:00:00.000Z');
+  const previous = {
+    bin: process.env.AGENTSMD_CODEX_BIN,
+    plugin: process.env.AGENTSMD_PLUGIN_ROOT,
+    claude: process.env.CLAUDE_PLUGIN_ROOT,
+  };
+  process.env.AGENTSMD_CODEX_BIN = path.join(codexHome, 'no-such-codex-bin');
+  // Standalone-only context (no plugin root) so doctor renders the standalone
+  // config check whose wording N-02 changes.
+  delete process.env.AGENTSMD_PLUGIN_ROOT;
+  delete process.env.CLAUDE_PLUGIN_ROOT;
+  try {
+    const { status, doctor } = loadModules();
+    const s = status();
+    const d = doctor();
+    t('a missing codex CLI surfaces as unverifiable health, distinct from an invalid config', () => {
+      const config = s.surfaceArbitration.candidates.standalone.config;
+      assert.strictEqual(config.errorCode, 'codex-cli-unavailable');
+      assert.strictEqual(config.parseable, false);
+      const check = d.checks.find((c) => c.name === 'config.toml accepted by Codex parser');
+      assert(check && /unverifiable/.test(check.detail) && /AGENTSMD_CODEX_BIN/.test(check.detail), JSON.stringify(check));
+    });
+  } finally {
+    for (const [key, value] of [['AGENTSMD_CODEX_BIN', previous.bin], ['AGENTSMD_PLUGIN_ROOT', previous.plugin], ['CLAUDE_PLUGIN_ROOT', previous.claude]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+withEnv(() => {
+  const { install } = loadModules();
+  install('2026-07-14T00:00:00.000Z');
+  const previous = process.env.AGENTSMD_CODEX_BIN;
+  process.env.AGENTSMD_CODEX_BIN = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'codex');
+  try {
+    const { status } = loadModules();
+    const s = status();
+    t('AGENTSMD_CODEX_BIN overrides the PATH codex binary for config validation', () => {
+      const config = s.surfaceArbitration.candidates.standalone.config;
+      assert.strictEqual(config.validator, 'codex-cli');
+      assert.strictEqual(config.parseable, true, JSON.stringify(config));
+      assert.strictEqual(s.surfaceArbitration.candidates.standalone.healthy, true,
+        JSON.stringify(s.surfaceArbitration.candidates.standalone.reasons));
+    });
+  } finally {
+    if (previous === undefined) delete process.env.AGENTSMD_CODEX_BIN; else process.env.AGENTSMD_CODEX_BIN = previous;
+  }
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # rule-hits.sh — append-only JSONL telemetry for agentsmd's closed-loop data plane.
 
+# Rows carry project path slugs — keep the log private even when this library is
+# sourced without hook-common.sh (which sets the same umask for full hooks).
+umask 077
+
 rule_hits_json_escape() {
   local s="${1:-}"
   s="${s//\\/\\\\}"

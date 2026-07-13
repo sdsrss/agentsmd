@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createIgnoreMatcher } = require('./git-ignore');
+const { realRoot, isInsideRoot } = require('./safe-walk');
 
 const MAX_CSS_FILES = 40, MAX_CSS_BYTES = 400 * 1024;
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', '.svelte-kit', 'coverage', 'vendor', '.code-graph']);
@@ -16,6 +17,7 @@ const CSS_RE = /\.(css|pcss|postcss)$/;
 
 // ignore-aware .css walk (capped like analyze.js gather).
 function findCssFiles(root) {
+  const realBase = realRoot(root);
   const ignore = createIgnoreMatcher(root);
   const files = []; let bytes = 0, truncated = false;
   const walk = (dir) => {
@@ -24,11 +26,14 @@ function findCssFiles(root) {
     const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (truncated) return;
+      if (e.isSymbolicLink()) continue; // never follow a link out of the project root (files or dirs)
       if (e.name.startsWith('.') && e.isDirectory()) continue; // skip dotdirs
       const full = path.join(dir, e.name);
       if (ignored.has(path.resolve(full))) continue;
       if (e.isDirectory()) { if (!HARD_SKIP.has(e.name)) walk(full); continue; }
+      if (!e.isFile()) continue; // only real regular files (skip sockets/fifos/devices)
       if (!CSS_RE.test(e.name)) continue;
+      if (!isInsideRoot(realBase, full)) continue; // defense in depth: realpath must resolve inside the root
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
       if (files.length >= MAX_CSS_FILES || bytes + sz > MAX_CSS_BYTES) { truncated = true; return; }
       files.push(full); bytes += sz;

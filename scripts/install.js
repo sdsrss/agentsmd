@@ -390,6 +390,7 @@ function install(nowIso, options = {}) {
     writeTracked(transaction, P.agentsExtendedMdPath(), extendedSrc, extendedBaseline);
     F.ensurePrivateDir(P.stateDir());
     writeTracked(transaction, P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n', priorManifestBaseline);
+    tightenPrivateArtifacts();
 
     cleanupTransaction(transaction, stageRoot);
     return manifest;
@@ -398,6 +399,31 @@ function install(nowIso, options = {}) {
     cleanupTransaction(transaction || { swaps: [] }, stageRoot);
     if (rollbackErrors.length) error.message += `; rollback errors: ${rollbackErrors.join('; ')}`;
     throw error;
+  }
+}
+
+// Telemetry rows and state refs carry project path slugs; both surfaces treat
+// them as private. Hooks create new files under umask 077 — this pass tightens
+// artifacts that predate that rule (audit 2026-07-13, M-02: live agentsmd.jsonl
+// was 0664). Best-effort: a chmod failure must never fail an install; doctor
+// reports whatever stays wide. Only agentsmd-owned paths are touched — the
+// shared logs/ directory mode is the platform's choice and is left alone.
+function tightenPrivateArtifacts() {
+  const tightenFile = (file) => { try { fs.chmodSync(file, 0o600); } catch { /* best-effort */ } };
+  const tightenTree = (dir) => {
+    let entries;
+    try { fs.chmodSync(dir, 0o700); entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) tightenTree(full);
+      else if (entry.isFile()) tightenFile(full);
+    }
+  };
+  tightenTree(P.stateDir());
+  for (const suffix of ['', '.1', '.2']) {
+    const file = `${P.logPath()}${suffix}`;
+    if (fs.existsSync(file)) tightenFile(file);
   }
 }
 

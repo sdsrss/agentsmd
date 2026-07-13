@@ -13,6 +13,17 @@ platform_stat_mtime() {
   fi
 }
 
+# platform_stat_size FILE — echo size in bytes.
+platform_stat_size() {
+  local f="${1:-}"  # `${1:-}` not `$1`: defensive against a no-arg call under `set -u`
+  [[ -n "$f" ]] || return 1
+  if stat --format=%s "$f" >/dev/null 2>&1; then
+    stat --format=%s "$f"
+  else
+    stat -f %z "$f" 2>/dev/null
+  fi
+}
+
 # platform_find_newer DIR REFERENCE_FILE — list immediate children (depth ≤ 1)
 # newer than REFERENCE_FILE. Depth cap is mandatory: the spec this plugin ships
 # forbids recursive traversal of ~/.codex/ (spec/AGENTS.md §8) — hook behavior

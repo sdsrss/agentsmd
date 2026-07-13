@@ -2,6 +2,22 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.3.0 (2026-07-13) — audit gap anchors G-1..G-4 (rule-text additions, one new rule)
+
+Closes the four structural gaps found by the 2026-07-13 spec comparison against
+the mature AI-CODING-SPEC v6.19.0 (audit report G-1..G-4). Core §7 gains an
+always-loaded Mid-SPINE turn-yield anchor — §E8 binds all levels but the
+extended load triggers exclude L1/L2, so the rule was unreachable at the most
+common levels; §E8's opening line now names core §7 as its anchor. Core §3
+adds Canonical-over-prose (code / diff / CI output outrank commit messages, PR
+text, and docstrings). Core §7 adds Post-compaction re-read (L2+ MUST) — new
+manifest rule `§7-post-compaction`, self-enforced (39 → 40 rules). Core §10
+adds the anti-defensive-PARTIAL clause: V1-verified process completions report
+as plain `Done:`. Core grows 14,056 → 14,780 B (15 KiB gate headroom 580 B).
+Candidates C-1 (deterministic L1 tie-breaker) and C-2 (recommend-first
+behavioral line) are deferred pending conformance-eval data (roadmap R5-07).
+`spec_version` → v4.3.0. Package and hook details: repository `CHANGELOG.md`.
+
 ## v4.1.1 (2026-07-11) — plugin hook root repair (no rule-text changes)
 
 Core and extended rule text are unchanged. The shared version moves in lockstep
