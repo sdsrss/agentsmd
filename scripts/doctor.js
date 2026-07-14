@@ -82,7 +82,12 @@ function classifyGovernanceReview(hr, nowMs) {
   let nextDueMs = null;
   for (const r of hr.rules || []) {
     const reviewedTs = parseTs(r.last_demote_review);
-    const baseTs = Number.isFinite(reviewedTs) ? reviewedTs : parseTs(r.added_at);
+    // Fall back to added_at (never-reviewed = pending) ONLY when the review stamp
+    // is genuinely absent — a present-but-unparseable stamp is due now, matching
+    // rules.js reviewStatus (which gates the added_at branch on !last_demote_review).
+    const baseTs = Number.isFinite(reviewedTs)
+      ? reviewedTs
+      : (!r.last_demote_review ? parseTs(r.added_at) : NaN);
     const dueAtMs = Number.isFinite(baseTs) ? baseTs + cadenceMs : nowMs;
     if (nowMs > dueAtMs || !Number.isFinite(baseTs)) overdue.push(r.id);
     if (nextDueMs === null || dueAtMs < nextDueMs) nextDueMs = dueAtMs;

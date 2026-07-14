@@ -67,9 +67,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VER="$(node -p 'require("./package.json").version')"
+          NAME="$(node -p 'require("./package.json").name')"
           test "${GITHUB_REF_NAME}" = "v$VER" || { echo "tag ${GITHUB_REF_NAME} != package version v$VER"; exit 1; }
-          if npm view "@sdsrs/agentsmd@$VER" version >/dev/null 2>&1; then
-            echo "@sdsrs/agentsmd@$VER already on the registry — skipping publish (rerun-safe)"
+          if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+            echo "$NAME@$VER already on the registry — skipping publish (rerun-safe)"
             exit 0
           fi
           npm publish --provenance --access public

@@ -420,6 +420,11 @@ t('doctor governance-review cadence: fresh/pending pass, overdue/unstamped fail,
   assert.deepStrictEqual(classifyGovernanceReview(hr([
     { id: 'a', last_demote_review: 'not-a-date' },
   ]), now).overdue, ['a'], 'unparseable stamp is due immediately');
+  // Parity with rules.js: a present-but-unparseable stamp is due EVEN when
+  // added_at is recent — the added_at fallback fires only on an absent stamp.
+  assert.deepStrictEqual(classifyGovernanceReview(hr([
+    { id: 'a', last_demote_review: 'garbage', added_at: day(2) },
+  ]), now).overdue, ['a'], 'corrupted stamp on a recently-added rule is still due (matches rules.js)');
 });
 
 withEnv(() => {
