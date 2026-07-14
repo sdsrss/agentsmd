@@ -16,6 +16,8 @@ const S = require('./lib/uninstalled-shims');
 const R = require('./lib/release-artifact');
 const PF = require('./lib/preflight');
 const LOCK = require('./lib/lifecycle-lock');
+const J = require('./lib/lifecycle-journal');
+const crypto = require('crypto');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -167,9 +169,9 @@ function migrateLegacyAgentsmdManifest(manifest, stamp) {
   return { manifest: { ...manifest, ownedArtifacts }, backup };
 }
 
-function swapDirectory(staged, target, transaction) {
+function swapDirectory(staged, target, transaction, backupPath = null) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const backup = `${target}.agentsmd-old-${process.pid}-${transaction.swaps.length}`;
+  const backup = backupPath || `${target}.agentsmd-old-${process.pid}-${transaction.swaps.length}`;
   const existed = F.pathExists(target);
   if (existed) fs.renameSync(target, backup);
   try {
@@ -251,13 +253,51 @@ function install(nowIso, options = {}) {
   // this install in-process (LOCK is a module singleton).
   const lock = LOCK.acquire(options.repair ? 'repair' : 'install');
   try {
-    return installCore(nowIso, options, preflight);
+    return installCore(nowIso, options, preflight, lock.owner.txid);
   } finally {
     LOCK.release(lock);
   }
 }
 
-function installCore(nowIso, options, preflight) {
+function installCore(nowIso, options, preflight, txid) {
+  // R2-02: we hold the lifecycle lock, so a journal on disk here is the record
+  // of a CRASHED predecessor. Adjudicate it from disk:
+  //   clean / roll-forward → the commit landed (or never started): archive the
+  //     journal (evidence kept, capped) and proceed — this install re-establishes
+  //     every artifact idempotently, including the crashed run's missing cleanup.
+  //   rollback / conflict → FAIL CLOSED: a half-committed or foreign-changed
+  //     tree must not be built on top of. `doctor` explains the verdict;
+  //     executed recovery lands in R2-03.
+  let archivedStaleJournal = null;
+  const pendingJournal = J.readJournal();
+  if (pendingJournal) {
+    const verdict = J.adjudicate(pendingJournal);
+    if (verdict.decision === 'rollback' || verdict.decision === 'conflict') {
+      throw new Error(
+        `a crashed lifecycle transaction is pending (${verdict.action || 'unknown'}, started ${verdict.startedAt || 'unknown'}); ` +
+        `disk adjudication: ${verdict.decision}. Refusing to build on a half-committed state — ` +
+        'run `agentsmd doctor` for the per-target evidence; automatic recovery lands in the next release ' +
+        '(meanwhile: `agentsmd restore --list` / `agentsmd repair --plan`, or review the journal at ' +
+        `${J.journalPath()}).`
+      );
+    }
+    // Complete the crashed run's owed cleanup, exactly as its own cleanup phase
+    // would have: swap backups and the stage root are agentsmd-transient paths
+    // recorded in the journal. Path-shape guards keep this from ever touching a
+    // foreign path even if the journal were tampered with.
+    for (const step of Array.isArray(pendingJournal.steps) ? pendingJournal.steps : []) {
+      if (step && step.kind === 'swap' && typeof step.backupPath === 'string'
+        && path.basename(step.backupPath).includes('.agentsmd-old-')) {
+        try { fs.rmSync(step.backupPath, { recursive: true, force: true }); } catch { /* best-effort */ }
+      }
+    }
+    if (typeof pendingJournal.stageRoot === 'string'
+      && path.dirname(pendingJournal.stageRoot) === P.codexHome()
+      && path.basename(pendingJournal.stageRoot).startsWith('.agentsmd-stage-')) {
+      try { fs.rmSync(pendingJournal.stageRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+    archivedStaleJournal = { path: J.archiveStale(), decision: verdict.decision };
+  }
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);
@@ -395,33 +435,86 @@ function installCore(nowIso, options, preflight) {
       } : {}),
     };
 
+    if (archivedStaleJournal) manifest.archivedStaleJournal = archivedStaleJournal;
+    const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
+
+    // R2-02: plan the ENTIRE commit phase with deterministic before/after
+    // fingerprints, persist the merged shared-file contents next to the staged
+    // trees, and write the durable journal BEFORE the first live mutation. From
+    // here on, any termination point is adjudicable from disk alone.
+    const sha256Text = (content) => crypto.createHash('sha256').update(content).digest('hex');
+    const plannedSwaps = [];
+    const planSwap = (staged, target) => {
+      const beforePresent = F.pathExists(target);
+      plannedSwaps.push({
+        kind: 'swap', target, staged,
+        backupPath: `${target}.agentsmd-old-${process.pid}-${plannedSwaps.length}`,
+        beforePresent, beforeSha256Tree: beforePresent ? F.sha256Tree(target) : null,
+        afterPresent: !!staged, afterSha256Tree: staged ? F.sha256Tree(staged) : null,
+      });
+    };
+    planSwap(stagedDeploy, P.installDir());
+    for (const name of skillNames) planSwap(path.join(stagedSkillsDir, name), path.join(P.codexSkillsDir(), name));
+    for (const name of staleSkillNames) if (F.pathExists(path.join(P.codexSkillsDir(), name))) planSwap(null, path.join(P.codexSkillsDir(), name));
+
+    const plannedDir = path.join(stageRoot, 'planned');
+    F.ensurePrivateDir(plannedDir);
+    const plannedWrites = [];
+    const planWrite = (target, content, baseline) => {
+      const plannedFile = path.join(plannedDir, path.basename(target));
+      fs.writeFileSync(plannedFile, content, { mode: 0o600 });
+      plannedWrites.push({
+        kind: 'write', target, plannedFile,
+        beforePresent: baseline.present === true,
+        beforeSha256: baseline.present ? sha256Text(baseline.content) : null,
+        afterSha256: sha256Text(content),
+      });
+    };
+    planWrite(P.hooksJsonPath(), mergedHooks, hooksBaseline);
+    if (cfg.changed || statusLine.changed) planWrite(P.configTomlPath(), statusLine.content, configBaseline);
+    planWrite(P.agentsMdPath(), am.content, agentsBaseline);
+    planWrite(P.agentsExtendedMdPath(), extendedSrc, extendedBaseline);
+    planWrite(P.manifestPath(), manifestJson, priorManifestBaseline);
+
+    const journal = J.begin({
+      txid, action: options.repair ? 'repair' : 'install',
+      backupId: manifest.backup, stageRoot, plannedDir,
+      steps: [...plannedSwaps, ...plannedWrites],
+    });
+    J.maybeCrash('after-journal');
+
     // Commit directories first; all hook commands already point at the final path.
     verifyOwnedDeploy(priorManifest, P.installDir(), options.repair);
-    swapDirectory(stagedDeploy, P.installDir(), transaction);
-    for (const name of skillNames) {
-      const target = path.join(P.codexSkillsDir(), name);
-      verifyOwnedSkill(priorManifest, name, target, options.repair);
-      swapDirectory(path.join(stagedSkillsDir, name), target, transaction);
+    for (const [index, plan] of plannedSwaps.entries()) {
+      if (plan.target !== P.installDir()) {
+        verifyOwnedSkill(priorManifest, path.basename(plan.target), plan.target, options.repair);
+      }
+      swapDirectory(plan.staged, plan.target, transaction, plan.backupPath);
+      if (index === 0) J.maybeCrash('mid-swaps');
     }
-    for (const name of staleSkillNames) if (F.pathExists(path.join(P.codexSkillsDir(), name))) {
-      const target = path.join(P.codexSkillsDir(), name);
-      verifyOwnedSkill(priorManifest, name, target, options.repair);
-      swapDirectory(null, target, transaction);
-    }
+    J.maybeCrash('after-swaps');
 
     writeTracked(transaction, P.hooksJsonPath(), mergedHooks, hooksBaseline);
+    J.maybeCrash('mid-writes');
     if (cfg.changed || statusLine.changed) writeTracked(transaction, P.configTomlPath(), statusLine.content, configBaseline);
     writeTracked(transaction, P.agentsMdPath(), am.content, agentsBaseline);
     writeTracked(transaction, P.agentsExtendedMdPath(), extendedSrc, extendedBaseline);
     F.ensurePrivateDir(P.stateDir());
-    writeTracked(transaction, P.manifestPath(), JSON.stringify(manifest, null, 2) + '\n', priorManifestBaseline);
+    writeTracked(transaction, P.manifestPath(), manifestJson, priorManifestBaseline);
     tightenPrivateArtifacts();
+    J.maybeCrash('before-cleanup');
 
+    J.advance(journal, 'cleanup');
     cleanupTransaction(transaction, stageRoot);
+    J.complete();
     return manifest;
   } catch (error) {
     const rollbackErrors = transaction ? rollback(transaction) : [];
     cleanupTransaction(transaction || { swaps: [] }, stageRoot);
+    // In-process rollback fully restored the pre-transaction state → the
+    // journal has nothing left to describe. Any rollback conflict keeps it as
+    // evidence for doctor/recovery.
+    if (rollbackErrors.length === 0) { try { J.complete(); } catch { /* keep evidence on failure */ } }
     if (rollbackErrors.length) error.message += `; rollback errors: ${rollbackErrors.join('; ')}`;
     throw error;
   }

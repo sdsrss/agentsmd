@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.11.0 (2026-07-14) — no spec changes (transaction journal release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor that adds a durable
+lifecycle transaction journal with disk-only crash adjudication (R2-02).
+`spec_version` → v4.11.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.10.0 (2026-07-14) — R5-07 adjudication: §5 "Scoped = named" (measured drift fix); C-1/C-2 rejected
 
 The R5-07 review of the deferred spec-word candidates, decided on R5-04

@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both. bypassable: false = immutable — no inline token or exception may skip enforcement in hooks (structured per-repo exceptions for §8-secrets/§8-unknown-script are fingerprint+expiry lookups, not bypasses, and are telemetried as exception events); true requires bypass_token and telemetry on every use.",
-  "spec_version": "v4.10.0",
+  "spec_version": "v4.11.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"

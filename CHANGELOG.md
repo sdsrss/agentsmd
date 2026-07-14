@@ -3,6 +3,56 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.11.0 — 2026-07-14 — durable transaction journal (R2-02)
+
+**Migration note**: install/update/repair now write a durable journal
+(`$CODEX_HOME/.agentsmd-lifecycle-journal.json`, 0600, fsync'd) **before the
+first live mutation** and remove it on success — sequential use is unchanged.
+What changes is crash behavior: a run killed mid-commit now leaves an
+adjudicable record, `doctor` reports the verdict (roll-forward / rollback /
+conflict, decided from disk state alone), and the next `install|update`
+**completes a landed commit's owed cleanup automatically** but **refuses to
+build on a half-committed (rollback/conflict) state** instead of best-effort
+proceeding — fail closed until executed recovery lands (R2-03). Rollback:
+`npm i -g @sdsrs/agentsmd@4.10.0 && agentsmd update`, or
+`install.sh --ref v4.10.0`.
+
+### Changed (behavior)
+
+- New `scripts/lib/lifecycle-journal.js` (audit H-03): the entire commit phase
+  is planned up front with deterministic before/after fingerprints — staged
+  trees hashed, merged shared-file contents persisted under
+  `<stage>/planned/` and referenced by hash — then journaled atomically
+  (temp + file fsync + rename + parent-dir fsync) under the R2-01 lock's
+  txid. At ANY termination point each target is provably at `before`,
+  `after`, or `other` (foreign change), giving: all-after → roll-forward;
+  any-other → conflict (bytes preserved); else rollback.
+- `install|update|repair` adjudicate a pending journal on entry:
+  roll-forward → archive it (evidence kept, capped at 3) + remove the crashed
+  run's recorded swap backups and stage root + proceed idempotently
+  (`manifest.archivedStaleJournal` records it); rollback/conflict → refuse
+  with the verdict (`doctor` explains; executed recovery is R2-03).
+- `doctor` gains `no pending lifecycle transaction`: passing with an
+  in-progress note while the lifecycle lock is live, failing with the disk
+  adjudication and a decision-specific remedy otherwise.
+- Test-only SIGKILL injection points (`AGENTSMD_TEST_CRASH_AT`, inert unless
+  set) pre-wire the R2-04 fault-injection suite.
+
+### Tests
+
+- New `scripts/tests/lifecycle-journal.test.js` (10 checks) in the `npm test`
+  chain: classification/decision matrix over real files and trees, a 5-point
+  SIGKILL crash matrix where a FRESH process adjudicates from disk alone
+  (the R2-02 acceptance), roll-forward self-heal to doctor-green with
+  archived evidence and no stage/backup residue, fail-closed refusal on a
+  half-committed state with evidence preserved, and doctor's in-flight /
+  crashed / clean states.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.10.0 && agentsmd update`, or
+  `install.sh --ref v4.10.0`.
+
 ## v4.10.0 — 2026-07-14 — spec §5 category-authorization fix (R5-07)
 
 **Migration note**: spec-text-only release. The injected core spec gains one

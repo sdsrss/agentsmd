@@ -11,6 +11,7 @@ const REG = require('./lib/hook-registry');
 const F = require('./lib/fs-atomic');
 const SA = require('./lib/surface-arbitration');
 const LOCK = require('./lib/lifecycle-lock');
+const J = require('./lib/lifecycle-journal');
 const { parseNoArgs, status: readStatus } = require('./status');
 
 const REQUIRED_HOOK_SUPPORT = [
@@ -99,6 +100,30 @@ function doctor() {
       lifecycleLock.state === 'live'
         ? `lifecycle operation in progress (${who})`
         : `stale lock from a crashed run (${who}) — it self-clears on the next \`agentsmd install|update|uninstall\`; verify that run's outcome with \`agentsmd status\``
+    );
+  }
+
+  // R2-02: a pending journal under a LIVE lock is a commit in flight (fine);
+  // without one it is a crashed transaction — adjudicate it from disk and say
+  // which way recovery points. Execution of that recovery lands in R2-03; the
+  // next `agentsmd install|update` currently archives the journal (evidence
+  // kept) and re-establishes every artifact idempotently.
+  const pendingJournal = J.readJournal();
+  if (pendingJournal) {
+    const inFlight = lifecycleLock && lifecycleLock.state === 'live';
+    const verdict = inFlight ? null : J.adjudicate(pendingJournal);
+    add(
+      'no pending lifecycle transaction',
+      !!inFlight,
+      inFlight
+        ? 'transaction journal present for the operation in progress'
+        : `crashed lifecycle transaction (${verdict.action || 'unknown'}, started ${verdict.startedAt || 'unknown'}) — disk adjudication: ${verdict.decision}; ${
+          verdict.decision === 'roll-forward'
+            ? 're-run `agentsmd install|update` (archives the journal and completes the owed cleanup idempotently)'
+            : verdict.decision === 'conflict'
+              ? 'foreign concurrent change detected; bytes preserved — review the journal manually before any lifecycle command'
+              : 'half-committed state; install refuses to build on it — `agentsmd restore --list` / `agentsmd repair --plan` (executed recovery lands in R2-03)'
+        }`
     );
   }
 

@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.10.0 — Extended
+# CODEX-CODING-SPEC v4.11.0 — Extended
 
 Location: packaged with the active delivery surface (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin bundle) — SessionStart announces the resolved path. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 

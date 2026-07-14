@@ -69,6 +69,10 @@ Mutating lifecycle operations (install / update / uninstall / `restore
 cross-process lock: a concurrent second operation refuses with exit 1 and
 changes nothing, naming the one in flight. A lock left by a crashed run
 self-clears on the next lifecycle command; `doctor` reports stale locks.
+Each commit is also journaled before the first live mutation, so a run
+killed mid-commit is adjudicated from disk (`doctor` reports roll-forward /
+rollback / conflict): a landed commit self-heals on the next update, a
+half-committed one is refused fail-closed instead of built upon.
 
 ### npm CLI
 
