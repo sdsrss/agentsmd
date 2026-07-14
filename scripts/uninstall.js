@@ -10,6 +10,7 @@ const path = require('path');
 const P = require('./lib/paths');
 const H = require('./lib/codex-hooks');
 const AM = require('./lib/agents-md');
+const CT = require('./lib/config-toml');
 const M = require('./lib/migrate');
 const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
@@ -271,6 +272,7 @@ function uninstallCore() {
     hooksJsonDeleted: false,
     agentsBlockRemoved: false,
     extendedMdRemoved: false,
+    statusLineReverted: false,
     flagLeftEnabled: true,
     ownershipConflicts: [],
   };
@@ -293,6 +295,15 @@ function uninstallCore() {
   const beforeAgents = beforeAgentsSnapshot.present ? beforeAgentsSnapshot.content.toString('utf8') : null;
   const hooksRemoval = beforeHooks === null ? null : H.removeAgentsmdHooks(beforeHooks);
   const agentsRemoval = beforeAgents === null ? null : AM.removeSpecBlock(beforeAgents);
+  // Revert the tui.status_line preset install added — but ONLY if install recorded
+  // it added it AND the value is still our exact preset (a user who customized it
+  // keeps theirs). Unlike features.hooks (deliberately left; removing it could break
+  // other tenants' hooks), status_line is a cosmetic preset we own and must undo.
+  const beforeConfigSnapshot = F.snapshotFile(P.configTomlPath());
+  const beforeConfig = beforeConfigSnapshot.present ? beforeConfigSnapshot.content.toString('utf8') : null;
+  const statusLineRemoval = (beforeConfig !== null && manifest && manifest.statusLineAddedByUs)
+    ? CT.removeAgentsmdStatusLine(beforeConfig, manifest.statusLine === 'appended-tui-table')
+    : null;
   const stateFiles = ownedStateFiles(manifest);
   const stateDirs = ownedStateDirs(manifest);
   const legacy = M.legacyArtifacts();
@@ -302,7 +313,7 @@ function uninstallCore() {
 
   try {
     transaction = createTransaction(stageRoot, [
-      P.hooksJsonPath(), P.agentsMdPath(), P.agentsExtendedMdPath(),
+      P.hooksJsonPath(), P.agentsMdPath(), P.agentsExtendedMdPath(), P.configTomlPath(),
       ...stateFiles, ...legacy.files,
     ]);
     snapshotDirectories(transaction, [...legacy.directories, ...stateDirs]);
@@ -337,6 +348,7 @@ function uninstallCore() {
       planWrite(P.agentsMdPath(), beforeAgentsSnapshot, agentsRemoval.content.trim() === '' ? null : agentsRemoval.content);
     }
     if (ownership.extended) planWrite(P.agentsExtendedMdPath(), ownership.extended.snapshot, null);
+    if (statusLineRemoval && statusLineRemoval.changed) planWrite(P.configTomlPath(), beforeConfigSnapshot, statusLineRemoval.content);
     const quarantinePlan = new Map();
     let quarantineIndex = 0;
     const planQuarantine = (target, sha256, afterCheck) => {
@@ -391,6 +403,11 @@ function uninstallCore() {
     if (ownership.extended) {
       mutateFile(transaction, P.agentsExtendedMdPath(), () => F.unlinkFileIfUnchanged(P.agentsExtendedMdPath(), ownership.extended.snapshot));
       result.extendedMdRemoved = true;
+    }
+
+    if (statusLineRemoval && statusLineRemoval.changed) {
+      mutateFile(transaction, P.configTomlPath(), () => F.writeFileAtomic(P.configTomlPath(), statusLineRemoval.content, { expectedSnapshot: beforeConfigSnapshot }));
+      result.statusLineReverted = true;
     }
 
     // 2. Quarantine owned directories instead of deleting them in place. They

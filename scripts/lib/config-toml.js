@@ -523,6 +523,39 @@ function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
   return { content: `${content}${sep}[tui]\n${statusLine}\n`, changed: true, reason: 'appended-tui-table' };
 }
 
+// Reverse ensureTuiStatusLine on uninstall. Removes the status_line ONLY when it
+// is still exactly the agentsmd preset — a user who has since customized it keeps
+// their value (mirrors the config-flag / AGENTS-block reversibility guards).
+// appendedTable (manifest.statusLine === 'appended-tui-table') means install
+// created the whole [tui] table for it, so the now-empty header and the blank-line
+// separator it introduced come out too, restoring the pre-install bytes.
+function removeAgentsmdStatusLine(input, appendedTable = false) {
+  const content = typeof input === 'string' ? input : '';
+  const s = scanTuiStatusLine(content);
+  if (!s.exists || !sameArray(s.items, AGENTSMD_STATUS_LINE)) {
+    return { content, changed: false, reason: s.exists ? 'left-custom-status-line' : 'no-status-line' };
+  }
+  // Inline `tui = { …, status_line = […] }` → drop just our field, keep the table.
+  if (s.inlineTuiIdx >= 0 && s.index === s.inlineTuiIdx) {
+    const kept = splitInlineFields(s.inlineTuiInner).filter((field) => {
+      const a = assignment(field);
+      return !(a && a.keys.length === 1 && a.keys[0] === 'status_line');
+    });
+    const trimmed = kept.join(',').trim();
+    const lines = s.lines.slice();
+    lines[s.inlineTuiIdx] = replaceInlineTableInner(lines[s.inlineTuiIdx], trimmed.length ? ` ${trimmed} ` : ' ');
+    return { content: lines.join('\n'), changed: true, reason: 'removed-from-inline-tui' };
+  }
+  // Standalone `status_line = […]` under [tui], or dotted `tui.status_line = […]`.
+  const lines = s.lines.slice();
+  lines.splice(s.index, 1);
+  if (appendedTable && s.tuiHeaderIdx >= 0 && s.index === s.tuiHeaderIdx + 1) {
+    lines.splice(s.tuiHeaderIdx, 1); // the [tui] header we appended is now empty
+    if (s.tuiHeaderIdx > 0 && lines[s.tuiHeaderIdx - 1] === '') lines.splice(s.tuiHeaderIdx - 1, 1); // + its separator
+  }
+  return { content: lines.join('\n'), changed: true, reason: 'removed-agentsmd-status-line' };
+}
+
 // Codex's project_doc_max_bytes — the discovery-chain byte cap the GLOBAL
 // ~/.codex/AGENTS.md shares with every project's AGENTS.md chain. Truncation past
 // it is SILENT, so tooling should watch it. Default 32 KiB when unset.
@@ -545,6 +578,7 @@ module.exports = {
   DEFAULT_DOC_MAX_BYTES,
   ensureCodexHooksFlag,
   ensureTuiStatusLine,
+  removeAgentsmdStatusLine,
   getTuiStatusLine,
   isAgentsmdStatusLineEnabled,
   codexHooksHealth,

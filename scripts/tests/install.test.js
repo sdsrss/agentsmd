@@ -658,9 +658,38 @@ withSandbox((dir) => {
   t('config.toml keeps the user model + multi_agent keys', () => { assert(cfg.includes('model = "gpt-5.5"')); assert(cfg.includes('multi_agent = true')); assert(/^\s*hooks\s*=\s*true/m.test(cfg)); });
   t('config.toml preserves a user-defined status_line', () => assert(cfg.includes('status_line = ["model"]')));
   t('AGENTS.md keeps the user instructions + adds the block', () => { assert(agents.includes('Always write tests.')); assert(agents.includes('# >>> agentsmd >>>')); });
-  uninstall();
+  const un = uninstall();
   const agents2 = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  const cfg2 = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   t('uninstall restores AGENTS.md user content (block gone)', () => { assert(agents2.includes('Always write tests.')); assert(!agents2.includes('# >>> agentsmd >>>')); });
+  t('uninstall leaves a user-customized status_line untouched (never added it)', () => {
+    assert(cfg2.includes('status_line = ["model"]'));
+    assert(!cfg2.includes('model-with-reasoning'), 'agentsmd preset must never appear');
+    assert.strictEqual(un.statusLineReverted, false);
+  });
+});
+
+// ── 5b. uninstall reverts the status_line preset it added (D#80) ─────────────
+withSandbox((dir) => {
+  // No pre-existing status_line → install APPENDS the agentsmd [tui] preset.
+  const userCfg = '# my config\nmodel = "gpt-5.5"\n\n[features]\nmulti_agent = true\n';
+  fs.writeFileSync(path.join(dir, 'config.toml'), userCfg);
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const cfgInstalled = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+  t('install adds the agentsmd status_line preset when the user had none', () => assert(cfgInstalled.includes('model-with-reasoning')));
+  const un = uninstall();
+  const cfgAfter = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+  t('uninstall reverts the agentsmd status_line preset', () => {
+    assert(!cfgAfter.includes('model-with-reasoning'), 'agentsmd preset still present after uninstall');
+    assert(!/^\s*status_line\s*=/m.test(cfgAfter), 'no residual status_line line');
+    assert.strictEqual(un.statusLineReverted, true);
+  });
+  t('uninstall restores config.toml byte-for-byte (preset + empty [tui] gone), features.hooks left', () => {
+    // features.hooks stays enabled (§5); strip it to compare against the pre-install bytes.
+    const normalized = cfgAfter.replace(/\n\[features\]\nhooks = true\n/, '\n[features]\n');
+    assert.strictEqual(normalized, userCfg, `got:\n${cfgAfter}`);
+  });
 });
 
 // ── 6. skills: add agentsmd-* only, preserve other tenants' skills ───────────
