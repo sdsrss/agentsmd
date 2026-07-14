@@ -281,6 +281,27 @@ t('agentsmd analyze --gather dispatches to scripts/analyze.js, targeting the inv
   assert(!fs.existsSync(codexHome), 'analyze must not touch CODEX_HOME');
 }));
 
+t('agentsmd exception dispatches to scripts/exception.js, targeting the invoking repo', () => withSandbox((dir) => {
+  // exception is repo-scoped like init/analyze — it must read/write the invoking
+  // repository's .agentsmd/exceptions.json and never touch CODEX_HOME.
+  const projectDir = path.join(dir, 'project');
+  fs.mkdirSync(path.join(projectDir, 'fixtures'), { recursive: true });
+  cp.execFileSync('git', ['-C', projectDir, 'init', '-q']);
+  fs.writeFileSync(path.join(projectDir, 'fixtures', 'fake.js'), 'const k = 1;\n');
+  const codexHome = path.join(dir, 'codex-home');
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  const out = cp.execFileSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), 'exception', 'add', '--rule=§8-secrets', '--path=fixtures/fake.js', '--reason=distribution smoke'], {
+    cwd: projectDir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert(out.includes('added: exc-'), out);
+  assert(fs.existsSync(path.join(projectDir, '.agentsmd', 'exceptions.json')), 'exception did not write to the invoking repo');
+  const list = cp.execFileSync('node', [path.join(ROOT, 'bin', 'agentsmd.js'), 'exception', 'list'], {
+    cwd: projectDir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert(list.includes('fixtures/fake.js'), list);
+  assert(!fs.existsSync(codexHome), 'exception must not touch CODEX_HOME');
+}));
+
 t('agentsmd install → status → uninstall round-trips against a sandbox CODEX_HOME', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   const installOut = cli(['install'], env);

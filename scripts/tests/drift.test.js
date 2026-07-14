@@ -328,5 +328,35 @@ t('workflows: every uses: ref is pinned to a full commit SHA', () => {
   assert.strictEqual(offenders.length, 0, `mutable action refs: ${offenders.join(', ')}`);
 });
 
+// 18. bypassable governance (R1-01). A rule marked bypassable:false is immutable
+//     at the enforcement layer: no hook may emit a "bypass" telemetry event for
+//     its section (every inline-token acceptance branch records exactly that, so
+//     this is the mechanical signature of a token path). Rules marked
+//     bypassable:true must declare their token, and that token must appear in
+//     some hook source. §8 rules may never flip to bypassable:true.
+t('hard-rules: bypassable:false sections have no hook bypass path; true tokens exist', () => {
+  const hooksDir = path.join(ROOT, 'hooks');
+  const hookSrc = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh'))
+    .map((f) => ({ name: f, src: fs.readFileSync(path.join(hooksDir, f), 'utf8') }));
+  const frozen = new Set(hr.rules.filter((r) => r.bypassable === false)
+    .map((r) => r.rule_hits_section).filter(Boolean));
+  const offenders = [];
+  for (const { name, src } of hookSrc) {
+    for (const line of src.split('\n')) {
+      const m = line.match(/hook_record\s+"\$HOOK"\s+"bypass"\s+\S+\s+'([^']+)'/);
+      if (m && frozen.has(m[1])) offenders.push(`${name}: bypass emission for frozen ${m[1]}`);
+    }
+  }
+  assert.deepStrictEqual(offenders, [], offenders.join('\n'));
+  const allSrc = hookSrc.map((h) => h.src).join('\n');
+  for (const r of hr.rules.filter((x) => x.bypassable === true)) {
+    assert.ok(typeof r.bypass_token === 'string' && /^\[allow-[a-z0-9-]+\]$/.test(r.bypass_token),
+      `${r.id}: bypassable:true requires a [allow-*] bypass_token`);
+    assert.ok(allSrc.includes(r.bypass_token), `${r.id}: declared token ${r.bypass_token} not found in any hook`);
+  }
+  const softened = hr.rules.filter((r) => r.id.startsWith('§8') && r.bypassable !== false);
+  assert.deepStrictEqual(softened.map((r) => r.id), [], '§8 rules must all be bypassable:false');
+});
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

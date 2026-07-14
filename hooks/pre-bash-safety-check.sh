@@ -2,12 +2,17 @@
 # pre-bash-safety-check.sh — PreToolUse:Bash enforcement of spec/AGENTS.md §8
 # (immutable SAFETY). Blocks:
 #   1. `rm -rf $VAR` — recursive+force delete targeting an unvalidated variable
-#      expansion (spec §8: "rm -rf $VAR without validating VAR"). Bypass token:
-#      [allow-rm-rf-var].
+#      expansion (spec §8: "rm -rf $VAR without validating VAR"). No bypass: the
+#      only way through is a mechanically-verified validation shape (realpath
+#      canonicalization + non-empty + bounded literal prefix; see
+#      markStrictlyValidatedRmTargets in lib/command-parse.js).
 #   2. downloader output executed by an interpreter through a pipeline,
 #      substitution, downloaded file, or a later same-session tool call —
 #      unknown-origin remote script execution
-#      (spec §8: "execute unknown-origin scripts"). Bypass token: [allow-remote-exec].
+#      (spec §8: "execute unknown-origin scripts"). No inline bypass; a reviewed
+#      pinned source may be registered per-repo via `agentsmd exception add`
+#      (.agentsmd/exceptions.json, fingerprint = exact URL + expiry). Cross-tool
+#      correlation (running a previously-downloaded file) is never exemptable.
 # Advises (non-blocking):
 #   3. Unpinned `npx <pkg>` dependency-hygiene advice. Bypass: [allow-npx-unpinned].
 #
@@ -52,17 +57,14 @@ printf '%s' "$SAFETY" | jq -e 'type == "object"' >/dev/null 2>&1 || {
   exit 0
 }
 
-# ── 1. rm -rf $VAR (immutable §8) ───────────────────────────────────────────
+# ── 1. rm -rf $VAR (immutable §8, no bypass) ─────────────────────────────────
 if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfCandidate // false')" == "true" ]]; then
   hook_observe "$HOOK" '§8-rm-rf-var' "$SID" true true '{"candidate":"rm-rf"}'
-  if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]] \
-    && [[ "$CMD" == *"[allow-rm-rf-var]"* ]]; then
-    hook_record "$HOOK" "bypass" '{"token":"allow-rm-rf-var"}' '§8-rm-rf-var' "$SID"
-  elif [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]]; then
+  if [[ "$(printf '%s' "$SAFETY" | jq -r '.rmRfVar // false')" == "true" ]]; then
     hook_record "$HOOK" "block" '{"pattern":"rm-rf-var"}' '§8-rm-rf-var' "$SID"
     hook_block \
       "Blocked: rm -rf on an unvalidated variable ( spec/AGENTS.md §8, immutable )." \
-      "§8 SAFETY (immutable): 'rm -rf \$VAR without validating VAR' is banned. Canonicalize with realpath, require a non-empty path inside /tmp/*, then delete that canonical variable — or append [allow-rm-rf-var] after an equivalent explicit validation. Command: ${CMD}" \
+      "§8 SAFETY (immutable): 'rm -rf \$VAR without validating VAR' is banned. Validate mechanically, e.g.: SAFE=\"\$(realpath -- \"\$VAR\")\" && [[ -n \"\$SAFE\" && \"\$SAFE\" == /tmp/* ]] && rm -rf \"\$SAFE\" — the bounded prefix may be /tmp/* or a literal absolute path of two or more segments. Command: ${CMD}" \
       "PreToolUse"
   fi
 fi
@@ -98,13 +100,42 @@ fi
 if [[ "$REMOTE_EXEC" == "true" ]]; then
   hook_observe "$HOOK" '§8-unknown-script' "$SID" true true \
     "$(jq -cn --arg c "$REMOTE_KIND" '{candidate:"remote-exec",correlation:$c}' 2>/dev/null || echo null)"
-  if [[ "$CMD" == *"[allow-remote-exec]"* ]]; then
-    hook_record "$HOOK" "bypass" '{"token":"allow-remote-exec"}' '§8-unknown-script' "$SID"
+  # Structured exception (R1-01): every literal download URL in this command must
+  # carry a live registered exception. Cross-tool correlation, expansion-bearing
+  # URLs, and substitution shapes yield zero collectable URLs → no exemption.
+  EXC_ALLOW=false EXC_IDS="" EXC_EXPIRED_ID=""
+  if [[ "$REMOTE_KIND" == "same-tool" ]] && EXC_FILE="$(hook_exceptions_file "$CWD")"; then
+    EXC_URL_COUNT="$(printf '%s' "$SAFETY" | jq -r '.remoteUrls | length' 2>/dev/null)"
+    if [[ "$EXC_URL_COUNT" =~ ^[0-9]+$ && "$EXC_URL_COUNT" -ge 1 ]]; then
+      EXC_ALLOW=true
+      while IFS= read -r exc_url; do
+        [[ -n "$exc_url" ]] || continue
+        EXC_STATE="$(hook_exception_state "$EXC_FILE" '§8-unknown-script' \
+          '.detector == "url" and (.fingerprint.url // "") == $url' --arg url "$exc_url")"
+        case "$EXC_STATE" in
+          live:?*) EXC_IDS="$EXC_IDS ${EXC_STATE#live:}" ;;
+          expired:?*) EXC_ALLOW=false; EXC_EXPIRED_ID="${EXC_STATE#expired:}" ;;
+          *) EXC_ALLOW=false ;;
+        esac
+      done < <(printf '%s' "$SAFETY" | jq -r '.remoteUrls[]?' 2>/dev/null)
+    fi
+  fi
+  if [[ "$EXC_ALLOW" == "true" ]]; then
+    for exc_id in $EXC_IDS; do
+      hook_record "$HOOK" "exception" \
+        "$(jq -cn --arg i "$exc_id" '{id:$i,detector:"url"}' 2>/dev/null || echo null)" \
+        '§8-unknown-script' "$SID"
+    done
   else
+    if [[ -n "$EXC_EXPIRED_ID" ]]; then
+      hook_record "$HOOK" "exception-expired" \
+        "$(jq -cn --arg i "$EXC_EXPIRED_ID" '{id:$i,detector:"url"}' 2>/dev/null || echo null)" \
+        '§8-unknown-script' "$SID"
+    fi
     hook_record "$HOOK" "block" "$(jq -cn --arg c "$REMOTE_KIND" '{pattern:"remote-exec",correlation:$c}' 2>/dev/null || echo null)" '§8-unknown-script' "$SID"
     hook_block \
       "Blocked: executing an uninspected remote download ( spec/AGENTS.md §8, immutable )." \
-      "§8 SAFETY (immutable): 'execute unknown-origin scripts' is banned. Download to a file, inspect it, then run it — or append [allow-remote-exec] if the source is trusted and pinned. Command: ${CMD}" \
+      "§8 SAFETY (immutable): 'execute unknown-origin scripts' is banned. Download to a file, inspect it, then run it. A reviewed pinned source may be registered per-repo: agentsmd exception add --rule §8-unknown-script --url <exact-url> --reason '<why>'${EXC_EXPIRED_ID:+ (a matching exception exists but has EXPIRED — re-review and re-register)}. Command: ${CMD}" \
       "PreToolUse"
   fi
 fi

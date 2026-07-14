@@ -2,6 +2,18 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.5.0 (2026-07-13) — bypassable governance in the manifest (no rule-text changes)
+
+Core and extended rule text are unchanged; no anchor moved. The manifest now
+records which HARD rules are immutable at the enforcement layer: all 10 §8
+rules carry `bypassable: false` (their hooks accept no inline `[allow-*]`
+token — the reviewed-false-positive path is the per-repo structured exception
+store, telemetried as `exception` / `exception-expired`, never as `bypass`),
+and the three token-bearing rules (`§7-memory-read`, `§E3-ship-baseline`,
+`§10-specificity`) declare `bypassable: true` + `bypass_token`. Drift gate #18
+enforces both directions. No rule count change (40), no live-section change.
+`spec_version` → v4.5.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.4.0 (2026-07-13) — quick-win remediation batch (no rule-text changes)
 
 Core and extended rule text are unchanged. The shared version moves in lockstep

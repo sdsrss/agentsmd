@@ -238,6 +238,58 @@ hook_prune_advisories() {
   for (( i = 0; i < excess; i++ )); do rm -f "${files[$i]}" 2>/dev/null || true; done
 }
 
+# ── Structured exceptions (R1-01) ────────────────────────────────────────────
+# Reviewed false-positive exceptions for immutable §8 rules live inside the
+# project's own repository at <repo-root>/.agentsmd/exceptions.json so they are
+# committed and review-able. There is deliberately NO $CODEX_HOME-wide store: a
+# global exception would amount to spec-level authorization. Lookup is jq-only
+# (zero node spawns on the hot path) and fail-closed the safe way round — a
+# missing, oversized, or unparseable file means "no exceptions", so the block
+# stands. Registration: `agentsmd exception add …` (scripts/exception.js).
+
+# hook_exceptions_file DIR — print the repo-local exceptions path for the repo
+# containing DIR; fails (status 1) outside a git repository.
+hook_exceptions_file() {
+  local root
+  root="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  [[ -n "$root" ]] || return 1
+  printf '%s/.agentsmd/exceptions.json' "$root"
+}
+
+# hook_exception_state FILE RULE JQ_COND [--arg k v …]
+# Prints exactly one of: live:<id> | expired:<id> | miss | none.
+#   live    — an unexpired exception matches RULE + the fingerprint condition
+#   expired — the fingerprint matches but every such entry has lapsed
+#   miss    — entries exist for RULE but none match the fingerprint
+#   none    — no usable file / no entries for RULE
+# JQ_COND is a fixed jq boolean over one exception object (hook-authored, never
+# user data); fingerprint values arrive via --arg bindings.
+hook_exception_state() {
+  local file="$1" rule="$2" cond="$3"; shift 3
+  [[ -n "$file" && -f "$file" && -r "$file" ]] || { printf 'none'; return 0; }
+  local size
+  size="$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')"
+  [[ "$size" =~ ^[0-9]+$ && "$size" -le 16384 ]] || { printf 'none'; return 0; }
+  local now out
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || { printf 'none'; return 0; }
+  out="$(jq -r --arg rule "$rule" --arg now "$now" "$@" '
+    if (type != "object") or (.schemaVersion != 1) or ((.exceptions | type) != "array") then "none"
+    else
+      (.exceptions | map(select((type == "object") and .rule == $rule))) as $same
+      | ($same | map(select('"$cond"'))) as $matched
+      | (($matched | map(select((.expires_at | type) == "string" and .expires_at > $now))) | .[0]) as $live
+      | if $live then "live:" + ($live.id // "unknown")
+        elif ($matched | length) > 0 then "expired:" + ($matched[0].id // "unknown")
+        elif ($same | length) > 0 then "miss"
+        else "none"
+        end
+    end' "$file" 2>/dev/null)" || { printf 'none'; return 0; }
+  case "$out" in
+    live:?*|expired:?*|miss|none) printf '%s' "$out" ;;
+    *) printf 'none' ;;
+  esac
+}
+
 # hook_record HOOK EVENT [EXTRA_JSON] [SECTION] [SESSION_ID] — append telemetry.
 hook_record() {
   local lib_dir

@@ -66,9 +66,17 @@ t('current hook tree is clean — zero gaps of every class', () => {
 });
 
 t('documented bypass tokens are backed by a code guard', () => {
-  const rmrf = R.bypassChecks.find((b) => b.token === '[allow-rm-rf-var]' && b.hook.endsWith('pre-bash-safety-check.sh'));
-  assert.ok(rmrf && rmrf.status === 'covered', 'rm-rf bypass: ' + JSON.stringify(rmrf));
-  assert.ok(R.bypassChecks.length >= 5, 'expected several bypass tokens, got ' + R.bypassChecks.length);
+  const npx = R.bypassChecks.find((b) => b.token === '[allow-npx-unpinned]' && b.hook.endsWith('pre-bash-safety-check.sh'));
+  assert.ok(npx && npx.status === 'covered', 'npx bypass: ' + JSON.stringify(npx));
+  assert.ok(R.bypassChecks.length >= 4, 'expected the non-immutable bypass tokens, got ' + R.bypassChecks.length);
+});
+
+// R1-01: the immutable §8 rules no longer document ANY inline bypass token —
+// their false-positive path is the structured per-repo exception store.
+t('immutable §8 hooks document no [allow-*] token', () => {
+  const gone = ['[allow-secret]', '[allow-remote-exec]', '[allow-rm-rf-var]'];
+  const leftovers = R.bypassChecks.filter((b) => gone.some((tok) => b.token === tok));
+  assert.deepStrictEqual(leftovers, [], 'immutable tokens resurfaced: ' + JSON.stringify(leftovers));
 });
 
 t('hook libraries participate in section-emission coverage', () => {

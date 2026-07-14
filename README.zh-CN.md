@@ -201,12 +201,13 @@ agentsmd design --write
 | `install`、`update`、`uninstall` | 管理 standalone 安装 |
 | `status`、`doctor`、`repair`、`restore` | 检查健康状态、修复缺失的 manifest-owned artifact，或恢复共享文件快照 |
 | `init`、`analyze`、`design` | 管理项目指令和设计事实 |
+| `exception` | 在仓库的 `.agentsmd/exceptions.json` 登记已审核的 §8 false-positive 例外（指纹 + 过期时间；取代已移除的内联 `[allow-*]` token） |
 | `audit`、`rules`、`sparkline` | 查看规则活动和治理信号 |
 | `sampling-audit`、`lesson-bypass-audit` | 测量 transcript 合规与 memory hint 后续采用情况 |
 | `safety-coverage-audit`、`lint-argv` | 检查静态安全 wiring 和严格 CLI 参数解析 |
 | `perf-baseline`、`version-cascade` | 测量 hook 成本并检测 README 中过期的版本文本 |
 
-运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
+运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
 
 ## 更新、验证与卸载
 

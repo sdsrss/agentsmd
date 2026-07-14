@@ -3,6 +3,65 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.5.0 — 2026-07-13 — structured §8 exceptions replace inline bypass tokens (R1-01)
+
+The immutable §8 hooks no longer accept any inline `[allow-*]` token. The
+reviewed-false-positive path is now a structured, per-repo exception store.
+
+### Changed (behavior)
+
+- **Removed** the universal string bypasses `[allow-secret]`,
+  `[allow-remote-exec]`, and `[allow-rm-rf-var]` (H-02 / Prompt-1). A command
+  carrying one of the retired tokens is treated exactly like one without it —
+  the block stands and no `bypass` telemetry event exists for §8 sections.
+  Non-immutable tokens (`[allow-npx-unpinned]`, `[allow-vocab]`,
+  `[allow-unread-memory]`, `[allow-red-ship]`) are unchanged.
+- `rm -rf $VAR` has **no exception path at all**: the only way through is the
+  mechanically-verified validation shape. The recognizer widened to cover a
+  `${VAR:?}` non-empty guard in the realpath source and bounded literal
+  prefixes of ≥2 path segments (e.g. `/var/tmp/agentsmd/*`); a single
+  top-level segment (`/home/*`, `/*`) still blocks.
+
+### Added
+
+- `agentsmd exception <add|list|rm|prune>` — registers reviewed §8
+  false-positive exceptions in the invoking repo's
+  `.agentsmd/exceptions.json` (committed, review-able; deliberately no
+  `$CODEX_HOME`-wide store). Fingerprints: §8-secrets = exact pattern +
+  repo-relative path (or filename path), §8-unknown-script = exact pinned
+  https URL. Every entry carries a reason and an expiry (default 30d, max
+  90d); renewal = re-review. Validation refuses out-of-repo paths, unknown
+  patterns, non-https URLs, and writes past the 16 KiB hook cap.
+- Hook-side lookup (`hook_exception_state`) is jq-only — zero node spawns on
+  the hot path — and fail-closed: a missing, corrupt, or oversized exceptions
+  file means "no exceptions", so blocks stand. Matches emit `exception`
+  telemetry (distinct from the removed `bypass`); lapsed matches emit
+  `exception-expired` and still block with a re-register hint. Every literal
+  download URL in a command must be covered; expansion-bearing URLs,
+  substitution shapes, and cross-tool correlation are never exemptable.
+- `spec/hard-rules.json` gains `bypassable` governance: all 10 §8 rules are
+  `bypassable:false`; the three token-bearing rules declare
+  `bypassable:true` + `bypass_token`. New drift gate #18 fails CI if any hook
+  emits a `bypass` event for a frozen section, if a declared token vanishes
+  from the hooks, or if any §8 rule ever flips to `bypassable:true`.
+- `agentsmd doctor` checks the invoking repo's exceptions file (parseable,
+  within the hook size cap, no expired entries) when one exists.
+
+### Quality
+
+- Suite growth: hook smoke 326 → 338 (retired-token regressions, widened rm
+  validation shapes, URL/pattern/filename exception matrix incl. corrupt +
+  oversized fail-closed cases), new `exception.test.js` (8 cases: CLI
+  validation, renewal dedupe, prune, size-cap refusal, doctor integration),
+  drift 27 (gate #18 verified red→green by injecting a bypass emission),
+  safety-coverage 13 → 15, distribution 35 → 36 (dispatcher round-trip).
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.4.0 && agentsmd update` restores the token-era
+  hooks. Registered `.agentsmd/exceptions.json` files are inert under 4.4.0
+  (nothing reads them) and safe to leave in place.
+
 ## v4.4.0 — 2026-07-13 — quick-win batch: structured publish gate, atomic advisories, init transaction, pinned CI
 
 The audit roadmap's Tier-1 quick wins (R4-02, R4-04, R4-03, R3-03).

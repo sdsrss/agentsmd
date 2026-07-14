@@ -201,12 +201,13 @@ agentsmd design --write
 | `install`, `update`, `uninstall` | Manage the standalone installation |
 | `status`, `doctor`, `repair`, `restore` | Inspect health, repair missing manifest-owned artifacts, or restore a shared-file snapshot |
 | `init`, `analyze`, `design` | Maintain project guidance and design facts |
+| `exception` | Register reviewed §8 false-positive exceptions in the repo's `.agentsmd/exceptions.json` (fingerprint + expiry; replaces the removed inline `[allow-*]` tokens) |
 | `audit`, `rules`, `sparkline` | Review rule activity and governance signals |
 | `sampling-audit`, `lesson-bypass-audit` | Measure transcript compliance and memory-hint follow-through |
 | `safety-coverage-audit`, `lint-argv` | Check static safety wiring and strict CLI argument parsing |
 | `perf-baseline`, `version-cascade` | Measure hook cost and detect stale README version prose |
 
-Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, and `design`, which operate on the current project.
+Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, `design`, and `exception`, which operate on the current project.
 
 ## Update, verify, and uninstall
 

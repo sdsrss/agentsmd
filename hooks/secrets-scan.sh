@@ -10,7 +10,9 @@
 # secrets need the outgoing commit range and are left to the pusher's §8 review;
 # commit-time is the highest-value, lowest-false-positive gate.
 # Patterns live in hooks/secrets.patterns (prefix-anchored, low-FP by design).
-# Reviewed false-positive fixtures may use [allow-secret].
+# No inline bypass token. A reviewed false-positive fixture is registered
+# per-repo via `agentsmd exception add` (.agentsmd/exceptions.json): fingerprint
+# = detector (pattern|filename) + exact pattern + repo-relative path + expiry.
 # Fail-open: jq/git missing, not a repo, empty staged diff, unreadable stdin →
 # exit 0 (recorded via hook_record_failopen) so a broken hook never wedges commits.
 
@@ -39,7 +41,6 @@ CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 # later commit in the same Bash tool call.
 INVOCATIONS="$(hook_git_invocations_json 'commit' "$CMD")"
 [[ -n "$INVOCATIONS" && "$INVOCATIONS" != "[]" ]] || exit 0
-[[ "$CMD" == *"[allow-secret]"* ]] && { hook_observe "$HOOK" '§8-secrets' "$SID" true false '{"reason":"bypass"}'; hook_record "$HOOK" "bypass" '{"token":"allow-secret"}' '§8-secrets' "$SID"; exit 0; }
 
 TEMP_INDEX=""
 cleanup_index() {
@@ -57,8 +58,9 @@ trap cleanup_index EXIT
 
 scan_commit_invocation() {
   local invocation="$1" mode pathspec_from_file pathspec_file_nul unsupported
-  local index_tree head_tree diff added hit pat repo_arg tracked_path changed_path base dangerous_path
-  local -a git_repo=(-C "$CWD")
+  local index_tree head_tree diff pat repo_arg tracked_path changed_path base dangerous_path
+  local added_by_file hit_paths hit_path uncovered exc_root exc_file exc_state expired_note
+  local -a git_repo=(-C "$CWD") dangerous_paths=()
   local -a pathspecs=() pathspec_file_args=() tracked_paths=()
   while IFS= read -r repo_arg; do
     [[ -n "$repo_arg" ]] && git_repo+=("$repo_arg")
@@ -137,29 +139,29 @@ scan_commit_invocation() {
     diff="$(git "${git_repo[@]}" diff --cached 2>/dev/null)" \
       || { secret_failopen "git-diff-failed"; return 0; }
   fi
-  dangerous_path=""
+  dangerous_paths=()
   if [[ -n "$TEMP_INDEX" ]]; then
     while IFS= read -r -d '' changed_path; do
       base="${changed_path##*/}"
       case "$base" in
-        .env) dangerous_path="$changed_path"; break ;;
+        .env) dangerous_paths+=("$changed_path") ;;
         .env.*)
-          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_path="$changed_path"; break ;; esac
+          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_paths+=("$changed_path") ;; esac
           ;;
         id_rsa|id_dsa|id_ecdsa|id_ed25519|*.key|*.p12|*.pfx|*.jks|*.keystore)
-          dangerous_path="$changed_path"; break ;;
+          dangerous_paths+=("$changed_path") ;;
       esac
     done < <(GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
   else
     while IFS= read -r -d '' changed_path; do
       base="${changed_path##*/}"
       case "$base" in
-        .env) dangerous_path="$changed_path"; break ;;
+        .env) dangerous_paths+=("$changed_path") ;;
         .env.*)
-          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_path="$changed_path"; break ;; esac
+          case "$base" in .env.example|.env.sample|.env.template) ;; *) dangerous_paths+=("$changed_path") ;; esac
           ;;
         id_rsa|id_dsa|id_ecdsa|id_ed25519|*.key|*.p12|*.pfx|*.jks|*.keystore)
-          dangerous_path="$changed_path"; break ;;
+          dangerous_paths+=("$changed_path") ;;
       esac
     done < <(git "${git_repo[@]}" diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
   fi
@@ -167,33 +169,81 @@ scan_commit_invocation() {
   hook_observe "$HOOK" '§8-secrets' "$SID" true true '{"stage":"diff-complete"}'
   [[ -n "$diff" ]] || return 0
 
-  if [[ -n "$dangerous_path" ]]; then
+  # Structured exceptions (R1-01): reviewed false-positive fixtures are looked up
+  # per-repo (.agentsmd/exceptions.json in THIS commit's repo, honoring -C). Every
+  # flagged path must carry its own live exception; the first uncovered one blocks.
+  exc_file=""
+  exc_root="$(git "${git_repo[@]}" rev-parse --show-toplevel 2>/dev/null)"
+  [[ -n "$exc_root" ]] && exc_file="$exc_root/.agentsmd/exceptions.json"
+  expired_note=""
+
+  for dangerous_path in ${dangerous_paths[@]+"${dangerous_paths[@]}"}; do
+    exc_state="$(hook_exception_state "$exc_file" '§8-secrets' \
+      '.detector == "filename" and (.fingerprint.path // "") == $path' --arg path "$dangerous_path")"
+    case "$exc_state" in
+      live:?*)
+        hook_record "$HOOK" "exception" "$(jq -cn --arg i "${exc_state#live:}" --arg p "$dangerous_path" '{id:$i,detector:"filename",path:$p}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+        continue
+        ;;
+      expired:?*)
+        hook_record "$HOOK" "exception-expired" "$(jq -cn --arg i "${exc_state#expired:}" --arg p "$dangerous_path" '{id:$i,detector:"filename",path:$p}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+        expired_note=" A matching exception exists but has EXPIRED — re-review and re-register."
+        ;;
+    esac
     hook_record "$HOOK" "block" "$(jq -cn --arg p "$dangerous_path" '{path:$p,detector:"filename"}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
     hook_block \
       "Blocked: the effective commit includes a secret-bearing filename ( spec/AGENTS.md §8, immutable )." \
-      "§8 SAFETY (immutable): committing .env/private-key files is banned. Remove or unstage '${dangerous_path}', keep secrets outside Git, and ROTATE credentials if this file was ever pushed. Safe templates may use .env.example, .env.sample, or .env.template. Append [allow-secret] only for a reviewed false-positive fixture." \
+      "§8 SAFETY (immutable): committing .env/private-key files is banned. Remove or unstage '${dangerous_path}', keep secrets outside Git, and ROTATE credentials if this file was ever pushed. Safe templates may use .env.example, .env.sample, or .env.template. A reviewed false-positive fixture may be registered per-repo: agentsmd exception add --rule §8-secrets --path '${dangerous_path}' --reason '<why>'.${expired_note}" \
       "PreToolUse"
-  fi
+  done
 
   # Scan only ADDED lines (leading '+', excluding the '+++' file header) — a
   # secret already in the base tree is not something this commit introduces.
-  added="$(printf '%s' "$diff" | grep -E '^\+' | grep -vE '^\+\+\+')"
-  [[ -n "$added" ]] || return 0
+  # Lines are attributed to their file ("path<TAB>content") so a hit can be
+  # matched against per-path exceptions; an unattributable line has no path and
+  # can never be excepted — the block stands.
+  added_by_file="$(printf '%s' "$diff" | awk '
+    /^\+\+\+ b\// { p = substr($0, 7); next }
+    /^\+\+\+ /    { p = "";            next }
+    /^\+/         { if (p != "") print p "\t" substr($0, 2) }')"
+  [[ -n "$added_by_file" ]] || return 0
 
-  hit=""
   if [[ -r "$PATTERNS_FILE" ]]; then
     while IFS= read -r pat; do
       [[ -z "$pat" || "$pat" == \#* ]] && continue
-      if printf '%s' "$added" | grep -qE -- "$pat"; then hit="$pat"; break; fi
+      hit_paths="$(printf '%s\n' "$added_by_file" | pat="$pat" awk -F'\t' '
+        { i = index($0, "\t"); if (i == 0) next
+          if (substr($0, i + 1) ~ ENVIRON["pat"]) print substr($0, 1, i - 1) }' | sort -u)"
+      [[ -n "$hit_paths" ]] || continue
+      uncovered=""
+      while IFS= read -r hit_path; do
+        [[ -n "$hit_path" ]] || continue
+        exc_state="$(hook_exception_state "$exc_file" '§8-secrets' \
+          '.detector == "pattern" and (.fingerprint.pattern // "") == $pat and (.fingerprint.path // "") == $path' \
+          --arg pat "$pat" --arg path "$hit_path")"
+        case "$exc_state" in
+          live:?*)
+            hook_record "$HOOK" "exception" "$(jq -cn --arg i "${exc_state#live:}" --arg p "$hit_path" '{id:$i,detector:"pattern",path:$p}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+            ;;
+          expired:?*)
+            hook_record "$HOOK" "exception-expired" "$(jq -cn --arg i "${exc_state#expired:}" --arg p "$hit_path" '{id:$i,detector:"pattern",path:$p}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+            expired_note=" A matching exception exists but has EXPIRED — re-review and re-register."
+            uncovered="$hit_path"; break
+            ;;
+          *)
+            uncovered="$hit_path"; break
+            ;;
+        esac
+      done <<< "$hit_paths"
+      [[ -z "$uncovered" ]] && continue
+
+      hook_record "$HOOK" "block" "$(jq -cn --arg p "$pat" --arg f "$uncovered" '{pattern:$p,path:$f}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
+      hook_block \
+        "Blocked: commit changes appear to contain a secret ( spec/AGENTS.md §8, immutable )." \
+        "§8 SAFETY (immutable): 'plaintext secrets in code/logs/commits' is banned. An ADDED line in '${uncovered}' matches a known secret shape (/${pat}/). Remove it (use env vars or a secret manager), unstage it, and ROTATE it if it was ever pushed. A genuine false positive (documented example / test fixture) may be registered per-repo: agentsmd exception add --rule §8-secrets --path '${uncovered}' --pattern '${pat}' --reason '<why>'.${expired_note}" \
+        "PreToolUse"
     done < "$PATTERNS_FILE"
   fi
-  [[ -n "$hit" ]] || return 0
-
-  hook_record "$HOOK" "block" "$(jq -cn --arg p "$hit" '{pattern:$p}' 2>/dev/null || echo null)" '§8-secrets' "$SID"
-  hook_block \
-    "Blocked: commit changes appear to contain a secret ( spec/AGENTS.md §8, immutable )." \
-    "§8 SAFETY (immutable): 'plaintext secrets in code/logs/commits' is banned. An ADDED line in the effective commit diff matches a known secret shape (/${hit}/). Remove it (use env vars or a secret manager), unstage it, and ROTATE it if it was ever pushed. Append [allow-secret] only for a genuine false positive (documented example / test fixture)." \
-    "PreToolUse"
 }
 
 while IFS= read -r INVOCATION; do

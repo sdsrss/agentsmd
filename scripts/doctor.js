@@ -386,6 +386,40 @@ function doctor() {
     );
   }
 
+  // Structured §8 exceptions (R1-01): when the CURRENT directory's repo carries
+  // .agentsmd/exceptions.json, it must be parseable, within the hooks' size cap,
+  // and free of expired entries (hooks fail-closed on all three, so a broken or
+  // stale file silently reverts the registered fixtures to blocking). Absent
+  // file → no check row: most repos have no exceptions.
+  try {
+    const EXC = require('./exception');
+    const excRoot = EXC.repoRoot(process.cwd());
+    const excFile = excRoot ? EXC.exceptionsPath(excRoot) : null;
+    if (excFile && fs.existsSync(excFile)) {
+      let excOk = true;
+      let excDetail = '';
+      const excSize = fs.statSync(excFile).size;
+      if (excSize > EXC.MAX_FILE_BYTES) {
+        excOk = false;
+        excDetail = `${excSize}B exceeds the ${EXC.MAX_FILE_BYTES}B hook cap — hooks ignore the whole file; run agentsmd exception prune`;
+      } else {
+        try {
+          const store = EXC.readStore(excFile);
+          const nowIso = new Date().toISOString();
+          const expired = store.exceptions.filter((e) => !(typeof e.expires_at === 'string' && e.expires_at > nowIso));
+          excOk = expired.length === 0;
+          excDetail = excOk
+            ? `${store.exceptions.length} active exception(s) in ${path.relative(process.cwd(), excFile) || excFile}`
+            : `${expired.length} expired entr${expired.length === 1 ? 'y' : 'ies'} (${expired.map((e) => e.id).slice(0, 4).join(', ')}) — run agentsmd exception prune`;
+        } catch (err) {
+          excOk = false;
+          excDetail = `unparseable — hooks treat this as no-exceptions (blocks stand): ${err.message}`;
+        }
+      }
+      add('project §8 exceptions file is healthy', excOk, excDetail);
+    }
+  } catch { /* exception module unavailable → skip (older install) */ }
+
   return {
     ok: checks.every((c) => c.ok),
     surface: pluginBundle.detected ? 'plugin' : 'standalone',

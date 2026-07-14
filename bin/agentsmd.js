@@ -14,12 +14,13 @@ const os = require('os');
 const SCRIPTS = path.join(__dirname, '..', 'scripts'); // self-derived; survives path/version changes
 
 // subcommand → script under scripts/. `update` is an install re-run (install is idempotent).
-// `init`, `analyze`, and `design` are the exceptions to the $CODEX_HOME rule below —
-// they target the current project directory (process.cwd()), not $CODEX_HOME.
+// `init`, `analyze`, `design`, and `exception` are the exceptions to the $CODEX_HOME
+// rule below — they target the current project directory (process.cwd()), not $CODEX_HOME.
 const COMMANDS = {
   init: 'init.js',
   analyze: 'analyze.js',
   design: 'design.js',
+  exception: 'exception.js',
   install: 'install.js',
   update: 'install.js',
   uninstall: 'uninstall.js',
@@ -53,6 +54,7 @@ function usage() {
     '  init               Generate/refresh this project\'s AGENTS.md (current directory).',
     '  analyze            Distill this project\'s conventions into its AGENTS.md (current dir); --adoption reports @conv-* cite counts / prune candidates.',
     '  design [--write]   Extract this project\'s design tokens (:root / Tailwind @theme) into a facts-only DESIGN.md + AGENTS.md pointer (current dir; preview unless --write).',
+  '  exception <add|list|rm|prune>   Register reviewed §8 false-positive exceptions in this repo\'s .agentsmd/exceptions.json (fingerprint + expiry; no inline bypass tokens).',
     '  install [--json]   Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent; --json prints the full manifest.',
     '  update [--json]    Alias for install — re-run to refresh to this version.',
     "  uninstall          Remove agentsmd's own entries; every other tenant is preserved.",
@@ -76,7 +78,7 @@ function usage() {
     '',
     'Exit status: 0 = success/help, 1 = valid command reported a negative/runtime result, 2 = argv/usage error.',
     '',
-    'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, `analyze`, and `design`, which target the current project directory instead.',
+    'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, `analyze`, `design`, and `exception`, which target the current project directory instead.',
     'Docs: https://github.com/sdsrss/agentsmd#readme',
   ].join('\n');
 }

@@ -295,8 +295,11 @@ function stripDataHereDocs(source) {
 // Every later check and the rm target must name that exact canonical variable.
 // Replace only the guarded rm target with a literal before safety parsing;
 // prefix-only or non-empty-only guards stay variable-bearing and remain blocked.
+// The source variable may carry a ${VAR:?msg} non-empty guard, and the bounded
+// prefix may be /tmp/* or any literal absolute path of >=2 segments (a single
+// top-level segment like /home/* stays blocked — that bound proves nothing).
 function markStrictlyValidatedRmTargets(source) {
-  const guard = /(?<safe>[A-Za-z_][A-Za-z0-9_]*)=(?<outer>["'])\$\(realpath(?:\s+-e)?\s+--\s+(?<inner>["'])\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)\k<inner>\)\k<outer>\s+&&\s+\[\[\s+-n\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\4\s+&&\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\5\s+==\s+\/tmp\/\*\s+\]\]\s+&&\s+(?<rm>(?:(?:command|sudo)\s+)*(?:\/[^\s]+\/)?rm\b[^;\n]*)/g;
+  const guard = /(?<safe>[A-Za-z_][A-Za-z0-9_]*)=(?<outer>["'])\$\(realpath(?:\s+-e)?\s+--\s+(?<inner>["'])\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?::?\?[^}]*)?\}|[A-Za-z_][A-Za-z0-9_]*)\k<inner>\)\k<outer>\s+&&\s+\[\[\s+-n\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\4\s+&&\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\5\s+==\s+(?:\/tmp\/\*|(?:\/[A-Za-z0-9._][A-Za-z0-9._-]*){2,}\/\*)\s+\]\]\s+&&\s+(?<rm>(?:(?:command|sudo)\s+)*(?:\/[^\s]+\/)?rm\b[^;\n]*)/g;
   return source.replace(guard, (...args) => {
     const groups = args.at(-1);
     const whole = args[0];
@@ -699,6 +702,25 @@ function collectDownloads(source, depth = 0) {
   return downloads;
 }
 
+// Literal (non-expanding) https/http URLs in downloader argument positions,
+// including nested shell sources. A URL containing an expansion is excluded:
+// its runtime value can differ from any reviewed exception fingerprint.
+function collectRemoteUrls(source, depth = 0) {
+  const commands = lexSafetyCommands(source);
+  const urls = [];
+  for (const command of commands) {
+    const { name, args } = safetyExecutable(command);
+    if (!DOWNLOADERS.has(name)) continue;
+    for (const arg of args) {
+      if (!arg.expands && /^https?:\/\/\S+$/.test(arg.value)) urls.push(arg.value);
+    }
+  }
+  if (depth < MAX_SAFETY_RECURSION) {
+    for (const nested of nestedShellSources(commands)) urls.push(...collectRemoteUrls(nested, depth + 1));
+  }
+  return urls;
+}
+
 function analyzeSafety(source) {
   source = prepareSafetySource(source);
   const commands = lexSafetyCommands(source);
@@ -708,6 +730,7 @@ function analyzeSafety(source) {
     rmRfVar: rm.variableTarget,
     remoteExec: remoteExecState(commands),
     downloads: collectDownloads(source),
+    remoteUrls: [...new Set(collectRemoteUrls(source))],
   };
 }
 
