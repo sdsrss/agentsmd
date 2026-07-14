@@ -51,6 +51,49 @@ withProject({
   t('gather: honors *.ext gitignore globs — glob-matched file excluded', () => assert(!g.files.some(f => f.path.endsWith('foo.gen.js'))));
 });
 
+// ── gather: R4-05 sampling representativeness ────────────────────────────────
+// One oversize file must never zero the sample: previously the first file that
+// busted the byte budget hard-stopped the walk (files=[]); now it is skipped,
+// counted, and everything after it is still gathered.
+{
+  const fixture = {
+    'package.json': JSON.stringify({ name: 'gbig' }),
+    'aaa_generated.js': 'x'.repeat(80 * 1024), // > 64 KiB single-file cap, alphabetically FIRST
+    'src/real.js': 'const ok=1',
+    'src/more.js': 'const also=1',
+  };
+  withProject(fixture, (dir) => {
+    const g = gather(dir);
+    t('gather: first oversize file is skipped-and-counted, later samples survive (R4-05)', () => {
+      assert(g.files.some((f) => f.path.endsWith('src/real.js')) && g.files.some((f) => f.path.endsWith('src/more.js')),
+        'small files after the oversize one must still be sampled: ' + g.files.map((f) => f.path).join(', '));
+      assert(!g.files.some((f) => f.path.endsWith('aaa_generated.js')));
+      assert.strictEqual(g.skippedOversize, 1);
+      assert.strictEqual(g.truncated, true, 'the skip must be disclosed');
+    });
+  });
+}
+// Stratified selection: the alphabetically-first directory can no longer crowd
+// out every other (top-level dir × language) stratum when the file cap binds.
+{
+  const fixture = { 'package.json': JSON.stringify({ name: 'gstrat' }), 'pyproject.toml': '[project]\nname = "gstrat"\n' };
+  for (let i = 0; i < 45; i++) fixture[`apps/mod${String(i).padStart(2, '0')}.js`] = `// js ${i}`;
+  for (let i = 0; i < 5; i++) fixture[`zpy/tool${i}.py`] = `# py ${i}`;
+  withProject(fixture, (dir) => {
+    const g = gather(dir);
+    t('gather: stratified round-robin keeps the late-sorting Python stratum in a 50-file repo (R4-05)', () => {
+      assert.strictEqual(g.files.length, 40, 'file cap still binds');
+      const py = g.files.filter((f) => f.path.endsWith('.py')).length;
+      assert.strictEqual(py, 5, `all 5 Python samples kept, got ${py}: walk-order crowding is gone`);
+      assert.strictEqual(g.truncated, true, 'unpicked candidates disclosed');
+      assert.strictEqual(g.skippedBudget, 10, '50 candidates − 40 picked');
+    });
+    t('gather: multi-stack detection reaches the gather consumer', () => {
+      assert.deepStrictEqual(g.detection.stacks.map((s) => s.language), ['JavaScript', 'Python']);
+    });
+  });
+}
+
 // Git is the source of truth inside a worktree: root anchors, nested ignore
 // files, globbing, and negation must match `git check-ignore`, not a partial
 // home-grown parser.

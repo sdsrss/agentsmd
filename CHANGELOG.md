@@ -3,6 +3,54 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.16.0 — 2026-07-14 — multi-stack detection + representative sampling (R4-05, closes Gate E)
+
+**Migration note**: affects `agentsmd init` / `analyze --gather` output only; no
+hooks, no spec text, no lifecycle changes. A repo hosting several ecosystems
+now reports every manifest-verified stack (`detect().stacks`; the generated
+AGENTS.md gains a `Stacks:` line and labels each command with its runtime).
+Commands are asserted only from manifest/script evidence: `pytest`/`ruff
+check` require a declaration, `cargo run` requires a binary target, `go run .`
+requires a root `main.go` — previously these were emitted unconditionally, so
+a regenerated block may now omit lines it used to guess. `analyze --gather`
+samples round-robin across (top-level dir × language) strata instead of the
+first 40 files in walk order, and an oversize file (> 64 KiB) is
+skipped-and-counted instead of hard-stopping the gather (previously one large
+early file could zero the whole sample); the CSS token walk gets the same
+skip-and-continue. Re-run `agentsmd init` to refresh managed blocks.
+Rollback: `npm i -g @sdsrs/agentsmd@4.15.0 && agentsmd update`, or
+`install.sh --ref v4.15.0`.
+
+### Changed (behavior)
+
+- `detect.js`: all four ecosystem detectors run; `stacks` lists every match
+  (top-level fields stay the primary stack for compatibility). Evidence-gated
+  commands per stack (facts, not guesses).
+- `project-templates.js`: multi-stack repos render a `Stacks:` line and
+  per-runtime-labeled command lines; single-stack rendering is unchanged.
+- `analyze.js gather`: two-phase stratified sampling (collect candidates →
+  round-robin across strata), per-file 64 KiB cap with skip-and-continue,
+  `skippedOversize`/`skippedBudget` reported and disclosed via `truncated`;
+  CLI prints stack + skip notes.
+- `design-tokens.js findCssFiles`: an oversize CSS file no longer aborts the
+  walk (disclosure flag separated from the hard file-count stop).
+
+### Tests
+
+- `init.test.js` 106 → 115: evidence-gate matrix (lib-only crate / no root
+  main.go / undeclared pytest → null; declared pytest+ruff / src/main.rs →
+  evidenced), 4-ecosystem monorepo → all stacks verified with per-stack
+  commands and rendered labels, single-stack rendering unchanged.
+- `analyze.test.js` 59 → 62: first-oversize-file skip keeps later samples
+  (previously zero), 50-file two-stratum repo keeps all 5 late-sorting
+  Python samples at the 40-file cap, stacks reach the gather consumer.
+- `design-tokens.test.js` 21 → 22: oversize CSS skip-and-continue.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.15.0 && agentsmd update`, or
+  `install.sh --ref v4.15.0`.
+
 ## v4.15.0 — 2026-07-14 — design-token provenance and order semantics (R4-01 residual)
 
 **Migration note**: affects only `agentsmd design` output; no hooks, no spec

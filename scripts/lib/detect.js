@@ -49,27 +49,38 @@ function detectNode(root) {
   };
 }
 
+// Command facts (R4-05): a command is asserted only from manifest/script evidence.
+// Toolchain-inherent commands (cargo build/test, go build/test/vet) are facts of the
+// manifest's existence; anything conditional is evidence-gated — `cargo run` needs a
+// binary target, `pytest`/`ruff` need to be declared, `go run .` needs a root main
+// package. Unevidenced → null (the template simply omits the line), never guessed.
 function detectRust(root) {
   const toml = readText(path.join(root, 'Cargo.toml'));
   if (toml === null) return null;
   const nameMatch = toml.match(/^\s*name\s*=\s*"([^"]+)"/m);
+  const hasBin = exists(root, path.join('src', 'main.rs')) || /^\s*\[\[bin\]\]/m.test(toml);
   return {
     language: 'Rust', runtime: 'Cargo',
     projectName: nameMatch ? nameMatch[1] : path.basename(root),
     packageManager: 'cargo',
-    monorepo: /\[workspace\]/.test(toml),
-    commands: { dev: 'cargo run', build: 'cargo build --release', test: 'cargo test', lint: 'cargo clippy' },
+    monorepo: /^\s*\[workspace\]/m.test(toml),
+    commands: { dev: hasBin ? 'cargo run' : null, build: 'cargo build --release', test: 'cargo test', lint: 'cargo clippy' },
   };
 }
 
 function detectPython(root) {
-  if (!exists(root, 'pyproject.toml') && !exists(root, 'setup.py') && !exists(root, 'requirements.txt')) return null;
+  const pyproject = readText(path.join(root, 'pyproject.toml'));
+  const requirements = ['requirements.txt', 'requirements-dev.txt', 'dev-requirements.txt']
+    .map((f) => readText(path.join(root, f))).filter((t) => t !== null).join('\n');
+  if (pyproject === null && !exists(root, 'setup.py') && !requirements) return null;
   const pm = exists(root, 'poetry.lock') ? 'poetry' : exists(root, 'uv.lock') ? 'uv' : 'pip';
+  const declared = (tool) => new RegExp(`\\b${tool}\\b`).test(pyproject || '') || new RegExp(`^${tool}\\b`, 'm').test(requirements);
+  const hasPytest = declared('pytest') || exists(root, 'pytest.ini');
   return {
     language: 'Python', runtime: 'Python',
     projectName: path.basename(root),
     packageManager: pm, monorepo: false,
-    commands: { dev: null, build: null, test: 'pytest', lint: null },
+    commands: { dev: null, build: null, test: hasPytest ? 'pytest' : null, lint: declared('ruff') ? 'ruff check' : null },
   };
 }
 
@@ -77,11 +88,12 @@ function detectGo(root) {
   const mod = readText(path.join(root, 'go.mod'));
   if (mod === null) return null;
   const m = mod.match(/^module\s+(\S+)/m);
+  const hasRootMain = exists(root, 'main.go');
   return {
     language: 'Go', runtime: 'Go',
     projectName: m ? path.basename(m[1]) : path.basename(root),
     packageManager: 'go modules', monorepo: false,
-    commands: { dev: 'go run .', build: 'go build ./...', test: 'go test ./...', lint: 'go vet ./...' },
+    commands: { dev: hasRootMain ? 'go run .' : null, build: 'go build ./...', test: 'go test ./...', lint: 'go vet ./...' },
   };
 }
 
@@ -133,12 +145,17 @@ function detectFrontend(root) {
 
 function detect(projectRoot) {
   const root = projectRoot || process.cwd();
-  const base = detectNode(root) || detectRust(root) || detectPython(root) || detectGo(root) || {
+  // R4-05: a repo can host several ecosystems (Node CLI + Python tooling + Go
+  // service). Every detector runs; `stacks` lists ALL verified matches — each one
+  // backed by its own manifest, never inferred. The top-level fields remain the
+  // primary stack (same priority order as before) for compatibility.
+  const stacks = [detectNode(root), detectRust(root), detectPython(root), detectGo(root)].filter(Boolean);
+  const base = stacks[0] || {
     language: 'Unknown', runtime: 'Unknown', projectName: path.basename(root),
     packageManager: 'Unknown', monorepo: false, commands: { dev: null, build: null, test: null, lint: null },
   };
   const frontend = base.runtime === 'Node.js' ? detectFrontend(root) : null;
-  return Object.assign({}, base, { structure: detectStructure(root), frontend });
+  return Object.assign({}, base, { stacks, structure: detectStructure(root), frontend });
 }
 
 module.exports = { detect, detectNode, detectRust, detectPython, detectGo, detectStructure, detectNodePackageManager, detectFrontend };

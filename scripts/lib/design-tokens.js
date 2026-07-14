@@ -19,13 +19,17 @@ const CSS_RE = /\.(css|pcss|postcss)$/;
 function findCssFiles(root) {
   const realBase = realRoot(root);
   const ignore = createIgnoreMatcher(root);
-  const files = []; let bytes = 0, truncated = false;
+  // `truncated` is DISCLOSURE (something was left out); `capStop` is the hard walk
+  // stop (file-count cap). They must stay separate flags: a skipped oversize file
+  // sets only the former — folding both into one flag made the skip abort the whole
+  // walk via the loop guards (R4-05).
+  const files = []; let bytes = 0, truncated = false, capStop = false;
   const walk = (dir) => {
-    if (truncated) return;
+    if (capStop) return;
     let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (truncated) return;
+      if (capStop) return;
       if (e.isSymbolicLink()) continue; // never follow a link out of the project root (files or dirs)
       if (e.name.startsWith('.') && e.isDirectory()) continue; // skip dotdirs
       const full = path.join(dir, e.name);
@@ -35,7 +39,10 @@ function findCssFiles(root) {
       if (!CSS_RE.test(e.name)) continue;
       if (!isInsideRoot(realBase, full)) continue; // defense in depth: realpath must resolve inside the root
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
-      if (files.length >= MAX_CSS_FILES || bytes + sz > MAX_CSS_BYTES) { truncated = true; return; }
+      if (files.length >= MAX_CSS_FILES) { truncated = true; capStop = true; return; }
+      // A single oversize file is skipped, not a hard stop (R4-05): later smaller
+      // CSS must still be scanned; the cap disclosure stays honest via `truncated`.
+      if (bytes + sz > MAX_CSS_BYTES) { truncated = true; continue; }
       files.push(full); bytes += sz;
     }
   };

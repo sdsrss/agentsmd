@@ -11,6 +11,13 @@ function renderProjectAgentsMd(d, opts = {}) {
   L.push('## Project', '');
   const runtime = d.runtime && d.runtime !== d.language ? ` (${d.runtime})` : '';
   L.push(`- ${d.projectName} — ${d.language}${runtime} project${d.monorepo ? ', monorepo' : ''}`);
+  // R4-05: every manifest-verified ecosystem is a fact worth stating; the primary
+  // line above stays for single-stack repos, the Stacks line appears when there
+  // are several.
+  const stacks = Array.isArray(d.stacks) ? d.stacks : [];
+  if (stacks.length > 1) {
+    L.push(`- Stacks: ${stacks.map((s) => (s.runtime && s.runtime !== s.language ? `${s.language} (${s.runtime})` : s.language)).join(' · ')}`);
+  }
   if (d.packageManager && d.packageManager !== 'Unknown') L.push(`- Package manager: \`${d.packageManager}\``);
   L.push('');
 
@@ -20,10 +27,18 @@ function renderProjectAgentsMd(d, opts = {}) {
     L.push('');
   }
 
-  const cmds = Object.entries(d.commands || {}).filter(([, v]) => v);
-  if (cmds.length) {
+  // Commands come from each stack's own manifest facts. Multi-stack repos label
+  // every line with its runtime so `pytest  # test` can't read as the Node test.
+  const cmdStacks = stacks.length ? stacks : [d];
+  const cmdLines = [];
+  for (const s of cmdStacks) {
+    for (const [k, v] of Object.entries(s.commands || {}).filter(([, v]) => v)) {
+      cmdLines.push(`${v}  # ${k}${cmdStacks.length > 1 ? ` (${s.runtime || s.language})` : ''}`);
+    }
+  }
+  if (cmdLines.length) {
     L.push('## Commands', '', '```bash');
-    for (const [k, v] of cmds) L.push(`${v}  # ${k}`);
+    L.push(...cmdLines);
     L.push('```', '');
   }
 

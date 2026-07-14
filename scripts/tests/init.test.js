@@ -75,17 +75,72 @@ withProject({ 'Cargo.toml': '[package]\nname = "krate"\n' }, (dir) => {
   const d = detect(dir);
   t('rust: detected from Cargo.toml', () => assert.strictEqual(d.language, 'Rust'));
   t('rust: cargo commands', () => assert.strictEqual(d.commands.test, 'cargo test'));
+  t('rust: lib-only crate has no evidenced dev command (R4-05: facts, not guesses)', () => assert.strictEqual(d.commands.dev, null));
+});
+
+withProject({ 'Cargo.toml': '[package]\nname = "bincrate"\n', 'src/main.rs': 'fn main() {}\n' }, (dir) => {
+  t('rust: a binary target evidences cargo run', () => assert.strictEqual(detect(dir).commands.dev, 'cargo run'));
 });
 
 withProject({ 'go.mod': 'module github.com/u/svc\n\ngo 1.22\n' }, (dir) => {
   const d = detect(dir);
   t('go: detected from go.mod', () => assert.strictEqual(d.language, 'Go'));
   t('go: project name from module path', () => assert.strictEqual(d.projectName, 'svc'));
+  t('go: no root main.go → no evidenced dev command', () => assert.strictEqual(d.commands.dev, null));
 });
 
 withProject({ 'pyproject.toml': '[project]\nname = "pyapp"\n' }, (dir) => {
   const d = detect(dir);
   t('python: detected from pyproject.toml', () => assert.strictEqual(d.language, 'Python'));
+  t('python: pytest not declared anywhere → test command is null, not assumed (R4-05)', () => assert.strictEqual(d.commands.test, null));
+});
+
+withProject({
+  'pyproject.toml': '[project]\nname = "pyapp"\n[tool.ruff]\nline-length = 100\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n',
+}, (dir) => {
+  const d = detect(dir);
+  t('python: declared pytest + ruff evidence their commands', () => {
+    assert.strictEqual(d.commands.test, 'pytest');
+    assert.strictEqual(d.commands.lint, 'ruff check');
+  });
+});
+
+// ── R4-05: multi-stack repos report every manifest-verified ecosystem ─────────
+withProject({
+  'package.json': JSON.stringify({ name: 'poly', scripts: { test: 'node t.js' } }),
+  'Cargo.toml': '[package]\nname = "polyrs"\n',
+  'pyproject.toml': '[project]\nname = "polypy"\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n',
+  'go.mod': 'module example.com/poly\n\ngo 1.22\n',
+  'main.go': 'package main\n',
+}, (dir) => {
+  const d = detect(dir);
+  t('multi-stack: all four ecosystems verified as stacks, primary stays Node', () => {
+    assert.strictEqual(d.language, 'JavaScript');
+    assert.deepStrictEqual(d.stacks.map((s) => s.language), ['JavaScript', 'Rust', 'Python', 'Go']);
+  });
+  t('multi-stack: each stack carries its own manifest-fact commands', () => {
+    const by = Object.fromEntries(d.stacks.map((s) => [s.language, s.commands]));
+    assert.strictEqual(by.JavaScript.test, 'npm run test');
+    assert.strictEqual(by.Python.test, 'pytest');
+    assert.strictEqual(by.Go.dev, 'go run .');
+    assert.strictEqual(by.Rust.dev, null); // no binary evidence
+  });
+  t('multi-stack: rendered AGENTS.md lists the stacks and labels commands per runtime', () => {
+    const md = require('../lib/project-templates').renderProjectAgentsMd(d);
+    assert(/- Stacks: JavaScript \(Node\.js\) · Rust \(Cargo\) · Python · Go/.test(md), md);
+    assert(md.includes('pytest  # test (Python)'), md);
+    assert(md.includes('npm run test  # test (Node.js)'), md);
+  });
+});
+
+withProject({ 'package.json': JSON.stringify({ name: 'solo' }) }, (dir) => {
+  const d = detect(dir);
+  t('single-stack: stacks has exactly the one verified entry; rendering stays unchanged', () => {
+    assert.strictEqual(d.stacks.length, 1);
+    const md = require('../lib/project-templates').renderProjectAgentsMd(d);
+    assert(!/- Stacks:/.test(md), 'no Stacks line for a single-stack repo');
+    assert(!/\(Node\.js\)\s*$/m.test(md), 'no runtime labels on single-stack commands');
+  });
 });
 
 withProject({ 'README.md': '# nothing' }, (dir) => {

@@ -33,20 +33,28 @@ function warnChainBudget(projectAgentsMdPath) {
 }
 
 const MAX_FILES = 40, MAX_BYTES = 200 * 1024;
+// One oversize file must never zero the sample (R4-05): anything above this is
+// skipped-and-counted, and the walk continues — previously the first file that
+// busted the byte budget hard-stopped the whole gather, so a single generated
+// 300 KB bundle at an early path meant zero samples for the agent to read.
+const MAX_SINGLE_FILE_BYTES = 64 * 1024;
+const MAX_CANDIDATES = 2000; // walk bound; beyond this the walk itself reports truncation
 const HARD_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', 'coverage', '__pycache__', 'vendor', '.code-graph']);
 const SRC_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|rs|go|rb|java|kt|php|vue|svelte)$/;
+const LANG_OF_EXT = { js: 'js', jsx: 'js', ts: 'js', tsx: 'js', mjs: 'js', cjs: 'js', py: 'py', rs: 'rs', go: 'go', rb: 'rb', java: 'java', kt: 'kt', php: 'php', vue: 'vue', svelte: 'svelte' };
 
 function gather(root) {
   const base = root || process.cwd();
   const realBase = realRoot(base);
   const ignore = createIgnoreMatcher(base);
-  const files = []; let bytes = 0, truncated = false;
+  // Phase 1 — collect candidates (bounded walk, same safety rules as before).
+  const candidates = []; let skippedOversize = 0, walkTruncated = false;
   const walk = (dir) => {
-    if (truncated) return;
+    if (walkTruncated) return;
     let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     const ignored = ignore.ignored(entries.map((entry) => path.join(dir, entry.name)));
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (truncated) return;
+      if (walkTruncated) return;
       if (e.isSymbolicLink()) continue; // never follow a link out of the project root (files or dirs)
       if (e.name.startsWith('.') && e.name !== '.') { if (e.isDirectory()) continue; }
       const full = path.join(dir, e.name);
@@ -56,12 +64,40 @@ function gather(root) {
       if (!SRC_RE.test(e.name)) continue;
       if (!isInsideRoot(realBase, full)) continue; // defense in depth: realpath must resolve inside the root
       let sz = 0; try { sz = fs.statSync(full).size; } catch { continue; }
-      if (files.length >= MAX_FILES || bytes + sz > MAX_BYTES) { truncated = true; return; }
-      files.push({ path: full, bytes: sz }); bytes += sz;
+      if (sz > MAX_SINGLE_FILE_BYTES) { skippedOversize++; continue; } // skip-and-continue, never hard-stop
+      if (candidates.length >= MAX_CANDIDATES) { walkTruncated = true; return; }
+      const rel = path.relative(base, full);
+      const top = rel.includes(path.sep) ? rel.slice(0, rel.indexOf(path.sep)) : '.';
+      const lang = LANG_OF_EXT[path.extname(e.name).slice(1)] || 'other';
+      candidates.push({ path: full, bytes: sz, stratum: `${top}|${lang}` });
     }
   };
   walk(base);
-  return { detection: detect(base), files, truncated };
+  // Phase 2 — stratified selection (R4-05): round-robin across (top-level dir ×
+  // language) strata instead of taking the first 40 files in walk order, so a
+  // monorepo's alphabetically-first package can't crowd out every other stack or
+  // directory. Deterministic: strata and their members stay in walk (sorted) order.
+  const strata = new Map();
+  for (const c of candidates) {
+    if (!strata.has(c.stratum)) strata.set(c.stratum, []);
+    strata.get(c.stratum).push(c);
+  }
+  const queues = [...strata.values()];
+  const files = []; let bytes = 0, skippedBudget = 0, remaining = candidates.length;
+  while (files.length < MAX_FILES && remaining > 0) {
+    for (const q of queues) {
+      if (files.length >= MAX_FILES) break;
+      while (q.length) {
+        const c = q.shift(); remaining--;
+        if (bytes + c.bytes > MAX_BYTES) { skippedBudget++; continue; } // budget-full for THIS file; smaller ones may still fit
+        files.push({ path: c.path, bytes: c.bytes }); bytes += c.bytes;
+        break; // one pick per stratum per round
+      }
+    }
+  }
+  skippedBudget += remaining; // candidates never reached because the file cap closed first
+  const truncated = walkTruncated || skippedOversize > 0 || skippedBudget > 0;
+  return { detection: detect(base), files, truncated, skippedOversize, skippedBudget };
 }
 
 const MAX_CONVENTIONS_BYTES = 6 * 1024, MAX_AGENTS_MD_BYTES = 32 * 1024;
@@ -222,7 +258,11 @@ if (require.main === module) {
     console.log(formatAdoptionReport(adoptionReport({ root: process.cwd(), days: parsed.days, project: parsed.project })));
   } else {
     const g = gather(process.cwd());
-    console.log(`${g.detection.language} (${g.detection.packageManager}) — ${g.files.length} file(s)${g.truncated ? ', truncated' : ''}`);
+    const stackNote = g.detection.stacks && g.detection.stacks.length > 1
+      ? ` [stacks: ${g.detection.stacks.map((s) => s.language).join(', ')}]` : '';
+    const skipNote = (g.skippedOversize || g.skippedBudget)
+      ? ` (skipped: ${g.skippedOversize} oversize, ${g.skippedBudget} over budget)` : '';
+    console.log(`${g.detection.language} (${g.detection.packageManager})${stackNote} — ${g.files.length} file(s)${g.truncated ? ', truncated' : ''}${skipNote}`);
     for (const f of g.files) console.log(`  ${f.path} (${f.bytes}B)`);
   }
 }

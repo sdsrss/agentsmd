@@ -231,6 +231,17 @@ try {
     const decls = D.parseDecls('--note: "/* keep */"; --y: 2;');
     assert.strictEqual(decls.find((d) => d.name === '--note').value, '"/* keep */"');
   });
+  t('findCssFiles: one oversize CSS is skipped, later CSS still scanned, cap disclosed (R4-05)', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt-big-'));
+    try {
+      fs.writeFileSync(path.join(s, 'aaa-huge.css'), `:root { --pad: ${'x'.repeat(450 * 1024)}; }`); // > 400 KiB budget, sorts first
+      fs.writeFileSync(path.join(s, 'small.css'), ':root { --color-live: #123; }');
+      const r = D.parseDesignTokens(s);
+      assert.deepStrictEqual(r.sources, ['small.css'], 'the small file after the oversize one must still be scanned');
+      assert.ok(r.tokens.color.some((x) => x.name === '--color-live'));
+      assert.strictEqual(r.truncated, true, 'the skip must be disclosed');
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
 } finally {
   fs.rmSync(sb, { recursive: true, force: true }); // §8.V4
 }

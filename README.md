@@ -178,7 +178,7 @@ Run in the project root:
 agentsmd init
 ```
 
-`init` detects Node, Rust, Python, Go, package-manager commands, and common frontend stacks. It updates a sentinel-managed block while preserving content outside it.
+`init` detects Node, Rust, Python, Go, package-manager commands, and common frontend stacks. A repo hosting several ecosystems reports every manifest-verified stack (a `Stacks:` line plus per-runtime-labeled commands); commands are asserted only from manifest/script evidence — an undeclared test runner is omitted, never guessed. It updates a sentinel-managed block while preserving content outside it.
 
 - `--check` reports drift.
 - `--dry-run` previews without writing.
@@ -194,7 +194,7 @@ agentsmd analyze --gather
 agentsmd analyze --write --from conventions.md
 ```
 
-`analyze --gather` creates a capped, ignore-aware source map. The AI-assisted skill distills naming, imports, errors, and comments; `--write --from` writes the reviewed result to the managed conventions block. The command refuses content beyond the 6 KiB convention budget instead of truncating it.
+`analyze --gather` creates a capped, ignore-aware source map, sampled round-robin across (top-level directory × language) strata so one large directory cannot crowd out the rest of a multi-language repo; an oversize file is skipped and counted, never a reason to stop sampling. The AI-assisted skill distills naming, imports, errors, and comments; `--write --from` writes the reviewed result to the managed conventions block. The command refuses content beyond the 6 KiB convention budget instead of truncating it.
 
 Track whether known convention anchors are cited:
 
