@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.15.0 (2026-07-14) — no spec changes (design-token provenance release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor that makes
+`agentsmd design` report cross-file token conflicts as ambiguous with
+provenance instead of silently taking walk-order last-wins (R4-01).
+`spec_version` → v4.15.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.14.0 (2026-07-14) — no spec TEXT changes; manifest governance schema + first full rule review (R5-01/R5-02)
 
 Core and extended prose and all `section_anchor`s are byte-identical (core

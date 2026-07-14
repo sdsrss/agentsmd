@@ -212,7 +212,7 @@ agentsmd design
 agentsmd design --write
 ```
 
-`design` previews facts from CSS `:root` variables and Tailwind v4 `@theme`; `design --write` creates a managed `DESIGN.md` block and an `AGENTS.md` pointer. Non-frontend projects are a no-op. Tailwind v3 configuration objects are identified but not parsed.
+`design` previews facts from CSS `:root` variables and Tailwind v4 `@theme`; `design --write` creates a managed `DESIGN.md` block and an `AGENTS.md` pointer. Non-frontend projects are a no-op. Tailwind v3 configuration objects are identified but not parsed. Conflicting cross-file definitions of one token are reported as ambiguous with each candidate's source and selector — the effective value depends on CSS import order, which a static scan cannot see, so it is never guessed; per-selector theme variants (e.g. `:root[data-theme="dark"]`) are reported per context.
 
 ## CLI reference
 

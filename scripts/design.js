@@ -43,11 +43,28 @@ function renderDesignMd(report) {
   }
   for (const cat of report.tokens.categories) {
     L.push(`## ${CATEGORY_TITLES[cat] || cat}`);
-    for (const { name, value } of report.tokens.tokens[cat]) L.push(`- \`${name}\`: ${value}`);
+    for (const t of report.tokens.tokens[cat]) L.push(renderTokenLine(t));
     L.push('');
   }
   if (report.tokens.truncated) L.push(TRUNC_NOTE);
   return L.join('\n').replace(/\s+$/, '');
+}
+
+// One facts-only line per token (R4-01): a determined value renders plainly; a
+// themed token reports every selector context; a cross-file conflict reports the
+// candidates with provenance and explicitly does NOT pick a winner (the walk order
+// is not CSS import order).
+function renderTokenLine(t) {
+  const status = t.status || 'ok'; // hand-built reports without status are plain values
+  if (status === 'contextual') {
+    const parts = t.contexts.map((c) => `${c.value} (\`${c.selector}\`, ${c.source})`);
+    return `- \`${t.name}\`: by context — ${parts.join(' · ')}`;
+  }
+  if (status === 'ambiguous') {
+    const parts = t.definitions.map((d) => `${d.value} (${d.source}, \`${d.selector}\`)`);
+    return `- \`${t.name}\`: ambiguous — ${parts.join(' vs ')}; effective value depends on import order, not guessed`;
+  }
+  return `- \`${t.name}\`: ${t.value}`;
 }
 
 // Preview (default) or commit. Returns a plan/result object; writes files only when
@@ -139,4 +156,4 @@ if (require.main === module) {
     console.log(formatPlan(writeDesign(process.cwd(), { commit: opts.bools.has('write') })));
   } catch (e) { console.error(`agentsmd design: ${e.message}`); process.exit(1); }
 }
-module.exports = { designReport, renderDesignMd, writeDesign, formatPlan, POINTER_LINE, MAX_DESIGN_BLOCK_BYTES };
+module.exports = { designReport, renderDesignMd, renderTokenLine, writeDesign, formatPlan, POINTER_LINE, MAX_DESIGN_BLOCK_BYTES };

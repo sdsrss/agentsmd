@@ -77,19 +77,27 @@ function blankStrings(css) {
   return out;
 }
 
-// Extract the BODY of every :root{...} / @theme{...} block. Comments are stripped and
-// string contents blanked FIRST — a `}`, or a `:root{`, inside a comment or a string
-// value must not close or forge a block (facts-only: no dropped or phantom tokens).
-// Then brace-matched on that structural view (a depth counter, so a stray nested {}
-// won't over-run); handles `:root {` (space), `:root:where(...)`, `:root[data-x="y"]`,
-// `@theme inline {`. Stops the pre-brace scan at any } so an unbalanced block can't
-// swallow the file. Bodies are sliced from the real CSS so values are kept verbatim.
+// Extract every :root{...} / @theme{...} block as {selector, body}. Comments are
+// stripped and string contents blanked FIRST — a `}`, or a `:root{`, inside a comment
+// or a string value must not close or forge a block (facts-only: no dropped or
+// phantom tokens). Then brace-matched on that structural view (a depth counter, so a
+// stray nested {} won't over-run); handles `:root {` (space), `:root:where(...)`,
+// `:root[data-x="y"]`, `@theme inline {`. Stops the pre-brace scan at any } so an
+// unbalanced block can't swallow the file. Bodies are sliced from the real CSS so
+// values are kept verbatim. The selector is provenance (R4-01): `:root` variants
+// keep their full text (a `[data-theme=…]` guard is a distinct cascade context);
+// `@theme` option words (inline/static) don't change which tokens exist → normalized.
+function normalizeSelector(sel) {
+  const s = sel.replace(/\s+/g, ' ').trim();
+  return s.startsWith('@theme') ? '@theme' : s;
+}
 function extractBlocks(css) {
   css = stripComments(css);
   const struct = blankStrings(css); // string-blanked structural view; indices aligned with css
-  const bodies = [];
+  const blocks = [];
   const re = /(:root|@theme)\b[^{}]*\{/g;
-  while (re.exec(struct) !== null) {
+  let m;
+  while ((m = re.exec(struct)) !== null) {
     const start = re.lastIndex; // just after the {
     let depth = 1, i = start;
     while (i < struct.length && depth > 0) {
@@ -97,10 +105,13 @@ function extractBlocks(css) {
       if (c === '{') depth++; else if (c === '}') depth--;
       i++;
     }
-    bodies.push(css.slice(start, depth === 0 ? i - 1 : i)); // real CSS, not the blanked view
+    blocks.push({
+      selector: normalizeSelector(css.slice(m.index, start - 1)), // real CSS slice (strings intact)
+      body: css.slice(start, depth === 0 ? i - 1 : i),            // real CSS, not the blanked view
+    });
     re.lastIndex = i; // continue past this block
   }
-  return bodies;
+  return blocks;
 }
 
 // Parse `--name: value;` declarations from a block body. Comments are stripped
@@ -148,34 +159,85 @@ function categorize(name, value) {
 
 const CATEGORY_ORDER = ['color', 'spacing', 'typography', 'radius', 'shadow', 'z-index', 'breakpoint', 'other'];
 
+// Resolve one token's definitions (R4-01 / audit M-03 residual). The walk visits
+// files in directory-name order, which is NOT CSS import/cascade order — so a value
+// is only ever asserted from facts the CSS itself determines:
+//   ok         — every definition agrees (order is irrelevant), or a same-selector
+//                conflict lives in ONE file (CSS source order there is real:
+//                the last declaration wins — resolution 'source-order').
+//   contextual — differing values under DIFFERENT selectors (`:root` vs
+//                `:root[data-theme="dark"]`): theming, not conflict; each context
+//                reports its own value, there is no single effective value.
+//   ambiguous  — same selector, differing values, across files: the winner depends
+//                on import order this parser cannot see. No value is guessed;
+//                every candidate ships with its provenance.
+function resolveDefinitions(defs) {
+  if (new Set(defs.map((d) => d.value)).size === 1) {
+    return { status: 'ok', value: defs[0].value };
+  }
+  const bySelector = new Map();
+  for (const d of defs) {
+    if (!bySelector.has(d.selector)) bySelector.set(d.selector, []);
+    bySelector.get(d.selector).push(d);
+  }
+  const contexts = [];
+  for (const [selector, group] of bySelector) {
+    if (new Set(group.map((d) => d.value)).size === 1) {
+      contexts.push({ selector, value: group[0].value, source: group[group.length - 1].source });
+      continue;
+    }
+    if (new Set(group.map((d) => d.source)).size === 1) {
+      const last = group.reduce((a, b) => (b.order > a.order ? b : a));
+      contexts.push({ selector, value: last.value, source: last.source, resolution: 'source-order' });
+      continue;
+    }
+    return { status: 'ambiguous', value: null }; // cross-file conflict under one selector
+  }
+  if (new Set(contexts.map((c) => c.value)).size === 1) {
+    const ordered = contexts.find((c) => c.resolution); // surface 'source-order' when that is how the value was determined
+    return ordered
+      ? { status: 'ok', value: contexts[0].value, resolution: ordered.resolution }
+      : { status: 'ok', value: contexts[0].value };
+  }
+  return { status: 'contextual', value: null, contexts };
+}
+
 function parseDesignTokens(root) {
   const base = root || process.cwd();
   const { files, truncated } = findCssFiles(base);
-  const byName = new Map(); // name → { value } (last definition across files wins, CSS-cascade-ish)
+  const byName = new Map(); // name → [{value, source, selector, order}] — every definition, provenance kept
   const sources = new Set();
   for (const file of files) {
     let css; try { css = fs.readFileSync(file, 'utf8'); } catch { continue; }
     const rel = path.relative(base, file);
-    let had = false;
-    for (const body of extractBlocks(css)) {
-      for (const { name, value } of parseDecls(body)) { byName.set(name, { value }); had = true; }
+    let had = false, order = 0; // order = declaration sequence WITHIN this file (real CSS order)
+    for (const { selector, body } of extractBlocks(css)) {
+      for (const { name, value } of parseDecls(body)) {
+        if (!byName.has(name)) byName.set(name, []);
+        byName.get(name).push({ value, source: rel, selector, order: order++ });
+        had = true;
+      }
     }
     if (had) sources.add(rel);
   }
   const tokens = {};
-  for (const [name, { value }] of byName) {
-    const cat = categorize(name, value);
-    (tokens[cat] = tokens[cat] || []).push({ name, value });
+  let ambiguousCount = 0;
+  for (const [name, defs] of byName) {
+    const resolved = resolveDefinitions(defs);
+    if (resolved.status === 'ambiguous') ambiguousCount++;
+    const cat = categorize(name, resolved.value !== null ? resolved.value : defs[0].value);
+    (tokens[cat] = tokens[cat] || []).push({ name, ...resolved, definitions: defs });
   }
   for (const cat of Object.keys(tokens)) tokens[cat].sort((a, b) => a.name.localeCompare(b.name));
   return {
     tokens,
     categories: CATEGORY_ORDER.filter((c) => tokens[c] && tokens[c].length),
     count: byName.size,
+    ambiguousCount,
     sources: [...sources].sort(),
     files: files.map((f) => path.relative(base, f)),
     truncated,
   };
 }
 
-module.exports = { parseDesignTokens, findCssFiles, extractBlocks, parseDecls, categorize, CATEGORY_ORDER };
+module.exports = { parseDesignTokens, resolveDefinitions, findCssFiles, extractBlocks, parseDecls, categorize, CATEGORY_ORDER };

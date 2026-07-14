@@ -198,6 +198,34 @@ t('renderDesignMd: a truncated scan WITH tokens also discloses the cap', () => {
   assert.ok(/--color-a/.test(body) && /not read|incomplete|cap/i.test(body));
 });
 
+// ── R4-01: rendered evidence for order/provenance semantics ───────────────────
+t('renderDesignMd: a cross-file conflicting token renders ambiguity + provenance, never a silent winner', () => {
+  const sb = frontendFixture();
+  try {
+    fs.writeFileSync(path.join(sb, 'src', 'app.css'), ':root { --color-primary: #111; }');
+    fs.writeFileSync(path.join(sb, 'src', 'other.css'), ':root { --color-primary: #222; }');
+    const body = DZ.renderDesignMd(DZ.designReport(sb));
+    assert.ok(/--color-primary/.test(body));
+    assert.ok(/ambiguous/.test(body), 'must say ambiguous:\n' + body);
+    assert.ok(body.includes('#111') && body.includes('#222'), 'both candidates shown');
+    assert.ok(body.includes('src/app.css') && body.includes('src/other.css'), 'sources shown');
+    assert.ok(/import order/.test(body) && /not guessed/.test(body), 'explicitly refuses to guess');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+t('renderDesignMd: a themed token renders per-selector context values, not a conflict', () => {
+  const sb = frontendFixture({ css: ':root { --color-bg: #fff; }\n:root[data-theme="dark"] { --color-bg: #000; }' });
+  try {
+    const body = DZ.renderDesignMd(DZ.designReport(sb));
+    assert.ok(/by context/.test(body), 'contextual marker:\n' + body);
+    assert.ok(body.includes('#fff') && body.includes('#000'));
+    assert.ok(body.includes(':root[data-theme="dark"]'), 'selector evidence shown');
+    assert.ok(!/ambiguous/.test(body), 'theming is not a conflict');
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+t('renderTokenLine: a status-less hand-built token still renders as a plain value (back-compat)', () => {
+  assert.strictEqual(DZ.renderTokenLine({ name: '--color-a', value: '#111' }), '- `--color-a`: #111');
+});
+
 t('renderDesignMd: a non-frontend report returns a safe note, does not throw (direct-caller guard)', () => {
   const body = DZ.renderDesignMd({ frontend: null, tokens: null });
   assert.ok(/not a frontend project/i.test(body));

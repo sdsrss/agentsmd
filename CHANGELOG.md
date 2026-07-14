@@ -3,6 +3,52 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.15.0 — 2026-07-14 — design-token provenance and order semantics (R4-01 residual)
+
+**Migration note**: affects only `agentsmd design` output; no hooks, no spec
+text, no lifecycle changes. Previously a token defined with different values
+in multiple files silently took the value from whichever file the
+directory-ordered walk visited last — which is not CSS import/cascade order.
+Now every definition keeps `{value, source, selector, order}` provenance and
+the value is only asserted from facts the CSS itself determines: identical
+values → plain value; a same-file same-selector duplicate → CSS source order
+(last declaration, marked `source-order`); differing values under different
+selectors (theme variants like `:root[data-theme="dark"]`) → reported per
+context; differing values under the same selector across files → reported
+**ambiguous** with every candidate's source, never guessed. Re-run
+`agentsmd design --write` to refresh an existing DESIGN.md. Rollback:
+`npm i -g @sdsrs/agentsmd@4.14.0 && agentsmd update`, or
+`install.sh --ref v4.14.0`.
+
+### Changed (behavior)
+
+- `design-tokens.js`: `extractBlocks` returns `{selector, body}` (`@theme`
+  option words normalized; `:root` attribute guards kept verbatim); new
+  `resolveDefinitions` implements the ok / contextual / ambiguous verdicts;
+  `parseDesignTokens` keeps every definition with provenance and reports
+  `ambiguousCount`.
+- `design.js`: token lines render per-status — ambiguous lines list each
+  candidate with source + selector and state that the effective value
+  depends on import order; contextual lines list per-selector values.
+  Status-less token objects still render as plain values.
+- README (en/zh): document the ambiguity/context reporting.
+
+### Tests
+
+- `design-tokens.test.js` 15 → 21: cross-file conflict → ambiguous with
+  provenance; the same corpus with file names swapped yields the same
+  verdict (walk-order independence — the old bug inverted); same-file
+  duplicate → `source-order` resolution with order evidence; theme-variant
+  selectors → contextual; identical values everywhere → plain ok; selector
+  extraction/normalization.
+- `design.test.js` 15 → 18: rendered ambiguity + provenance, rendered
+  context values, status-less back-compat line.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.14.0 && agentsmd update`, or
+  `install.sh --ref v4.14.0`.
+
 ## v4.14.0 — 2026-07-14 — opportunity-denominator isomorphism + first governance review (R5-01/R5-02)
 
 **Migration note**: no spec text and no blocking/advisory behavior changes —

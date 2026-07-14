@@ -206,7 +206,7 @@ agentsmd design
 agentsmd design --write
 ```
 
-`design` 预览 CSS `:root` 变量和 Tailwind v4 `@theme` 事实；`design --write` 创建受管理的 `DESIGN.md` 块及 `AGENTS.md` 指针。非前端项目是 no-op。Tailwind v3 配置对象会被识别，但尚不解析。
+`design` 预览 CSS `:root` 变量和 Tailwind v4 `@theme` 事实；`design --write` 创建受管理的 `DESIGN.md` 块及 `AGENTS.md` 指针。非前端项目是 no-op。Tailwind v3 配置对象会被识别，但尚不解析。同一 token 跨文件定义值冲突时报告为 ambiguous 并列出每个候选的来源与选择器——生效值取决于静态扫描看不到的 CSS import 顺序，因此从不猜测；按选择器区分的主题变体（如 `:root[data-theme="dark"]`）逐上下文报告。
 
 ## CLI 参考
 

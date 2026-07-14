@@ -17,10 +17,16 @@ const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-design-tokens-'));
 const seed = (rel, c) => { const p = path.join(sb, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, c); };
 try {
   // ── pure functions ─────────────────────────────────────────────────────────
-  t('extractBlocks pulls :root and @theme bodies (space before brace, @theme inline)', () => {
-    const bodies = D.extractBlocks(':root {\n --a: 1;\n}\n@theme inline {\n --b: 2;\n}');
-    assert.strictEqual(bodies.length, 2);
-    assert.ok(bodies[0].includes('--a: 1') && bodies[1].includes('--b: 2'));
+  t('extractBlocks pulls :root and @theme blocks with selectors (space before brace, @theme inline normalized)', () => {
+    const blocks = D.extractBlocks(':root {\n --a: 1;\n}\n@theme inline {\n --b: 2;\n}');
+    assert.strictEqual(blocks.length, 2);
+    assert.ok(blocks[0].body.includes('--a: 1') && blocks[1].body.includes('--b: 2'));
+    assert.strictEqual(blocks[0].selector, ':root');
+    assert.strictEqual(blocks[1].selector, '@theme'); // option words (inline/static) don't change which tokens exist
+  });
+  t('extractBlocks keeps a :root attribute guard as a distinct selector (provenance)', () => {
+    const blocks = D.extractBlocks(':root[data-theme="dark"] { --a: 1; }');
+    assert.strictEqual(blocks[0].selector, ':root[data-theme="dark"]');
   });
   t('parseDecls extracts --name: value, stripping /* comments */', () => {
     assert.deepStrictEqual(D.parseDecls('/* c */ --color-x: #fff; --y:  2rem ;'),
@@ -49,14 +55,65 @@ try {
     assert.ok(r.tokens.color.some((x) => x.name === '--color-primary' && x.value === '#3b82f6'));
     assert.ok(r.sources.includes('src/app.css') && r.sources.includes('src/theme.css'));
   });
-  t('parseDesignTokens: dedupes by name, last definition wins', () => {
+  // ── R4-01 order/provenance corpus: the walk order is NOT CSS import order ────
+  t('cross-file same-selector conflict → ambiguous, no guessed value, provenance on every candidate', () => {
     const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt2-'));
     try {
       fs.writeFileSync(path.join(s, 'a.css'), ':root { --color-primary: #111; }');
-      fs.writeFileSync(path.join(s, 'b.css'), ':root { --color-primary: #222; }'); // b.css sorts after a.css → wins
+      fs.writeFileSync(path.join(s, 'b.css'), ':root { --color-primary: #222; }'); // import order unknown → no winner
       const r = D.parseDesignTokens(s);
       assert.strictEqual(r.count, 1);
-      assert.strictEqual(r.tokens.color[0].value, '#222');
+      const tok = r.tokens.color[0];
+      assert.strictEqual(tok.status, 'ambiguous');
+      assert.strictEqual(tok.value, null, 'must not guess an effective value');
+      assert.strictEqual(r.ambiguousCount, 1);
+      assert.deepStrictEqual(tok.definitions.map((d) => [d.value, d.source, d.selector]).sort(),
+        [['#111', 'a.css', ':root'], ['#222', 'b.css', ':root']]);
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
+  t('cross-file conflict verdict is walk-order independent (the old last-wins bug inverted)', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt2b-'));
+    try {
+      // Same corpus with the file names swapped: alphabetical walk order reverses,
+      // the verdict (and candidate set) must not.
+      fs.writeFileSync(path.join(s, 'a.css'), ':root { --color-primary: #222; }');
+      fs.writeFileSync(path.join(s, 'b.css'), ':root { --color-primary: #111; }');
+      const tok = D.parseDesignTokens(s).tokens.color[0];
+      assert.strictEqual(tok.status, 'ambiguous');
+      assert.strictEqual(tok.value, null);
+      assert.deepStrictEqual(tok.definitions.map((d) => d.value).sort(), ['#111', '#222']);
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
+  t('same-file same-selector duplicate → CSS source order is real: last declaration wins, order evidence kept', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt2c-'));
+    try {
+      fs.writeFileSync(path.join(s, 'a.css'), ':root { --color-primary: #111; }\n:root { --color-primary: #222; }');
+      const tok = D.parseDesignTokens(s).tokens.color[0];
+      assert.strictEqual(tok.status, 'ok');
+      assert.strictEqual(tok.value, '#222');
+      assert.strictEqual(tok.resolution, 'source-order');
+      assert.deepStrictEqual(tok.definitions.map((d) => d.order), [0, 1]);
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
+  t('differing values under DIFFERENT selectors → contextual (theming, not conflict): per-context values', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt2d-'));
+    try {
+      fs.writeFileSync(path.join(s, 'a.css'), ':root { --color-bg: #fff; }\n:root[data-theme="dark"] { --color-bg: #000; }');
+      const tok = D.parseDesignTokens(s).tokens.color[0];
+      assert.strictEqual(tok.status, 'contextual');
+      assert.strictEqual(tok.value, null, 'no single effective value across contexts');
+      assert.deepStrictEqual(tok.contexts.map((c) => [c.selector, c.value]).sort(),
+        [[':root', '#fff'], [':root[data-theme="dark"]', '#000']]);
+    } finally { fs.rmSync(s, { recursive: true, force: true }); }
+  });
+  t('same value everywhere (cross-file, cross-selector-kind) → plain ok value, not a conflict', () => {
+    const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt2e-'));
+    try {
+      fs.writeFileSync(path.join(s, 'a.css'), ':root { --radius: 0.5rem; }');
+      fs.writeFileSync(path.join(s, 'b.css'), '@theme { --radius: 0.5rem; }');
+      const tok = D.parseDesignTokens(s).tokens.radius[0];
+      assert.strictEqual(tok.status, 'ok');
+      assert.strictEqual(tok.value, '0.5rem');
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
   t('parseDesignTokens: no CSS custom properties → empty, count 0', () => {
@@ -138,9 +195,9 @@ try {
     } finally { fs.rmSync(s, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
   });
   t('extractBlocks: a } inside a /* comment */ does not prematurely close the block (no silent token loss)', () => {
-    const bodies = D.extractBlocks(':root { --a: 1; /* a } here */ --b: 2; }');
-    assert.strictEqual(bodies.length, 1);
-    assert.deepStrictEqual(D.parseDecls(bodies[0]).map((d) => d.name), ['--a', '--b']); // --b must survive the brace-in-comment
+    const blocks = D.extractBlocks(':root { --a: 1; /* a } here */ --b: 2; }');
+    assert.strictEqual(blocks.length, 1);
+    assert.deepStrictEqual(D.parseDecls(blocks[0].body).map((d) => d.name), ['--a', '--b']); // --b must survive the brace-in-comment
   });
   t('parseDesignTokens: a commented-out :root{} does not forge or override a live token', () => {
     const s = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-dt5-'));
@@ -153,15 +210,15 @@ try {
     } finally { fs.rmSync(s, { recursive: true, force: true }); }
   });
   t('extractBlocks: a selector string (:root[data-theme="x"]) still extracts; a } inside a string value does not break the boundary', () => {
-    const bodies = D.extractBlocks(':root[data-theme="dark"] { --a: 1; --brace: "}"; --b: 2; }');
-    assert.strictEqual(bodies.length, 1);
-    const decls = D.parseDecls(bodies[0]);
+    const blocks = D.extractBlocks(':root[data-theme="dark"] { --a: 1; --brace: "}"; --b: 2; }');
+    assert.strictEqual(blocks.length, 1);
+    const decls = D.parseDecls(blocks[0].body);
     assert.deepStrictEqual(decls.map((d) => d.name), ['--a', '--brace', '--b']);
     assert.strictEqual(decls.find((d) => d.name === '--brace').value, '"}"'); // } inside the string value preserved
   });
   t('extractBlocks: a :root{...} literal inside a string value is NOT a block (no phantom token)', () => {
-    const bodies = D.extractBlocks('.icon { content: ":root{--fake: 1}"; }');
-    assert.strictEqual(bodies.length, 0); // the :root{ inside the string must not open a block
+    const blocks = D.extractBlocks('.icon { content: ":root{--fake: 1}"; }');
+    assert.strictEqual(blocks.length, 0); // the :root{ inside the string must not open a block
   });
   t('parseDecls: a ; inside url(...) or a quoted value does not truncate the value', () => {
     const decls = D.parseDecls('--icon: url("data:image/svg+xml;base64,AAA"); --sep: "; "; --y: 2;');
