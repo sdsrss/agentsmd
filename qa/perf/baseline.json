@@ -1,0 +1,27 @@
+{
+  "description": "Reference-machine performance baseline for the hook hot path (R6-02). Recorded by `node scripts/perf-baseline.js --slo --json` (plus a --surface=dual-cold capture); grading thresholds live in qa/perf/slo.json, the operator flow in spec/OPERATOR.md §O9. Values are per-event totals across all hooks of that event (dual = BOTH physical copies), in ms; p95 totals are sums of per-hook p95s (conservative). Compare future --slo runs against these when validating hook hot-path changes; re-record on the reference machine when hook count, timeouts, or the yield mechanism change.",
+  "schemaVersion": 1,
+  "recorded": "2026-07-14",
+  "sloVerdict": "PASS (2 rounds x 15 runs/hook, both rounds stable; PreToolUse round-to-round p95 delta 1%)",
+  "env": {
+    "cpu": "12th Gen Intel(R) Core(TM) i9-12900K",
+    "cores": 24,
+    "platform": "linux x64 6.17.0-35-generic",
+    "node": "v22.21.0",
+    "agentsmd": "4.7.0",
+    "codex": "0.144.3"
+  },
+  "byEventP95": {
+    "single":    { "SessionStart": 85.1,  "PreToolUse": 188.8, "UserPromptSubmit": 45.8,  "Stop": 200.5 },
+    "dual-warm": { "SessionStart": 191.1, "PreToolUse": 371.7, "UserPromptSubmit": 121.6, "Stop": 465.6 },
+    "dual-cold": { "SessionStart": 191.7, "PreToolUse": 387.5, "UserPromptSubmit": 129.1, "Stop": 515.9 }
+  },
+  "dualWarmPretoolUseOverheadMs": 182.9,
+  "worstHookP95FractionOfTimeout": 0.02,
+  "notes": [
+    "dual-warm PreToolUse overhead 182.9 ms = the N-01 yield cost for 5 losing-copy hooks + the winner's cache checks (~37 ms/hook, jq-only); the slo.json 400 ms cap is ~2.2x this baseline.",
+    "dual-cold is barely worse than dual-warm on the non-triggering echo event (387.5 vs 371.7 ms): post-R0-04 the cold path costs a second full hook pass, not a node/sha256/codex probe per hook.",
+    "Worst per-hook p95 is 2% of its registered timeout (memory-read-check, 72.6 ms / 3000 ms) — the 0.5 headroom fraction sits ~25x above today's slowest hook.",
+    "Full capture: docs/qa-captures/perf-slo-20260714/ (gitignored, operator machine)."
+  ]
+}

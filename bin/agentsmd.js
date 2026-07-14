@@ -69,7 +69,7 @@ function usage() {
     '  sparkline [--windows=N] [--bucket-days=D] [--markdown] [--include-test]   Multi-window rule-usage trend; flags a rule that silently stopped firing (--markdown = CHANGELOG block).',
     '  safety-coverage-audit [--json] [--hook=<name>]   Static §8/§10/§7 doc-vs-code gap check: arrow-claims, manifest cross-ref, bypass-token + orphan-emission coverage.',
     '  version-cascade [--json]   Free-text version-drift gate: scans the READMEs for a stale same-major version token (complements the structured drift test).',
-    '  perf-baseline [--runs=N] [--event=E] [--json]   Measure the wall-clock latency each hook adds (OFF kill-switch floor vs ON), grouped by Codex event.',
+    '  perf-baseline [--runs=N] [--event=E] [--surface=single|dual-warm|dual-cold] [--slo [--rounds=N]] [--json]   Measure the wall-clock latency each hook adds (p50/p95, OFF kill-switch floor vs ON); --slo grades single + dual-warm against qa/perf/slo.json (OPERATOR.md §O9).',
     '  lint-argv [--json]   Gate against silent-fallback argv parsing (args.includes(--x) / main block without a parser) across bin + scripts/.',
     '',
     'Options:',

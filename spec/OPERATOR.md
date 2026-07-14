@@ -48,6 +48,7 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh + hooks/lib/*.sh → ~
 | Install state + OMX-coexistence | `node scripts/status.js` |
 | Health checks | `node scripts/doctor.js` |
 | Install / uninstall (§5-hard) | `node scripts/install.js` / `node scripts/uninstall.js` |
+| Hook latency baseline / SLO gate | `node scripts/perf-baseline.js` (quick table) / `node scripts/perf-baseline.js --slo` (graded vs `qa/perf/slo.json`, §O9) |
 
 ## §O6 Two-tier + telemetry rationale
 
@@ -74,3 +75,31 @@ The convention-adoption layer is advisory and structurally independent of the `�
 - **Convention citations lack a denominator.** `analyze --adoption` counts cites but does not yet record per-anchor evaluated opportunities. Treat zero cites as a manual review prompt, never sufficient evidence for automatic pruning.
 - Do not prune from citation counts alone. Read the convention, inspect whether it affects current work, and remove it only from code/review evidence.
 - **Baseline (2026-07-05).** Twenty events and zero cites established no adherence or opportunity conclusion.
+
+## §O9 Performance SLO (hook hot path)
+
+The N-01 incident defined the failure mode this SLO exists for: a hook whose own work approaches its registered Codex timeout does not degrade gracefully — it gets killed and **fails open**, silently, with no telemetry. The SLO therefore tracks headroom against each hook's timeout, not absolute machine speed.
+
+**What is measured.** `node scripts/perf-baseline.js --slo` runs two surface configurations in an isolated sandbox (never the live `~/.codex`) and grades them against `qa/perf/slo.json`:
+
+- `single` — one installed surface; the common case.
+- `dual-warm` — standalone + plugin both registered, arbitration cache fresh: the losing copy must yield at jq cost. This is the long-term N-01 regression guard; a node spawn creeping back into the per-hook check fails the `dual-warm-pretooluse-overhead` criterion first.
+- `dual-cold` (informational, `--surface=dual-cold`) — no cache: both copies do full work by design (fail-safe direction). Not graded; it is the documented one-session degradation window after cache invalidation.
+
+Scope is the per-call hot path (`PreToolUse`) plus the per-turn events (`UserPromptSubmit`, `Stop`). `SessionStart` is out of scope: it fires once per session and legitimately pays the arbitration inspector.
+
+**Criteria** (numbers live in `qa/perf/slo.json`; the file is the single source of truth):
+
+1. `per-hook-p95-headroom` — every hook copy's ON p95 ≤ the configured fraction of its registered timeout (`scripts/lib/hook-registry.js`).
+2. `dual-warm-pretooluse-overhead` — dual-warm PreToolUse p95 total (both copies) minus single total ≤ the configured cap.
+
+**Noise discipline.** A single noisy number never fails the gate: the default run is ≥2 rounds × ≥15 runs/hook, each row keeps its best (lowest-p95) round, and if rounds disagree beyond `stability.max_round_p95_delta_fraction` the verdict is INCONCLUSIVE (exit 3) — re-run on a quiet machine instead of trusting either round. CI (`perf-baseline.test.js`) asserts shapes and grading logic only, never wall-clock values.
+
+**Cadence.** Any change touching a hook hot path (a `hooks/*.sh` on PreToolUse, `hook-common.sh`, the arbitration cache read path, `hooks.json` timeouts) must include a `--slo` run in its validation evidence, comparing against `qa/perf/baseline.json`. Re-record the baseline on the reference machine whenever hook count, timeouts, or the yield mechanism change.
+
+**Regression / waiver / investigation flow.**
+
+1. `--slo` FAIL on a hot-path change → first re-run once (exit 3 discipline applies). A reproduced FAIL blocks the change unless waived.
+2. Waiver = a `known-drop: <reason>` line in the commit body naming the failed criterion and the measured numbers (mirrors the spec's §7 metric-coupled evidence rule). A waiver without numbers is not a waiver.
+3. Investigate with the per-hook table: `delta_ms` isolates hook logic from the spawn floor (`off_ms`); a jump confined to the `plugin` copy in dual-warm means the yield path regressed (check for new spawns in `hook_plugin_shadowed_by_standalone`); a uniform jump across hooks means the floor or the environment changed, not a hook.
+4. Measured numbers are a LOWER bound (direct `bash` spawns, non-triggering `echo` event); the Codex harness round-trip and block-path recognizers add real-world cost on top. Treat headroom fractions accordingly — they are deliberately conservative.

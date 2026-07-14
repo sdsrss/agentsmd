@@ -1,0 +1,17 @@
+{
+  "description": "Performance SLO for the hook hot path (R6-02). Graded by `node scripts/perf-baseline.js --slo`; regression thresholds, waiver, and investigation flow live in spec/OPERATOR.md §O9. scope_events deliberately excludes SessionStart: it fires once per session and legitimately pays the arbitration inspector; the per-call hot path is PreToolUse (+ per-turn UserPromptSubmit / Stop). Fractions are of each hook's registered Codex timeout (hook-registry.js), so the SLO tracks the real fail-open cliff (N-01), not an absolute machine speed.",
+  "schemaVersion": 1,
+  "scope_events": ["PreToolUse", "UserPromptSubmit", "Stop"],
+  "per_hook_p95_max_fraction_of_timeout": 0.5,
+  "dual_warm_pretooluse": {
+    "max_total_p95_overhead_ms": 400,
+    "note": "dual-warm total (both copies) minus single total, PreToolUse p95 sums. This is the N-01 guard: with a warm arbitration cache the losing copy's yield must stay jq-cheap; a node spawn creeping back into the per-hook check blows this first."
+  },
+  "stability": {
+    "max_round_p95_delta_fraction": 0.5,
+    "note": "Across rounds, per-event p95 totals may differ by at most this fraction (max/min - 1); beyond it the verdict is INCONCLUSIVE (exit 3), never a single-noisy-run FAIL."
+  },
+  "baseline_runs": 15,
+  "baseline_rounds": 2,
+  "baseline_reference": "qa/perf/baseline.json"
+}
