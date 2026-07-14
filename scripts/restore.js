@@ -6,6 +6,7 @@
 // alone — to remove agentsmd's OWN entries use `uninstall` (marker-scoped, tenant-safe).
 
 const B = require('./lib/backup');
+const LOCK = require('./lib/lifecycle-lock');
 
 function parseArgs(argv) {
   let list = false, confirm = false, id = null;
@@ -65,9 +66,15 @@ function main(argv) {
     console.log('use `agentsmd uninstall`.');
     return 0;
   }
+  // R2-01: only the mutating path takes the lifecycle lock; --list and the
+  // dry-run above stay lock-free (read-only).
+  let lock;
+  try { lock = LOCK.acquire('restore'); }
+  catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
   let res;
   try { res = B.restoreBackup(p.id); }
   catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
+  finally { LOCK.release(lock); }
   console.log(`Restored backup '${res.id}': overwrote ${res.restored.join(', ') || '(none)'}${res.left.length ? `; left ${res.left.join(', ')}` : ''}.`);
   return 0;
 }

@@ -11,6 +11,7 @@ const AM = require('./lib/agents-md');
 const S = require('./lib/uninstalled-shims');
 const A = require('./lib/release-artifact');
 const { inspectPluginBundle, validateInstallManifest } = require('./status');
+const LOCK = require('./lib/lifecycle-lock');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const SHA256_RE = /^[a-f0-9]{64}$/;
@@ -400,6 +401,18 @@ function createRecoverySnapshot(plan, stamp) {
 
 function applyRepair(planDigest, options = {}) {
   if (!SHA256_RE.test(String(planDigest || ''))) throw new Error('repair confirmation requires a valid plan digest');
+  // R2-01: hold the lifecycle lock across plan re-verification, the recovery
+  // snapshot, and the repair install. The inner install() re-acquires reentrantly
+  // (same-process module singleton), so this is one continuous critical section.
+  const lock = LOCK.acquire('repair');
+  try {
+    return applyRepairLocked(planDigest, options);
+  } finally {
+    LOCK.release(lock);
+  }
+}
+
+function applyRepairLocked(planDigest, options) {
   const plan = planRepair();
   if (plan.planDigest !== planDigest) throw new Error('repair plan changed; run agentsmd repair --plan again');
   if (!plan.applyAllowed) throw new Error(`repair apply is not allowed for classification '${plan.classification}'`);

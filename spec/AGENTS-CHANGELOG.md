@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.8.0 (2026-07-14) — no spec changes (lifecycle lock release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor that serializes all
+mutating lifecycle operations per `$CODEX_HOME` behind a cross-process lock
+(R2-01). `spec_version` → v4.8.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.7.0 (2026-07-13) — no spec changes (prerequisite preflight release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.

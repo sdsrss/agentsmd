@@ -10,6 +10,7 @@ const H = require('./lib/codex-hooks');
 const REG = require('./lib/hook-registry');
 const F = require('./lib/fs-atomic');
 const SA = require('./lib/surface-arbitration');
+const LOCK = require('./lib/lifecycle-lock');
 const { parseNoArgs, status: readStatus } = require('./status');
 
 const REQUIRED_HOOK_SUPPORT = [
@@ -84,6 +85,23 @@ function doctor() {
         : `degraded install (missing: ${(surfaceStatus.missingPrerequisites || []).join(', ') || 'unknown'}) — install prerequisites, then run \`agentsmd update\``
     );
   }
+  // R2-01: a LIVE lock is a concurrent lifecycle operation (fine — report it);
+  // a STALE one is the residue of a crashed operation. It self-clears on the next
+  // lifecycle run, but the crash it evidences may have left an interrupted
+  // transaction — surface it instead of letting it look healthy.
+  const lifecycleLock = LOCK.currentLock();
+  if (lifecycleLock) {
+    const o = lifecycleLock.owner || {};
+    const who = `${o.action || 'unknown-action'} pid ${o.pid || '?'} started ${o.startedAt || 'unknown'}`;
+    add(
+      'no stale lifecycle lock',
+      lifecycleLock.state === 'live',
+      lifecycleLock.state === 'live'
+        ? `lifecycle operation in progress (${who})`
+        : `stale lock from a crashed run (${who}) — it self-clears on the next \`agentsmd install|update|uninstall\`; verify that run's outcome with \`agentsmd status\``
+    );
+  }
+
   const arbitration = surfaceStatus.surfaceArbitration;
   const pluginBundle = arbitration.candidates.plugin;
   if (pluginBundle.detected && arbitration.selection.selected !== 'standalone') {

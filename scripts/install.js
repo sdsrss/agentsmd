@@ -15,6 +15,7 @@ const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
 const R = require('./lib/release-artifact');
 const PF = require('./lib/preflight');
+const LOCK = require('./lib/lifecycle-lock');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -240,11 +241,23 @@ function cleanupTransaction(transaction, stageRoot) {
 function install(nowIso, options = {}) {
   // R1-03: prerequisites gate BEFORE any mutation — including the staging dir,
   // which lives inside $CODEX_HOME. A missing prerequisite without the explicit
-  // --degraded opt-in must leave every byte of $CODEX_HOME untouched.
+  // --degraded opt-in must leave every byte of $CODEX_HOME untouched. The check
+  // also runs BEFORE the lifecycle lock, so a preflight refusal creates nothing.
   const preflight = PF.checkPrerequisites();
   if (!preflight.ok && options.degraded !== true) {
     throw new Error(PF.refusalMessage(preflight.missing));
   }
+  // R2-01: one writer per $CODEX_HOME. Reentrant when repair --confirm drives
+  // this install in-process (LOCK is a module singleton).
+  const lock = LOCK.acquire(options.repair ? 'repair' : 'install');
+  try {
+    return installCore(nowIso, options, preflight);
+  } finally {
+    LOCK.release(lock);
+  }
+}
+
+function installCore(nowIso, options, preflight) {
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);

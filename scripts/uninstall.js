@@ -14,6 +14,7 @@ const M = require('./lib/migrate');
 const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
+const LOCK = require('./lib/lifecycle-lock');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -224,6 +225,17 @@ function cleanupTransaction(transaction) {
 }
 
 function uninstall() {
+  // R2-01: one writer per $CODEX_HOME (the lock dir lives OUTSIDE .agentsmd-state,
+  // so removing the state dir below never deletes our own lock mid-operation).
+  const lock = LOCK.acquire('uninstall');
+  try {
+    return uninstallCore();
+  } finally {
+    LOCK.release(lock);
+  }
+}
+
+function uninstallCore() {
   // 0. Pre-flight abort on an unparseable shared hooks.json (mirror of install's
   //    step-0). It may hold other tenants' hooks we can't see; removeMarkedHooks
   //    would silently no-op on it and ORPHAN agentsmd's own entries while claiming

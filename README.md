@@ -64,6 +64,12 @@ non-enforcing install (hooks fail open); the manifest records
 `enforcement:false` and `status`/`doctor` keep warning until a healthy
 `agentsmd update`.
 
+Mutating lifecycle operations (install / update / uninstall / `restore
+--confirm` / `repair --confirm`) are serialized per `$CODEX_HOME` by a
+cross-process lock: a concurrent second operation refuses with exit 1 and
+changes nothing, naming the one in flight. A lock left by a crashed run
+self-clears on the next lifecycle command; `doctor` reports stale locks.
+
 ### npm CLI
 
 Install a versioned CLI globally, then run the same standalone lifecycle:

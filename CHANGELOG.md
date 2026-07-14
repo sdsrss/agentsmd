@@ -3,6 +3,54 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.8.0 — 2026-07-14 — cross-process lifecycle lock (R2-01)
+
+**Migration note**: two agentsmd lifecycle operations (install / update /
+uninstall / `restore --confirm` / `repair --confirm`) can no longer run
+concurrently against the same `$CODEX_HOME`. The second one now **refuses with
+exit 1 and changes nothing**, printing which operation holds the lock (action,
+pid, start time) — previously both would run and could interleave staged swaps
+and shared-file merges. Nothing changes for sequential use. A lock left by a
+crashed run clears itself on the next lifecycle command (immediately once the
+owner process is gone; after a 15 min lease when liveness cannot be verified).
+To pin the previous behavior, install `v4.7.0` (`npm i -g
+@sdsrs/agentsmd@4.7.0 && agentsmd update`, or `install.sh --ref v4.7.0`).
+
+### Changed (behavior)
+
+- New `scripts/lib/lifecycle-lock.js` (audit H-04): atomic-`mkdir` lock at
+  `$CODEX_HOME/.agentsmd-lifecycle-lock/` (outside `.agentsmd-state/`, so
+  uninstall never deletes its own lock mid-operation) with an `owner.json`
+  (0600) recording pid, process start-time, txid, action, ISO start, lease.
+  Acquired by `install`/`update` (after the R1-03 preflight, so a preflight
+  refusal still creates zero bytes), `uninstall`, `restore --confirm`, and
+  `repair --confirm` (whose in-process install re-acquires reentrantly);
+  read-only commands (`status`, `doctor`, `--list`, `--plan`, dry-runs) take
+  no lock. Reclaim policy: a verifiably live owner is never stolen (lease
+  irrelevant); a dead or pid-recycled owner is reclaimed immediately; an
+  unverifiable one only after its lease — reclaim is race-safe via
+  rename-to-tombstone.
+- `doctor` gains a `no stale lifecycle lock` check: a live lock reports the
+  in-flight operation and passes; a stale one (crashed run) fails with the
+  self-clear remedy, since the crash it evidences may have interrupted a
+  transaction (recovery journal lands in R2-02/R2-03).
+
+### Tests
+
+- New `scripts/tests/lifecycle-lock.test.js` (9 checks) in the `npm test`
+  chain: the H-04 acceptance matrix (held lock → install/uninstall/restore/
+  repair all refuse with a byte-identical `$CODEX_HOME` fingerprint), a 6-way
+  simultaneous acquire admitting exactly one owner, a 4-way real `install.js`
+  race converging to one healthy tree with no stage/lock residue, SIGKILL'd
+  owner reclaim, verified-alive-owner-never-stolen (expired lease), recycled-
+  pid reclaim, unreadable-owner 60 s grace, takeover-safe release, and the
+  doctor check in all three states.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.7.0 && agentsmd update`, or
+  `install.sh --ref v4.7.0`.
+
 ## v4.7.0 — 2026-07-13 — zero-mutation prerequisite preflight (R1-03)
 
 **Migration note**: installing/updating on a machine without `jq` (or Node < 18)
