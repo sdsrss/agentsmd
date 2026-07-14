@@ -148,6 +148,7 @@ function quarantineDirectory(transaction, target, expectedHash, label, backupPat
   fs.renameSync(target, backup);
   const record = { target, backup, afterPresent: false, afterHash: null, keepBackup: false };
   transaction.swaps.push(record);
+  F.fsyncDir(path.dirname(target)); // R2-04: critical renames fsync their parent
   return record;
 }
 

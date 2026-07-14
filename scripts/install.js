@@ -187,6 +187,7 @@ function swapDirectory(staged, target, transaction, backupPath = null) {
     afterPresent: !!staged,
     keepBackup: false,
   });
+  F.fsyncDir(path.dirname(target)); // R2-04: critical renames fsync their parent
 }
 
 function rollback(transaction) {

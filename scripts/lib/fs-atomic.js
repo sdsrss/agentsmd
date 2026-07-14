@@ -11,6 +11,18 @@ function ensurePrivateDir(dir) {
   fs.chmodSync(dir, 0o700);
 }
 
+// fsync a DIRECTORY so a just-renamed/unlinked entry inside it is durable
+// (R2-04: fsync parent directory after critical renames). Best-effort — some
+// platforms refuse directory fsync; the rename itself already happened.
+function fsyncDir(dir) {
+  let fd;
+  try {
+    fd = fs.openSync(dir, 'r');
+    fs.fsyncSync(fd);
+  } catch { /* best-effort */ }
+  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* noop */ } } }
+}
+
 function fileMode(file) {
   try { return fs.statSync(file).mode & 0o777; } catch { return null; }
 }
@@ -51,6 +63,7 @@ function writeFileAtomic(file, content, options = {}) {
       throw error;
     }
     fs.renameSync(tmp, file);
+    fsyncDir(path.dirname(file));
   } catch (error) {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     try { fs.unlinkSync(tmp); } catch {}
@@ -65,6 +78,7 @@ function unlinkFileIfUnchanged(file, expectedSnapshot) {
     throw error;
   }
   fs.unlinkSync(file);
+  fsyncDir(path.dirname(file));
 }
 
 function sha256File(file) {
@@ -137,6 +151,7 @@ module.exports = {
   ensurePrivateDir,
   describePath,
   fileMode,
+  fsyncDir,
   pathExists,
   readFileOptional,
   restoreFile,

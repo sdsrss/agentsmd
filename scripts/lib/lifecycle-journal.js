@@ -46,14 +46,9 @@ const STALE_ARCHIVE_CAP = 3;
 function journalPath() { return path.join(P.codexHome(), JOURNAL_BASENAME); }
 
 // fsync the directory entry so a rename/unlink of the journal is itself durable.
-function fsyncDir(dir) {
-  let fd;
-  try {
-    fd = fs.openSync(dir, 'r');
-    fs.fsyncSync(fd);
-  } catch { /* best-effort: some platforms refuse dir fsync */ }
-  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* noop */ } } }
-}
+// Shared implementation lives in fs-atomic (R2-04: every critical rename fsyncs
+// its parent); re-exported here for existing callers.
+const fsyncDir = F.fsyncDir;
 
 function writeJournal(record) {
   F.writeFileAtomic(journalPath(), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
@@ -172,11 +167,21 @@ function archiveStale() {
   return dest;
 }
 
-// maybeCrash — test-only fault-injection point (R2-04 pre-wiring). Inert unless
-// the env var is set; used by the crash-matrix tests to SIGKILL the process at
-// a named point inside the commit phase.
+// maybeCrash — test-only fault-injection points (R2-04). Inert unless an env
+// var is set. Two modes at every named point inside the commit phase:
+//   AGENTSMD_TEST_CRASH_AT=<point>          → SIGKILL self (crash path: the
+//     journal + next entry's recovery are what save the tree);
+//   AGENTSMD_TEST_FAULT_AT=<point>:<ERRNO>  → throw an fs-shaped error, e.g.
+//     mid-writes:ENOSPC (error path: the in-process rollback saves the tree).
 function maybeCrash(point, env = process.env) {
   if (env.AGENTSMD_TEST_CRASH_AT === point) process.kill(process.pid, 'SIGKILL');
+  const fault = env.AGENTSMD_TEST_FAULT_AT;
+  if (typeof fault === 'string' && fault.startsWith(`${point}:`)) {
+    const code = fault.slice(point.length + 1) || 'EIO';
+    const err = new Error(`${code}: injected fault at ${point}`);
+    err.code = code;
+    throw err;
+  }
 }
 
 // ── R2-03: recovery execution ────────────────────────────────────────────────

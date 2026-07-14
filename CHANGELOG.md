@@ -3,6 +3,43 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.13.0 — 2026-07-14 — fault-injection suite + rename durability (R2-04, closes Gate C)
+
+**Migration note**: no workflow changes. Durability hardening only: every
+critical rename now fsyncs its parent directory (`writeFileAtomic`,
+`unlinkFileIfUnchanged`, install swaps, uninstall quarantines — the journal
+already did), so a just-committed artifact survives power loss at the
+directory-entry level, not only at file level. The fault-injection env hooks
+(`AGENTSMD_TEST_FAULT_AT=<point>:<ERRNO>`) are inert unless set. Rollback:
+`npm i -g @sdsrs/agentsmd@4.12.0 && agentsmd update`, or
+`install.sh --ref v4.12.0`.
+
+### Changed (behavior)
+
+- `fs-atomic.js` gains `fsyncDir` (best-effort directory fsync), called after
+  the rename in `writeFileAtomic`, after `unlinkFileIfUnchanged`, after every
+  install `swapDirectory` and uninstall `quarantineDirectory` rename
+  (audit H-03 durability work item).
+- `lifecycle-journal.js` fault points now support errno injection alongside
+  SIGKILL: `AGENTSMD_TEST_FAULT_AT=<point>:<CODE>` throws an fs-shaped error
+  at the named commit point, exercising the in-process rollback path.
+
+### Tests
+
+- New `scripts/tests/fault-injection.test.js` (17 checks) — the Gate-C
+  acceptance run, TWO CONSECUTIVE ROUNDS per point in the same home:
+  9 SIGKILL points (5 install + 4 uninstall) crash→heal→crash→heal with
+  no stage/old/lock/journal residue and doctor green; 6 errno cases
+  (ENOSPC/EACCES × 3 points) where the in-process rollback restores a
+  byte-identical home (state-dir backups excluded by design) and a clean
+  install then succeeds; one REAL permission fault (read-only skills dir →
+  genuine EACCES) recovering the same way.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.12.0 && agentsmd update`, or
+  `install.sh --ref v4.12.0`.
+
 ## v4.12.0 — 2026-07-14 — executed startup recovery + uninstall journaling (R2-03)
 
 **Migration note**: a crashed lifecycle operation now **recovers itself** on
