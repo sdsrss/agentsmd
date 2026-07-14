@@ -504,15 +504,30 @@ try {
     { ts: day(1), hook: 'gate', event: 'observe', spec_section: '§bypassed-rule', session_id: 'bypass-1', eligible: true, evaluated: false },
     { ts: day(1), hook: 'gate', event: 'bypass', spec_section: '§bypassed-rule', session_id: 'bypass-1' },
   );
+  for (let i = 1; i <= 5; i++) {
+    // R5-01/M-05: a scan that ran but found no rule-triggering shape (e.g. a last
+    // message with no value claim) records an explicit eligible:false row — the
+    // scan is visible, yet contributes nothing to the opportunity denominator.
+    opportunityRows.push({
+      ts: day(i), hook: 'gate', event: 'observe', spec_section: '§ineligible-scan',
+      session_id: `ineligible-${i}`, eligible: false, evaluated: false,
+    });
+    opportunityRows.push({
+      ts: day(i), hook: 'gate', event: 'observe', spec_section: '§proxy-rule',
+      session_id: `proxy-${i}`, eligible: true, evaluated: true,
+    });
+  }
   fs.writeFileSync(opportunityLog, opportunityRows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   fs.writeFileSync(opportunityRules, JSON.stringify({
-    live_sections: ['§no-opportunity', '§evaluated-clean', '§eligible-unevaluated', '§active-rule', '§bypassed-rule'],
+    live_sections: ['§no-opportunity', '§evaluated-clean', '§eligible-unevaluated', '§active-rule', '§bypassed-rule', '§ineligible-scan', '§proxy-rule'],
     rules: [
       { id: 'no-opportunity', scope: 'core', enforcement: 'hook', rule_hits_section: '§no-opportunity' },
       { id: 'evaluated-clean', scope: 'core', enforcement: 'hook', rule_hits_section: '§evaluated-clean' },
       { id: 'eligible-unevaluated', scope: 'core', enforcement: 'hook', rule_hits_section: '§eligible-unevaluated' },
       { id: 'active-rule', scope: 'core', enforcement: 'hook', rule_hits_section: '§active-rule' },
       { id: 'bypassed-rule', scope: 'core', enforcement: 'hook', rule_hits_section: '§bypassed-rule' },
+      { id: 'ineligible-scan', scope: 'core', enforcement: 'hook', rule_hits_section: '§ineligible-scan' },
+      { id: 'proxy-rule', scope: 'core', enforcement: 'hook', rule_hits_section: '§proxy-rule', demote_policy: 'proxy' },
     ],
   }));
   const opportunityAudit = audit({ days: 30, now: NOW, logPath: opportunityLog });
@@ -558,6 +573,24 @@ try {
     assert.strictEqual(r.evaluatedSessions, 0);
     assert.strictEqual(r.hits, 1);
     assert.strictEqual(r.signal, 'active');
+  });
+  t('rules: explicit eligible:false scan rows never enter the opportunity denominator', () => {
+    const b = opportunityAudit.bySection['§ineligible-scan'];
+    assert.strictEqual(b.total, 5, 'the scans themselves stay visible');
+    assert.strictEqual(b.eligibleSessions, 0);
+    assert.strictEqual(b.evaluatedSessions, 0);
+    const r = opportunityGovernance.rules.find((x) => x.id === 'ineligible-scan');
+    assert.strictEqual(r.signal, 'no-opportunity');
+    assert(!opportunityGovernance.demoteCandidates.some((x) => x.id === 'ineligible-scan'));
+  });
+  t('rules: proxy-policy rule with full exposure and 0 hits routes to hook-value-review, never demote', () => {
+    const r = opportunityGovernance.rules.find((x) => x.id === 'proxy-rule');
+    assert.strictEqual(r.eligibleSessions, 5);
+    assert.strictEqual(r.evaluatedSessions, 5);
+    assert.strictEqual(r.hits, 0);
+    assert.strictEqual(r.signal, 'hook-value-review');
+    assert(!opportunityGovernance.demoteCandidates.some((x) => x.id === 'proxy-rule'), 'proxy metric must never be a demote-candidate');
+    assert(opportunityGovernance.hookValueReview.some((x) => x.id === 'proxy-rule'));
   });
   t('rules: §8-rm-rf-var is active (has enforcement hits)', () => { const r = ra.rules.find((x) => x.section === '§8-rm-rf-var'); assert(r && r.signal === 'active', 'got ' + (r && r.signal)); });
   t('rules: extended-scope §E3-ship-baseline with no opportunity is not reviewed from unrelated sessions', () => {
@@ -622,31 +655,43 @@ try {
     assert(r && r.signal === 'no-data', 'got ' + (r && r.signal));
   });
 
-  // E4 staleReviews — review-CADENCE signal (is governance being run?), orthogonal
-  // to the hit-based demote signals: a rule can be 'active' yet overdue for review.
-  t('rules: real manifest — every rule is stale (all last_demote_review null pre-deployment)', () => {
-    assert.strictEqual(ra.staleReviews.length, ra.rules.length, 'all rules stale when none reviewed');
-    assert.ok(ra.staleReviews.every((s) => s.lastDemoteReview === null), 'every stale entry carries its (null) review date');
+  // E4 review cadence — a governance-CADENCE signal (is review being run?), orthogonal
+  // to the hit-based demote signals: a rule can be 'active' yet due for review. The
+  // cadence comes from the manifest governance block, never the --days query window,
+  // and a null review on a freshly-added rule is pending-first-review, NOT overdue.
+  t('rules: real manifest — every rule carries an explicit review status', () => {
+    const allowed = new Set(['fresh', 'pending-first-review', 'review-due']);
+    assert.ok(ra.rules.every((r) => allowed.has(r.reviewStatus)), 'unknown reviewStatus present');
+    assert.ok(ra.reviewCadenceDays > 0, 'cadence must come from the governance block');
+    const { fresh, pendingFirstReview, reviewDue } = ra.reviewSummary;
+    assert.strictEqual(fresh + pendingFirstReview + reviewDue, ra.rules.length, 'statuses must partition the manifest');
+    assert.ok(ra.nextReviewDueIso, 'next due date must be computable from the data');
   });
-  const staleFix = path.join(tmp, 'stale-rules.json');
-  fs.writeFileSync(staleFix, JSON.stringify({
+  const cadenceFix = path.join(tmp, 'cadence-rules.json');
+  fs.writeFileSync(cadenceFix, JSON.stringify({
     live_sections: [],
+    governance: { review_cadence_days: 28 },
     rules: [
-      { id: 'r-recent', scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: day(5) },   // within window → fresh
-      { id: 'r-old',    scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: day(60) },  // before cutoff → stale
-      { id: 'r-null',   scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: null },     // never reviewed → stale
-      { id: 'r-bad',    scope: 'core', enforcement: 'self', rule_hits_section: null, last_demote_review: 'not-a-date' }, // unparseable → stale
+      { id: 'r-recent', scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(90), last_demote_review: day(5) },   // reviewed within cadence → fresh
+      { id: 'r-old',    scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(90), last_demote_review: day(60) },  // review older than cadence → due
+      { id: 'r-new',    scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(3),  last_demote_review: null },     // null but just added → pending, not overdue
+      { id: 'r-null',   scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(90), last_demote_review: null },     // null past cadence → due
+      { id: 'r-bad',    scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(90), last_demote_review: 'not-a-date' }, // unparseable → due (safer)
     ],
   }));
-  const raStale = rulesAudit({ days: 30, now: NOW, logPath: empty, hardRulesPath: staleFix });
-  t('rules: staleReviews = null + overdue + unparseable; a within-window review is fresh', () => {
-    const ids = raStale.staleReviews.map((s) => s.id).sort();
+  const raCadence = rulesAudit({ days: 7, now: NOW, logPath: empty, hardRulesPath: cadenceFix });
+  t('rules: review-due = past-cadence + aged-null + unparseable; fresh review and fresh null stay out', () => {
+    const ids = raCadence.reviewDue.map((s) => s.id).sort();
     assert.deepStrictEqual(ids, ['r-bad', 'r-null', 'r-old']);
+    assert.strictEqual(raCadence.rules.find((x) => x.id === 'r-recent').reviewStatus, 'fresh');
+    assert.strictEqual(raCadence.rules.find((x) => x.id === 'r-new').reviewStatus, 'pending-first-review');
+    assert.strictEqual(raCadence.reviewCadenceDays, 28, 'cadence from governance block, not --days=7');
   });
-  t('rules formatReport renders the stale-review cadence block with the overdue id', () => {
-    const rep = rulesFormat(raStale);
-    assert.ok(/overdue for a demote-review/.test(rep), 'missing stale-review block:\n' + rep);
-    assert.ok(/r-old \(/.test(rep), 'should list the overdue rule id');
+  t('rules formatReport renders the review-cadence block with the due id', () => {
+    const rep = rulesFormat(raCadence);
+    assert.ok(/review cadence 28d/.test(rep), 'missing cadence summary:\n' + rep);
+    assert.ok(/due for a demote-review/.test(rep), 'missing review-due block:\n' + rep);
+    assert.ok(/r-old \(/.test(rep), 'should list the due rule id');
   });
 
   t('audit CLI rejects invalid --days instead of silently using default', () => {

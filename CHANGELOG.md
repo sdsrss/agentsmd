@@ -3,6 +3,68 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.14.0 — 2026-07-14 — opportunity-denominator isomorphism + first governance review (R5-01/R5-02)
+
+**Migration note**: no spec text and no blocking/advisory behavior changes —
+this release fixes what the governance telemetry *counts* and performs the
+first full rule review. §10-V (Specificity) now records an opportunity only
+when the last assistant message actually makes a value/completion claim
+(previously every message counted, audit M-05); messages without a claim
+record an explicit `eligible:false` row. The `~/.codex/tmp` residue telemetry
+is re-owned by a new `§9-tmp-residue-proxy` manifest rule with the new
+`demote_policy: proxy` (0 hits routes to hook-value-review, never
+core→extended demotion); `§9-end-of-task-sweep` is reclassified
+self-enforced. All 41 rules carry `added_at` and a stamped
+`last_demote_review: 2026-07-14`; the review ledger ships as
+`spec/governance-log.json`. `rules.js` review staleness now follows
+`governance.review_cadence_days` (28d) instead of the `--days` query window,
+with statuses `fresh` / `pending-first-review` / `review-due` (a null review
+on a freshly added rule is no longer called overdue). Pre-v4.14.0 §10-V rows
+keep their inflated denominator until they age out of the 30-day window —
+the governance log records that caveat on `§10-specificity`. Rollback:
+`npm i -g @sdsrs/agentsmd@4.13.0 && agentsmd update`, or
+`install.sh --ref v4.13.0`.
+
+### Changed (behavior)
+
+- `hooks/transcript-structure-scan.sh`: §10-V opportunity gate — a value/
+  completion claim (`Done:` label, claim verbs EN/中文, or any banned-vocab
+  hit, so a violation can never be gated out) marks the message eligible;
+  no claim → `eligible:false` observation; unreadable patterns file with a
+  claim present → `eligible:true, evaluated:false` (visible, not silent).
+- `spec/hard-rules.json`: new rule `§9-tmp-residue-proxy` (owns the
+  `§7-user-global-state` telemetry section, `demote_policy: proxy`);
+  `§9-end-of-task-sweep` → `enforcement: self`; `governance.review_cadence_days: 28`;
+  every rule gains `added_at` and a stamped `last_demote_review`.
+- `scripts/rules.js`: `demote_policy: proxy` routes 0-hit exposure to
+  hook-value-review; per-rule `reviewStatus` + `reviewSummary` +
+  `nextReviewDueIso` computed against the manifest cadence; the
+  window-coupled `staleReviews` field is replaced by `reviewDue`.
+
+### Added
+
+- `spec/governance-log.json` — governance-review ledger (audit M-06). First
+  review 2026-07-14: 41 entries over 30d live telemetry (1060 rows / 125
+  sessions / 60 projects); verdicts keep:39, reclassified-self:1
+  (`§9-end-of-task-sweep`), created-proxy:1 (`§9-tmp-residue-proxy`). The
+  two false demote candidates from audit M-05 are adjudicated in-ledger.
+
+### Tests
+
+- `audit.test.js` (+5): explicit `eligible:false` rows stay out of the
+  opportunity denominator; proxy-policy 0-hit routing; review-status matrix
+  (fresh / pending-first-review / review-due / unparseable) against a
+  governance-block cadence, decoupled from `--days`.
+- `drift.test.js` (+1): governance-log gate — latest review entries ⊆ rule
+  ids, stamps match the log, every entry carries verdict + evidence.
+- `hooks/tests/smoke.sh` (+1): no-value-claim message → §10-V
+  `eligible:false`, sibling rule shapes untriggered.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.13.0 && agentsmd update`, or
+  `install.sh --ref v4.13.0`.
+
 ## v4.13.0 — 2026-07-14 — fault-injection suite + rename durability (R2-04, closes Gate C)
 
 **Migration note**: no workflow changes. Durability hardening only: every

@@ -2,6 +2,26 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.14.0 (2026-07-14) — no spec TEXT changes; manifest governance schema + first full rule review (R5-01/R5-02)
+
+Core and extended prose and all `section_anchor`s are byte-identical (core
+stays 15,215 B). The manifest changes shape, not rule text:
+
+- `§9-end-of-task-sweep` reclassified `enforcement: self` — its hook telemetry
+  was a `~/.codex/tmp`-growth proxy, now owned by the new
+  `§9-tmp-residue-proxy` rule (rule count 40 → 41) under the new
+  `demote_policy: proxy`: proxy metrics feed hook-value-review only, never
+  core→extended demotion (audit M-05).
+- Every rule gains `added_at`; `governance.review_cadence_days: 28` added.
+- **First governance review executed** (audit M-06): all 41 rules stamped
+  `last_demote_review: 2026-07-14`, evidence in `spec/governance-log.json`
+  (30d live window: 1060 rows / 125 sessions / 60 projects). Verdicts:
+  keep 39 (incl. `§10-specificity`, whose 0-hit demote signal was rejected
+  as untrustworthy — the pre-v4.14.0 §10-V denominator counted every last
+  message; re-review over a clean window), reclassified-self 1, created-proxy 1.
+
+`spec_version` → v4.14.0. Package detail: repository `CHANGELOG.md`.
+
 ## v4.13.0 (2026-07-14) — no spec changes (fault-injection release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.

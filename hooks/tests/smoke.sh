@@ -553,6 +553,17 @@ B="$(clog_count)"
 OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"
 NEW="$(clog_new "$B")"
 { rows_have_event "$NEW" '§10-V' advisory && rows_have_event "$NEW" '§10-four-section-order' advisory; } && ok "report with both vocab+order → one enforcement row per section" || bad "both vocab+order enforcement rows" "new=[$NEW]"
+# (§10-V opportunity gate, R5-01/M-05): a last message with NO value/completion
+# claim is not a Specificity opportunity — explicit eligible:false row, and no
+# other rule shape triggers either.
+clear_pending
+printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"The config lives in hooks/hooks.json; the plugin manifest is at the repo root."}]}}' > "$TR"
+B="$(clog_count)"; OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && rows_have_observe "$NEW" '§10-V' false false \
+  && rows_have_no_observe "$NEW" '§10-four-section-order' \
+  && rows_have_no_observe "$NEW" '§6-iron-law-2'; } \
+  && ok "no value claim → §10-V eligible:false (denominator isomorphism)" \
+  || bad "no value claim → eligible:false" "out=[$OUT] new=[$NEW]"
 # (c) iron-law-2 evidence-fingerprint: a fix claim with no evidence anchor → §6-iron-law-2.
 clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: fixed the login bug."}]}}' > "$TR"

@@ -56,6 +56,7 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
       else if (eligibleSessions < MIN_EXPOSURE_SESSIONS) signal = 'insufficient-opportunity';
       else if (evaluatedSessions < MIN_EXPOSURE_SESSIONS) signal = 'insufficient-evaluation';
       else if (policy === 'deterrence') signal = 'deterrence-ok'; // immutable §8: 0 hits = hazard never arose, not dilution
+      else if (policy === 'proxy') signal = 'hook-value-review'; // proxy metric: 0 hits judges the HOOK's worth, never the rule's core residence
       else if (r.scope === 'extended') signal = 'hook-value-review'; // already bottom tier — nowhere to demote to
       else signal = 'demote-candidate'; // core + standard policy + enough exposure + 0 hits
     } else if (enforced && section && !live) signal = 'hook-planned'; // hook not built yet → 0 hits is expected, not dilution
@@ -80,22 +81,54 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   const projectFilter = project || null;
   const matchedSlugs = scoped ? realProjects(scoped) : projectCount;
 
-  // Stale demote-reviews: a rule whose last_demote_review is null (never reviewed)
-  // or older than the window. A review-CADENCE signal (is governance being run at
-  // all?), orthogonal to the hit-based demote signals above — a rule can be 'active'
-  // yet overdue for a human review. Same now/days window the audit used. An
-  // unparseable date is treated as stale (safer than silently passing).
-  const reviewCutoffMs = now - days * 86400 * 1000;
-  const staleReviews = hr.rules
-    .filter((r) => {
-      const d = r.last_demote_review;
-      if (!d) return true;
-      const ts = new Date(d).getTime();
-      return !Number.isFinite(ts) || ts < reviewCutoffMs;
-    })
-    .map((r) => ({ id: r.id, lastDemoteReview: r.last_demote_review || null }));
+  // Review cadence: a governance-CADENCE signal (is review being run at all?),
+  // orthogonal to the hit-based demote signals above — a rule can be 'active' yet
+  // due for a human review. The cadence comes from the manifest's governance
+  // block, NOT the --days audit window (tying staleness to the query window made
+  // `--days=7` mark everything overdue). Statuses:
+  //   fresh                — last_demote_review within cadence
+  //   pending-first-review — never reviewed, but added_at is within cadence
+  //                          (a rule born yesterday is not overdue)
+  //   review-due           — review (or, when never reviewed, added_at) older
+  //                          than cadence; unparseable dates land here (safer)
+  const cadenceDays = (hr.governance && hr.governance.review_cadence_days) || 28;
+  const cadenceMs = cadenceDays * 86400 * 1000;
+  const parseTs = (d) => {
+    if (!d) return NaN;
+    const ts = new Date(d).getTime();
+    return Number.isFinite(ts) ? ts : NaN;
+  };
+  const reviewRows = hr.rules.map((r) => {
+    const reviewedTs = parseTs(r.last_demote_review);
+    const addedTs = parseTs(r.added_at);
+    let reviewStatus;
+    let dueAtMs;
+    if (Number.isFinite(reviewedTs)) {
+      reviewStatus = now - reviewedTs <= cadenceMs ? 'fresh' : 'review-due';
+      dueAtMs = reviewedTs + cadenceMs;
+    } else if (!r.last_demote_review && Number.isFinite(addedTs) && now - addedTs <= cadenceMs) {
+      reviewStatus = 'pending-first-review';
+      dueAtMs = addedTs + cadenceMs;
+    } else {
+      reviewStatus = 'review-due'; // never reviewed past cadence, or unparseable
+      dueAtMs = now;
+    }
+    return { id: r.id, reviewStatus, dueAtMs, lastDemoteReview: r.last_demote_review || null };
+  });
+  const reviewStatusById = new Map(reviewRows.map((r) => [r.id, r.reviewStatus]));
+  for (const row of rows) row.reviewStatus = reviewStatusById.get(row.id);
+  const reviewDue = reviewRows.filter((r) => r.reviewStatus === 'review-due');
+  const nextReviewDueMs = reviewRows.length ? Math.min(...reviewRows.map((r) => r.dueAtMs)) : null;
 
   return {
+    reviewCadenceDays: cadenceDays,
+    reviewSummary: {
+      fresh: reviewRows.filter((r) => r.reviewStatus === 'fresh').length,
+      pendingFirstReview: reviewRows.filter((r) => r.reviewStatus === 'pending-first-review').length,
+      reviewDue: reviewDue.length,
+    },
+    reviewDue,
+    nextReviewDueIso: nextReviewDueMs === null ? null : new Date(nextReviewDueMs).toISOString().slice(0, 10),
     days,
     windowStartIso: a.windowStartIso,
     telemetryRows: a.inWindow,
@@ -115,7 +148,6 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     deterrenceOk: rows.filter((r) => r.signal === 'deterrence-ok'),
     active: rows.filter((r) => r.signal === 'active'),
     selfEnforced: rows.filter((r) => r.signal === 'self-enforced'),
-    staleReviews,
   };
 }
 
@@ -158,19 +190,15 @@ function formatReport(ra) {
   }
   if (ra.hookValueReview.length && ra.telemetryRows > 0) {
     L.push('');
-    L.push(`${ra.hookValueReview.length} extended-scope hook rule(s) with 0 hits — review whether the HOOK earns`);
-    L.push('  its upkeep (already outside always-on core; not a core→extended demote):');
-    for (const r of ra.hookValueReview) L.push(`    - ${r.id} (${r.section})`);
+    L.push(`${ra.hookValueReview.length} hook rule(s) with 0 hits outside the demote path (extended scope or proxy`);
+    L.push('  metric) — review whether the HOOK earns its upkeep (not a core→extended demote):');
+    for (const r of ra.hookValueReview) L.push(`    - ${r.id} (${r.section}, ${r.policy === 'proxy' ? 'proxy metric' : 'extended scope'})`);
   }
-  if (ra.staleReviews.length) {
-    const never = ra.staleReviews.filter((s) => !s.lastDemoteReview);
-    L.push('');
-    L.push(`${ra.staleReviews.length} rule(s) overdue for a demote-review (never reviewed, or last review > ${ra.days}d):`);
-    if (never.length === ra.staleReviews.length) {
-      L.push('  all have last_demote_review: null — expected pre-deployment; stamp one after each governance review.');
-    } else {
-      for (const s of ra.staleReviews) L.push(`    - ${s.id} (${s.lastDemoteReview || 'never reviewed'})`);
-    }
+  L.push('');
+  L.push(`review cadence ${ra.reviewCadenceDays}d: fresh:${ra.reviewSummary.fresh} · pending-first-review:${ra.reviewSummary.pendingFirstReview} · review-due:${ra.reviewSummary.reviewDue} · next review due ${ra.nextReviewDueIso}`);
+  if (ra.reviewDue.length) {
+    L.push(`${ra.reviewDue.length} rule(s) due for a demote-review (stamp last_demote_review + append spec/governance-log.json after reviewing):`);
+    for (const s of ra.reviewDue) L.push(`    - ${s.id} (${s.lastDemoteReview || 'never reviewed'})`);
   }
   return L.join('\n');
 }

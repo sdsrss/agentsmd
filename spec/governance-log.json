@@ -1,0 +1,308 @@
+{
+  "_doc": "Governance-review ledger (audit M-06 / roadmap R5-02). One entry per review; each review adjudicates every rule in spec/hard-rules.json against the telemetry window and stamps last_demote_review. Session counts are the recorded proxy for L2+ task volume (no mechanical L2+ counter exists).",
+  "reviews": [
+    {
+      "date": "2026-07-14",
+      "spec_version_reviewed": "v4.13.0",
+      "shipped_in": "v4.14.0",
+      "window_days": 30,
+      "telemetry_rows": 1060,
+      "sessions": 125,
+      "projects": 60,
+      "method": "node scripts/rules.js --days=30 on live telemetry, plus semantic review of rule text for self-enforced rules; conformance-eval captures cited where they cover a rule behavior.",
+      "entries": [
+        {
+          "id": "§8-rm-rf-var",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "23 enforcement hits / 13 eligible / 13 evaluated sessions in the 30d window — earning residence.",
+          "hits": 23,
+          "eligible_sessions": 13,
+          "evaluated_sessions": 13
+        },
+        {
+          "id": "§8-unknown-script",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "2 enforcement hits / 2 eligible / 2 evaluated sessions in the 30d window — earning residence.",
+          "hits": 2,
+          "eligible_sessions": 2,
+          "evaluated_sessions": 2
+        },
+        {
+          "id": "§8-secrets",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "8 enforcement hits / 30 eligible / 30 evaluated sessions in the 30d window — earning residence.",
+          "hits": 8,
+          "eligible_sessions": 30,
+          "evaluated_sessions": 30
+        },
+        {
+          "id": "§8-sql-no-where",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§8-home-traversal",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§8-verify-before-claim",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§8.V4-sandbox-disposal",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "28 enforcement hits / 85 eligible / 85 evaluated sessions in the 30d window — earning residence.",
+          "hits": 28,
+          "eligible_sessions": 85,
+          "evaluated_sessions": 85
+        },
+        {
+          "id": "§6-iron-law-1",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§6-iron-law-2",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "1 enforcement hits / 14 eligible / 14 evaluated sessions in the 30d window — earning residence.",
+          "hits": 1,
+          "eligible_sessions": 14,
+          "evaluated_sessions": 14
+        },
+        {
+          "id": "§6-iron-law-3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§6-bugfix-anchor",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Governance inherited from §10-specificity (shared §10-V banned-vocab bucket by design).",
+          "hits": 0,
+          "eligible_sessions": 65,
+          "evaluated_sessions": 65
+        },
+        {
+          "id": "§6-destructive-smoke",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§7-memory-read",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "56 enforcement hits / 8 eligible / 7 evaluated sessions in the 30d window — earning residence.",
+          "hits": 56,
+          "eligible_sessions": 8,
+          "evaluated_sessions": 7
+        },
+        {
+          "id": "§7-post-compaction",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§7-exit-archival",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§7-session-exit",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "15 enforcement hits / 18 eligible / 18 evaluated sessions in the 30d window — earning residence.",
+          "hits": 15,
+          "eligible_sessions": 18,
+          "evaluated_sessions": 18
+        },
+        {
+          "id": "§7-memory-hygiene",
+          "signal": "insufficient-opportunity",
+          "verdict": "keep",
+          "evidence": "3 eligible sessions < 5 minimum exposure — insufficient opportunity to judge; keep and re-review.",
+          "hits": 0,
+          "eligible_sessions": 3,
+          "evaluated_sessions": 3
+        },
+        {
+          "id": "§E3-ship-baseline",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "10 enforcement hits / 9 eligible / 9 evaluated sessions in the 30d window — earning residence.",
+          "hits": 10,
+          "eligible_sessions": 9,
+          "evaluated_sessions": 9
+        },
+        {
+          "id": "§10-four-section-order",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "11 enforcement hits / 26 eligible / 26 evaluated sessions in the 30d window — earning residence.",
+          "hits": 11,
+          "eligible_sessions": 26,
+          "evaluated_sessions": 26
+        },
+        {
+          "id": "§10-honesty",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "1 enforcement hits / 15 eligible / 15 evaluated sessions in the 30d window — earning residence.",
+          "hits": 1,
+          "eligible_sessions": 15,
+          "evaluated_sessions": 15
+        },
+        {
+          "id": "§10-specificity",
+          "signal": "demote-candidate",
+          "verdict": "keep",
+          "evidence": "0 enforcement hits over 65 evaluated sessions, but the pre-v4.14.0 denominator counted every last assistant message as an opportunity (audit M-05) — the 0-hit signal is not trustworthy. Demote decision deferred to the first review over a clean post-v4.14.0 window (rows stage:value-claim-scanned).",
+          "hits": 0,
+          "eligible_sessions": 65,
+          "evaluated_sessions": 65
+        },
+        {
+          "id": "§3-plan-before-execute",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§3-recurrence-check",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§5-hard-auth",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter. Behavior additionally covered by conformance auth cases (auth-hard-tidy 2/2 pass on v4.10.0, auth-clear-create near-negative green)."
+        },
+        {
+          "id": "§2-hard-upgrades",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§9-preflight",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§9-end-of-task-sweep",
+          "signal": "self-enforced",
+          "verdict": "reclassified-self",
+          "evidence": "The §7-user-global-state telemetry (12 evaluated sessions, 0 hits) was a tmp-growth proxy, not a measurement of the worktree sweep; reclassified enforcement:self and the proxy split to §9-tmp-residue-proxy (demote_policy proxy)."
+        },
+        {
+          "id": "§9-parallel-path",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§0-extended-load",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§8-disable-ssl",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§8-env-key-commit",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Governance inherited from §8-secrets (shared §8-secrets bucket by design).",
+          "hits": 8,
+          "eligible_sessions": 30,
+          "evaluated_sessions": 30
+        },
+        {
+          "id": "§8-git-internals",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E1-emergency-followup",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E6-skill-description",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E7-plugin-boundary",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E2-phase-gate",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E3-ship-checklist",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E4-evidence-ladder",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E6-skill-authoring-l3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§E8-turn-yield",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest note verified against spec v4.13.0; self-enforced, no mechanical counter."
+        },
+        {
+          "id": "§9-tmp-residue-proxy",
+          "signal": "hook-value-review",
+          "verdict": "created-proxy",
+          "evidence": "Created this review to own the residue-audit.sh tmp-growth telemetry under demote_policy proxy: 0 hits routes to hook-value-review only, never demote-candidate.",
+          "hits": 0,
+          "eligible_sessions": 12,
+          "evaluated_sessions": 12
+        }
+      ]
+    }
+  ]
+}

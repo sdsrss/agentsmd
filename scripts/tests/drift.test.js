@@ -61,6 +61,29 @@ t('hard-rules: live_sections ⊆ manifest rule_hits_sections', () => {
   assert.strictEqual(orphan.length, 0, 'live_sections not in any rule: ' + orphan.join(', '));
 });
 
+// 2b. governance-review ledger (R5-02): the review log and the manifest stamps
+//     must describe the same review — otherwise "reviewed" becomes unfalsifiable.
+t('governance-log: latest review covers the manifest and matches its stamps', () => {
+  const gl = JSON.parse(read('spec/governance-log.json'));
+  assert(Array.isArray(gl.reviews) && gl.reviews.length > 0, 'governance log has no reviews');
+  const latest = gl.reviews[gl.reviews.length - 1];
+  assert(Number.isFinite(new Date(latest.date).getTime()), 'unparseable review date: ' + latest.date);
+  const ruleIds = new Set(hr.rules.map((r) => r.id));
+  const entryIds = new Set((latest.entries || []).map((e) => e.id));
+  const unknown = [...entryIds].filter((id) => !ruleIds.has(id));
+  assert.strictEqual(unknown.length, 0, 'review entries for unknown rules: ' + unknown.join(', '));
+  for (const r of hr.rules) {
+    if (!r.last_demote_review) continue; // never-reviewed rules owe no log entry yet
+    assert(Number.isFinite(new Date(r.last_demote_review).getTime()), `${r.id}: unparseable last_demote_review`);
+    if (r.last_demote_review === latest.date) {
+      assert(entryIds.has(r.id), `${r.id} stamped ${latest.date} but absent from that review's log entries`);
+    }
+  }
+  for (const e of latest.entries || []) {
+    assert(e.verdict && e.evidence, `log entry ${e.id} lacks verdict/evidence`);
+  }
+});
+
 t('hard-rules: governance parents resolve and cannot form chains or cycles', () => {
   const byId = new Map(hr.rules.map((rule) => [rule.id, rule]));
   for (const rule of hr.rules.filter((item) => item.governance_parent)) {

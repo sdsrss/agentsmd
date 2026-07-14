@@ -126,9 +126,29 @@ if [[ -n "$P_UNC" ]]; then
   fi
 fi
 
-# A vocabulary scan applies to every extracted assistant message. The other
-# rules enter the denominator only when their triggering report shape exists.
-hook_observe "$HOOK" '§10-V' "$SID" true true '{"stage":"last-message-scanned"}'
+# Every rule enters the denominator only when its triggering shape exists in the
+# message. For §10-V (Specificity) that shape is an evaluable value/completion
+# claim — a `Done:` label or a claim verb — NOT mere existence of a last message
+# (counting every message inflated the denominator into a false demote signal,
+# audit M-05). A banned-vocab hit is itself an opportunity by definition, so the
+# gate can never hide a violation. No claim → an explicit eligible:false row
+# (scan ran, no opportunity); claim but unreadable patterns → eligible yet
+# unevaluated, so the loss is visible instead of silent.
+VALUE_CLAIM_RE='\b(done|completed|finished|fixed|resolved|implemented|shipped|added|improved|improves|optimi[sz]ed|reduced|increased|faster|slower|works|passed|passes|verified)\b|完成|修复|解决|实现|新增|优化|提升|改进|通过|验证|更快'
+VOCAB_ELIGIBLE=false
+[[ -n "$P_DONE" || "$ISSUES" == *banned-vocab:* ]] && VOCAB_ELIGIBLE=true
+if [[ "$VOCAB_ELIGIBLE" == "false" ]] && printf '%s' "$SCAN_TEXT" | grep -qiE "$VALUE_CLAIM_RE"; then
+  VOCAB_ELIGIBLE=true
+fi
+if [[ "$VOCAB_ELIGIBLE" == "true" ]]; then
+  if [[ -r "$PATTERNS_FILE" ]]; then
+    hook_observe "$HOOK" '§10-V' "$SID" true true '{"stage":"value-claim-scanned"}'
+  else
+    hook_observe "$HOOK" '§10-V' "$SID" true false '{"reason":"patterns-missing"}'
+  fi
+else
+  hook_observe "$HOOK" '§10-V' "$SID" false false '{"stage":"no-value-claim"}'
+fi
 [[ "$ORDER_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§10-four-section-order' "$SID" true true '{"stage":"report-order-scanned"}'
 [[ "$FIX_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§6-iron-law-2' "$SID" true true '{"stage":"fix-claim-scanned"}'
 [[ "$HONESTY_ELIGIBLE" == "true" ]] && hook_observe "$HOOK" '§10-honesty' "$SID" true true '{"stage":"uncertain-section-scanned"}'
