@@ -2,6 +2,15 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.19.0 (2026-07-14) — no spec changes (reliability + supply-chain release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor adding telemetry
+stale-lock quarantine self-healing (D#79), CI-side npm publishing with
+provenance attestation, and a doctor check that fails once the 28-day
+demote-review cadence is overdue. `spec_version` → v4.19.0. Detail: repository
+`CHANGELOG.md`.
+
 ## v4.18.0 (2026-07-14) — no spec changes (security-docs + QA-fencing release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.

@@ -3,6 +3,47 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.19.0 — 2026-07-14 — telemetry-lock self-healing + npm provenance + governance-due doctor check
+
+**Migration note**: no spec/rule changes; no lifecycle-surface changes. Three
+independent hardenings: (1) **telemetry quarantine self-healing (D#79)** — a
+stale-lock reaper that dies or hits a transient failure between renaming the
+dead lock aside and removing it used to leave a
+`agentsmd.jsonl.lock.stale.*` orphan dir forever (observed once as CI flake;
+in production a hook-timeout SIGKILL in that window has the same effect).
+Disposal now retries bounded, and every successful telemetry write sweeps any
+leftover quarantine next to its lock — targeted depth-1 glob, never the live
+lock, never recursive. (2) **CI-side npm publish with provenance** — pushing a
+`v*` tag now also publishes to npm *from GitHub Actions* with a Sigstore
+provenance attestation (verify: `npm audit signatures`); rerun-safe (an
+already-published version is skipped, not failed). (3) **`agentsmd doctor`
+gains a `governance demote-review current` check** — fails with a remedy once
+any hard-rule is past the 28-day demote-review cadence (next due date printed;
+mirrors `agentsmd rules` semantics), so an overdue governance review can no
+longer look healthy. Rollback:
+`npm i -g @sdsrs/agentsmd@4.18.0 && agentsmd update`, or
+`install.sh --ref v4.18.0`.
+
+### Added
+
+- `.github/workflows/release.yml` `npm-publish` job: provenance-attested,
+  idempotent registry publish on every version tag.
+- `doctor`: governance review-cadence check (`classifyGovernanceReview`,
+  same fresh/pending/due semantics as `agentsmd rules`).
+- `hooks/lib/rule-hits.sh`: `rule_hits_dispose_quarantine` (bounded-retry,
+  namespace-guarded) + `rule_hits_sweep_quarantines` (post-write self-heal).
+
+### Fixed
+
+- D#79: `agentsmd.jsonl.lock.stale.*` quarantine orphans no longer persist
+  past the next telemetry write (CI flake `audit.test.js` "concurrent writers
+  recover one stale generation" — residue dir observed on ubuntu-24.04).
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.18.0 && agentsmd update`, or
+  `install.sh --ref v4.18.0`.
+
 ## v4.18.0 — 2026-07-14 — security/privacy docs + QA-telemetry fencing (R6-03; R6-04 infrastructure)
 
 **Migration note**: no hook/lifecycle/spec behavior changes. Two things ship:

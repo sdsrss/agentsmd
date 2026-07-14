@@ -66,6 +66,36 @@ function classifySpecFreshness(srcVer, depVer, manifestInstalled) {
   return { ok: true, state: 'same-version', detail: `v${depVer}` };
 }
 
+// Pure cadence classification over hard-rules.json governance stamps. A rule is
+// due when neither its last_demote_review nor (for never-reviewed rules) its
+// added_at falls within the cadence window; an unparseable/missing stamp is due
+// immediately. Mirrors rules.js reviewStatus so doctor and `agentsmd rules`
+// never disagree on due/not-due.
+function classifyGovernanceReview(hr, nowMs) {
+  const cadenceDays = (hr.governance && hr.governance.review_cadence_days) || 28;
+  const cadenceMs = cadenceDays * 86400000;
+  const parseTs = (d) => {
+    const t = Date.parse(String(d || ''));
+    return Number.isFinite(t) ? t : NaN;
+  };
+  const overdue = [];
+  let nextDueMs = null;
+  for (const r of hr.rules || []) {
+    const reviewedTs = parseTs(r.last_demote_review);
+    const baseTs = Number.isFinite(reviewedTs) ? reviewedTs : parseTs(r.added_at);
+    const dueAtMs = Number.isFinite(baseTs) ? baseTs + cadenceMs : nowMs;
+    if (nowMs > dueAtMs || !Number.isFinite(baseTs)) overdue.push(r.id);
+    if (nextDueMs === null || dueAtMs < nextDueMs) nextDueMs = dueAtMs;
+  }
+  return {
+    ok: overdue.length === 0,
+    overdue,
+    total: (hr.rules || []).length,
+    cadenceDays,
+    nextDueIso: nextDueMs === null ? null : new Date(nextDueMs).toISOString().slice(0, 10),
+  };
+}
+
 function doctor() {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail: detail || '' });
@@ -356,6 +386,19 @@ function doctor() {
     };
     const miss = hr.rules.filter((r) => !files[r.scope].includes(r.section_anchor));
     add('hard-rules anchors resolve', miss.length === 0, miss.length ? `${miss.length} missing` : `${hr.rules.length}/${hr.rules.length}`);
+
+    // Governance demote-review cadence (R5-02 / OPERATOR §O2): a rule past its
+    // review window means the telemetry-vs-rules loop has stopped being audited.
+    // Same fresh/pending/due semantics as `agentsmd rules`, minus telemetry —
+    // doctor only needs past-due-or-not plus the next due date.
+    const review = classifyGovernanceReview(hr, Date.now());
+    add(
+      'governance demote-review current',
+      review.ok,
+      review.ok
+        ? `${review.total}/${review.total} within ${review.cadenceDays}d cadence — next review due ${review.nextDueIso}`
+        : `${review.overdue.length}/${review.total} rule(s) past the ${review.cadenceDays}d demote-review cadence — run \`agentsmd rules\`, review, stamp last_demote_review + append spec/governance-log.json (OPERATOR §O2)`
+    );
   } catch (e) { add('hard-rules anchors resolve', false, e.message); }
 
   // Extended spec must exist at the top-level path core §2/§5 order the agent to
@@ -501,4 +544,4 @@ if (require.main === module) {
   console.log(r.ok ? '\nagentsmd doctor: all checks passed' : '\nagentsmd doctor: some checks failed');
   process.exit(r.ok ? 0 : 1);
 }
-module.exports = { classifySpecFreshness, doctor };
+module.exports = { classifySpecFreshness, classifyGovernanceReview, doctor };

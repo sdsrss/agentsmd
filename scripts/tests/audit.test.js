@@ -191,6 +191,38 @@ try {
     assert.strictEqual(retained, attempted, `retained ${retained}/${attempted} after stale recovery`);
     assert.deepStrictEqual(fs.readdirSync(logDir).filter((n) => n.includes('.lock') || n.includes('.stale.')), []);
   });
+  t('a later write sweeps the quarantine orphan a dead reaper left behind (D#79)', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'orphan-sweep-home.'));
+    const logDir = path.join(home, 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    const log = path.join(logDir, 'agentsmd.jsonl');
+    // Simulate a reaper killed between its rename and its rmdir: quarantine
+    // dir still holding the dead lock's lease/pid and the reap claim.
+    const orphan = path.join(logDir, 'agentsmd.jsonl.lock.stale.12345.678.1700000000');
+    fs.mkdirSync(path.join(orphan, 'reap'), { recursive: true });
+    fs.writeFileSync(path.join(orphan, 'lease'), '1700000000 999999 dead-reaper\n');
+    fs.writeFileSync(path.join(orphan, 'pid'), '999999\n');
+    const run = cp.spawnSync('bash', ['-c', 'source "$1"; rule_hits_append healer observe null "§orphan-sweep" session-healer', '_', RULE_HITS], {
+      env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    assert.strictEqual(readRows(log).length, 1, 'the healing write itself lands');
+    assert.strictEqual(fs.existsSync(orphan), false, 'orphan quarantine disposed by the next write');
+    assert.deepStrictEqual(fs.readdirSync(logDir).filter((n) => n.includes('.stale.')), []);
+  });
+  t('quarantine disposal refuses paths outside the .lock.stale. namespace', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'dispose-guard-home.'));
+    const victim = path.join(home, 'not-a-quarantine');
+    fs.mkdirSync(victim);
+    fs.writeFileSync(path.join(victim, 'lease'), 'precious\n');
+    const run = cp.spawnSync('bash', ['-c', 'source "$1"; rule_hits_dispose_quarantine "$2"; echo "rc=$?"', '_', RULE_HITS, victim], {
+      env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8',
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.match(run.stdout, /rc=1/, 'guard rejects the path');
+    assert.strictEqual(fs.readFileSync(path.join(victim, 'lease'), 'utf8'), 'precious\n', 'non-quarantine content untouched');
+  });
   t('window includes the exact cutoff and excludes future rows', () => {
     const boundary = path.join(tmp, 'boundary.jsonl');
     fs.writeFileSync(boundary, [

@@ -68,6 +68,42 @@ rule_hits_lock_is_stale() {
   return 0
 }
 
+# Dispose one quarantined (renamed-away) lock generation. Quarantine content is
+# dead garbage by construction (an expired lock's lease/pid plus the reap claim),
+# so concurrent disposal by several processes is a safe idempotent double-delete.
+# Only known entry names are removed — never recursive — and a dir that still
+# refuses rmdir is left behind (fail-open) for the next sweep to retry.
+rule_hits_dispose_quarantine() {
+  local quarantine="$1"
+  local attempt=0
+  [[ "$quarantine" == *.lock.stale.* ]] || return 1
+  rmdir "$quarantine/reap" 2>/dev/null
+  rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
+  while ! rmdir "$quarantine" 2>/dev/null; do
+    [[ -d "$quarantine" ]] || return 0
+    attempt=$((attempt + 1))
+    (( attempt >= 20 )) && return 1
+    rmdir "$quarantine/reap" 2>/dev/null
+    rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
+    sleep 0.01 2>/dev/null || sleep 1 2>/dev/null || return 1
+  done
+  return 0
+}
+
+# Self-heal quarantine orphans next to the live lock. A reaper can die (hook
+# timeout SIGKILL) or hit a transient failure between its rename and its rmdir;
+# without a sweep that orphan dir would persist forever. Depth-1 targeted glob
+# on the `<lock>.stale.*` prefix only — the live lock dir is never touched.
+rule_hits_sweep_quarantines() {
+  local lock_dir="$1"
+  local q
+  for q in "$lock_dir".stale.*; do
+    [[ -d "$q" ]] || continue
+    rule_hits_dispose_quarantine "$q"
+  done
+  return 0
+}
+
 # Reclaim one dead, expired lock. The `reap` claim lives inside the OLD lock
 # object, so contenders serialize on that exact generation. After a second stale
 # check, takeover is an atomic rename to a unique quarantine; no contender ever
@@ -93,9 +129,7 @@ rule_hits_reap_stale() (
   rule_hits_lock_is_stale "$lock_dir" "$stale_seconds" || return 1
   mv "$lock_dir" "$quarantine" 2>/dev/null || return 1
   claimed=0
-  rmdir "$quarantine/reap" 2>/dev/null
-  rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
-  rmdir "$quarantine" 2>/dev/null
+  rule_hits_dispose_quarantine "$quarantine"
   return 0
 )
 
@@ -153,7 +187,11 @@ rule_hits_write_locked() (
     fi
   fi
 
-  printf '%s\n' "$row" >> "$log_file" 2>/dev/null || return 0
+  printf '%s\n' "$row" >> "$log_file" 2>/dev/null
+  # Heal any quarantine orphan a dead/interrupted reaper left behind — every
+  # successful write is a sweep opportunity, so orphans never outlive the next
+  # telemetry row (D#79: CI observed one transient disposal failure persisting).
+  rule_hits_sweep_quarantines "$lock_dir"
 )
 
 rule_hits_emit() {

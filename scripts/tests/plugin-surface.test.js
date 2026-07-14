@@ -393,6 +393,35 @@ t('doctor freshness is directional and ignores build metadata for precedence', (
     'equal-precedence-metadata-differs');
 });
 
+t('doctor governance-review cadence: fresh/pending pass, overdue/unstamped fail, next-due is the min', () => {
+  const { classifyGovernanceReview } = require('../doctor');
+  const now = Date.parse('2026-07-14T00:00:00Z');
+  const day = (n) => new Date(now - n * 86400000).toISOString().slice(0, 10);
+  const hr = (rules) => ({ governance: { review_cadence_days: 28 }, rules });
+  // All within cadence (reviewed 5d ago; never-reviewed but added 3d ago).
+  const fresh = classifyGovernanceReview(hr([
+    { id: 'a', last_demote_review: day(5) },
+    { id: 'b', added_at: day(3) },
+  ]), now);
+  assert.strictEqual(fresh.ok, true);
+  assert.deepStrictEqual(fresh.overdue, []);
+  assert.strictEqual(fresh.nextDueIso, day(-23), 'next due = earliest stamp + cadence (5d-old review → 23d out)');
+  // One reviewed past cadence → that rule (and only it) is overdue.
+  const due = classifyGovernanceReview(hr([
+    { id: 'a', last_demote_review: day(40) },
+    { id: 'b', last_demote_review: day(5) },
+  ]), now);
+  assert.strictEqual(due.ok, false);
+  assert.deepStrictEqual(due.overdue, ['a']);
+  // last_demote_review wins over an ancient added_at; unparseable stamp = due now.
+  assert.strictEqual(classifyGovernanceReview(hr([
+    { id: 'a', added_at: day(400), last_demote_review: day(2) },
+  ]), now).ok, true, 'review stamp supersedes added_at');
+  assert.deepStrictEqual(classifyGovernanceReview(hr([
+    { id: 'a', last_demote_review: 'not-a-date' },
+  ]), now).overdue, ['a'], 'unparseable stamp is due immediately');
+});
+
 withEnv(() => {
   const malformedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-semantic-plugin.'));
   try {

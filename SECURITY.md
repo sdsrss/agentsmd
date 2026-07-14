@@ -23,7 +23,7 @@ agentsmd is a **fail-open coding-discipline layer**, not a security boundary:
 
 | Surface | Trust boundary |
 |---|---|
-| Install | Network access only at install time: the bootstrap resolves an immutable GitHub release tag and verifies the published SHA-256 **before executing anything**; mutable refs are refused without an explicit `--dev` flag. npm installs are version-pinned by the user's lockfile/choice. |
+| Install | Network access only at install time: the bootstrap resolves an immutable GitHub release tag and verifies the published SHA-256 **before executing anything**; mutable refs are refused without an explicit `--dev` flag. npm installs are version-pinned by the user's lockfile/choice; since v4.19.0 every npm version is published from CI with a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements) tying the package to this repository and tag (verify: `npm audit signatures`). |
 | Runtime hooks | Local `bash` running as the invoking user on Codex events. No network egress at runtime. Fail-open; kill switches: `DISABLE_AGENTSMD_HOOKS=1` (all), `DISABLE_<NAME>_HOOK=1` (one). |
 | Shared config (`~/.codex/hooks.json`, `config.toml`, `AGENTS.md`) | agentsmd edits only its own sentinel-marked / path-matched entries; an unparseable shared file aborts the install rather than clobbering other tenants. Lifecycle operations are lock-serialized and journaled with automatic crash recovery. |
 | Project tools (`init`/`analyze`/`design`) | Read the current project only; symlinks that escape the project root are never followed; writes are sentinel-scoped and preview-by-default where applicable. |
