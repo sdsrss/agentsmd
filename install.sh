@@ -15,7 +15,7 @@ set -eu
 NAME="agentsmd"
 DEFAULT_REPO="sdsrss/agentsmd"
 # Synchronized by scripts/version-sync.js — must equal package.json version.
-INSTALLER_VERSION="4.6.0"
+INSTALLER_VERSION="4.7.0"
 DEFAULT_REF="v$INSTALLER_VERSION"
 
 ACTION="install"
@@ -24,6 +24,7 @@ REPO="${AGENTSMD_REPO:-$DEFAULT_REPO}"
 REF="${AGENTSMD_REF:-$DEFAULT_REF}"
 SOURCE_DIR="${AGENTSMD_SOURCE_DIR:-}"
 DEV_MODE=0
+DEGRADED_MODE=""
 TMP_ROOT=""
 SRC_PATH=""
 RESOLVED_IDENTITY=""
@@ -58,6 +59,10 @@ Options:
                       script's own release tag.
   --dev               Allow a mutable branch ref (e.g. --ref main). No pinning,
                       no checksum — development use only.
+  --degraded          Explicitly allow installing with missing prerequisites
+                      (jq, node >= 18). Hooks FAIL OPEN — no §8 enforcement;
+                      status/doctor keep warning until a healthy update. By
+                      default a missing prerequisite aborts with ZERO changes.
   --source <dir>      Use a local checkout instead of downloading. Used by tests/dev.
   -y, --yes           Non-interactive compatibility flag. The installer never prompts.
   -h, --help          Show this help.
@@ -347,8 +352,9 @@ fetch_source() {
 run_node_script() {
   src="$1"
   script="$2"
+  shift 2
   need_node
-  node "$src/scripts/$script"
+  node "$src/scripts/$script" "$@"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -390,6 +396,10 @@ while [ "$#" -gt 0 ]; do
       DEV_MODE=1
       shift
       ;;
+    --degraded)
+      DEGRADED_MODE=1
+      shift
+      ;;
     -y|--yes)
       shift
       ;;
@@ -416,12 +426,10 @@ case "$ACTION" in
   install)
     say "Installing/updating $NAME into $codex_home"
     [ -z "$RESOLVED_IDENTITY" ] || say "Resolved: $RESOLVED_IDENTITY"
-    if ! command -v jq >/dev/null 2>&1; then
-      say "WARNING: jq was not found on PATH. agentsmd's hooks require jq; without it every"
-      say "         hook fails open (NO enforcement) — the silent non-enforcing install this"
-      say "         project exists to prevent. Install jq, then re-run: $0 --doctor"
-    fi
-    run_node_script "$src" install.js
+    # Prerequisites (jq, node >= 18) gate inside install.js's shared preflight
+    # (R1-03): a miss aborts BEFORE any $CODEX_HOME byte changes. --degraded is
+    # the explicit opt-in for a NON-ENFORCING install (manifest enforcement:false).
+    run_node_script "$src" install.js ${DEGRADED_MODE:+--degraded}
     say ""
     say "Verifying install (doctor):"
     if run_node_script "$src" doctor.js; then

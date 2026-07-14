@@ -187,18 +187,42 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
   assert.strictEqual(statusAfter.installed, false);
 }));
 
-t('install.sh exits non-zero when doctor fails because jq is missing', () => withSandbox((dir) => {
+t('install.sh with jq missing → zero-mutation preflight refusal (R1-03), CODEX_HOME untouched', () => withSandbox((dir) => {
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
   fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const home = path.join(dir, 'codex-home');
   const result = cp.spawnSync('/bin/sh', [path.join(ROOT, 'install.sh'), '--source', ROOT], {
     cwd: ROOT,
-    env: { ...process.env, CODEX_HOME: path.join(dir, 'codex-home'), PATH: bin },
+    env: { ...process.env, CODEX_HOME: home, PATH: bin },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   assert.strictEqual(result.status, 1, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /jq.*not found|FAIL jq present|doctor reported issues/i);
+  assert.match(result.stdout + result.stderr, /zero-mutation preflight/);
+  assert.match(result.stdout + result.stderr, /--degraded/);
+  assert.ok(!fs.existsSync(home), 'CODEX_HOME must not be created on refusal');
+}));
+
+t('install.sh --degraded with jq missing → installs fail-open, manifest enforcement:false', () => withSandbox((dir) => {
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const home = path.join(dir, 'codex-home');
+  const result = cp.spawnSync('/bin/sh', [path.join(ROOT, 'install.sh'), '--source', ROOT, '--degraded'], {
+    cwd: ROOT,
+    env: { ...process.env, CODEX_HOME: home, PATH: bin },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  // Install itself succeeds; the trailing doctor verification stays red on a
+  // degraded install ("install enforcement active" + "jq present"), so the
+  // script still exits 1 — degraded is usable but never silently healthy.
+  assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+  const manifest = JSON.parse(fs.readFileSync(path.join(home, '.agentsmd-state', 'manifest.json'), 'utf8'));
+  assert.strictEqual(manifest.enforcement, false);
+  assert.deepStrictEqual(manifest.missingPrerequisites, ['jq']);
+  assert.match(result.stdout + result.stderr, /doctor reported issues/);
 }));
 
 t('repo marketplace exposes the root agentsmd plugin with install policy metadata', () => {

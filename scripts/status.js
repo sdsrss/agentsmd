@@ -70,6 +70,11 @@ function status() {
     manifestError: manifestState.error,
     installedVersion: (manifest && manifest.version) || null,
     installedAt: (manifest && manifest.installedAt) || null,
+    // R1-03: false only after an explicit --degraded install with prerequisites
+    // missing; pre-R1-03 manifests carry no field and report true (jq presence
+    // is separately doctor-checked). Heals on the next healthy `agentsmd update`.
+    enforcement: manifest ? manifest.enforcement !== false : null,
+    missingPrerequisites: (manifest && manifest.missingPrerequisites) || [],
     agentsmdHooksRegistered: hooksContent ? H.countAgentsmdHooks(hooksContent) : 0,
     otherTenantHooksPreserved: other,
     totalHookEntries: total,
@@ -129,6 +134,9 @@ if (require.main === module) {
   }
   const result = status();
   console.log(JSON.stringify(result, null, 2));
+  if (result.enforcement === false) {
+    console.error(`WARNING: enforcement:false — degraded install (missing: ${result.missingPrerequisites.join(', ') || 'unknown'}). Hooks FAIL OPEN. Install the prerequisites and run \`agentsmd update\`.`);
+  }
   // Explain a null selectedSurface on stderr (stdout stays pure JSON). Without
   // this, `node scripts/status.js` with no plugin-root env silently reports
   // selectedSurface:null / no-healthy-surface and looks like a real fault.

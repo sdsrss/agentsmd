@@ -26,7 +26,15 @@ extract_spec_version() {
 
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
-hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
+# R1-03 degraded-mode persistent warning: without jq every enforcement hook
+# fails open, so this is said EVERY session start, not once at install time.
+# jq itself is unavailable on this path — the payload is a static literal, so
+# hand-rolled JSON is safe (mirrors the rule-hits jq-less telemetry fallback).
+hook_require_jq || {
+  hook_record_failopen "$HOOK" "jq-missing"
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[agentsmd] enforcement:false — jq is missing on PATH, so every agentsmd enforcement hook FAILS OPEN (no §8 blocks). Install jq, then run: agentsmd doctor"}}\n'
+  exit 0
+}
 
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"

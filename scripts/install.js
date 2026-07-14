@@ -14,6 +14,7 @@ const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
 const R = require('./lib/release-artifact');
+const PF = require('./lib/preflight');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -237,6 +238,13 @@ function cleanupTransaction(transaction, stageRoot) {
 }
 
 function install(nowIso, options = {}) {
+  // R1-03: prerequisites gate BEFORE any mutation — including the staging dir,
+  // which lives inside $CODEX_HOME. A missing prerequisite without the explicit
+  // --degraded opt-in must leave every byte of $CODEX_HOME untouched.
+  const preflight = PF.checkPrerequisites();
+  if (!preflight.ok && options.degraded !== true) {
+    throw new Error(PF.refusalMessage(preflight.missing));
+  }
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);
@@ -363,6 +371,10 @@ function install(nowIso, options = {}) {
       migratedFromCodexmd: migratedFromCodexmd.detected ? migratedFromCodexmd : null,
       migratedTelemetryRows: migratedTelemetry.migrated,
       legacyArtifactBackup: legacyAgentsmd.backup,
+      // R1-03: honest enforcement state. false only on an explicit --degraded
+      // install with prerequisites still missing; a later healthy update heals it.
+      enforcement: preflight.ok,
+      missingPrerequisites: preflight.missing.map((m) => m.name),
       ...(options.repair ? {
         operation: 'repair',
         repairedAt: stamp,
@@ -429,12 +441,19 @@ function tightenPrivateArtifacts() {
 
 function installUsage(command = 'install') {
   return [
-  `Usage: agentsmd ${command} [--json]`,
+  `Usage: agentsmd ${command} [--json] [--degraded]`,
   '',
   'Install or update agentsmd in $CODEX_HOME.',
   '',
+  'Prerequisites (jq, node >= 18) are checked BEFORE any file changes; a miss',
+  'aborts with zero mutation.',
+  '',
   'Options:',
   '  --json       Print the full install manifest as JSON.',
+  '  --degraded   Explicitly allow installing with missing prerequisites.',
+  '               Hooks FAIL OPEN (no §8 enforcement); the manifest records',
+  '               enforcement:false and status/doctor warn until a healthy',
+  `               \`agentsmd update\`. Env equivalent: AGENTSMD_ALLOW_DEGRADED=1.`,
   '  -h, --help   Show this help without changing any files.',
   ].join('\n');
 }
@@ -447,16 +466,19 @@ if (require.main === module) {
   const argv = process.argv.slice(2);
   printHelpAndExit(argv, usage);
   let parsed;
-  try { parsed = parseStrict(argv, { bools: ['json'] }); }
+  try { parsed = parseStrict(argv, { bools: ['json', 'degraded'] }); }
   catch (error) {
     console.error(`agentsmd ${command}: ${error.message}`);
     console.error(usage);
     process.exit(2);
   }
   try {
-    const manifest = install();
+    const manifest = install(null, { degraded: PF.degradedOptIn(parsed.bools) });
     if (parsed.bools.has('json')) console.log(JSON.stringify(manifest, null, 2));
     else console.log(`agentsmd installed: v${manifest.version || 'unknown'}, ${manifest.hookCount} hooks, ${manifest.installedSkills.length} skills (backup ${manifest.backup})`);
+    if (manifest.enforcement === false) {
+      console.error(`WARNING: degraded install — missing: ${manifest.missingPrerequisites.join(', ')}. Hooks FAIL OPEN (no §8 enforcement). Install the prerequisites and run \`agentsmd update\` to restore enforcement.`);
+    }
   } catch (error) { console.error(`agentsmd ${command} failed:`, error.message); process.exit(1); }
 }
 

@@ -73,6 +73,17 @@ function doctor() {
   add('codex present', has('codex'), 'standalone config health uses the Codex CLI parser');
 
   const surfaceStatus = readStatus();
+  // R1-03: a --degraded install persists enforcement:false in the manifest;
+  // this check keeps failing (and doctor exits 1) until a healthy update heals it.
+  if (surfaceStatus.installed) {
+    add(
+      'install enforcement active',
+      surfaceStatus.enforcement !== false,
+      surfaceStatus.enforcement !== false
+        ? 'manifest enforcement:true'
+        : `degraded install (missing: ${(surfaceStatus.missingPrerequisites || []).join(', ') || 'unknown'}) — install prerequisites, then run \`agentsmd update\``
+    );
+  }
   const arbitration = surfaceStatus.surfaceArbitration;
   const pluginBundle = arbitration.candidates.plugin;
   if (pluginBundle.detected && arbitration.selection.selected !== 'standalone') {

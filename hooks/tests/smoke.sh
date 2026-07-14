@@ -1236,6 +1236,16 @@ else
   bad "telemetry jq-less fallback writes valid JSON" "$(cat "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
 fi
 
+# R1-03: jq missing at runtime → SessionStart still emits a per-startup degraded
+# warning (hand-rolled static JSON — the jq-less path), instead of exiting silent.
+for c in dirname grep sed; do ln -sf "$(command -v "$c")" "$NOJQ/bin/$c"; done
+OUT="$(PATH="$NOJQ/bin" CODEX_HOME="$NOJQ/home" bash hooks/session-start-check.sh </dev/null 2>/dev/null)"
+if printf '%s' "$OUT" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); const c=d.hookSpecificOutput; if (c.hookEventName!=="SessionStart"||!/enforcement:false/.test(c.additionalContext)||!/jq/.test(c.additionalContext)) process.exit(1);' 2>/dev/null; then
+  ok "jq missing → SessionStart emits per-startup enforcement:false warning (valid JSON)"
+else
+  bad "jq missing → SessionStart degraded warning" "$OUT"
+fi
+
 echo "== permissions (M-02) =="
 # Telemetry rows carry project path slugs; creation must stay private (0700/0600)
 # even under a permissive caller umask — both via the bare library...

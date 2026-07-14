@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.7.0 (2026-07-13) — no spec changes (prerequisite preflight release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor that gates installs
+on a zero-mutation prerequisite preflight with explicit `--degraded` opt-in
+(R1-03). `spec_version` → v4.7.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.6.0 (2026-07-13) — no spec changes (bootstrap identity release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.

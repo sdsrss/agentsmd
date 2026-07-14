@@ -3,6 +3,50 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.7.0 — 2026-07-13 — zero-mutation prerequisite preflight (R1-03)
+
+**Migration note**: installing/updating on a machine without `jq` (or Node < 18)
+now **aborts before any file changes** instead of installing with a post-hoc
+warning. Nothing changes on healthy machines. If you genuinely want the old
+fail-open behavior, opt in explicitly with `--degraded` (installer and
+`agentsmd install|update`) or `AGENTSMD_ALLOW_DEGRADED=1` — the manifest then
+records `enforcement:false` and `status`/`doctor`/SessionStart keep warning
+until a healthy `agentsmd update`. To pin the previous behavior instead, use
+`--ref v4.6.0`.
+
+### Changed (behavior)
+
+- `scripts/install.js` runs a shared preflight (`scripts/lib/preflight.js`:
+  `jq` on PATH, Node >= 18) **before the staging directory is created** — a
+  miss without the explicit opt-in is a zero-mutation refusal: `hooks.json`,
+  `config.toml`, `AGENTS.md`, and the manifest stay byte-identical and no
+  state directory appears (audit M-01; every enforcement hook needs jq, so a
+  jq-less install used to be silently non-enforcing). All install surfaces
+  share the one gate: `install.sh` (which forwards `--degraded`), the npm CLI
+  (`agentsmd install|update [--degraded]`), and `repair` re-runs.
+- Degraded installs are recorded in the manifest as `enforcement:false` +
+  `missingPrerequisites`, and every surface keeps saying so: `status` prints a
+  stderr warning, `doctor` gains a failing `install enforcement active` check
+  (exit 1), and — with jq missing at runtime — the SessionStart hook injects a
+  per-session `enforcement:false` context warning via a jq-less JSON path
+  instead of exiting silently. A later healthy `agentsmd update` heals the
+  manifest to `enforcement:true`.
+- `install.sh` drops its post-install jq WARNING (superseded by the gate) and
+  passes CLI args through `run_node_script`.
+
+### Tests
+
+- New `scripts/tests/preflight.test.js` (8 checks): byte-identical refusal
+  fingerprint, `--degraded` + env opt-ins, status/doctor degraded signals,
+  healthy-update healing. `distribution.test.js` 39 → 40 (installer refusal +
+  `--degraded` E2E through `install.sh`); smoke adds the jq-less SessionStart
+  degraded-warning case.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.6.0 && agentsmd update`, or
+  `install.sh --ref v4.6.0`.
+
 ## v4.6.0 — 2026-07-13 — pinned, checksum-verified bootstrap (R3-01 / R3-02)
 
 The standalone installer no longer executes mutable-branch content by default.

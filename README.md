@@ -58,6 +58,12 @@ commit is immutable by identity but has no published checksum and warns; a
 mutable branch such as `main` is refused unless you add `--dev` (development
 only — nothing is pinned or verified on that path).
 
+Prerequisites (`jq`, Node.js 18+) are checked **before any file changes**: a
+miss aborts with zero mutation. `--degraded` is the explicit opt-in for a
+non-enforcing install (hooks fail open); the manifest records
+`enforcement:false` and `status`/`doctor` keep warning until a healthy
+`agentsmd update`.
+
 ### npm CLI
 
 Install a versioned CLI globally, then run the same standalone lifecycle:
