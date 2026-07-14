@@ -89,6 +89,8 @@ npx --package @sdsrs/agentsmd agentsmd install
 
 直接运行 `agentsmd` 只打印帮助，不写入文件。退出码统一为：`0` 表示成功/帮助，`1` 表示负面结果或运行时失败，`2` 表示 argv/usage 错误。
 
+自 v4.19.0 起，每个 npm 版本都由 CI 携带 [provenance 证明](https://docs.npmjs.com/generating-provenance-statements)（Sigstore / SLSA）发布，将包绑定到本仓库与该 tag；用 `npm audit signatures` 验证。
+
 ### 从本地 checkout 安装
 
 适合贡献者或安装前审查：
@@ -288,7 +290,7 @@ manifest 的 partial install 都会阻断并要求人工复核。`--confirm=<pla
 `config.toml` 和 `AGENTS.md`，不能修复 deploy、skills、extended spec 或 ownership
 manifest。
 
-卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state 和 extended spec。它保留恢复备份、未知状态、遥测、已启用的 hook/status-line 设置，以及当前会话可能仍需要的未注册 no-op shims。
+卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
 
 agentsmd 独立于 oh-my-codex。若存在 OMX，agentsmd 会把它的条目视为其他 tenant 并原样保留。
 

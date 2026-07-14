@@ -3,6 +3,43 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.19.1 — 2026-07-14 — uninstall status-line reversibility + doctor governance parity (patch)
+
+**Migration note**: no spec/rule changes; bugfix-only patch over v4.19.0.
+Two corrections found by post-release code review and a sandbox install
+simulation: (1) **uninstall now reverts the `tui.status_line` preset it
+added** [D#80] — previously uninstall removed the AGENTS block, extended spec,
+hooks, and skills but left agentsmd's status-line preset in the user's
+`config.toml`, contradicting the "exact reversible removal — every other tenant
+byte-for-byte" invariant (the residue landed in the user's own file). It is now
+reverted, and only when the value is still exactly the agentsmd preset — a
+status line you have since customized is left untouched; when install appended
+the whole `[tui]` table for it, the now-empty header comes out too. Wired into
+uninstall's journalled + rollback transaction so crash recovery covers it.
+`features.hooks` stays enabled by design (§5). (2) **`doctor` governance
+demote-review check parity** — `classifyGovernanceReview` fell back to
+`added_at` whenever `last_demote_review` was unparseable, but `agentsmd rules`
+only does so when the stamp is absent; a corrupted-but-present stamp on a
+recently-added rule read fresh in doctor while `rules` flagged it due. doctor
+now treats a present-but-unparseable stamp as due, matching `rules`. Rollback:
+`npm i -g @sdsrs/agentsmd@4.19.0 && agentsmd update`, or
+`install.sh --ref v4.19.0`.
+
+### Fixed
+
+- D#80: `agentsmd uninstall` reverts the status-line preset it added
+  (`CT.removeAgentsmdStatusLine`, guarded by preset-equality; a user-customized
+  status line is preserved).
+- `doctor` governance-review cadence now agrees with `agentsmd rules` on a
+  present-but-unparseable `last_demote_review` (due, not fresh).
+- `release.yml` npm-publish guard derives the package name from `package.json`
+  instead of hardcoding it.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.19.0 && agentsmd update`, or
+  `install.sh --ref v4.19.0`.
+
 ## v4.19.0 — 2026-07-14 — telemetry-lock self-healing + npm provenance + governance-due doctor check
 
 **Migration note**: no spec/rule changes; no lifecycle-surface changes. Three

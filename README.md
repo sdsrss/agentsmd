@@ -95,6 +95,8 @@ npx --package @sdsrs/agentsmd agentsmd install
 
 A bare `agentsmd` prints help and writes nothing. Exit codes are consistent: `0` = success/help, `1` = negative result or runtime failure, `2` = argv/usage error.
 
+Since v4.19.0 every npm version is published from CI with a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements) (Sigstore / SLSA) binding the package to this repository and tag; verify it with `npm audit signatures`.
+
 ### From a local checkout
 
 For contributors and installation review:
@@ -299,7 +301,7 @@ digest becomes stale if the artifact or any target/shared file changes.
 `hooks.json`, `config.toml`, and `AGENTS.md`. It cannot repair deploy, skills,
 the extended spec, or the ownership manifest.
 
-Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, and the extended spec. It retains recovery backups, unknown state, telemetry, enabled hook/status-line settings, and unregistered no-op shims needed by already-running sessions.
+Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, the extended spec, and the status-line preset it added — a status line you have since customized is left untouched. It retains recovery backups, unknown state, telemetry, the enabled hook flag (removing it could break other tenants' hooks), and unregistered no-op shims needed by already-running sessions.
 
 agentsmd is independent of oh-my-codex. If OMX is present, agentsmd treats its entries as another tenant and leaves them intact.
 

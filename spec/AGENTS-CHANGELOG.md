@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.19.1 (2026-07-14) — no spec changes (uninstall reversibility + doctor parity patch)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a bugfix-only patch: uninstall now
+reverts the tui.status_line preset it added (D#80), and the doctor governance
+demote-review check now agrees with `agentsmd rules` on an unparseable review
+stamp. `spec_version` → v4.19.1. Detail: repository `CHANGELOG.md`.
+
 ## v4.19.0 (2026-07-14) — no spec changes (reliability + supply-chain release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.
