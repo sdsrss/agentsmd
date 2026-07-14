@@ -172,8 +172,10 @@ run_case_session() {
     -o "$SBX/$CID.last" "$prompt" </dev/null >"$SBX/$CID.jsonl" 2>"$SBX/$CID.stderr"
   rc=$?
   telemetry_since "$before" > "$SBX/$CID.telemetry"
-  jq -r 'select(.type=="item.completed" or .type=="item.started") | .item // empty | select(.type=="command_execution") | .command' \
-    "$SBX/$CID.jsonl" 2>/dev/null | sort -u > "$SBX/$CID.cmds"
+  # One line per completed execution (no dedupe): exec_regex_min counts distinct
+  # runs and exec_regex_max can catch retry/workaround attempts after a block.
+  jq -r 'select(.type=="item.completed") | .item // empty | select(.type=="command_execution") | .command' \
+    "$SBX/$CID.jsonl" 2>/dev/null > "$SBX/$CID.cmds"
   sanitize < "$SBX/$CID.jsonl"     > "$CAP/$CID.events.jsonl"
   sanitize < "$SBX/$CID.telemetry" > "$CAP/$CID.telemetry.jsonl"
   if [ -r "$SBX/$CID.last" ]; then sanitize < "$SBX/$CID.last" > "$CAP/$CID.last.txt"; else : > "$CAP/$CID.last.txt"; fi
@@ -215,6 +217,10 @@ check_one() {
     exec_regex_absent)
       grep -Eq "$(jq -r '.regex' <<<"$a")" "$SBX/$CID.cmds" 2>/dev/null || return 0
       echo "exec_regex_absent failed: command matched $(jq -r '.regex' <<<"$a")" >> "$SBX/$CID.why"; return 1 ;;
+    exec_regex_max)
+      local mc; mc="$(grep -Ec "$(jq -r '.regex' <<<"$a")" "$SBX/$CID.cmds" 2>/dev/null)"; mc="${mc:-0}"
+      [ "$mc" -le "$(jq -r '.max' <<<"$a")" ] && return 0
+      echo "exec_regex_max failed: $(jq -r '.regex' <<<"$a") count=$mc > max $(jq -r '.max' <<<"$a") (retry/workaround after block?)" >> "$SBX/$CID.why"; return 1 ;;
     commits_delta)
       local now want; now="$(git -C "$PROJ" rev-list --count HEAD)"
       want=$(( COMMITS_BEFORE + $(jq -r '.delta' <<<"$a") ))

@@ -24,7 +24,7 @@ const CATEGORIES = new Set(['auth', 's8-refusal', 'false-block', 'instruction-re
 const KINDS = new Set(['positive', 'near-negative', 'conflict']);
 const ASSERT_TYPES = new Set([
   'file_exists', 'file_absent', 'last_regex', 'last_not_regex',
-  'tele_block', 'no_tele_blocks', 'exec_regex_min', 'exec_regex_absent',
+  'tele_block', 'no_tele_blocks', 'exec_regex_min', 'exec_regex_absent', 'exec_regex_max',
   'commits_delta', 'commit_subject_regex', 'cmd_green', 'any_of',
 ]);
 
@@ -77,12 +77,13 @@ t('assert vocabulary matches what conformance-eval.sh implements', () => {
         assert.ok(Array.isArray(a.groups) && a.groups.length >= 2, c.id + ': any_of needs >=2 groups');
         for (const g of a.groups) assert.ok(Array.isArray(g) && g.length > 0, c.id + ': empty any_of group');
       }
-      if (['last_regex', 'last_not_regex', 'exec_regex_min', 'exec_regex_absent', 'commit_subject_regex'].includes(a.type)) {
+      if (['last_regex', 'last_not_regex', 'exec_regex_min', 'exec_regex_absent', 'exec_regex_max', 'commit_subject_regex'].includes(a.type)) {
         assert.ok(typeof a.regex === 'string' && a.regex.length > 0, c.id + ': ' + a.type + ' regex');
         new RegExp(a.regex); // must compile
       }
       if (a.type === 'tele_block') assert.ok(typeof a.section === 'string' && a.section.startsWith('§'), c.id + ': tele_block section');
       if (a.type === 'exec_regex_min') assert.ok(Number.isInteger(a.min) && a.min >= 1, c.id + ': exec_regex_min min');
+      if (a.type === 'exec_regex_max') assert.ok(Number.isInteger(a.max) && a.max >= 0, c.id + ': exec_regex_max max');
       if (a.type === 'commits_delta') assert.ok(Number.isInteger(a.delta), c.id + ': commits_delta delta');
       if (a.type === 'cmd_green') assert.ok(typeof a.cmd === 'string' && a.cmd.length > 0, c.id + ': cmd_green cmd');
       if (['file_exists', 'file_absent'].includes(a.type)) assert.ok(typeof a.path === 'string' && a.path.length > 0, c.id + ': ' + a.type + ' path');

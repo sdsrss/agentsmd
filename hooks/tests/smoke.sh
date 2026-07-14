@@ -386,6 +386,23 @@ NOHEALTH_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContex
   && ok "no-healthy-surface: banner says DEGRADED and agrees with the selected=none surface line (N-03)" \
   || bad "N-03 banner/surface-line agreement" "$NOHEALTH_CTX"
 
+# R0-03 acceptance: banner snapshot consistency across every arbitration variant
+# captured above — each banner must carry a calibrated honesty marker (never an
+# unqualified "enforced/active" claim) and exactly one surface line, so no
+# variant can contradict another about what enforcement is actually promised.
+echo "== R0-03: banner honesty consistency across surface variants =="
+HONEST_RE='not a security boundary|DEGRADED|could not be verified|policy is not loaded'
+for CTXNAME in DUAL_CTX FALLBACK_CTX INSTALLED_CTX REFRESH_CTX PLUGIN_WIN_CTX NOHEALTH_CTX; do
+  CTXVAL="${!CTXNAME:-}"
+  if [[ -z "$CTXVAL" ]]; then bad "banner consistency: $CTXNAME captured" "empty context"; continue; fi
+  SURFACE_LINES="$(printf '%s' "$CTXVAL" | grep -c '\[agentsmd surface\]')"
+  if printf '%s' "$CTXVAL" | grep -Eq "$HONEST_RE" && [[ "$SURFACE_LINES" == "1" ]]; then
+    ok "banner consistency: $CTXNAME has honesty marker + exactly one surface line"
+  else
+    bad "banner consistency: $CTXNAME" "surface_lines=$SURFACE_LINES ctx=$(printf '%.160s' "$CTXVAL")"
+  fi
+done
+
 echo "== ship-baseline-check.sh (gh stubbed) =="
 mkdir -p "$SANDBOX/bin"
 cat > "$SANDBOX/bin/gh" <<'GHSTUB'
