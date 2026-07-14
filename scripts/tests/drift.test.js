@@ -150,6 +150,10 @@ t('version: package = plugin = marketplace = hard-rules = core + extended header
   assert.strictEqual(pkg, manifest, `package(${pkg}) != manifest(${manifest})`);
   assert.strictEqual(pkg, specHeader, `package(${pkg}) != core spec header(${specHeader})`);
   assert.strictEqual(pkg, extHeader, `package(${pkg}) != extended spec header(${extHeader})`);
+  // install.sh pins its own release tag as the default ref (R3-01) — a stale
+  // INSTALLER_VERSION would silently install the previous release.
+  const installer = (read('install.sh').match(/INSTALLER_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"/) || [])[1];
+  assert.strictEqual(pkg, installer, `package(${pkg}) != install.sh INSTALLER_VERSION(${installer})`);
 });
 
 // 6. plugin.json declares the skills dir and it exists with SKILL.md files.

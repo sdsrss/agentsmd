@@ -20,6 +20,7 @@ const FILES = [
   'spec/hard-rules.json',
   'spec/AGENTS.md',
   'spec/AGENTS-extended.md',
+  'install.sh',
 ];
 
 const RELEASE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -86,6 +87,12 @@ function renderFiles(root, version, sourceContent = null) {
       /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
       `CODEX-CODING-SPEC v${version}`,
       'spec/AGENTS-extended.md'
+    ),
+    'install.sh': replaceExactlyOne(
+      content['install.sh'],
+      /(INSTALLER_VERSION=")[0-9]+\.[0-9]+\.[0-9]+(")/,
+      `$1${version}$2`,
+      'install.sh'
     ),
   };
 }

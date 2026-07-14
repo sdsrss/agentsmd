@@ -35,10 +35,14 @@ t('real repo: 0 offenders (prose has no stale same-major version token)', () => 
   assert.ok(r.ok, 'expected clean; offenders:\n' + JSON.stringify(r.offenders, null, 2));
   assert.deepStrictEqual(r.filesChecked, ['README.md', 'README.zh-CN.md']);
 });
-t('allowlist is load-bearing: README ships an example --ref v2.2.1 that is suppressed', () => {
+t('allowlist is load-bearing: README ships the historical rename version v2.0.0, suppressed', () => {
+  // The old --ref v2.2.1 example left the README in v4.6.0 (the default ref is
+  // now self-pinned, so a pin example is redundant); v2.0.0 (the codexmd →
+  // agentsmd rename note) remains and keeps the allowlist exercised.
   const readme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
-  assert.ok(readme.includes('v2.2.1'), 'README should still carry the example ref');
-  assert.ok(V.INTENTIONAL_TOKENS.has('v2.2.1'), 'and it must be allowlisted');
+  assert.ok(readme.includes('v2.0.0'), 'README should still carry the rename version');
+  assert.ok(V.INTENTIONAL_TOKENS.has('v2.0.0'), 'and it must be allowlisted');
+  assert.ok(!V.INTENTIONAL_TOKENS.has('v2.2.1'), 'dropped example must not linger in the allowlist');
 });
 
 // ── detector teeth: synthetic tree ──────────────────────────────────────────

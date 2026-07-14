@@ -51,11 +51,11 @@ less /tmp/agentsmd-install.sh
 sh /tmp/agentsmd-install.sh
 ```
 
-要固定到 branch、tag 或 commit，传入 `--ref`；下面的历史 tag 仅作示例：
-
-```bash
-sh /tmp/agentsmd-install.sh --ref v2.2.1
-```
+安装器默认解析到**它自己的 release tag** 对应的不可变 GitHub release 资产，并在
+执行任何下载代码**之前**校验已发布的 SHA-256。`--ref vX.Y.Z` 可固定到其他
+release tag（同样校验）；40 位 commit 具备不可变身份但没有已发布 checksum，会
+告警；`main` 等 mutable branch 会被拒绝，除非显式加 `--dev`（仅限开发——该路径
+不固定也不校验）。
 
 ### npm CLI
 

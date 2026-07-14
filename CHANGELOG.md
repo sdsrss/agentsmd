@@ -3,6 +3,52 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.6.0 — 2026-07-13 — pinned, checksum-verified bootstrap (R3-01 / R3-02)
+
+The standalone installer no longer executes mutable-branch content by default.
+
+### Changed (behavior)
+
+- `install.sh` defaults to **its own release tag** (`INSTALLER_VERSION`,
+  synchronized by `version-sync` and asserted by the drift version gate)
+  instead of `main` (H-05). The tag resolves to the immutable GitHub release
+  asset and its published SHA-256 is verified **before any downloaded code
+  runs**; the resolved identity (version, tag, digest prefix) is printed, and
+  the archive's `package.json` version must equal the tag or the install dies.
+- A mutable ref (`--ref main`, any branch) is refused with exit 2 unless
+  `--dev` is passed, and `--dev` installs carry a standing UNVERIFIED warning.
+  A 40-hex commit ref stays available (immutable identity) but warns that
+  commits have no published checksum.
+- An explicit `--repo`/`--ref` (or `AGENTSMD_REPO`/`AGENTSMD_REF`) now always
+  downloads: the local-checkout shortcut no longer silently shadows a
+  requested pinned ref.
+
+### Added
+
+- `.github/workflows/release.yml` — on every `v*` tag: assert tag = package
+  version, run the full test gate, `npm pack`, and publish
+  `agentsmd-X.Y.Z.tgz` + `.sha256` as immutable GitHub release assets
+  (SHA-pinned actions; `gh release create --verify-tag`).
+- `AGENTSMD_RELEASE_BASE` override for the asset base URL (mirrors/tests; the
+  distribution suite uses `file://` fixtures to prove both the verified path
+  and the tamper path offline).
+
+### Quality
+
+- Suite growth: distribution 36 → 39 (pinned-default static gate; mutable-ref
+  refusal for `main`/`feature/x`/`deadbeef` with untouched `CODEX_HOME`;
+  offline E2E where a single flipped byte dies with "SHA-256 mismatch …
+  refusing to execute" before any mutation), version-sync 5 (now covers
+  `install.sh` as the 7th synchronized location), version-cascade 6 → 7
+  (allowlist slimmed with the removed `--ref v2.2.1` README example), drift
+  gate #5 extended to `INSTALLER_VERSION`.
+
+### Rollback
+
+- Releases before v4.6.0 have no release assets; the pre-4.6.0 installer
+  behavior (codeload snapshot of any ref) remains reachable via
+  `--ref <40-hex-commit>` or `--dev`, both clearly labeled UNVERIFIED.
+
 ## v4.5.0 — 2026-07-13 — structured §8 exceptions replace inline bypass tokens (R1-01)
 
 The immutable §8 hooks no longer accept any inline `[allow-*]` token. The

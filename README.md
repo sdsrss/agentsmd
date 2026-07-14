@@ -51,11 +51,12 @@ less /tmp/agentsmd-install.sh
 sh /tmp/agentsmd-install.sh
 ```
 
-To pin a branch, tag, or commit, pass `--ref`; this historical tag is only an example:
-
-```bash
-sh /tmp/agentsmd-install.sh --ref v2.2.1
-```
+By default the installer resolves its **own release tag** to the immutable GitHub
+release asset and verifies the published SHA-256 **before** executing anything
+from it. `--ref vX.Y.Z` pins another release tag (also verified); a 40-hex
+commit is immutable by identity but has no published checksum and warns; a
+mutable branch such as `main` is refused unless you add `--dev` (development
+only — nothing is pinned or verified on that path).
 
 ### npm CLI
 

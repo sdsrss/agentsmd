@@ -81,6 +81,60 @@ t('install.sh rejects option-like values before touching CODEX_HOME', () => with
   }
 }));
 
+// R3-01: the default ref is the installer's own pinned release tag — never a
+// mutable branch — and it must match the package version (drift gate mirrors this).
+t('install.sh pins its default ref to its own release tag', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');
+  const ver = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  assert.match(src, new RegExp(`INSTALLER_VERSION="${ver.replace(/\./g, '\\.')}"`));
+  assert.match(src, /DEFAULT_REF="v\$INSTALLER_VERSION"/);
+  assert(!/DEFAULT_REF="main"/.test(src), 'mutable default ref resurfaced');
+});
+
+t('install.sh refuses an explicit mutable ref without --dev, before any download or mutation', () => withSandbox((dir) => {
+  for (const ref of ['main', 'feature/x', 'deadbeef']) {
+    const codexHome = path.join(dir, 'home-' + ref.replace(/\W/g, '_'));
+    const result = cp.spawnSync('sh', [path.join(ROOT, 'install.sh'), '--ref', ref], {
+      cwd: ROOT, env: { ...process.env, CODEX_HOME: codexHome }, encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    assert.strictEqual(result.status, 2, `${ref}\n${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /mutable ref/, ref);
+    assert.match(result.stderr, /--dev/, ref);
+    assert(!fs.existsSync(codexHome), `${ref} touched CODEX_HOME`);
+  }
+}));
+
+t('install.sh tag path verifies the release SHA-256 end-to-end; a tampered archive dies before mutation (R3-02)', () => withSandbox((dir) => {
+  const ver = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const tag = `v${ver}`;
+  const relDir = path.join(dir, 'rel', tag);
+  fs.mkdirSync(relDir, { recursive: true });
+  cp.execFileSync('npm', ['pack', '--pack-destination', dir], { cwd: ROOT, stdio: 'ignore' });
+  fs.renameSync(path.join(dir, `sdsrs-agentsmd-${ver}.tgz`), path.join(relDir, `agentsmd-${ver}.tgz`));
+  const sha = cp.execFileSync('sha256sum', [`agentsmd-${ver}.tgz`], { cwd: relDir, encoding: 'utf8' });
+  fs.writeFileSync(path.join(relDir, `agentsmd-${ver}.tgz.sha256`), sha);
+  const base = { AGENTSMD_RELEASE_BASE: `file://${path.join(dir, 'rel')}` };
+
+  const goodHome = path.join(dir, 'home-good');
+  const out = run(['--ref', tag], { ...base, CODEX_HOME: goodHome });
+  assert.match(out, /Resolved: agentsmd v.*sha256 verified/, out);
+  assert(fs.existsSync(path.join(goodHome, 'agentsmd', 'scripts', 'install.js')), 'verified install did not land');
+
+  const archive = path.join(relDir, `agentsmd-${ver}.tgz`);
+  const bytes = fs.readFileSync(archive);
+  bytes[100] ^= 0xff;
+  fs.writeFileSync(archive, bytes);
+  const badHome = path.join(dir, 'home-bad');
+  const result = cp.spawnSync('sh', [path.join(ROOT, 'install.sh'), '--ref', tag], {
+    cwd: ROOT, env: { ...process.env, ...base, CODEX_HOME: badHome }, encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /SHA-256 mismatch.*refusing to execute/);
+  assert(!fs.existsSync(badHome), 'tampered archive must die before any CODEX_HOME mutation');
+}));
+
 t('install.sh rejects conflicting lifecycle actions without uninstalling', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   run(['--source', ROOT], env);

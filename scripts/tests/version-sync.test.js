@@ -15,6 +15,7 @@ const FILES = [
   'spec/hard-rules.json',
   'spec/AGENTS.md',
   'spec/AGENTS-extended.md',
+  'install.sh',
 ];
 
 let PASS = 0, FAIL = 0;
@@ -47,6 +48,7 @@ t('syncVersion updates package, plugin, marketplace, manifest, and both spec hea
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'))).spec_version, 'v4.0.1');
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS.md'), 'utf8'), /CODEX-CODING-SPEC v4\.0\.1/);
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-extended.md'), 'utf8'), /CODEX-CODING-SPEC v4\.0\.1/);
+  assert.match(fs.readFileSync(path.join(root, 'install.sh'), 'utf8'), /INSTALLER_VERSION="4\.0\.1"/);
 }));
 
 t('syncVersion rejects invalid semver before changing any file', () => withFixture((root) => {

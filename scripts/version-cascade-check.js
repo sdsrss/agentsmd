@@ -5,9 +5,9 @@
 // headers). This complements it by scanning PROSE — the READMEs — for a
 // same-major version token drifted off the current minor (e.g. a "current
 // version vX.Y" claim left stale after a bump). drift #5 reads named JSON fields;
-// this reads narrative text those fields never cover. Intentional historical /
-// example refs (the rename version, an example --ref tag) are allowlisted by
-// exact token. Ported from claudemd/scripts/version-cascade-check.js (ESM→CJS).
+// this reads narrative text those fields never cover. Intentional historical
+// refs (the rename version) are allowlisted by exact token. Ported from
+// claudemd/scripts/version-cascade-check.js (ESM→CJS).
 
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +20,7 @@ const SCANNED_FILES = ['README.md', 'README.zh-CN.md'];
 // never "the current version", so never stale, yet same-major so they'd otherwise
 // trip the scan. Stable constants: a past rename version can't become current
 // again. A new deliberate historical ref = a conscious addition here.
-const INTENTIONAL_TOKENS = new Set(['v2.0.0', 'v2.2.1']);
+const INTENTIONAL_TOKENS = new Set(['v2.0.0']);
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
