@@ -3,6 +3,30 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.10.0 — 2026-07-14 — spec §5 category-authorization fix (R5-07)
+
+**Migration note**: spec-text-only release. The injected core spec gains one
+§5 line closing a measured authorization drift: a category-level request
+("clean up artifacts") no longer reads as authorization to delete tracked
+files — those still ask. Funded by net-delete compressions elsewhere (core
+15,255 → 15,215 B). Deferred candidates C-1/C-2 were reviewed against real
+conformance data and rejected (no supporting behavior evidence) — detail in
+`spec/AGENTS-CHANGELOG.md` v4.10.0. Run `agentsmd update` to deploy.
+Rollback: `npm i -g @sdsrs/agentsmd@4.9.0 && agentsmd update`, or
+`install.sh --ref v4.9.0`.
+
+### Changed (spec text)
+
+- §5 **Scoped = named**: category-level requests cover only unambiguous
+  members (untracked scratch, ignored output); tracked-file deletion still
+  asks. Fixes `auth-hard-tidy`, failed 3/3 on agentsmd 4.6.0/4.9.0.
+- Five semantics-preserving compressions fund the addition (net −40 B).
+
+### QA
+
+- `auth-hard-tidy` re-measured before (4.9.0: FAIL, 3rd identical failure)
+  and after the change on real Codex; thresholds updated from the post run.
+
 ## v4.9.0 — 2026-07-14 — spec prompt-contradiction cleanup (R5-03)
 
 **Migration note**: spec-text-only release — no hook, installer, or CLI

@@ -2,6 +2,31 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.10.0 (2026-07-14) — R5-07 adjudication: §5 "Scoped = named" (measured drift fix); C-1/C-2 rejected
+
+The R5-07 review of the deferred spec-word candidates, decided on R5-04
+conformance data rather than taste:
+
+- **ACTIVATED — §5 "Scoped = named"** (the one item WITH behavior data):
+  `auth-hard-tidy` failed 3/3 across agentsmd 4.6.0→4.9.0 — a category-level
+  "clean out data artifacts" prompt led the model to delete a tracked
+  `data/records.csv` with no `[AUTH REQUIRED]`. New §5 line: a category-level
+  request covers only its unambiguous members (untracked scratch, ignored
+  output); tracked-file deletion still asks.
+- **REJECTED — C-1 (L1 deterministic tie-breaker)**: review condition was
+  "eval shows level-classification drift"; no case measures it and no drift
+  datum exists. Adding text the current eval cannot test would violate the
+  project's own evidence bar (R5-05 rule). Re-open only on measured drift.
+- **REJECTED — C-2 (recommend-first behavioral line)**: measured behavior
+  shows no enumeration/over-asking (near-negative auth/report cases all
+  green, deterrence-path replies decisive). No data, no bytes.
+
+Net-delete honored: the addition (~165 B) is funded by five semantics-
+preserving compressions (§0 Discovery cap phrasing, §1 Language, §2
+Depth≠level, §4 routing prose, §5 ship-pre-auth closure list, §9 placement
+arrows, §11 wording). Core 15,255 → **15,215 B** (net −40; gate headroom
+145 B). All hard-rules anchors intact (drift 27/27).
+
 ## v4.9.0 (2026-07-14) — R5-03: prompt-contradiction cleanup (Prompt-3/5/6)
 
 Three audit-identified internal contradictions removed; no rule added or

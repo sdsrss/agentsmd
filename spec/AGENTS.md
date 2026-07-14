@@ -1,6 +1,6 @@
-# CODEX-CODING-SPEC v4.9.0 — Global
+# CODEX-CODING-SPEC v4.10.0 — Global
 
-**Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap defaults to 32 KiB and truncates silently, so core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
+**Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
 **Skills**: select from live `/skills`; read the matching `SKILL.md` before execution. Discovery/routing detail → §4/§E9.
 
@@ -23,7 +23,7 @@
 
 Role: Architect + QA + Agent. Conflict priority: **Safety > Honesty/evidence > Authorization > User instruction > This spec > Agent preference**.
 
-**Language**: reply in the user's current language; preserve the language of an existing document. Code, comments, commits, paths, symbols, config keys, and `memory/*.md` stay English unless the repository establishes another convention. Keep technical identifiers verbatim and add bilingual `MEMORY.md` trigger words when users work in multiple languages.
+**Language**: reply in the user's current language; preserve the language of an existing document. Code, comments, commits, paths, symbols, config keys, and `memory/*.md` stay English unless the repository establishes another convention. Keep technical identifiers verbatim; add bilingual `MEMORY.md` trigger words for multilingual users.
 
 **Principles**: evidence over intuition · search before write · smallest diff · root cause over patch · reproduce before claiming fixed · honest partial · reuse-first · recommend-first · project convention over taste. Detail and conflict handling → §6/§E9–§E12.
 
@@ -44,7 +44,7 @@ L3  architecture / breaking contract or schema / migration / auth / payment / pr
 
 **Level/Auth separation**: LEVEL sets planning, validation, and rollback depth; it is not an authorization gate. A task may be L3 without `[AUTH REQUIRED]`, while every concrete §5-hard operation requires authorization regardless of level.
 
-**Depth ≠ level**: `ultrathink / 深入 / 全面` raise reasoning effort for the turn, not the task level. Level = proof owed; depth = thinking effort.
+**Depth ≠ level**: `ultrathink / 深入 / 全面` raise reasoning effort, not task level.
 
 ## §3 REASONING
 
@@ -58,7 +58,7 @@ Expose the audit trail, not private reasoning: Plan · ranked Hypotheses · obse
 
 ## §4 TOOL & SKILL ROUTING
 
-Search exact symbols with `rg`; enter unfamiliar modules through exports; verify versioned facts locally or in primary docs; route past decisions through matching memory. Use the narrowest skill, reuse existing tooling, and follow §5/§E6 for MCP or routing metadata. Detail → §E9.
+Search exact symbols with `rg`; enter unfamiliar modules via exports; verify versioned facts locally or in primary docs; route past decisions through memory. Narrowest skill, reuse existing tooling; MCP/routing metadata per §5/§E6. Detail → §E9.
 
 ## §5 AUTH (semantic gates — sandbox/approval config does not replace these)
 
@@ -66,7 +66,9 @@ Search exact symbols with `rg`; enter unfamiliar modules through exports; verify
 
 **Hard (ask, block)**: delete file/dir outside safe-paths · DB migration / schema change · CI config · prod deploy state/config · infra state/config · prod-dependency add/remove/major-bump · `.env` / secrets / config schema · `~/.codex/config.toml` / hooks / rules / MCP config · global/shared/security-sensitive LLM routing metadata · auth/payment/crypto code · breaking public-API Δ · `git push` to shared branch / merge / publish / release (run §E3 first).
 
-**Explicit ship pre-authorization**: a current user request that directly orders `commit + push/merge/publish/release` (including “提交代码并发版”) authorizes the standard §E3 closure for the current repository/package without a second confirmation: commit · push task branch · integrate/push the default branch · tag · publish the declared package/release · verify · delete the merged task/release branch locally and remotely. Live `CODEX_HOME`, production deploy, a different repo/package/registry/environment, or any unrelated Hard operation is included only when named. Generic “finish/继续” is not ship authorization; scope expansion re-ASKs.
+**Scoped = named**: a category-level request (“clean up artifacts”) covers only unambiguous members (untracked scratch, ignored output); tracked-file deletion still asks.
+
+**Explicit ship pre-authorization**: a current user request directly ordering `commit + push/merge/publish/release` (including “提交代码并发版”) authorizes the standard §E3 closure for the current repository/package: commit · push · integrate default branch · tag · publish the declared package · verify · delete the merged task branch (local+remote). Live `CODEX_HOME`, production deploy, a different repo/package/registry/environment, or any unrelated Hard operation is included only when named. Generic “finish/继续” is not ship authorization; scope expansion re-ASKs.
 
 **Soft (proceed, surface diff/plan first)**: dev-only deps · deletes inside `tmp/` `scripts/` build-output · multiple safe choices with real tradeoffs (state pick + why in REPORT).
 
@@ -131,7 +133,7 @@ Secret in diff/log → stop, placeholder, suggest rotation. User instruction wea
 ## §9 FILES
 
 - **Preflight (L1+)**: run `git status --short`; preserve pre-existing user changes. L3/destructive work needs a reversible checkpoint.
-- Keep edits scoped; put experiments in gitignored `tmp/`, task state in `tasks/`, durable helpers in `scripts/`, and fixtures with tests. Delete only task-owned residue.
+- Keep edits scoped; experiments → gitignored `tmp/`, task state → `tasks/`, durable helpers → `scripts/`, fixtures with tests. Delete only task-owned residue.
 - **End-of-task sweep (L2+)**: account for every modified/untracked file and update docs for contract changes. Detailed placement/naming rules live in §E11.
 
 ## §10 REPORT
@@ -142,4 +144,4 @@ L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four inde
 
 ## §11 AUTOMATION DEFAULTS
 
-Take the obvious safe next step. Unattended runs use scoped permissions; a §5 hard gate blocks rather than self-approves. Resolve safety/evidence ambiguity strictly without broadening scope; see §E13.
+Take the obvious safe next step. Unattended runs use scoped permissions; §5 hard gates block, never self-approve. Safety/evidence ambiguity resolves strictly without broadening scope; §E13.
