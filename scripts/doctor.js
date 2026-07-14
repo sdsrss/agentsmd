@@ -103,28 +103,25 @@ function doctor() {
     );
   }
 
-  // R2-02: a pending journal under a LIVE lock is a commit in flight (fine);
-  // without one it is a crashed transaction — adjudicate it from disk and say
-  // which way recovery points. Execution of that recovery lands in R2-03; the
-  // next `agentsmd install|update` currently archives the journal (evidence
-  // kept) and re-establishes every artifact idempotently.
+  // R2-02/R2-03: a pending journal under a LIVE lock is a commit in flight
+  // (fine); without one it is a crashed transaction. Adjudicate + plan recovery
+  // from disk and print the EXACT command that executes it — every lifecycle
+  // entry (install/update/uninstall/restore --confirm/repair --confirm) runs
+  // the recovery first; conflicts stay fail-closed with bytes preserved.
   const pendingJournal = J.readJournal();
   if (pendingJournal) {
     const inFlight = lifecycleLock && lifecycleLock.state === 'live';
-    const verdict = inFlight ? null : J.adjudicate(pendingJournal);
-    add(
-      'no pending lifecycle transaction',
-      !!inFlight,
-      inFlight
-        ? 'transaction journal present for the operation in progress'
-        : `crashed lifecycle transaction (${verdict.action || 'unknown'}, started ${verdict.startedAt || 'unknown'}) — disk adjudication: ${verdict.decision}; ${
-          verdict.decision === 'roll-forward'
-            ? 're-run `agentsmd install|update` (archives the journal and completes the owed cleanup idempotently)'
-            : verdict.decision === 'conflict'
-              ? 'foreign concurrent change detected; bytes preserved — review the journal manually before any lifecycle command'
-              : 'half-committed state; install refuses to build on it — `agentsmd restore --list` / `agentsmd repair --plan` (executed recovery lands in R2-03)'
-        }`
-    );
+    let detail = 'transaction journal present for the operation in progress';
+    if (!inFlight) {
+      const plan = J.planRecovery(pendingJournal);
+      const recoveryCommand = pendingJournal.action === 'uninstall' ? 'agentsmd uninstall' : 'agentsmd update';
+      detail = `crashed lifecycle transaction (${pendingJournal.action || 'unknown'}, started ${pendingJournal.startedAt || 'unknown'}) — recovery plan from disk: ${plan.mode}; ${
+        plan.mode === 'conflict'
+          ? `NOT auto-recoverable (${plan.reason || 'foreign concurrent change'}); bytes preserved — review the journal at ${J.journalPath()} before any lifecycle command`
+          : `run \`${recoveryCommand}\` — it executes the ${plan.mode} first, then proceeds`
+      }`;
+    }
+    add('no pending lifecycle transaction', !!inFlight, detail);
   }
 
   const arbitration = surfaceStatus.surfaceArbitration;

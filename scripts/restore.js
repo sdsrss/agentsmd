@@ -7,6 +7,7 @@
 
 const B = require('./lib/backup');
 const LOCK = require('./lib/lifecycle-lock');
+const J = require('./lib/lifecycle-journal');
 
 function parseArgs(argv) {
   let list = false, confirm = false, id = null;
@@ -72,7 +73,12 @@ function main(argv) {
   try { lock = LOCK.acquire('restore'); }
   catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
   let res;
-  try { res = B.restoreBackup(p.id); }
+  try {
+    // R2-03: every lifecycle entry recovers a crashed predecessor first.
+    const recovered = J.processPending();
+    if (recovered && recovered.mode !== 'clean') console.error(`agentsmd restore: recovered a crashed ${recovered.action || 'lifecycle'} transaction first (${recovered.mode}).`);
+    res = B.restoreBackup(p.id);
+  }
   catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
   finally { LOCK.release(lock); }
   console.log(`Restored backup '${res.id}': overwrote ${res.restored.join(', ') || '(none)'}${res.left.length ? `; left ${res.left.join(', ')}` : ''}.`);

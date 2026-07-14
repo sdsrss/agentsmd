@@ -260,44 +260,13 @@ function install(nowIso, options = {}) {
 }
 
 function installCore(nowIso, options, preflight, txid) {
-  // R2-02: we hold the lifecycle lock, so a journal on disk here is the record
-  // of a CRASHED predecessor. Adjudicate it from disk:
-  //   clean / roll-forward → the commit landed (or never started): archive the
-  //     journal (evidence kept, capped) and proceed — this install re-establishes
-  //     every artifact idempotently, including the crashed run's missing cleanup.
-  //   rollback / conflict → FAIL CLOSED: a half-committed or foreign-changed
-  //     tree must not be built on top of. `doctor` explains the verdict;
-  //     executed recovery lands in R2-03.
-  let archivedStaleJournal = null;
-  const pendingJournal = J.readJournal();
-  if (pendingJournal) {
-    const verdict = J.adjudicate(pendingJournal);
-    if (verdict.decision === 'rollback' || verdict.decision === 'conflict') {
-      throw new Error(
-        `a crashed lifecycle transaction is pending (${verdict.action || 'unknown'}, started ${verdict.startedAt || 'unknown'}); ` +
-        `disk adjudication: ${verdict.decision}. Refusing to build on a half-committed state — ` +
-        'run `agentsmd doctor` for the per-target evidence; automatic recovery lands in the next release ' +
-        '(meanwhile: `agentsmd restore --list` / `agentsmd repair --plan`, or review the journal at ' +
-        `${J.journalPath()}).`
-      );
-    }
-    // Complete the crashed run's owed cleanup, exactly as its own cleanup phase
-    // would have: swap backups and the stage root are agentsmd-transient paths
-    // recorded in the journal. Path-shape guards keep this from ever touching a
-    // foreign path even if the journal were tampered with.
-    for (const step of Array.isArray(pendingJournal.steps) ? pendingJournal.steps : []) {
-      if (step && step.kind === 'swap' && typeof step.backupPath === 'string'
-        && path.basename(step.backupPath).includes('.agentsmd-old-')) {
-        try { fs.rmSync(step.backupPath, { recursive: true, force: true }); } catch { /* best-effort */ }
-      }
-    }
-    if (typeof pendingJournal.stageRoot === 'string'
-      && path.dirname(pendingJournal.stageRoot) === P.codexHome()
-      && path.basename(pendingJournal.stageRoot).startsWith('.agentsmd-stage-')) {
-      try { fs.rmSync(pendingJournal.stageRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
-    }
-    archivedStaleJournal = { path: J.archiveStale(), decision: verdict.decision };
-  }
+  // R2-03: we hold the lifecycle lock, so a journal on disk here is the record
+  // of a CRASHED predecessor. Recover it FIRST — roll it forward when every
+  // forward source survives on disk, else roll it back — and only then run this
+  // fresh operation on the coherent result. A non-recoverable state (foreign
+  // concurrent change, or both directions missing sources) throws fail-closed
+  // with the journal preserved; `doctor` explains the verdict.
+  const recoveredJournal = J.processPending();
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);
@@ -435,7 +404,7 @@ function installCore(nowIso, options, preflight, txid) {
       } : {}),
     };
 
-    if (archivedStaleJournal) manifest.archivedStaleJournal = archivedStaleJournal;
+    if (recoveredJournal) manifest.recoveredJournal = recoveredJournal;
     const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
 
     // R2-02: plan the ENTIRE commit phase with deterministic before/after
@@ -467,7 +436,11 @@ function installCore(nowIso, options, preflight, txid) {
         kind: 'write', target, plannedFile,
         beforePresent: baseline.present === true,
         beforeSha256: baseline.present ? sha256Text(baseline.content) : null,
+        // Inline contents (R2-03) make both recovery directions independent of
+        // stage-dir survival; these shared files are small by construction.
+        beforeContentB64: baseline.present ? Buffer.from(baseline.content).toString('base64') : null,
         afterSha256: sha256Text(content),
+        afterContentB64: Buffer.from(content).toString('base64'),
       });
     };
     planWrite(P.hooksJsonPath(), mergedHooks, hooksBaseline);

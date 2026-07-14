@@ -12,6 +12,7 @@ const S = require('./lib/uninstalled-shims');
 const A = require('./lib/release-artifact');
 const { inspectPluginBundle, validateInstallManifest } = require('./status');
 const LOCK = require('./lib/lifecycle-lock');
+const J = require('./lib/lifecycle-journal');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const SHA256_RE = /^[a-f0-9]{64}$/;
@@ -413,6 +414,10 @@ function applyRepair(planDigest, options = {}) {
 }
 
 function applyRepairLocked(planDigest, options) {
+  // R2-03: recover a crashed predecessor BEFORE re-verifying the plan — a plan
+  // computed against a crashed tree either matches the recovered state or
+  // honestly fails the digest check below and asks for a re-plan.
+  J.processPending();
   const plan = planRepair();
   if (plan.planDigest !== planDigest) throw new Error('repair plan changed; run agentsmd repair --plan again');
   if (!plan.applyAllowed) throw new Error(`repair apply is not allowed for classification '${plan.classification}'`);

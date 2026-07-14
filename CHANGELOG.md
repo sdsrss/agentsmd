@@ -3,6 +3,56 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.12.0 — 2026-07-14 — executed startup recovery + uninstall journaling (R2-03)
+
+**Migration note**: a crashed lifecycle operation now **recovers itself** on
+the next lifecycle command instead of v4.11.0's fail-closed refusal: every
+entry (`install`/`update`/`uninstall`/`restore --confirm`/`repair
+--confirm`) first drives a pending journal to complete-new (roll-forward,
+preferred when every staged source survives) or complete-old (rollback from
+recorded backups + inline contents), verifies each target landed, then
+proceeds. `uninstall` is now journaled too. Only a foreign concurrent change
+on a journaled target still refuses (bytes preserved). Sequential use is
+unchanged. Rollback: `npm i -g @sdsrs/agentsmd@4.11.0 && agentsmd update`,
+or `install.sh --ref v4.11.0`.
+
+### Changed (behavior)
+
+- `lifecycle-journal.js` gains the recovery engine: `planRecovery` picks the
+  executable direction (forward preferred), `executeRecovery` drives each
+  step, verifies it landed, completes owed transaction cleanup
+  (path-shape-guarded), and archives the journal as evidence;
+  `processPending` is the one gate every lifecycle entry calls first.
+  Install journals now inline before/after contents of the shared files
+  (base64), so BOTH recovery directions survive a destroyed stage dir.
+- `uninstall` journals its whole transaction before the first mutation
+  (strip contents are precomputed pure functions; owned dirs end absent; the
+  deploy target ends as the fixed shim tree, classified via a dedicated
+  `afterCheck`). Carve-out: a detected legacy-codexmd footprint keeps the
+  in-memory-transaction-only semantics (its second mutation of the shared
+  files would invalidate precomputed hashes).
+- Bugfix uncovered by the recovery matrix: `uninstall` re-run on a previous
+  uninstall's no-op shim tree misclassified it as a legacy footprint and
+  refused ("legacy manifest has no artifact hashes") — it now mirrors
+  install's shim carve-out, making uninstall idempotent.
+- `doctor` prints the recovery plan and the EXACT command that executes it
+  (`agentsmd update` vs `agentsmd uninstall`), or the fail-closed conflict
+  explanation.
+
+### Tests
+
+- `lifecycle-journal.test.js` grows to 16 checks: the 5-point install crash
+  matrix now also proves NO-LOCKOUT (a plain re-run recovers to doctor-green
+  at every point), plus destroyed-stage rollback, foreign-change conflict
+  (bytes + journal preserved), a 4-point uninstall crash matrix recovering
+  to a complete uninstall, recovery-engine unit coverage, and doctor's
+  exact-command output.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.11.0 && agentsmd update`, or
+  `install.sh --ref v4.11.0`.
+
 ## v4.11.0 — 2026-07-14 — durable transaction journal (R2-02)
 
 **Migration note**: install/update/repair now write a durable journal

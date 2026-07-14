@@ -15,6 +15,7 @@ const B = require('./lib/backup');
 const F = require('./lib/fs-atomic');
 const S = require('./lib/uninstalled-shims');
 const LOCK = require('./lib/lifecycle-lock');
+const J = require('./lib/lifecycle-journal');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const readOrNull = (file) => F.readFileOptional(file, 'utf8');
@@ -24,7 +25,11 @@ function validateOwnership(manifest) {
   if (manifest && manifest.name !== 'agentsmd') throw new Error('ownership collision: install manifest identity is not agentsmd');
   const owned = manifest && manifest.ownedArtifacts;
   if (!owned) {
-    const legacyFootprint = F.pathExists(P.installDir())
+    // A previous uninstall's exact no-op shim tree is OUR residue, not a legacy
+    // footprint — mirrors install's verifyOwnedDeploy carve-out, and makes
+    // uninstall idempotent (incl. re-running after a crashed uninstall whose
+    // recovery already completed the removal).
+    const legacyFootprint = (F.pathExists(P.installDir()) && !S.isExactUninstalledShimTree(P.installDir()))
       || F.pathExists(P.agentsExtendedMdPath())
       || (manifest && Array.isArray(manifest.installedSkills)
         && manifest.installedSkills.some((name) => F.pathExists(path.join(P.codexSkillsDir(), name))));
@@ -133,12 +138,12 @@ function mutateFile(transaction, file, action) {
   record.after = F.snapshotFile(record.file);
 }
 
-function quarantineDirectory(transaction, target, expectedHash, label) {
+function quarantineDirectory(transaction, target, expectedHash, label, backupPath = null) {
   if (!F.pathExists(target)) return null;
   let actual = null;
   try { actual = F.sha256Tree(target); } catch {}
   if (actual !== expectedHash) throw new Error(`ownership collision: ${label} changed before quarantine`);
-  const backup = path.join(transaction.stageRoot, 'quarantine', String(transaction.swaps.length));
+  const backup = backupPath || path.join(transaction.stageRoot, 'quarantine', String(transaction.swaps.length));
   fs.mkdirSync(path.dirname(backup), { recursive: true });
   fs.renameSync(target, backup);
   const record = { target, backup, afterPresent: false, afterHash: null, keepBackup: false };
@@ -236,6 +241,11 @@ function uninstall() {
 }
 
 function uninstallCore() {
+  // R2-03: recover any crashed predecessor's transaction FIRST (we hold the
+  // lock), so this uninstall always starts from a coherent tree. Fail-closed
+  // throw (journal preserved) when recovery is not derivable from disk.
+  const recoveredJournal = J.processPending();
+
   // 0. Pre-flight abort on an unparseable shared hooks.json (mirror of install's
   //    step-0). It may hold other tenants' hooks we can't see; removeMarkedHooks
   //    would silently no-op on it and ORPHAN agentsmd's own entries while claiming
@@ -295,6 +305,71 @@ function uninstallCore() {
       ...stateFiles, ...legacy.files,
     ]);
     snapshotDirectories(transaction, [...legacy.directories, ...stateDirs]);
+
+    // R2-02/R2-03: journal the whole uninstall before its first mutation. Every
+    // after-state is precomputable (strip contents are pure functions of the
+    // current bytes; owned dirs end absent; the deploy target ends as the fixed
+    // shim tree), so any termination point is disk-adjudicable and both recovery
+    // directions stay executable (inline before/after contents; quarantine paths
+    // recorded). Carve-out: a detected legacy-codexmd footprint mutates the same
+    // shared files a second time and would invalidate the precomputed after
+    // hashes — those rare upgrade states keep the in-memory-transaction-only
+    // semantics (journal skipped, as before v4.12.0).
+    const journalable = !legacy.files.some((file) => F.pathExists(file))
+      && !legacy.directories.some((dir) => F.pathExists(dir));
+    const sha256Buf = (content) => crypto.createHash('sha256').update(content).digest('hex');
+    const b64 = (content) => Buffer.from(content).toString('base64');
+    const steps = [];
+    const planWrite = (target, snapshot, afterContent) => {
+      steps.push({
+        kind: 'write', target,
+        beforePresent: snapshot.present === true,
+        beforeSha256: snapshot.present ? sha256Buf(snapshot.content) : null,
+        beforeContentB64: snapshot.present ? b64(snapshot.content) : null,
+        afterPresent: afterContent !== null,
+        afterSha256: afterContent !== null ? sha256Buf(afterContent) : null,
+        afterContentB64: afterContent !== null ? b64(afterContent) : null,
+      });
+    };
+    if (hooksRemoval && hooksRemoval.removed > 0) planWrite(P.hooksJsonPath(), beforeHooksSnapshot, hooksRemoval.nextContent);
+    if (agentsRemoval && agentsRemoval.changed) {
+      planWrite(P.agentsMdPath(), beforeAgentsSnapshot, agentsRemoval.content.trim() === '' ? null : agentsRemoval.content);
+    }
+    if (ownership.extended) planWrite(P.agentsExtendedMdPath(), ownership.extended.snapshot, null);
+    const quarantinePlan = new Map();
+    let quarantineIndex = 0;
+    const planQuarantine = (target, sha256, afterCheck) => {
+      if (!F.pathExists(target)) return;
+      const backupPath = path.join(stageRoot, 'quarantine', String(quarantineIndex++));
+      quarantinePlan.set(target, backupPath);
+      steps.push({
+        kind: 'swap', target, backupPath,
+        beforePresent: true, beforeSha256Tree: sha256,
+        afterPresent: afterCheck === 'uninstalled-shims', afterSha256Tree: null,
+        ...(afterCheck ? { afterCheck } : {}),
+      });
+    };
+    for (const record of ownership.skills) planQuarantine(record.target, record.sha256);
+    if (ownership.deploy) planQuarantine(ownership.deploy.target, ownership.deploy.sha256, 'uninstalled-shims');
+    for (const file of stateFiles) {
+      if (!F.pathExists(file)) continue;
+      const snapshot = path.resolve(file) === path.resolve(P.manifestPath()) ? manifestSnapshot : transactionFile(transaction, file).before;
+      planWrite(file, snapshot, null);
+    }
+    for (const record of transaction.directorySnapshots) {
+      if (!record.present) continue;
+      steps.push({
+        kind: 'swap', target: record.target, backupPath: record.backup,
+        beforePresent: true, beforeSha256Tree: record.beforeHash,
+        afterPresent: false, afterSha256Tree: null,
+      });
+    }
+    const journal = journalable ? J.begin({
+      txid: null, action: 'uninstall', backupId: result.backup || null,
+      stageRoot, plannedDir: null, steps,
+    }) : null;
+    J.maybeCrash('u-after-journal');
+
     // 1. Shared files are marker-scoped and tracked byte-for-byte for rollback.
     if (hooksRemoval && hooksRemoval.removed > 0) {
       result.hooksRemoved = hooksRemoval.removed;
@@ -305,6 +380,7 @@ function uninstallCore() {
         mutateFile(transaction, P.hooksJsonPath(), () => F.writeFileAtomic(P.hooksJsonPath(), hooksRemoval.nextContent, { expectedSnapshot: beforeHooksSnapshot }));
       }
     }
+    J.maybeCrash('u-mid-files');
     if (agentsRemoval && agentsRemoval.changed) {
       result.agentsBlockRemoved = true;
       if (agentsRemoval.content.trim() === '') mutateFile(transaction, P.agentsMdPath(), () => F.unlinkFileIfUnchanged(P.agentsMdPath(), beforeAgentsSnapshot));
@@ -320,12 +396,13 @@ function uninstallCore() {
     //    remain recoverable until every later uninstall phase succeeds.
     result.skillsRemoved = 0;
     for (const record of ownership.skills) {
-      quarantineDirectory(transaction, record.target, record.sha256, `installed skill ${record.name}`);
+      quarantineDirectory(transaction, record.target, record.sha256, `installed skill ${record.name}`, quarantinePlan.get(record.target) || null);
       result.skillsRemoved++;
     }
     const deploySwap = ownership.deploy
-      ? quarantineDirectory(transaction, ownership.deploy.target, ownership.deploy.sha256, 'deploy tree')
+      ? quarantineDirectory(transaction, ownership.deploy.target, ownership.deploy.sha256, 'deploy tree', quarantinePlan.get(ownership.deploy.target) || null)
       : null;
+    J.maybeCrash('u-after-quarantine');
 
     // 3. Remove only manifest/session files; backups and unknown state survive.
     for (const file of stateFiles) {
@@ -358,9 +435,13 @@ function uninstallCore() {
       for (const file of legacy.files) transactionFile(transaction, file).after = F.snapshotFile(file);
       markDirectorySnapshotsAfter(transaction);
     }
+    J.maybeCrash('u-before-cleanup');
 
+    if (journal) J.advance(journal, 'cleanup');
     const cleanupWarning = cleanupTransaction(transaction);
     if (cleanupWarning) result.cleanupWarnings = [cleanupWarning];
+    if (journal) J.complete();
+    if (recoveredJournal) result.recoveredJournal = recoveredJournal;
     return result;
   } catch (error) {
     const rollbackErrors = transaction ? rollback(transaction) : [];
@@ -370,6 +451,9 @@ function uninstallCore() {
     } else {
       try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
     }
+    // In-process rollback fully restored the pre-transaction state → nothing
+    // left for the journal to describe; conflicts keep it as evidence.
+    if (rollbackErrors.length === 0) { try { J.complete(); } catch { /* keep evidence */ } }
     if (rollbackErrors.length) error.message += `; ${rollbackErrors.join('; ')}`;
     throw error;
   }

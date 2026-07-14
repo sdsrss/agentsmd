@@ -70,9 +70,12 @@ cross-process lock: a concurrent second operation refuses with exit 1 and
 changes nothing, naming the one in flight. A lock left by a crashed run
 self-clears on the next lifecycle command; `doctor` reports stale locks.
 Each commit is also journaled before the first live mutation, so a run
-killed mid-commit is adjudicated from disk (`doctor` reports roll-forward /
-rollback / conflict): a landed commit self-heals on the next update, a
-half-committed one is refused fail-closed instead of built upon.
+killed mid-commit is adjudicated from disk and **recovered by the next
+lifecycle command**: it rolls the crashed transaction forward when every
+staged source survives, back otherwise, then proceeds — every crash point
+heals with a plain re-run. Only a foreign concurrent change on a journaled
+target stays fail-closed (bytes preserved; `doctor` prints the verdict and
+the exact recovery command).
 
 ### npm CLI
 
