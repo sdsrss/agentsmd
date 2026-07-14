@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.8.0 — Global
+# CODEX-CODING-SPEC v4.9.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap defaults to 32 KiB and truncates silently, so core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -88,6 +88,8 @@ L2        lint + typecheck + tests (RED-first when feasible)
 L3        L2 + integration/e2e + extended checklist
 ```
 
+**Applicability**: these are default check classes, not fixed commands — run the project-native equivalent that applies to the Δ (docs-only / Bash-only / no-e2e projects substitute risk-proportional evidence: render check, shellcheck, script smoke). A check class the project lacks is named absent, never faked.
+
 **Iron Laws** (all levels; only EMERGENCY may defer #1/#3 to its required follow-up; #2 never):
 1. **NO CHANGE WITHOUT PRE-CHANGE EVIDENCE (L2+)**, by change type:
    Bugfix → reproduce; requested behavior Δ → record current contract + acceptance; refactor → green before AND after + exported surface unchanged, or red-baseline touched-behavior characterization before/after, else `[PARTIAL]`; feature → RED-first when feasible, else observable acceptance.
@@ -134,7 +136,7 @@ Secret in diff/log → stop, placeholder, suggest rotation. User instruction wea
 
 ## §10 REPORT
 
-L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four independent labels, including empty values. **Order (HARD)**: `Done → Not done → Failed → Uncertain`.
+L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four independent labels, including empty values. **Order (HARD)**: `Done → Not done → Failed → Uncertain`. These labels and the §0 bracket signals are untranslatable protocol tokens — keep them English in every reply language; the narrative follows §1 Language.
 
 **Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
 

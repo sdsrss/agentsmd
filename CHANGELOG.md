@@ -3,6 +3,36 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.9.0 — 2026-07-14 — spec prompt-contradiction cleanup (R5-03)
+
+**Migration note**: spec-text-only release — no hook, installer, or CLI
+behavior changes. The injected core spec gains two clarifications (§6
+validation checks are project-native check classes, not fixed commands;
+§10 report labels are untranslatable protocol tokens) and the extended
+spec's self-location line becomes delivery-surface-neutral (it previously
+hardcoded `~/.codex/`, wrong under plugin delivery). Run `agentsmd update`
+to deploy the new spec text. Rollback: `npm i -g @sdsrs/agentsmd@4.8.0 &&
+agentsmd update`, or `install.sh --ref v4.8.0`.
+
+### Changed (spec text — detail in `spec/AGENTS-CHANGELOG.md` v4.9.0)
+
+- Prompt-3: `AGENTS-extended.md` self-location delivery-neutral.
+- Prompt-5: core §6 **Applicability** line — project-native check classes,
+  risk-proportional substitutes for docs-only / Bash-only / no-e2e projects,
+  missing check classes named absent, never faked.
+- Prompt-6: core §10 — four-section labels + `§0` bracket signals declared
+  untranslatable protocol tokens; narrative still follows the user's language.
+- Core size 14,780 → 15,255 B (15 KiB gate headroom 105 B).
+
+### Tests / QA
+
+- 4 new conformance cases (17 total): `label-protocol-chinese` (§10 tokens
+  under a Chinese session), `report-plain-done` (G-4 anti-defensive-PARTIAL),
+  `canonical-over-prose` (G-2 code-over-README), `evidence-docs-only`
+  (Prompt-5: docs-only task must not fabricate test evidence). Measured
+  before and after the spec change on real Codex; thresholds updated from
+  the post-change run.
+
 ## v4.8.0 — 2026-07-14 — cross-process lifecycle lock (R2-01)
 
 **Migration note**: two agentsmd lifecycle operations (install / update /

@@ -2,6 +2,41 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.9.0 (2026-07-14) — R5-03: prompt-contradiction cleanup (Prompt-3/5/6)
+
+Three audit-identified internal contradictions removed; no rule added or
+removed, no anchor moved (drift 27/27 green; `§10 **Order (HARD)**` anchor
+line extended in place, anchor text intact).
+
+- **Prompt-3 (extended self-location, delivery-neutral)** —
+  `AGENTS-extended.md` line 3 hardcoded `~/.codex/AGENTS-extended.md`, wrong
+  under plugin delivery. Now: "packaged with the active delivery surface
+  (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin
+  bundle) — SessionStart announces the resolved path." Zero core bytes.
+- **Prompt-5 (validation applicability)** — core §6 presented
+  lint/typecheck/tests/e2e as fixed actions for every project; docs-only /
+  Bash-only / no-e2e projects were forced into formal gaps. New §6
+  **Applicability** line: the table names default check classes, not fixed
+  commands — run the project-native equivalent; substitute risk-proportional
+  evidence (render check, shellcheck, script smoke); a check class the
+  project lacks is named absent, never faked.
+- **Prompt-6 (report labels vs language rule)** — §1 says follow the user's
+  language while §10 mandates English labels; now §10 declares
+  `Done / Not done / Failed / Uncertain` + §0 bracket signals **untranslatable
+  protocol tokens** (labels stay English in any reply language; narrative
+  follows §1).
+- Autonomy-vs-Hard priority (the fourth R5-03 workstream) needed no text: §1
+  priority chain, §5 AUTONOMY line, and §11 already state it; the
+  `conflict-autonomy-gate` conformance case pins the behavior.
+
+Sizing: core 14,780 → 15,255 B (+475; 15,360 gate headroom **105 B** — next
+core addition must net-delete or justify against the gate). Extended
+13,994 → 14,141 B (unbudgeted file). Conformance: 4 new cases
+(`label-protocol-chinese`, `report-plain-done`, `canonical-over-prose`,
+`evidence-docs-only`) cover Prompt-5/6 plus the still-uncovered testable
+R5-06 items G-2/G-4; G-1/G-3 remain structurally untestable in one-shot
+`codex exec` (no mid-turn interrupt, no compaction).
+
 ## v4.8.0 (2026-07-14) — no spec changes (lifecycle lock release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.
