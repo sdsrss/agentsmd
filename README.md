@@ -316,6 +316,10 @@ agentsmd sparkline --windows=6 --bucket-days=7
 
 A rule becomes a demotion candidate only after enough rule-specific evaluated opportunities with zero enforcement hits. `--project` is an informational lens; demotion remains cross-project. `no-opportunity`, low evaluation counts, and global session counts are not demotion evidence. High hit counts show activity, not correctness. The operator makes the decision using [`spec/OPERATOR.md`](./spec/OPERATOR.md).
 
+## Security and privacy
+
+See [`SECURITY.md`](./SECURITY.md) for the vulnerability-reporting channel and response targets, supported versions, the threat model, and the telemetry schema/retention/deletion/opt-out reference. The one-paragraph version: agentsmd is a **fail-open coding-discipline layer, not a security boundary**; telemetry is local-only (`~/.codex/logs/agentsmd.jsonl`, private file modes, size-capped rotation, `DISABLE_RULE_HITS_LOG=1` to opt out, delete the file to erase). Note for dual-surface installs: skills load outside surface arbitration, so plugin + standalone simultaneously means duplicated skills in the session — install one surface only; `doctor` flags it.
+
 ## Development
 
 ```bash

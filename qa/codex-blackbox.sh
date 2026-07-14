@@ -98,6 +98,9 @@ telemetry_since() { tail -n "+$(( $1 + 1 ))" "$TELEMETRY"; }
 run_probe() {
   probe="$1"; prompt="$2"; shift 2
   before="$(telemetry_lines)"
+  # qa tag: probe rows stay out of governance denominators (audit excludes the tag;
+  # this harness reads rows by event/section and is tag-blind). R6-04.
+  AGENTSMD_TELEMETRY_TAG=qa \
   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -o "$SBX/$probe.last" "$@" "$prompt" </dev/null >"$SBX/$probe.jsonl" 2>"$SBX/$probe.stderr"
@@ -196,7 +199,8 @@ fi
 
 # ── P4: resume re-fires SessionStart ─────────────────────────────────────────
 before="$(telemetry_lines)"
-if timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
+if AGENTSMD_TELEMETRY_TAG=qa \
+   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     resume --last 'Reply with exactly: OK' </dev/null >"$SBX/p4.jsonl" 2>"$SBX/p4.stderr"; then
   ok "P4 resume session completed (exit 0)"

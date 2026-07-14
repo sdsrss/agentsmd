@@ -305,6 +305,10 @@ agentsmd sparkline --windows=6 --bucket-days=7
 
 只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
 
+## 安全与隐私
+
+漏洞报告渠道与响应目标、支持版本、威胁模型、遥测 schema/保留/删除/退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测仅本地（`~/.codex/logs/agentsmd.jsonl`，私有文件权限，按大小轮转封顶，`DISABLE_RULE_HITS_LOG=1` 退出，删除文件即抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
+
 ## 开发
 
 ```bash

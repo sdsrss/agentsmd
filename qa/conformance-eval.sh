@@ -167,6 +167,10 @@ run_case_session() {
   local prompt before rc
   prompt="$(case_field '.prompt')"
   before="$(telemetry_lines)"
+  # Tag every telemetry row this QA session writes (R6-04): grading reads rows by
+  # event/section and is tag-blind, but audit/rules exclude qa-tagged rows so
+  # harness runs never masquerade as external field data in governance denominators.
+  AGENTSMD_TELEMETRY_TAG=qa \
   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -o "$SBX/$CID.last" "$prompt" </dev/null >"$SBX/$CID.jsonl" 2>"$SBX/$CID.stderr"

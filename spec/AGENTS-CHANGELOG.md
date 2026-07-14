@@ -2,6 +2,14 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.18.0 (2026-07-14) — no spec changes (security-docs + QA-fencing release)
+
+Core and extended rule text, the manifest rules, and all anchors are unchanged.
+The shared version moves in lockstep with a package minor adding SECURITY.md
+and qa-tagged harness telemetry with corrected project classification
+(R6-03 + R6-04 infrastructure). `spec_version` → v4.18.0. Detail: repository
+`CHANGELOG.md`.
+
 ## v4.17.0 (2026-07-14) — no spec TEXT changes; budget-by-behavior governance armed (R5-05)
 
 Core and extended prose and all anchors are byte-identical (core 15,216 B /

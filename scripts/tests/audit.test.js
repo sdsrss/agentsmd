@@ -803,9 +803,13 @@ try {
     assert.strictEqual(pb.self, 0);
     assert.strictEqual(pb.external, 0);
   });
-  t('classifyProject: trailing -agentsmd = self; -myagentsmd = external; empty/(none)/null = unknown', () => {
+  t('classifyProject: agentsmd path segment = self (repo + QA sandboxes); -myagentsmd = external; empty/(none)/null = unknown', () => {
     assert.strictEqual(classifyProject('-mnt-data-ssd-dev-projects-agentsmd'), 'self');
     assert.strictEqual(classifyProject('agentsmd'), 'self');
+    // R6-04: agentsmd-generated working dirs are self, not external field data
+    assert.strictEqual(classifyProject('-home-sds--claude-tmp-agentsmd-conformance-XYZ-case-auth-hard-tidy'), 'self');
+    assert.strictEqual(classifyProject('-home-sds--claude-tmp-agentsmd-blackbox-XYZ-proj'), 'self');
+    assert.strictEqual(classifyProject('-mnt-data-ssd-dev-projects-agentsmd-qa-loop-4-1'), 'self');
     assert.strictEqual(classifyProject('-home-user-myagentsmd'), 'external');
     assert.strictEqual(classifyProject('-home-user-app'), 'external');
     assert.strictEqual(classifyProject(''), 'unknown');

@@ -3,6 +3,40 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.18.0 — 2026-07-14 — security/privacy docs + QA-telemetry fencing (R6-03; R6-04 infrastructure)
+
+**Migration note**: no hook/lifecycle/spec behavior changes. Two things ship:
+(1) **`SECURITY.md`** (repo root + npm tarball; README en/zh link it) —
+vulnerability-reporting channel and response targets, supported-versions
+policy, threat model, the explicit *not-a-security-boundary* statement, the
+full telemetry schema/retention/deletion/opt-out reference, and the
+dual-surface skills-duplication caveat. (2) **QA-telemetry fencing** — the
+real-model QA harnesses (`qa/conformance-eval.sh`, `qa/codex-blackbox.sh`)
+now tag every session `AGENTSMD_TELEMETRY_TAG=qa`, and `audit`/`rules`
+exclude `qa`-tagged rows by default (grading reads rows by event/section and
+is tag-blind); `classifyProject` now classifies any slug containing an
+`agentsmd` path segment as `self`, so ~50 agentsmd-generated QA sandboxes no
+longer pose as external field data in pilot/enforcement stats (a
+`…-myagentsmd` repo stays external). Audit numbers may shift accordingly —
+that is the correction, not a regression. Rollback:
+`npm i -g @sdsrs/agentsmd@4.17.0 && agentsmd update`, or
+`install.sh --ref v4.17.0`.
+
+### Added
+
+- `SECURITY.md`, linked from both READMEs and shipped in the npm package.
+
+### Changed (analytics semantics)
+
+- `audit.js`: `TEST_TAGS` gains `qa`; `classifyProject` uses an
+  `agentsmd` path-segment anchor (QA sandboxes → self).
+- QA harnesses tag their telemetry rows `qa`.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.17.0 && agentsmd update`, or
+  `install.sh --ref v4.17.0`.
+
 ## v4.17.0 — 2026-07-14 — budget-by-behavior governance (R5-05, closes Gate F)
 
 **Migration note**: no runtime behavior changes — no hooks, no lifecycle, no

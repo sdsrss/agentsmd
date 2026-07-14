@@ -16,20 +16,27 @@ const MAX_DAYS = 100000000;
 // Provenance tags whose rows are excluded from the ledger by default: a
 // verification / smoke run against a real CODEX_HOME (AGENTSMD_TELEMETRY_TAG=test)
 // must not skew promote/demote signals. --include-test opts them back in.
-const TEST_TAGS = new Set(['test']);
+// 'test' = fixture/sandbox suites; 'qa' = real-model QA harness sessions
+// (conformance-eval / codex-blackbox). Both are agentsmd-generated, so neither
+// may pose as field data in governance denominators (R6-04).
+const TEST_TAGS = new Set(['test', 'qa']);
 // Blocking-deny family: events where a hook actually stopped the action (vs
 // advising, or being overridden via bypass). denyByProjectClass counts only
 // these — the real "did enforcement bite, and for whom" question.
 const BLOCKING_EVENTS = new Set(['block', 'deny']);
 
 // classifyProject — self-dogfood vs external, over the project slug rule-hits.sh
-// writes (cwd with every non-[a-zA-Z0-9-] char → '-'). `self` = the slug's
-// trailing segment is exactly `agentsmd` (this source repo); the (^|-) anchor
-// keeps a downstream repo like '…-myagentsmd' classified external. Empty /
-// (none) / null → unknown. Mirrors claudemd rule-hits-parse.js:classifyProject.
+// writes (cwd with every non-[a-zA-Z0-9-] char → '-'). `self` = the slug contains
+// an exact `agentsmd` path segment: the source repo itself AND every
+// agentsmd-generated working dir (QA sandboxes like `…-agentsmd-conformance-…`,
+// `…-agentsmd-blackbox-…`, session scratchpads under the repo path) — R6-04 found
+// ~50 such slugs posing as "external" and inflating pilot/enforcement stats. The
+// segment anchor (^|-)agentsmd(-|$) keeps a downstream repo like '…-myagentsmd'
+// classified external. Empty / (none) / null → unknown. (Rows from harnesses are
+// additionally qa-tagged going forward; this catches the untagged history.)
 function classifyProject(project) {
   if (!project || project === '(none)') return 'unknown';
-  return /(^|-)agentsmd$/.test(String(project)) ? 'self' : 'external';
+  return /(^|-)agentsmd(-|$)/.test(String(project)) ? 'self' : 'external';
 }
 
 // Read the live log AND its rotated segments. rule-hits.sh rotates
