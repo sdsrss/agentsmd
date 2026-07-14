@@ -3,6 +3,37 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.17.0 — 2026-07-14 — budget-by-behavior governance (R5-05, closes Gate F)
+
+**Migration note**: no runtime behavior changes — no hooks, no lifecycle, no
+spec rule text. This release codifies how the always-on prompt budget is
+governed and arms the gates: (1) a new CI drift gate asserts the DEPLOYED
+sentinel-wrapped core block stays ≤ 16 KiB, guaranteeing at least half the
+default 32 KiB `project_doc_max_bytes` remains for project chains (core file
+gate ≤ 15 KiB already existed); (2) manifest rules added after v4.16.0 must
+carry `behavior_evidence` naming their measured before/after conformance
+delta — additions without data are rejected, per the governance-log C-1/C-2
+precedent; (3) `spec/OPERATOR.md` §O3 records the full policy (behavior-delta
+procedure with the near-negative re-run, net-delete duty, bytes-alone-never-
+derive-quality). Nothing to reconfigure. Rollback:
+`npm i -g @sdsrs/agentsmd@4.16.0 && agentsmd update`, or
+`install.sh --ref v4.16.0`.
+
+### Added
+
+- Drift gate: injected managed block ≤ 16 KiB (deployed-shape guarantee that
+  long project instruction chains are never truncated by this layer).
+- Drift gate: `behavior_evidence` required on every manifest rule with
+  `added_version` > v4.16.0; `_behavior_evidence_doc` documents the field.
+- `spec/OPERATOR.md` §O3: rule-additions-require-behavior-data policy
+  (canonical procedure = the v4.10.0 auth-hard-tidy loop), bytes-alone-never-
+  derive-quality, deletion-of-restatement-first funding order.
+
+### Rollback
+
+- `npm i -g @sdsrs/agentsmd@4.16.0 && agentsmd update`, or
+  `install.sh --ref v4.16.0`.
+
 ## v4.16.0 — 2026-07-14 — multi-stack detection + representative sampling (R4-05, closes Gate E)
 
 **Migration note**: affects `agentsmd init` / `analyze --gather` output only; no

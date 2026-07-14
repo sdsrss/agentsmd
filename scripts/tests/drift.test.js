@@ -215,6 +215,35 @@ t('spec: core AGENTS.md stays below the 15 KiB ceiling', () => {
   assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B`);
 });
 
+// 9b. R5-05: the guarantee behind the ceiling, asserted on the DEPLOYED shape —
+//     the exact sentinel-wrapped block install.js writes into ~/.codex/AGENTS.md
+//     must leave at least half of the default 32 KiB project_doc_max_bytes for
+//     project chains, so a long project AGENTS.md is never truncated by OUR layer.
+t('spec: injected managed block leaves ≥ half the default discovery cap for project chains', () => {
+  const AM = require('../lib/agents-md');
+  const injected = AM.injectSpecBlock(null, specFiles.core).content;
+  const bytes = Buffer.byteLength(injected, 'utf8');
+  assert(bytes <= 16 * 1024, `deployed block is ${bytes} B; must leave ≥ 16384 B of the 32768 B default cap`);
+});
+
+// 9c. R5-05: rule additions need behavior data, not taste. Every manifest rule
+//     added after v4.16.0 must carry `behavior_evidence` naming its before/after
+//     measurement (a conformance capture or governance-log entry). Bytes join the
+//     always-on layer only with a measured reason (the R5-07 loop is the template;
+//     C-1/C-2 were rejected for exactly this lack of data).
+t('hard-rules: rules added after v4.16.0 carry behavior_evidence', () => {
+  const GATE_FROM = [4, 16, 0];
+  const newer = (v) => {
+    const p = String(v || '').replace(/^v/, '').split('.').map(Number);
+    for (let i = 0; i < 3; i++) { if ((p[i] || 0) !== GATE_FROM[i]) return (p[i] || 0) > GATE_FROM[i]; }
+    return false;
+  };
+  for (const r of hr.rules.filter((x) => newer(x.added_version))) {
+    assert(typeof r.behavior_evidence === 'string' && r.behavior_evidence.trim().length > 0,
+      `${r.id} (added ${r.added_version}) lacks behavior_evidence — new always-on rules require a measured before/after delta`);
+  }
+});
+
 // 10. LEVEL is risk-based and orthogonal to AUTH. Diff size and file count are
 //     observations, not gates; reversible L3 work does not ask twice merely
 //     because it is L3, while the concrete §5 high-risk operations remain gated.

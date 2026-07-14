@@ -30,8 +30,10 @@ spec/AGENTS*.md (HARD) → hard-rules.json → hooks/*.sh + hooks/lib/*.sh → ~
 ## §O3 Size budget (the discovery-chain ceiling)
 
 - Core (`spec/AGENTS.md`) loads into the Codex discovery chain **every turn**; extended loads only on trigger. The default 32 KiB `project_doc_max_bytes` cap is shared with project `AGENTS.md` files and truncates silently.
-- Core is gated at ≤15 KiB so more than half the default cap remains for project chains. Track the exact size in the spec changelog.
+- Core is gated at ≤15 KiB, and the deployed sentinel-wrapped block at ≤16 KiB (both CI drift gates), so at least half the default cap remains for project chains — a long project `AGENTS.md` is never truncated by this layer. Track the exact size in the spec changelog; the live check is doctor's discovery-chain headroom line.
 - **Over budget → the next version MUST net-delete** (removal bytes > addition bytes) or refuse the addition. When a project chain starves, raise `project_doc_max_bytes` to 65536 in `config.toml` and verify the assembled chain (a "summarize your current instructions" run).
+- **Rule additions require behavior data, not taste** (R5-05): a new core rule or spec line ships only with a measured before/after conformance delta — pre-run the failing case on the live old version, ship, post-run twice on the new version, and re-run the nearest near-negative (an authorization-tightening edit fails as over-asking, which only the near-negative catches; the v4.10.0 `auth-hard-tidy` loop is the canonical example). A new manifest rule records the measurement in its `behavior_evidence` field (drift-gated for rules added after v4.16.0). Candidates without data are rejected, not parked — the governance log's C-1/C-2 entries are the precedent.
+- **Bytes alone never derive quality**: a smaller core is not automatically better, and a byte-count argument alone justifies neither adding nor deleting a rule. When funding an addition, delete restated duplication first — semantics-preserving compression is the fallback, and any deletion that could change behavior needs the same conformance regression guard as an addition.
 - Preserve hard safety/auth/evidence anchors in core; move expanded procedures to extended. Governance data informs later demotion but never substitutes for semantic review.
 
 ## §O4 Release discipline

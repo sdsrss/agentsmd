@@ -2,6 +2,17 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.17.0 (2026-07-14) — no spec TEXT changes; budget-by-behavior governance armed (R5-05)
+
+Core and extended prose and all anchors are byte-identical (core 15,216 B /
+15,360 gate; deployed sentinel-wrapped block 15,254 B / new 16,384 gate). Governance-only changes: manifest gains `_behavior_evidence_doc`
+and a CI gate requiring `behavior_evidence` on every rule added after
+v4.16.0 — a new always-on rule now needs a measured before/after conformance
+delta to ship (the v4.10.0 auth-hard-tidy loop is the canonical procedure;
+data-less candidates are rejected per the governance-log C-1/C-2 precedent).
+OPERATOR §O3 records the policy. `spec_version` → v4.17.0. Detail:
+repository `CHANGELOG.md`.
+
 ## v4.16.0 (2026-07-14) — no spec changes (multi-stack detection release)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.
