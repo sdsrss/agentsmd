@@ -24,6 +24,11 @@ const TEST_TAGS = new Set(['test', 'qa']);
 // advising, or being overridden via bypass). denyByProjectClass counts only
 // these — the real "did enforcement bite, and for whom" question.
 const BLOCKING_EVENTS = new Set(['block', 'deny']);
+// Escape-hatch family: a bypassable rule that fired but was overridden by its
+// inline token. Counted per section AND per distinct session so rules.js can
+// tell systemic friction (many sessions bypassing once) from one stubborn
+// session retrying the same override — the two demand opposite remedies.
+const BYPASS_EVENTS = new Set(['bypass']);
 
 // classifyProject — self-dogfood vs external, over the project slug rule-hits.sh
 // writes (cwd with every non-[a-zA-Z0-9-] char → '-'). `self` = the slug contains
@@ -120,11 +125,20 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
       evaluatedObservations: 0,
       eligibleSessions: 0,
       evaluatedSessions: 0,
+      bypassSessions: 0,
+      blockingSessions: 0,
+      // Bypasses split by project origin, for the same reason denyByProjectClass
+      // exists: agentsmd's own dogfood and QA sandboxes must not read as field
+      // evidence (R6-04). An escape hatch used 29 times entirely inside the
+      // source repo is a very different finding from one used downstream.
+      bypassByClass: { self: 0, external: 0, unknown: 0 },
       events: {},
       _explicitOpportunitySessions: new Set(),
       _explicitEligibleSessions: new Set(),
       _explicitEvaluatedSessions: new Set(),
       _enforcementSessions: new Set(),
+      _bypassSessions: new Set(),
+      _blockingSessions: new Set(),
     };
     bySection[sec].total++;
     if (isEnf) bySection[sec].enforcement++;
@@ -140,7 +154,10 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
       if (isExplicitEligible) bySection[sec]._explicitEligibleSessions.add(session);
       if (isExplicitEvaluated) bySection[sec]._explicitEvaluatedSessions.add(session);
       if (isEnf) bySection[sec]._enforcementSessions.add(session);
+      if (BYPASS_EVENTS.has(ev)) bySection[sec]._bypassSessions.add(session);
+      if (BLOCKING_EVENTS.has(ev)) bySection[sec]._blockingSessions.add(session);
     }
+    if (BYPASS_EVENTS.has(ev)) bySection[sec].bypassByClass[classifyProject(r.project)]++;
     bySection[sec].events[ev] = (bySection[sec].events[ev] || 0) + 1;
 
     byHook[hook] = (byHook[hook] || 0) + 1;
@@ -181,10 +198,14 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     }
     bucket.eligibleSessions = eligible.size;
     bucket.evaluatedSessions = evaluated.size;
+    bucket.bypassSessions = bucket._bypassSessions.size;
+    bucket.blockingSessions = bucket._blockingSessions.size;
     delete bucket._explicitOpportunitySessions;
     delete bucket._explicitEligibleSessions;
     delete bucket._explicitEvaluatedSessions;
     delete bucket._enforcementSessions;
+    delete bucket._bypassSessions;
+    delete bucket._blockingSessions;
   }
 
   return {
@@ -199,6 +220,65 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     bySection, byHook, byEvent, byProject,
     byFailOpen, denyByProjectClass,
   };
+}
+
+// Trend (R6, 2026-07-25 audit): governance was a snapshot — every report answered
+// "is this rule firing now", none answered "are the discipline numbers moving".
+// Buckets are TIME slices, not spec versions: telemetry rows carry no
+// spec_version, and stamping one is a hook hot-path change (an SLO run per
+// OPERATOR §O9), so version attribution stays a named gap rather than a guess.
+// Normalising per 100 sessions is what makes buckets comparable — raw counts
+// track how busy the window was, not how disciplined it was.
+const TREND_DEFAULT_BUCKETS = 3;
+const TREND_MIN_BUCKETS = 2;
+const TREND_MAX_BUCKETS = 12;
+
+function trend({ days = 90, buckets = TREND_DEFAULT_BUCKETS, now = Date.now(), logPath = P.logPath(), project = null, includeTest = false } = {}) {
+  if (!Number.isSafeInteger(days) || days <= 0 || days > MAX_DAYS) days = 90;
+  if (!Number.isSafeInteger(buckets) || buckets < TREND_MIN_BUCKETS) buckets = TREND_DEFAULT_BUCKETS;
+  if (buckets > TREND_MAX_BUCKETS) buckets = TREND_MAX_BUCKETS;
+  const bucketDays = Math.max(1, Math.floor(days / buckets));
+  const rows = [];
+  // Oldest → newest so the eye reads left-to-right as time. Each slice is an
+  // independent audit() over its own sub-window: one tested aggregator, no
+  // second counting path that could disagree with the main report.
+  for (let i = buckets - 1; i >= 0; i--) {
+    const end = now - i * bucketDays * 86400000;
+    const a = audit({ days: bucketDays, now: end, logPath, project, includeTest });
+    let blocks = 0, bypasses = 0, failOpens = 0;
+    for (const b of Object.values(a.bySection)) {
+      blocks += (b.events.block || 0) + (b.events.deny || 0);
+      bypasses += b.events.bypass || 0;
+    }
+    for (const h of Object.values(a.byFailOpen)) failOpens += h.total;
+    const per100 = (n) => (a.sessionCount ? Math.round((n / a.sessionCount) * 1000) / 10 : null);
+    rows.push({
+      endIso: new Date(end).toISOString().slice(0, 10),
+      startIso: a.windowStartIso.slice(0, 10),
+      days: bucketDays,
+      sessions: a.sessionCount,
+      rows: a.inWindow,
+      enforcement: a.enforcementEvents,
+      blocks, bypasses, failOpens,
+      enforcementPer100Sessions: per100(a.enforcementEvents),
+      failOpensPer100Sessions: per100(failOpens),
+      bypassRate: (blocks + bypasses) > 0 ? bypasses / (blocks + bypasses) : null,
+    });
+  }
+  return { days, buckets, bucketDays, rows };
+}
+
+function formatTrend(tr) {
+  const L = [];
+  L.push(`trend — ${tr.buckets} × ${tr.bucketDays}d buckets (oldest → newest), normalised per 100 sessions:`);
+  L.push('window-end   sessions   enf/100   blocks   bypass   bypass-rate   fail-open/100');
+  for (const r of tr.rows) {
+    const n = (v, unit = '') => (v === null ? '   —' : `${v}${unit}`);
+    L.push(`  ${r.endIso}   ${String(r.sessions).padStart(6)}   ${String(n(r.enforcementPer100Sessions)).padStart(7)}   ${String(r.blocks).padStart(6)}   ${String(r.bypasses).padStart(6)}   ${String(r.bypassRate === null ? '—' : Math.round(r.bypassRate * 100) + '%').padStart(11)}   ${String(n(r.failOpensPer100Sessions)).padStart(13)}`);
+  }
+  L.push('Buckets are time slices; telemetry carries no spec_version, so a release boundary');
+  L.push('inside a bucket is invisible. Movement is a review prompt, never a verdict.');
+  return L.join('\n');
 }
 
 function formatReport(a) {
@@ -258,15 +338,30 @@ function formatReport(a) {
   return lines.join('\n');
 }
 
-function parseDaysArg(argv, commandName = 'agentsmd-audit') {
+// allowTrend is opt-in per command: audit implements --trend, rules does not, and
+// a flag a command cannot honor must fail loudly rather than be parsed and dropped.
+function parseDaysArg(argv, commandName = 'agentsmd-audit', { allowTrend = false } = {}) {
   let days = 30;
   let project = null;
   let includeTest = false;
+  let trend = 0;
   let sawDays = false;
   let sawProject = false;
+  let sawTrend = false;
   for (const arg of argv) {
     if (arg === '--help' || arg === '-h') return { help: true, days };
     if (arg === '--include-test') { includeTest = true; continue; }
+    if (allowTrend && (arg === '--trend' || arg.startsWith('--trend='))) {
+      if (sawTrend) return { error: 'duplicate option: --trend', days };
+      sawTrend = true;
+      if (arg === '--trend') { trend = TREND_DEFAULT_BUCKETS; continue; }
+      const v = arg.slice('--trend='.length);
+      if (!/^[1-9][0-9]*$/.test(v) || Number(v) < TREND_MIN_BUCKETS || Number(v) > TREND_MAX_BUCKETS) {
+        return { error: `invalid --trend value: ${v} (expected ${TREND_MIN_BUCKETS}-${TREND_MAX_BUCKETS} buckets)`, days };
+      }
+      trend = Number(v);
+      continue;
+    }
     const p = arg.match(/^--project=(.*)$/);
     if (p) {
       if (sawProject) return { error: 'duplicate option: --project', days };
@@ -290,20 +385,29 @@ function parseDaysArg(argv, commandName = 'agentsmd-audit') {
     }
     return { error: `unknown option: ${arg}`, days };
   }
-  return { days, project, includeTest, usage: `Usage: ${commandName} [--days=N] [--project=SUBSTR] [--include-test]` };
+  return { days, project, includeTest, trend, usage: `Usage: ${commandName} [--days=N] [--project=SUBSTR] [--include-test]${allowTrend ? ' [--trend[=BUCKETS]]' : ''}` };
 }
 
 if (require.main === module) {
-  const parsed = parseDaysArg(process.argv.slice(2));
+  const USAGE = 'Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test] [--trend[=BUCKETS]]';
+  const parsed = parseDaysArg(process.argv.slice(2), 'agentsmd-audit', { allowTrend: true });
   if (parsed.help) {
-    console.log('Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test]');
+    console.log(USAGE);
     process.exit(0);
   }
   if (parsed.error) {
     console.error(`agentsmd audit: ${parsed.error}`);
-    console.error('Usage: agentsmd-audit [--days=N] [--project=SUBSTR] [--include-test]');
+    console.error(USAGE);
     process.exit(2);
   }
   console.log(formatReport(audit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
+  if (parsed.trend) {
+    console.log('');
+    console.log(formatTrend(trend({ days: parsed.days, buckets: parsed.trend, project: parsed.project, includeTest: parsed.includeTest })));
+  }
 }
-module.exports = { audit, formatReport, parseDaysArg, readRows, classifyProject, ENFORCEMENT_EVENTS, BLOCKING_EVENTS, MAX_DAYS, TEST_TAGS };
+module.exports = {
+  audit, formatReport, parseDaysArg, readRows, classifyProject, trend, formatTrend,
+  ENFORCEMENT_EVENTS, BLOCKING_EVENTS, BYPASS_EVENTS, MAX_DAYS, TEST_TAGS,
+  TREND_DEFAULT_BUCKETS, TREND_MIN_BUCKETS, TREND_MAX_BUCKETS,
+};

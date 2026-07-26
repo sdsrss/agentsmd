@@ -2,6 +2,39 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.22.0 (2026-07-26) — no spec changes (governance-measurement release)
+
+Core and extended rule text is unchanged, and so are all `section_anchor`
+values. Two manifest rules gained a `note` only: `§9-preflight` and
+`§3-plan-before-execute` now record that a retrospective CALIBRATION detector
+(`scripts/sampling-audit.js`) measures them as a proxy, and that their
+enforcement stays `self` — no hook, and no deterministic conformance grading,
+exists for either. Enforcement partition unchanged. `spec_version` → v4.22.0.
+Detail: repository `CHANGELOG.md`.
+
+## v4.21.0 (2026-07-26) — manifest-only: two §5 clauses brought under governance
+
+*Backfilled 2026-07-26: this entry and v4.20.0's were missing, so the shared
+changelog skipped two versions.* Core and extended rule TEXT is unchanged
+(version headers only). The manifest gained two rules for clauses that had
+shipped ungoverned: **`§5-scoped-authorization`** ("Scoped = named", active since
+v4.10.0 with a conformance case but no manifest anchor) and **`§5-scope-bound`**
+(present since the first spec commit, 2026-07-03). Neither is a new rule, so no
+behavior delta is claimed. Surfaced by the reverse drift gate becoming
+per-declaration rather than per-line, which also corrected the
+`Mid-SPINE turn-yield` anchor — its binding line moved to core in v4.3.0 while
+the manifest still pointed at extended. Notes and `last_demote_review` stamps
+refreshed across all rules from the re-run demote review (43/43 keep, no verdict
+flipped). Detail: repository `CHANGELOG.md`.
+
+## v4.20.0 (2026-07-26) — no spec changes (enforcement-gap remediation release)
+
+*Backfilled 2026-07-26.* Rule text and manifest rules unchanged apart from the
+shared version. One prose fix in extended: the changelog pointer now names
+`AGENTS-CHANGELOG.md` beside the installed spec rather than a `~/.codex/` path,
+which was wrong for plugin installs. `spec_version` → v4.20.0. Detail:
+repository `CHANGELOG.md`.
+
 ## v4.19.1 (2026-07-14) — no spec changes (uninstall reversibility + doctor parity patch)
 
 Core and extended rule text, the manifest rules, and all anchors are unchanged.

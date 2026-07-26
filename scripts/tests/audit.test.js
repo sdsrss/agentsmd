@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
-const { audit, parseDaysArg, formatReport, classifyProject, readRows } = require('../audit');
+const { audit, parseDaysArg, formatReport, classifyProject, readRows, trend, formatTrend } = require('../audit');
 const { rulesAudit } = require('../rules');
 const cp = require('child_process');
 
@@ -901,6 +901,142 @@ try {
     assert.ok(/banned-vocab\s+3\s+ext:2 self:1/.test(rep), 'missing deny-class banned-vocab line; got:\n' + rep);
     assert.ok(!/ +$/m.test(rep), 'report has a line with trailing whitespace:\n' + rep);
   });
+  // --- R6: trend (2026-07-25 audit) ---------------------------------------
+  {
+    const tl = path.join(tmp, 'trend.jsonl');
+    const row = (d, ev, sess) => ({ ts: day(d), hook: 'h', event: ev, spec_section: '§8-rm-rf-var', session_id: sess, project: '-home-user-app' });
+    fs.writeFileSync(tl, [
+      // older 10d bucket: 2 sessions, 1 block
+      row(25, 'block', 'old-1'), row(24, 'context', 'old-2'),
+      // newest 10d bucket: 1 session, 2 blocks + 2 bypasses + a fail-open
+      row(2, 'block', 'new-1'), row(2, 'block', 'new-1'),
+      row(2, 'bypass', 'new-1'), row(2, 'bypass', 'new-1'),
+      { ts: day(2), hook: 'banned-vocab', event: 'fail-open', spec_section: null, session_id: 'new-1', extra: { reason: 'jq-missing' } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const tr = trend({ days: 30, buckets: 3, now: NOW, logPath: tl });
+
+    t('R6: buckets run oldest → newest and tile the window', () => {
+      assert.strictEqual(tr.rows.length, 3);
+      assert.strictEqual(tr.bucketDays, 10);
+      const ends = tr.rows.map((r) => r.endIso);
+      assert.deepStrictEqual([...ends].sort(), ends, 'buckets must be chronological');
+    });
+    t('R6: rates are per 100 sessions, so a busy window is not read as indiscipline', () => {
+      const newest = tr.rows[2];
+      assert.strictEqual(newest.sessions, 1);
+      assert.strictEqual(newest.blocks, 2);
+      assert.strictEqual(newest.bypasses, 2);
+      assert.strictEqual(newest.enforcement, 4, 'block+block+bypass+bypass');
+      assert.strictEqual(newest.enforcementPer100Sessions, 400);
+      assert.strictEqual(newest.failOpens, 1);
+      assert.ok(Math.abs(newest.bypassRate - 0.5) < 1e-9);
+    });
+    t('R6: an empty bucket yields null rates, never a fabricated 0%', () => {
+      const mid = tr.rows[1];
+      assert.strictEqual(mid.sessions, 0);
+      assert.strictEqual(mid.enforcementPer100Sessions, null);
+      assert.strictEqual(mid.bypassRate, null, '0 decisions is not a 0% bypass rate');
+      assert.ok(/—/.test(formatTrend(tr)), 'empty bucket must print as — not 0');
+    });
+    t('R6: --trend is rejected by commands that do not implement it', () => {
+      assert.strictEqual(parseDaysArg(['--trend'], 'agentsmd-rules').error, 'unknown option: --trend');
+      assert.strictEqual(parseDaysArg(['--trend'], 'agentsmd-audit', { allowTrend: true }).trend, 3);
+      assert.strictEqual(parseDaysArg(['--trend=4'], 'agentsmd-audit', { allowTrend: true }).trend, 4);
+      assert.ok(/invalid --trend value/.test(parseDaysArg(['--trend=99'], 'agentsmd-audit', { allowTrend: true }).error), 'bucket ceiling unenforced');
+      assert.ok(/invalid --trend value/.test(parseDaysArg(['--trend=x'], 'agentsmd-audit', { allowTrend: true }).error));
+      assert.ok(/duplicate option: --trend/.test(parseDaysArg(['--trend', '--trend=3'], 'agentsmd-audit', { allowTrend: true }).error));
+    });
+    t('R6: trend report has no trailing whitespace and states the version-attribution gap', () => {
+      const rep = formatTrend(tr);
+      assert.ok(!/ +$/m.test(rep), 'trailing whitespace:\n' + rep);
+      assert.ok(/no spec_version/.test(rep), 'the known gap must be stated, not implied');
+    });
+  }
+
+  // --- R1: bypass governance (2026-07-25 audit) ---------------------------
+  // The escape-hatch blind spot: §7-memory-read ran 29 bypasses vs 27 blocks
+  // through two governance reviews without any surface reporting it.
+  {
+    const bp = path.join(tmp, 'bypass.jsonl');
+    const mk = (ev, sess) => ({ ts: day(1), hook: 'memory-read-check', event: ev, spec_section: '§7-memory-read', session_id: sess, project: '-home-user-app' });
+    fs.writeFileSync(bp, [
+      mk('block', 's1'), mk('block', 's2'),
+      mk('bypass', 's1'), mk('bypass', 's1'), mk('bypass', 's1'), mk('bypass', 's3'),
+      // advisory must NOT dilute the rate: it has no escape hatch to use.
+      { ts: day(1), hook: 'memory-read-check', event: 'advisory', spec_section: '§7-memory-read', session_id: 's4', project: '-home-user-app' },
+      // a different rule's blocks must not leak into this rule's denominator
+      { ts: day(1), hook: 'pre-bash-safety', event: 'block', spec_section: '§8-rm-rf-var', session_id: 's5', project: '-home-user-app' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const rb = rulesAudit({ days: 30, now: NOW, logPath: bp });
+    const mem = rb.rules.find((r) => r.id === '§7-memory-read');
+    const rmrf = rb.rules.find((r) => r.id === '§8-rm-rf-var');
+
+    t('R1: bypass rate = bypass/(block+bypass), advisories excluded', () => {
+      assert.strictEqual(mem.blocks, 2);
+      assert.strictEqual(mem.bypasses, 4);
+      assert.strictEqual(mem.bypassDecisions, 6, 'advisory must not enter the denominator');
+      assert.ok(Math.abs(mem.bypassRate - 4 / 6) < 1e-9);
+    });
+    t('R1: distinct bypass sessions separate systemic friction from one stuck loop', () => {
+      assert.strictEqual(mem.bypassSessions, 2, '4 overrides but only s1+s3 → concentrated');
+      assert.strictEqual(mem.blockingSessions, 2);
+    });
+    t('R1: overrides confined to agentsmd itself read as dogfood, not field evasion', () => {
+      // The R6-04 mistake, one layer up: the live 30d window has 35 bypasses and
+      // ZERO from an external project — a finding about the operator's own
+      // development days, not about downstream users routing around a gate.
+      const own = path.join(tmp, 'bypass-self.jsonl');
+      const mkSelf = (ev, sess) => ({ ts: day(1), hook: 'memory-read-check', event: ev, spec_section: '§7-memory-read', session_id: sess, project: '-mnt-dev-projects-agentsmd' });
+      fs.writeFileSync(own, [mkSelf('block', 's1'), mkSelf('block', 's2'), mkSelf('bypass', 's1'), mkSelf('bypass', 's1'), mkSelf('bypass', 's2')]
+        .map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const rs = rulesAudit({ days: 30, now: NOW, logPath: own });
+      const m = rs.rules.find((r) => r.id === '§7-memory-read');
+      assert.deepStrictEqual(m.bypassByClass, { self: 3, external: 0, unknown: 0 });
+      assert.strictEqual(m.bypassSignal, 'bypass-review-self-only');
+      assert.strictEqual(rs.bypassReview.length, 0, 'self-only must not claim field evidence');
+      assert.strictEqual(rs.bypassReviewSelfOnly.length, 1);
+      const rep = rulesFormat(rs);
+      assert.ok(/dogfood, not field evidence/.test(rep), 'origin caveat missing; got:\n' + rep);
+      assert.ok(!/ +$/m.test(rep));
+    });
+    t('R1: over-threshold bypassable rule raises bypass-review, not a verdict', () => {
+      assert.strictEqual(mem.bypassSignal, 'bypass-review');
+      assert.strictEqual(mem.bypassByClass.external, 4, 'fixture project is external → real field signal');
+      assert.ok(rb.bypassReview.some((r) => r.id === '§7-memory-read'));
+      const rep = rulesFormat(rb);
+      assert.ok(/bypass governance \(escape-hatch usage/.test(rep), 'missing bypass section; got:\n' + rep);
+      assert.ok(/§7-memory-read\s+\[allow-unread-memory\]\s+block:\s*2\s+bypass:\s*4\s+rate:\s*67%/.test(rep), 'missing bypass row; got:\n' + rep);
+      assert.ok(/OVER-FIRES/.test(rep) && /HABITUAL/.test(rep), 'both readings must be offered, not one verdict');
+      assert.ok(!/ +$/m.test(rep), 'bypass section introduced trailing whitespace');
+    });
+    t('R1: a non-bypassable rule is n/a — it has no escape hatch to govern', () => {
+      assert.strictEqual(rmrf.bypassable, false);
+      assert.strictEqual(rmrf.bypassSignal, 'n/a');
+      assert.ok(!rb.bypassRows.some((r) => r.id === '§8-rm-rf-var'));
+    });
+    t('R1: below the decision floor a rate is withheld (1-of-1 is 100% and means nothing)', () => {
+      const thin = path.join(tmp, 'bypass-thin.jsonl');
+      fs.writeFileSync(thin, [mk('block', 's1'), mk('bypass', 's2')].map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const rt = rulesAudit({ days: 30, now: NOW, logPath: thin });
+      const m = rt.rules.find((r) => r.id === '§7-memory-read');
+      assert.strictEqual(m.bypassDecisions, 2);
+      assert.strictEqual(m.bypassSignal, 'insufficient-bypass-data');
+      assert.strictEqual(rt.bypassReview.length, 0, 'no review prompt off 2 decisions');
+    });
+    t('R1: a bypassable rule that never fired reads no-bypass-data, not 0% compliance', () => {
+      const none = path.join(tmp, 'bypass-none.jsonl');
+      fs.writeFileSync(none, JSON.stringify({ ts: day(1), hook: 'h', event: 'block', spec_section: '§8-rm-rf-var', session_id: 'sz' }) + '\n');
+      const rn = rulesAudit({ days: 30, now: NOW, logPath: none });
+      assert.strictEqual(rn.rules.find((r) => r.id === '§7-memory-read').bypassSignal, 'no-bypass-data');
+    });
+    t('R1: --project stays an informational lens — bypass signals remain cross-project', () => {
+      const scoped = rulesAudit({ days: 30, now: NOW, logPath: bp, project: 'nonexistent-project' });
+      const m = scoped.rules.find((r) => r.id === '§7-memory-read');
+      assert.strictEqual(m.bypasses, 4, 'a project filter must not shrink the governance denominator');
+      assert.strictEqual(m.bypassSignal, 'bypass-review');
+    });
+  }
+
   t('audit report: healthy empty fail-open state prints a reassuring line', () => {
     const clean = path.join(tmp, 'clean.jsonl');
     fs.writeFileSync(clean, [

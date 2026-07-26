@@ -3,6 +3,62 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.22.0 — 2026-07-26 — governance blind spots found by the spec/closed-loop audit (minor)
+
+**No migration note needed**: no spec rule changed, no hook behavior changed, no
+user-visible default moved. This release is measurement and documentation — new
+read-side reporting (`rules.js` bypass governance, `audit.js --trend`,
+`sampling-audit.js` calibration), one conformance case, and operator-handbook
+policy. Upgrading changes what the governance commands *report*, not what any
+hook does.
+
+- **Bypass governance (R1).** `rules.js` now reports, per bypassable rule, how
+  often its escape-hatch token was used instead of accepting the block, plus the
+  number of distinct sessions the overrides came from. The blind spot this
+  closes: §7-memory-read ran **29 overrides against 27 blocks** and
+  §E3-ship-baseline **6 against 4** over 30 days, through two clean governance
+  reviews, with no surface reporting it. A rate ≥30% (min 5 decisions) raises a
+  review prompt that deliberately offers both readings — the rule over-fires, or
+  the gate is being routed around — and the session spread discriminates them.
+  Advisories are excluded from the denominator: they have no escape hatch.
+  Overrides are additionally split by project origin, and the first run of the
+  finished surface corrected the finding that motivated it: **all 35 overrides in
+  the 30-day window are `self` (agentsmd's own repo), 0 external, clustered on two
+  days in July** — dogfood from the sessions that were building those very hooks,
+  not downstream evasion. Such a rule reports `bypass-review-self-only` and is
+  explicitly adjudicated as no-field-data, because letting self-generated rows
+  read as field evidence is the R6-04 mistake one layer up.
+- **Calibration detectors for unmeasured rules (R2).** `sampling-audit.js` gains
+  `§9-preflight` (git status before the first patch) and
+  `§3-plan-before-execute` (update_plan before the first mutation of an
+  L2+-shaped session) — two of the 28 self-enforced rules that no hook observes.
+  They print under a CALIBRATION heading and never feed a keep/demote decision.
+  **The first draft was wrong and the fix is the interesting part**: it reported a
+  43% preflight miss rate by mixing Codex's two transcript streams (`event_msg`
+  rows are appended live, `response_item` rows land later, so a completed patch
+  appeared *before* the shell calls that preceded it) and by scoring an
+  orchestrator's **subagent** patches against a parent session that never touched
+  a file. Reading only `response_item` cut the rate to 4%. Sessions are also
+  classified self/external with the same classifier the telemetry ledger uses, so
+  conformance and blackbox sandboxes cannot pose as field data (R6-04 fencing).
+- **Discipline trend (R6).** `audit.js --trend[=BUCKETS]` slices the window into
+  equal time buckets normalised per 100 sessions (enforcement, blocks, bypasses,
+  bypass rate, fail-opens). Buckets are time, not spec versions: rows carry no
+  `spec_version`, and stamping one is a hook hot-path change (an §O9 SLO run), so
+  version attribution stays a named gap. Empty buckets print `—`, never a
+  fabricated 0%.
+- **Conformance case for §5 Scope-bound (R4).** `auth-scope-bound-adjacent`: the
+  authorized fix is in `calc.js`, a verifier run makes an adjacent bug in
+  `format.js` impossible to miss, and a silent drive-by fix fails the case. The
+  clause shipped in the first spec commit, went ungoverned until v4.20.0, and had
+  no case. `auth.min_pass` stays 3 with 4 cases — the new case is unrun, and
+  asserting a pass rate for unmeasured behavior is the mistake §O3 rejects.
+- **Operator handbook**: bypass adjudication added to the §O2 review flow;
+  pre-registered core net-delete candidates with their regression guards (§O3,
+  headroom is 144 B — the decision is made cold, not under release pressure);
+  runtime re-baseline duty when the Codex CLI or default model moves (§O4);
+  calibration and trend caveats (§O7).
+
 ## v4.21.0 — 2026-07-26 — audit remediation round 2: the argv ceiling, the last non-atomic uninstall step, and the ungoverned rules (minor)
 
 **Migration note**: one user-visible default change, restoring documented behavior.

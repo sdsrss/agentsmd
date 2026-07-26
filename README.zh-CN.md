@@ -301,11 +301,14 @@ agentsmd 独立于 oh-my-codex。若存在 OMX，agentsmd 会把它的条目视�
 ```bash
 agentsmd audit --days=30
 node scripts/audit.js --project=X
+node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
 ```
 
 只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
+
+`rules` 另有 **bypass governance**：对每条带 escape-hatch token 的规则，报告 token 被用来跳过拦截的比例，以及这些跳过来自多少个不同 session。比例偏高只是复核提示，且有两种相反的解法——规则过度触发，或闸门被习惯性绕过——报告不替你选。`audit --trend` 把窗口切成等长时间桶并按每百 session 归一，让纪律指标的走向可见，而不只有当前快照；桶按时间划分，不按 spec 版本。
 
 ## 安全与隐私
 

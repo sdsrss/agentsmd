@@ -312,11 +312,14 @@ If upgrading from `codexmd` v1.4.0–v1.4.3, the standalone installer migrates o
 ```bash
 agentsmd audit --days=30
 node scripts/audit.js --project=X
+node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
 ```
 
 A rule becomes a demotion candidate only after enough rule-specific evaluated opportunities with zero enforcement hits. `--project` is an informational lens; demotion remains cross-project. `no-opportunity`, low evaluation counts, and global session counts are not demotion evidence. High hit counts show activity, not correctness. The operator makes the decision using [`spec/OPERATOR.md`](./spec/OPERATOR.md).
+
+`rules` also reports **bypass governance**: for each rule with an escape-hatch token, how often that token was used instead of accepting the block, plus how many distinct sessions the overrides came from. A high rate is a review prompt with two opposite remedies — the rule over-fires, or the gate is being routed around — and the report picks neither. `audit --trend` slices the window into equal time buckets normalised per 100 sessions, so discipline movement is visible instead of only the current snapshot; buckets are time, not spec versions.
 
 ## Security and privacy
 

@@ -18,6 +18,20 @@ const { audit, parseDaysArg } = require('./audit');
 // value of the commit secret gate.
 const MIN_EXPOSURE_SESSIONS = 5; // rule-specific eligible/evaluated sessions
 
+// Bypass governance (R1, 2026-07-25 audit). Hit counts alone cannot see an
+// escape hatch being used more often than the rule bites: through two full
+// governance reviews §7-memory-read sat at 29 bypasses vs 27 blocks and
+// §E3-ship-baseline at 6 vs 4, and neither surfaced anywhere. A high rate has
+// two opposite readings — the rule over-fires (friction: narrow the trigger) or
+// it is being habitually evaded (review the overrides) — so this emits a REVIEW
+// prompt, never a verdict. Distinct-session spread is what discriminates them:
+// many sessions bypassing once = systemic; one session bypassing repeatedly = a
+// single stuck loop.
+const BYPASS_REVIEW_RATE = 0.30;
+// Blocking+bypass decisions a rule needs before its rate means anything. 1-of-1
+// is 100% and says nothing; the floor keeps a single override off the report.
+const MIN_BYPASS_DECISIONS = 5;
+
 function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.repoRoot(), 'spec', 'hard-rules.json'), logPath = P.logPath(), project = null, includeTest = false } = {}) {
   const hr = JSON.parse(fs.readFileSync(hardRulesPath, 'utf8'));
   const liveSections = new Set(hr.live_sections || []);
@@ -63,6 +77,29 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     } else if (enforced && section && !live) signal = 'hook-planned'; // hook not built yet → 0 hits is expected, not dilution
     else if (r.enforcement === 'external') signal = 'external-audit';
     else signal = 'self-enforced';
+    // Bypass rate: overrides / (blocks + overrides). Advisories are excluded —
+    // an advisory cannot be bypassed, so counting it would dilute the ratio of
+    // the decisions that actually had an escape hatch. Computed off the section
+    // bucket, so a rule sharing a bucket by design (§10-V) reads the merged
+    // signal it is already governed by.
+    const evs = (bucket && bucket.events) || {};
+    const blocks = (evs.block || 0) + (evs.deny || 0);
+    const bypasses = evs.bypass || 0;
+    const bypassDecisions = blocks + bypasses;
+    const bypassable = r.bypassable === true;
+    const bypassRate = bypassDecisions > 0 ? bypasses / bypassDecisions : null;
+    const bypassByClass = (bucket && bucket.bypassByClass) || { self: 0, external: 0, unknown: 0 };
+    let bypassSignal;
+    if (!bypassable) bypassSignal = 'n/a';                                   // no escape hatch to govern
+    else if (bypassDecisions === 0) bypassSignal = 'no-bypass-data';         // rule never fired in window
+    else if (bypassDecisions < MIN_BYPASS_DECISIONS) bypassSignal = 'insufficient-bypass-data';
+    else if (bypassRate >= BYPASS_REVIEW_RATE) {
+      // Origin decides which review this is. Overrides confined to agentsmd's own
+      // repo and QA sandboxes are dogfood — often the very session that built the
+      // hook — and carry no field evidence, so they must not read as downstream
+      // evasion (the R6-04 mistake, repeated one layer up).
+      bypassSignal = bypassByClass.external > 0 ? 'bypass-review' : 'bypass-review-self-only';
+    } else bypassSignal = 'bypass-ok';
     // localHits: this rule's enforcement hits WITHIN the --project filter.
     // Informational only — null when unscoped or the rule has no section.
     const scopedBucket = (scoped && section) ? scoped.bySection[section] : null;
@@ -72,6 +109,10 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
       eligibleSessions, evaluatedSessions, eligibleObservations, evaluatedObservations,
       live, signal, policy, governanceParent, localHits, confidence: r.confidence,
       lastDemoteReview: r.last_demote_review,
+      bypassable, bypassToken: r.bypass_token || null,
+      blocks, bypasses, bypassDecisions, bypassRate, bypassSignal, bypassByClass,
+      bypassSessions: bucket ? (bucket.bypassSessions || 0) : 0,
+      blockingSessions: bucket ? (bucket.blockingSessions || 0) : 0,
     };
   });
 
@@ -125,6 +166,11 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
     projectFilter,
     projectCount,
     matchedSlugs,
+    bypassReviewRate: BYPASS_REVIEW_RATE,
+    minBypassDecisions: MIN_BYPASS_DECISIONS,
+    bypassRows: rows.filter((r) => r.bypassable),
+    bypassReview: rows.filter((r) => r.bypassSignal === 'bypass-review'),
+    bypassReviewSelfOnly: rows.filter((r) => r.bypassSignal === 'bypass-review-self-only'),
     rules: rows,
     demoteCandidates: rows.filter((r) => r.signal === 'demote-candidate'),
     hookValueReview: rows.filter((r) => r.signal === 'hook-value-review'),
@@ -160,6 +206,38 @@ function formatReport(ra) {
     const local = (ra.projectFilter && r.localHits !== null) ? `  local:${r.localHits}` : '';
     const inherited = r.governanceParent ? ` → ${r.governanceParent}` : '';
     L.push(`  ${r.id.padEnd(24)} ${r.section || ''}  hits:${r.hits}  eligible:${r.eligibleSessions}  evaluated:${r.evaluatedSessions}  [${r.signal}${inherited}]${flag}${local}`);
+  }
+  L.push('');
+  // Bypass governance — cross-project like every other governance signal
+  // (--project stays an informational lens and never narrows it).
+  L.push('bypass governance (escape-hatch usage; cross-project, never narrowed by --project):');
+  if (!ra.bypassRows.length) {
+    L.push('  (no bypassable rules in the manifest)');
+  } else {
+    for (const r of ra.bypassRows) {
+      const rate = r.bypassRate === null ? '   —' : `${String(Math.round(r.bypassRate * 100)).padStart(3)}%`;
+      const flag = r.bypassSignal === 'bypass-review' ? '  ⚠ REVIEW' : (r.bypassSignal === 'bypass-review-self-only' ? '  · self-only' : '');
+      const spread = r.bypasses ? `  sessions:${r.bypassSessions}  ext:${r.bypassByClass.external}/self:${r.bypassByClass.self}` : '';
+      L.push(`  ${r.id.padEnd(24)} ${(r.bypassToken || '').padEnd(22)} block:${String(r.blocks).padStart(3)}  bypass:${String(r.bypasses).padStart(3)}  rate:${rate}  [${r.bypassSignal}]${flag}${spread}`);
+    }
+  }
+  if ((ra.bypassReview.length || ra.bypassReviewSelfOnly.length) && ra.telemetryRows > 0) {
+    const n = ra.bypassReview.length + ra.bypassReviewSelfOnly.length;
+    L.push('');
+    L.push(`⚠ ${n} bypassable rule(s) overridden in ≥${Math.round(ra.bypassReviewRate * 100)}% of their blocking decisions`);
+    L.push(`  (min ${ra.minBypassDecisions} decisions). Two opposite readings — decide which, with evidence:`);
+    L.push('    a) the rule OVER-FIRES → narrow its trigger (the block is friction, not protection)');
+    L.push('    b) the override is HABITUAL → the gate is being routed around; review the cases');
+    L.push('  bypass-sessions discriminates: spread across many = (a) systemic; concentrated = (b) a stuck loop.');
+    L.push('  Record the verdict in spec/governance-log.json like any keep/demote adjudication.');
+    for (const r of ra.bypassReview) {
+      L.push(`    - ${r.id} (${r.section}) ${r.bypasses}/${r.bypassDecisions} overridden across ${r.bypassSessions} session(s), ${r.bypassByClass.external} from external project(s)`);
+    }
+    for (const r of ra.bypassReviewSelfOnly) {
+      L.push(`    - ${r.id} (${r.section}) ${r.bypasses}/${r.bypassDecisions} overridden — ALL from agentsmd's own repo/sandboxes,`);
+      L.push('      so this is dogfood, not field evidence: often the session that built the hook.');
+      L.push('      Adjudicate as no-field-data and re-review once external sessions exist.');
+    }
   }
   L.push('');
   L.push(`self-enforced (not mechanically measured): ${ra.selfEnforced.length} rules`);
@@ -203,4 +281,4 @@ if (require.main === module) {
   }
   console.log(formatReport(rulesAudit({ days: parsed.days, project: parsed.project, includeTest: parsed.includeTest })));
 }
-module.exports = { rulesAudit, formatReport, MIN_EXPOSURE_SESSIONS };
+module.exports = { rulesAudit, formatReport, MIN_EXPOSURE_SESSIONS, BYPASS_REVIEW_RATE, MIN_BYPASS_DECISIONS };

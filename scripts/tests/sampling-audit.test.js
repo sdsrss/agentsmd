@@ -12,7 +12,8 @@ const assert = require('assert');
 const cp = require('child_process');
 const {
   samplingAudit, scanVocab, scanOrder, loadVocabPatterns, extractAssistantTurns, RULE_KEYS,
-  parseArgs,
+  parseArgs, extractToolEvents, toolCallText, scanPreflight, scanPlanBeforeExecute, sessionClass,
+  CALIBRATION_KEYS,
 } = require('../sampling-audit');
 
 let PASS = 0, FAIL = 0;
@@ -138,6 +139,121 @@ try {
       return { vocab: enforced.has('§10-V'), order: enforced.has('§10-four-section-order') };
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
+  // --- R2 calibration detectors (2026-07-25 audit) ------------------------
+  // Fixtures encode the exact traps found by hand-checking real transcripts:
+  // the two write-latency streams, and subagent-emitted patch events.
+  {
+    const meta = (cwd) => JSON.stringify({ timestamp: '2026-07-01T00:00:00Z', type: 'session_meta', payload: { session_id: 's', cwd } });
+    const call = (name, args, ptype = 'function_call') => JSON.stringify({ timestamp: '2026-07-01T00:00:01Z', type: 'response_item', payload: { type: ptype, name, arguments: args } });
+    const patchEvt = JSON.stringify({ timestamp: '2026-07-01T00:00:00.500Z', type: 'event_msg', payload: { type: 'patch_apply_end', changes: { '/repo/a.js': {}, '/repo/b.js': {} } } });
+    const mkT = (dir, lines) => { const p = path.join(dir, 'rollout.jsonl'); fs.writeFileSync(p, lines.join('\n') + '\n'); return p; };
+
+    t('R2: toolCallText unwraps {cmd}, {command:[…]}, bare input, and raw fallback', () => {
+      assert.strictEqual(toolCallText({ arguments: '{"cmd":"git status --short"}' }), 'git status --short');
+      assert.strictEqual(toolCallText({ arguments: '{"command":["bash","-lc","git status"]}' }), 'bash -lc git status');
+      assert.strictEqual(toolCallText({ input: 'await tools.exec({cmd:"ls"})' }), 'await tools.exec({cmd:"ls"})');
+      assert.strictEqual(toolCallText({ arguments: 'not json at all' }), 'not json at all');
+    });
+
+    t('R2: an event_msg patch (other stream / subagent) never becomes this session\'s mutation', () => {
+      // THE BUG THIS PINS: event_msg rows are appended live while response_item
+      // rows land later, so mixing them put a completed patch BEFORE the shell
+      // calls that really preceded it — and an orchestrator's subagent patches
+      // were scored against the parent, which never touched a file.
+      const d = fs.mkdtempSync(path.join(tmp, 'cal-stream.'));
+      const f = mkT(d, [meta('/repo'), patchEvt, call('exec_command', '{"cmd":"git status --short"}')]);
+      const ev = extractToolEvents(f);
+      assert.deepStrictEqual(ev.map((e) => e.kind), ['shell'], 'only response_item rows may order the sequence');
+      assert.strictEqual(scanPreflight(ev).eligible, false, 'no own mutation → not eligible');
+    });
+
+    t('R2: preflight — git status before the first patch passes, without it fails', () => {
+      const good = mkT(fs.mkdtempSync(path.join(tmp, 'cal-pre-ok.')), [
+        meta('/repo'), call('exec_command', '{"cmd":"git status --short"}'),
+        call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+      ]);
+      const bad = mkT(fs.mkdtempSync(path.join(tmp, 'cal-pre-bad.')), [
+        meta('/repo'), call('exec_command', '{"cmd":"ls -la"}'),
+        call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+      ]);
+      assert.deepStrictEqual(scanPreflight(extractToolEvents(good)), { eligible: true, violation: false });
+      assert.deepStrictEqual(scanPreflight(extractToolEvents(bad)), { eligible: true, violation: true });
+    });
+
+    t('R2: a git status AFTER the patch does not retro-satisfy preflight', () => {
+      const f = mkT(fs.mkdtempSync(path.join(tmp, 'cal-pre-late.')), [
+        meta('/repo'), call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+        call('exec_command', '{"cmd":"git status"}'),
+      ]);
+      assert.strictEqual(scanPreflight(extractToolEvents(f)).violation, true);
+    });
+
+    t('R2: a patch sent through exec (apply_patch heredoc) counts as a mutation', () => {
+      const f = mkT(fs.mkdtempSync(path.join(tmp, 'cal-exec-patch.')), [
+        meta('/repo'), call('exec', 'const r = await tools.apply_patch("*** Begin Patch\\n*** Add File: notes.md\\n+hi\\n*** End Patch")', 'custom_tool_call'),
+      ]);
+      const ev = extractToolEvents(f);
+      assert.deepStrictEqual(ev.map((e) => e.kind), ['mutation'], 'patch shape must win over tool identity');
+    });
+
+    t('R2: plan-before-execute is eligible only on an L2+-shaped session', () => {
+      const small = mkT(fs.mkdtempSync(path.join(tmp, 'cal-plan-small.')), [
+        meta('/repo'), call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+      ]);
+      const big = mkT(fs.mkdtempSync(path.join(tmp, 'cal-plan-big.')), [
+        meta('/repo'), call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n*** Update File: b.js\\n+x\\n*** End Patch"'),
+      ]);
+      assert.strictEqual(scanPlanBeforeExecute(extractToolEvents(small)).eligible, false, '1 file → not L2+ shaped');
+      assert.deepStrictEqual(scanPlanBeforeExecute(extractToolEvents(big)), { eligible: true, violation: true });
+    });
+
+    t('R2: update_plan before the first mutation clears plan-before-execute', () => {
+      const f = mkT(fs.mkdtempSync(path.join(tmp, 'cal-plan-ok.')), [
+        meta('/repo'), call('update_plan', '{"plan":[{"step":"do it","status":"in_progress"}]}'),
+        call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n*** Update File: b.js\\n+x\\n*** End Patch"'),
+      ]);
+      assert.deepStrictEqual(scanPlanBeforeExecute(extractToolEvents(f)), { eligible: true, violation: false });
+    });
+
+    t('R2: sessionClass fences agentsmd-owned sandboxes from field data', () => {
+      const mk = (cwd) => sessionClass(mkT(fs.mkdtempSync(path.join(tmp, 'cal-cls.')), [meta(cwd)]));
+      assert.strictEqual(mk('/home/u/.claude/tmp/agentsmd-conformance.p7HQEt/case-auth-hard-tidy'), 'self');
+      assert.strictEqual(mk('/mnt/dev/projects/agentsmd'), 'self');
+      assert.strictEqual(mk('/home/u/projects/downstream-app'), 'external');
+      assert.strictEqual(sessionClass(mkT(fs.mkdtempSync(path.join(tmp, 'cal-nometa.')), [call('exec_command', '{"cmd":"ls"}')])), 'unknown');
+    });
+
+    t('R2: samplingAudit reports calibration with its denominator and class split', () => {
+      const dir = fs.mkdtempSync(path.join(tmp, 'cal-run.'));
+      fs.writeFileSync(path.join(dir, 'a.jsonl'), [
+        meta('/home/u/projects/downstream-app'), call('exec_command', '{"cmd":"ls"}'),
+        call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+      ].join('\n') + '\n');
+      fs.writeFileSync(path.join(dir, 'b.jsonl'), [
+        meta('/tmp/agentsmd-conformance.X/case-y'), call('exec_command', '{"cmd":"git status"}'),
+        call('apply_patch', '"*** Begin Patch\\n*** Update File: a.js\\n+x\\n*** End Patch"'),
+      ].join('\n') + '\n');
+      // `now` must sit safely AFTER the fixtures' mtime: walkTranscripts drops
+      // files stamped later than `now`, and sub-millisecond mtime precision can
+      // put a just-written file past a bare Date.now() — a real flake, seen once.
+      const r = samplingAudit({ sessionsDir: dir, days: 3650, now: Date.now() + 3600000 });
+      const pre = r.byCalibration['§9-preflight'];
+      assert.strictEqual(pre.eligible, 2);
+      assert.strictEqual(pre.violations, 1);
+      assert.deepStrictEqual(pre.byClass.external, { eligible: 1, violations: 1 });
+      assert.deepStrictEqual(pre.byClass.self, { eligible: 1, violations: 0 });
+      assert.strictEqual(r.calibration, true);
+      const rep = require('../sampling-audit').formatReport(r);
+      assert.ok(/CALIBRATION/.test(rep) && /NOT a governance signal/.test(rep), 'must be labelled non-authoritative');
+      assert.ok(/external-only/.test(rep), 'field-data column missing');
+      assert.ok(!/ +$/m.test(rep), 'calibration section has trailing whitespace');
+    });
+
+    t('R2: calibration keys are disjoint from the graded §10 keys', () => {
+      assert.deepStrictEqual(CALIBRATION_KEYS.filter((k) => RULE_KEYS.includes(k)), []);
+    });
+  }
+
   const parityCases = [
     'This significantly improves the parser.',
     'Done: fixed crash (12/12 tests passed).',

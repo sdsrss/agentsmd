@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both. bypassable: false = immutable — no inline token or exception may skip enforcement in hooks (structured per-repo exceptions for §8-secrets/§8-unknown-script are fingerprint+expiry lookups, not bypasses, and are telemetried as exception events); true requires bypass_token and telemetry on every use.",
-  "spec_version": "v4.21.0",
+  "spec_version": "v4.22.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
@@ -362,6 +362,7 @@
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": "2026-07-26",
+      "note": "Enforcement stays self: no hook can see it. A retrospective CALIBRATION detector (scripts/sampling-audit.js, 2026-07-25 audit R4) measures update_plan-before-first-mutation on L2+-shaped sessions — proxy only, never a governance signal (OPERATOR §O7). Deterministic conformance grading is not available either: qa/conformance-eval.sh observes files, git, executed commands and the final message, and update_plan is none of those. Adding an event-stream assert type would need the exact `codex exec --json` plan-item shape verified first.",
       "added_at": "2026-07-03"
     },
     {
@@ -416,6 +417,7 @@
       "added_version": "v1.4.0",
       "confidence": "medium",
       "last_demote_review": "2026-07-26",
+      "note": "Enforcement stays self (a PreToolUse hook cannot know an edit is coming). A retrospective CALIBRATION detector (scripts/sampling-audit.js, 2026-07-25 audit R4) measures git-status-before-first-patch — proxy only, never a governance signal (OPERATOR §O7): shell-only writes are invisible and a status run in an earlier session of the same task is uncounted.",
       "added_at": "2026-07-03"
     },
     {
