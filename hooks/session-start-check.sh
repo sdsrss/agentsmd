@@ -24,6 +24,21 @@ extract_spec_version() {
   printf '%s' "$token"
 }
 
+# Numeric MAJOR.MINOR.PATCH comparison, true when $1 is strictly newer than $2.
+# Any prerelease/build suffix or non-numeric field returns false: a release
+# candidate must never nag a user running the stable release it was cut from.
+# 10# forces base-10 so a zero-padded field cannot be read as octal.
+semver_gt() {
+  local a1 a2 a3 b1 b2 b3
+  [[ "$1" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+  a1="${BASH_REMATCH[1]}"; a2="${BASH_REMATCH[2]}"; a3="${BASH_REMATCH[3]}"
+  [[ "$2" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+  b1="${BASH_REMATCH[1]}"; b2="${BASH_REMATCH[2]}"; b3="${BASH_REMATCH[3]}"
+  (( 10#$a1 != 10#$b1 )) && { (( 10#$a1 > 10#$b1 )); return; }
+  (( 10#$a2 != 10#$b2 )) && { (( 10#$a2 > 10#$b2 )); return; }
+  (( 10#$a3 > 10#$b3 ))
+}
+
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
 # R1-03 degraded-mode persistent warning: without jq every enforcement hook
@@ -184,7 +199,33 @@ if [[ "$CP_FOUND" -gt 0 ]]; then
   CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/typecheck/build ran after the last mutation). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
 
-hook_record "$HOOK" "context" '{"phase":"session-start"}' '' "$SID"
+# Stale-deploy check — OFFLINE by construction (two local file reads, no network,
+# no version lookup upstream). It catches the one drift nothing else catches
+# without the user running doctor: the package was upgraded (npm / git pull) but
+# `agentsmd update` never ran, so $CODEX_HOME keeps enforcing the OLD spec while
+# every other signal says the new version is installed. Silent when the install
+# predates the manifest's sourceRoot field, when the path is gone, or when the
+# versions match — an unreadable source is not evidence of staleness. Skipped
+# under a plugin selection: that surface runs from its own bundle, so a stale
+# standalone deploy is not the spec it is executing.
+STALE_DEPLOY=""
+STALE_FLAG=false
+if [[ "$SELECTED_SURFACE" != "plugin" ]]; then
+  STATE_MANIFEST="$STATE_DIR/manifest.json"
+  if [[ -r "$STATE_MANIFEST" ]]; then
+    DEPLOYED_V="$(jq -r '.version // empty' "$STATE_MANIFEST" 2>/dev/null)"
+    SRC_ROOT="$(jq -r '.sourceRoot // empty' "$STATE_MANIFEST" 2>/dev/null)"
+    if [[ -n "$DEPLOYED_V" && "$SRC_ROOT" == /* && -r "$SRC_ROOT/package.json" ]]; then
+      SOURCE_V="$(jq -r '.version // empty' "$SRC_ROOT/package.json" 2>/dev/null)"
+      if semver_gt "$SOURCE_V" "$DEPLOYED_V"; then
+        STALE_FLAG=true
+        STALE_DEPLOY=$'\n'"[agentsmd] Stale deploy: ${CODEX_HOME:-$HOME/.codex} is enforcing v${DEPLOYED_V}, but the package it was installed from (${SRC_ROOT}) is now v${SOURCE_V}. Upgrading the package does NOT redeploy the spec or hooks. Run: agentsmd update — then agentsmd doctor."
+      fi
+    fi
+  fi
+fi
+
+hook_record "$HOOK" "context" "{\"phase\":\"session-start\",\"deployStale\":${STALE_FLAG}}" '' "$SID"
 if [[ "$SPEC_ACTIVE" == "true" && "$DEGRADED_NO_SURFACE" == "true" ]]; then
   # Packaged core injected, but arbitration selected no healthy surface. Say so —
   # the appended surface line reads selected=none, and the two must agree (N-03).
@@ -196,4 +237,4 @@ elif [[ "$SPEC_FOUND" == "true" ]]; then
 else
   BANNER="[agentsmd] Native hooks are active, but no CODEX-CODING-SPEC core was found; SPINE/Iron-Law policy is not loaded. Reinstall the plugin or run the standalone installer."
 fi
-hook_context "${BANNER}${SURFACE_CONTEXT}${SPEC_CONTEXT}${CHECKPOINT}" "SessionStart"
+hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}" "SessionStart"

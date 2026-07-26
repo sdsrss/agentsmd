@@ -583,5 +583,60 @@ withEnv(() => {
   }
 });
 
+// Plugin-surface uninstall: the plugin has NO standalone manifest, but its hooks
+// write the same $CODEX_HOME state files. Gating the sweep on a manifest left
+// them behind permanently — and `codex plugin remove` deletes the plugin cache
+// (the only copy of the tooling that could clean them) moments later. Verified
+// against a real `codex plugin add` sandbox before this test was written.
+{
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-plugin-uninstall.'));
+  const previous = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    for (const key of Object.keys(require.cache)) {
+      if (/scripts[\\/](lib[\\/])?(?:uninstall|paths)\.js$/.test(key)) delete require.cache[key];
+    }
+    const { uninstall } = require('../uninstall');
+    const stateDir = path.join(codexHome, '.agentsmd-state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.mkdirSync(path.join(codexHome, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'session-start-abc.ref'), '');
+    fs.writeFileSync(path.join(stateDir, 'arbitration-cache.json'), '{}');
+    fs.mkdirSync(path.join(stateDir, 'pending-advisories-abc.d'), { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'pending-advisories-abc.d', '1'), 'x');
+    // Not ours: a foreign file must survive and must keep the dir alive.
+    const foreign = path.join(stateDir, 'someone-elses.txt');
+    fs.writeFileSync(foreign, 'keep me');
+    const telemetry = path.join(codexHome, 'logs', 'agentsmd.jsonl');
+    fs.writeFileSync(telemetry, '{"hook":"session-start"}\n');
+    assert.ok(!fs.existsSync(path.join(stateDir, 'manifest.json')), 'fixture must have NO standalone manifest');
+
+    const withForeign = uninstall();
+    t('plugin-only uninstall sweeps hook-written state even without a manifest', () => {
+      assert.ok(!fs.existsSync(path.join(stateDir, 'session-start-abc.ref')), 'session ref survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'arbitration-cache.json')), 'arbitration cache survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'pending-advisories-abc.d')), 'advisory queue survived');
+    });
+    t('a foreign file in the state dir is preserved, and keeps the dir', () => {
+      assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'keep me');
+      assert.strictEqual(withForeign.stateDirRemoved, false, 'must not remove a dir still holding another tenant\'s file');
+    });
+    t('telemetry is retained by design and its path is reported', () => {
+      assert.ok(fs.existsSync(telemetry), 'telemetry must not be deleted');
+      assert.strictEqual(withForeign.telemetryRetainedAt, telemetry);
+    });
+
+    fs.unlinkSync(foreign);
+    const clean = uninstall();
+    t('with only agentsmd state present the dir itself is removed', () => {
+      assert.strictEqual(clean.stateDirRemoved, true);
+      assert.ok(!fs.existsSync(stateDir), 'state dir survived a clean plugin-only uninstall');
+    });
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

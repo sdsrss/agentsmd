@@ -30,8 +30,12 @@ codex plugin add agentsmd@agentsmd
 Then start a new Codex session so the packaged hooks and skills are loaded. To verify:
 
 ```bash
-codex plugin list --marketplace agentsmd --json
+codex plugin list --json    # look for agentsmd under "installed"
 ```
+
+Read the `installed` array, not `available`: for an npm-sourced marketplace entry
+Codex reports `"available": []` both before and after a successful install, so an
+empty `available` is not a failure signal.
 
 Codex asks you to review trust before plugin hooks run for the first time. Inspect the `hooks.json` selected by `.codex-plugin/plugin.json` and its 15 local commands before approving it. Until hooks are trusted, skills may be visible, but the spec banner and runtime checks do not execute.
 
@@ -63,6 +67,15 @@ miss aborts with zero mutation. `--degraded` is the explicit opt-in for a
 non-enforcing install (hooks fail open); the manifest records
 `enforcement:false` and `status`/`doctor` keep warning until a healthy
 `agentsmd update`.
+
+Upgrading the package does **not** redeploy the spec or hooks — `~/.codex` keeps
+enforcing whatever `agentsmd install`/`update` last put there. The SessionStart
+hook says so: it compares the deployed version against the
+package it was installed from (recorded as `sourceRoot` in the manifest) and, when
+the package is newer, adds one line naming the fix. The check is **offline** — two
+local file reads, no registry lookup, no download, and nothing self-updates;
+running `agentsmd update` stays your decision. Installs predating `sourceRoot`
+simply stay silent until their next install.
 
 Mutating lifecycle operations (install / update / uninstall / `restore
 --confirm` / `repair --confirm`) are serialized per `$CODEX_HOME` by a
@@ -240,12 +253,21 @@ Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HO
 codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
-# uninstall
+# uninstall — clear agentsmd's runtime state FIRST, while the tooling still exists
+node "$CODEX_HOME/plugins/cache/agentsmd/agentsmd/<version>/scripts/uninstall.js"
 codex plugin remove agentsmd --marketplace agentsmd --json
 codex plugin marketplace remove agentsmd --json
 ```
 
 Start a new Codex session after a plugin update and review any changed hook commands again.
+
+Order matters on uninstall. The plugin's hooks write session state to
+`$CODEX_HOME/.agentsmd-state/` and telemetry to `$CODEX_HOME/logs/agentsmd.jsonl`;
+`codex plugin remove` deletes the plugin cache — including the uninstaller that
+clears them — so run the uninstaller first. It removes only agentsmd-owned state
+(another tenant's file in that directory is preserved, and keeps the directory),
+retains the telemetry log as your data, and prints its exact path. If you already
+removed the plugin, delete those two paths by hand.
 
 ### Standalone or npm
 

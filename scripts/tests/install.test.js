@@ -388,6 +388,12 @@ withSandbox((dir) => {
       require('../lib/fs-atomic').sha256Tree(path.join(dir, 'agentsmd')),
       'manifest deploy hash does not match filtered tree'
     );
+    // sourceRoot is what lets the SessionStart hook detect "package upgraded but
+    // never redeployed" offline: it re-reads this path's package.json. It must be
+    // absolute (a hook resolves it from an arbitrary cwd) and actually carry one.
+    assert.strictEqual(manifest.sourceRoot, path.resolve(__dirname, '..', '..'), 'manifest must record the package root it installed from');
+    assert.ok(path.isAbsolute(manifest.sourceRoot), 'sourceRoot must be absolute');
+    assert.ok(fs.existsSync(path.join(manifest.sourceRoot, 'package.json')), 'sourceRoot must contain the package.json the hook reads');
   });
   const st = status();
   t('status reports installed with 0 other-tenant hooks', () => { assert.strictEqual(st.installed, true); assert.strictEqual(st.otherTenantHooksPreserved, 0); assert.strictEqual(st.agentsmdHooksRegistered, EXPECTED_HOOKS); });

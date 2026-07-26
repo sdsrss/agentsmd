@@ -2,6 +2,16 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.23.0 (2026-07-26) — no spec changes (deploy-drift banner + plugin-uninstall fix)
+
+Core and extended rule text, the manifest rules, and every `section_anchor` are
+unchanged. The shared version moves in lockstep with a package minor: the
+SessionStart hook now reports an offline-detected stale deploy (the deployed spec
+being older than the package it was installed from — the case where an OLD spec
+keeps being enforced silently), and `uninstall` now clears agentsmd's own state
+files on the plugin surface, which has no standalone manifest. `spec_version` →
+v4.23.0. Detail: repository `CHANGELOG.md`.
+
 ## v4.22.0 (2026-07-26) — no spec changes (governance-measurement release)
 
 Core and extended rule text is unchanged, and so are all `section_anchor`

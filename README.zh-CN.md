@@ -30,8 +30,11 @@ codex plugin add agentsmd@agentsmd
 安装后新开一个 Codex 会话，让插件中的 hooks 和 skills 生效。验证命令：
 
 ```bash
-codex plugin list --marketplace agentsmd --json
+codex plugin list --json    # 在 "installed" 中查看 agentsmd
 ```
+
+看 `installed` 数组，不要看 `available`：对 npm 来源的 marketplace 条目，Codex 在安装前后都报
+`"available": []`，空的 `available` 不代表失败。
 
 Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 15 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
 
@@ -61,6 +64,13 @@ release tag（同样校验）；40 位 commit 具备不可变身份但没有已�
 `--degraded` 是唯一的显式降级入口（hooks 失效放行）；manifest 记录
 `enforcement:false`，`status`/`doctor` 会持续告警，直到一次健康的
 `agentsmd update` 恢复。
+
+升级包**不会**重新部署 spec 和 hooks——`~/.codex` 仍执行上一次
+`agentsmd install`/`update` 放进去的版本。SessionStart hook 会直接说出来：
+它比较已部署版本与安装来源包的版本（manifest 里的 `sourceRoot`），来源更新时补一行
+提示并给出修复命令。该检查**完全离线**——只读两个本地文件，不查询 registry、不下载、
+不自动更新;是否执行 `agentsmd update` 仍由你决定。早于 `sourceRoot` 字段的旧安装保持
+静默，直到下次安装。
 
 变更类生命周期操作（install / update / uninstall / `restore --confirm` /
 `repair --confirm`）按 `$CODEX_HOME` 由跨进程锁串行化：并发的第二个操作以
@@ -234,12 +244,19 @@ agentsmd design --write
 codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
-# 卸载
+# 卸载——先清理 agentsmd 运行时状态，此时工具还在
+node "$CODEX_HOME/plugins/cache/agentsmd/agentsmd/<version>/scripts/uninstall.js"
 codex plugin remove agentsmd --marketplace agentsmd --json
 codex plugin marketplace remove agentsmd --json
 ```
 
 插件更新后新开一个 Codex 会话，并重新审查发生变化的 hook 命令。
+
+卸载有先后顺序。插件的 hooks 会把会话状态写到 `$CODEX_HOME/.agentsmd-state/`、把遥测写到
+`$CODEX_HOME/logs/agentsmd.jsonl`；而 `codex plugin remove` 会删掉插件缓存——连同能清理它们的
+卸载器一起删掉，所以要先跑卸载器。它只移除 agentsmd 自己的状态（该目录下其他 tenant 的文件会
+保留，并因此保留目录本身），遥测日志作为你的数据保留并打印确切路径。若已经先移除了插件，手动
+删除这两个路径即可。
 
 ### Standalone 或 npm
 

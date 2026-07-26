@@ -287,7 +287,42 @@ echo "== session-start-check.sh =="
 OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
 [ -f "$CODEX_HOME/.agentsmd-state/session-start-smoke1.ref" ] && ok "session start refreshes per-session sandbox-disposal ref (I3)" || bad "session start refreshes per-session sandbox-disposal ref (I3)" "(no ref file)"
+# Stale-deploy banner: package upgraded, `agentsmd update` never run. Offline by
+# construction — two local reads, so these cases need no network and no fixture
+# beyond a manifest plus a package.json.
+STALE_HOME="$SANDBOX/stale-home"
+STALE_PKG="$SANDBOX/stale-pkg"
+mkdir -p "$STALE_HOME/.agentsmd-state" "$STALE_PKG"
+printf '# CODEX-CODING-SPEC v4.21.0 — Global\n' > "$STALE_HOME/AGENTS.md"
+stale_ctx() { # $1 = manifest json, $2 = source package version
+  printf '%s' "$1" > "$STALE_HOME/.agentsmd-state/manifest.json"
+  printf '{"version":"%s"}' "$2" > "$STALE_PKG/package.json"
+  printf '%s' '{"session_id":"stale","hook_event_name":"SessionStart","source":"startup"}' \
+    | CODEX_HOME="$STALE_HOME" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
+}
+CTX="$(stale_ctx "{\"version\":\"4.21.0\",\"sourceRoot\":\"$STALE_PKG\"}" '4.22.0')"
+[[ "$CTX" == *'Stale deploy'* && "$CTX" == *'agentsmd update'* ]] \
+  && ok "stale deploy (source newer than deployed) → banner names the fix" \
+  || bad "stale deploy → banner" "$CTX"
+CTX="$(stale_ctx "{\"version\":\"4.22.0\",\"sourceRoot\":\"$STALE_PKG\"}" '4.22.0')"
+[[ "$CTX" != *'Stale deploy'* ]] && ok "current deploy → no stale banner" || bad "current deploy must not nag" "$CTX"
+CTX="$(stale_ctx "{\"version\":\"4.21.0\",\"sourceRoot\":\"$STALE_PKG\"}" '4.20.0')"
+[[ "$CTX" != *'Stale deploy'* ]] && ok "source OLDER than deploy → no stale banner" || bad "older source must not nag" "$CTX"
+CTX="$(stale_ctx "{\"version\":\"4.21.0\",\"sourceRoot\":\"$STALE_PKG\"}" '4.23.0-rc.1')"
+[[ "$CTX" != *'Stale deploy'* ]] && ok "prerelease source → no stale banner (rc must not nag a stable user)" || bad "prerelease must not nag" "$CTX"
+CTX="$(stale_ctx '{"version":"4.21.0"}' '4.99.0')"
+[[ "$CTX" != *'Stale deploy'* ]] && ok "manifest predating sourceRoot → silent, not a false alarm" || bad "legacy manifest must stay silent" "$CTX"
+CTX="$(stale_ctx "{\"version\":\"4.21.0\",\"sourceRoot\":\"$SANDBOX/no-such-pkg\"}" '4.22.0')"
+[[ "$CTX" != *'Stale deploy'* ]] && ok "unreadable sourceRoot → silent (absence is not evidence of staleness)" || bad "missing source must stay silent" "$CTX"
+
 PLUGIN_FIXTURE="$(cd "$HOOKS_DIR/.." && pwd -P)"
+CTX="$(printf '%s' '{"session_id":"stale-plugin","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$STALE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null \
+  | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$CTX" != *'Stale deploy'* ]] \
+  && ok "plugin surface selected → standalone staleness is not its spec, stays quiet" \
+  || bad "plugin selection must skip the stale-deploy check" "$CTX"
 OUT="$(printf '%s' '{"session_id":"plugin-only","hook_event_name":"SessionStart"}' | CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 PLUGIN_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"

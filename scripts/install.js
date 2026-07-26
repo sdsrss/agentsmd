@@ -375,6 +375,12 @@ function installCore(nowIso, options, preflight, txid) {
       installedAt: stamp,
       backup: options.repair ? (priorManifest.backup || null) : (backupInfo ? backupInfo.id : null),
       installDir: P.installDir(),
+      // Where this install was RUN FROM (npm package root or git checkout). The
+      // SessionStart hook re-reads this path's package.json to detect the one
+      // drift no other check catches offline: the package was upgraded but
+      // `agentsmd update` never ran, so ~/.codex keeps enforcing the old spec.
+      // npm replaces that directory in place on upgrade, so the path stays valid.
+      sourceRoot: P.repoRoot(),
       hooksDir,
       hookCount: H.countAgentsmdHooks(mergedHooks),
       installedSkills: skillNames,

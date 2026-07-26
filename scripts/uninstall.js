@@ -76,11 +76,16 @@ function validateOwnership(manifest) {
   return ownership;
 }
 
+// Ownership of these files is established by their NAME — only agentsmd's own
+// hooks write them — not by the standalone manifest. Gating the sweep on a
+// manifest stranded the PLUGIN surface: a plugin install has no manifest, yet its
+// hooks create exactly these files, so uninstall skipped them and left a
+// non-empty state dir behind forever. Worse, `codex plugin remove` then deletes
+// the plugin cache — the only copy of the tooling that could have cleaned them.
 function ownedStateFiles(manifest) {
-  if (!manifest) return [];
   const state = P.stateDir();
   const ownedName = /^(?:pending-advisories-.+|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|arbitration-cache\.json)$/;
-  const files = [P.manifestPath()];
+  const files = manifest ? [P.manifestPath()] : [];
   let entries = [];
   try { entries = fs.readdirSync(state, { withFileTypes: true }); }
   catch (error) { if (error && error.code === 'ENOENT') return files; throw error; }
@@ -93,8 +98,7 @@ function ownedStateFiles(manifest) {
 // Per-message advisory queues are directories (pending-advisories[-<key>].d), so
 // the file sweep above never touches them; enumerate them separately so uninstall
 // removes the queue rather than orphaning it and leaving stateDir non-empty.
-function ownedStateDirs(manifest) {
-  if (!manifest) return [];
+function ownedStateDirs() {
   const state = P.stateDir();
   const ownedDir = /^pending-advisories(?:-.+)?\.d$/;
   const dirs = [];
@@ -305,7 +309,7 @@ function uninstallCore() {
     ? CT.removeAgentsmdStatusLine(beforeConfig, manifest.statusLine === 'appended-tui-table')
     : null;
   const stateFiles = ownedStateFiles(manifest);
-  const stateDirs = ownedStateDirs(manifest);
+  const stateDirs = ownedStateDirs();
   const legacy = M.legacyArtifacts();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-uninstall-stage-${process.pid}-${Date.now()}`);
   fs.mkdirSync(stageRoot, { mode: 0o700 });
@@ -440,6 +444,12 @@ function uninstallCore() {
       if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error;
       result.stateDirRemoved = error.code === 'ENOENT';
     }
+
+    // Telemetry is retained by design (it is the user's data, and a reinstall
+    // keeps its history). Name the path anyway: a plugin-surface user loses the
+    // tooling seconds later to `codex plugin remove`, so "delete this file" has
+    // to be actionable from the uninstall output alone.
+    if (F.pathExists(P.logPath())) result.telemetryRetainedAt = P.logPath();
 
     // 4. Current-session compatibility shims are part of the deploy swap.
     if (deploySwap) {

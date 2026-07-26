@@ -3,6 +3,85 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.23.0 — 2026-07-26 — the deploy/package drift you could not see, and the plugin state uninstall never removed (minor)
+
+**Migration note** — two user-visible changes, both narrow:
+
+1. When the deployed `$CODEX_HOME` install is older than the package it was
+   installed from, the SessionStart banner gains one line naming the fix
+   (`agentsmd update`). Silence is the normal state. Opt out like any hook:
+   `DISABLE_SESSION_START_HOOK=1`.
+2. `agentsmd uninstall` now also removes agentsmd's own state files when no
+   standalone manifest exists (the plugin-surface case). It never touches another
+   tenant's files, and telemetry is still retained.
+
+### Plugin-surface lifecycle audit: uninstall left runtime state behind
+
+Audited install / update / uninstall on the **plugin** surface against a real
+Codex 0.144.5 in throwaway `CODEX_HOME` sandboxes (`codex plugin marketplace add`
+→ `plugin add` → version flip → `plugin remove`). Install and update are sound:
+the cache holds exactly one version directory (1.4 MB), a 4.21.0 → 4.22.0 flip
+replaces it rather than accumulating, and the packaged hooks run correctly from
+`CLAUDE_PLUGIN_ROOT` (banner reports the packaged spec version). One real defect,
+one documentation defect:
+
+- **`uninstall` skipped the plugin surface's runtime state entirely.** Ownership
+  of the `$CODEX_HOME/.agentsmd-state/` files was gated on the standalone
+  manifest — but a plugin install has no manifest, while its hooks write exactly
+  those files. So `ownedStateFiles()`/`ownedStateDirs()` returned empty, the
+  sweep no-opped, and the state directory survived forever. `codex plugin remove`
+  then deletes the plugin cache — the only copy of the uninstaller that could
+  have cleaned it. RED evidence: the published 4.22.0 uninstaller, run against a
+  real plugin install with two session refs, reported `stateDirRemoved: false`
+  and left both files; the fixed uninstaller reports `true` and removes them.
+  Ownership is now established by filename (only agentsmd's hooks write those
+  names), which is what it always meant. A foreign file in that directory is
+  still preserved and still keeps the directory. Telemetry stays retained by
+  design and its path is now reported as `telemetryRetainedAt`, because a plugin
+  user loses the tooling seconds later.
+- **README's plugin verification step was misleading.** It told users to run
+  `codex plugin list --marketplace agentsmd --json`; for an npm-sourced
+  marketplace entry Codex reports `"available": []` both before and after a
+  successful install, so the documented check looks like a failure. Now points at
+  the `installed` array and says so.
+- **Uninstall order is now documented** (both READMEs): run the packaged
+  uninstaller *before* `codex plugin remove`, or delete the two paths by hand.
+- Verified, not changed: `hooks` and `plugins` are both **default-enabled**
+  feature flags on Codex 0.144.5 (`codex doctor --all`: 35 enabled, 0 overridden,
+  in a sandbox with no `[features]` block), so the README's claim that a plugin
+  install needs no `[features] hooks = true` holds on current Codex.
+
+### Offline stale-deploy banner
+
+- **The drift this closes.** Upgrading the package (npm / `git pull`) does not
+  redeploy the spec or hooks — `~/.codex` keeps enforcing the old spec while
+  every other signal says the new version is installed. Until now only
+  `agentsmd doctor` caught it, which nobody runs per session, so **an old spec
+  ran silently**. This was reproduced during the v4.22.0 release itself: doctor
+  went red with "deployed v4.21.0 is older than source v4.22.0" and a user who
+  never runs doctor would have had no signal at all.
+- **Offline by construction.** Two local file reads: the deployed version from
+  the state manifest, the available version from `manifest.sourceRoot`'s
+  `package.json` (a new field — npm replaces that directory in place on upgrade,
+  so the path stays valid). No registry lookup, no download, no self-update.
+  Auto-*installing* from a hook was considered and rejected: the SessionStart
+  budget is 5s, hooks (L1) must not depend on the lifecycle scripts (L2), install
+  is a lock-serialized §5-hard operation that would be fired by every concurrent
+  session start, and a mid-session deploy swap changes the hooks under a running
+  session.
+- **Silent unless it is sure**: a manifest predating `sourceRoot`, a missing or
+  unreadable source path, an older source, or any prerelease version on either
+  side produces no banner — an rc must not nag a user running the stable it was
+  cut from, and absence of evidence is not evidence of staleness. Skipped
+  entirely when the plugin surface is selected, since that surface runs from its
+  own bundle. Telemetry records `deployStale` on the existing session-start row,
+  so how often users run stale is now measurable.
+- **`SECURITY.md` correction**: the runtime-hooks row claimed "No network egress
+  at runtime" while `ship-baseline-check.sh` shells out to `gh` to read the
+  branch's CI conclusion before a shared-branch push. The row now states the one
+  real egress and that hooks never fetch or execute remote code and never
+  self-update. Behavior unchanged — the prose was wrong, not the code.
+
 ## v4.22.0 — 2026-07-26 — governance blind spots found by the spec/closed-loop audit (minor)
 
 **No migration note needed**: no spec rule changed, no hook behavior changed, no
