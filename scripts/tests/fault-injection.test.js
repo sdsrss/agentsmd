@@ -91,7 +91,12 @@ function doctorGreen(home, label) {
 (async () => {
 
 const INSTALL_KILLS = ['after-journal', 'mid-swaps', 'after-swaps', 'mid-writes', 'before-cleanup'];
-const UNINSTALL_KILLS = ['u-after-journal', 'u-mid-files', 'u-after-quarantine', 'u-before-cleanup'];
+// u-shims-staged sits between "compatibility shim tree fully built in its stage
+// dir" and "renamed into place" — the window the earlier points could not reach.
+// Before the shim write was made atomic, the deploy path spent that window as a
+// PARTIAL tree, which classifyStep read as 'other' → planRecovery 'conflict' →
+// every later lifecycle command refused until a human deleted the journal.
+const UNINSTALL_KILLS = ['u-after-journal', 'u-mid-files', 'u-after-quarantine', 'u-shims-staged', 'u-before-cleanup'];
 
 for (const point of INSTALL_KILLS) {
   await t(`matrix[SIGKILL install ${point}] x2 consecutive rounds: crash → heal → crash → heal, residue-free, doctor green`, () => {

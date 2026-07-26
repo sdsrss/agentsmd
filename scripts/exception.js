@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const crypto = require('crypto');
+const F = require('./lib/fs-atomic');
 
 const SCHEMA_VERSION = 1;
 const MAX_FILE_BYTES = 16384; // hooks ignore anything larger (fail-closed)
@@ -61,15 +62,23 @@ function readStore(file) {
   return store;
 }
 
-function writeStore(file, store) {
+// Goes through the shared atomic writer like every other writer in the repo:
+// fsync before rename, parent-dir fsync after, and — when the caller passes the
+// snapshot it read — a compare-and-swap so a concurrent `exception add` in
+// another checkout cannot be silently overwritten. The hand-rolled tmp+rename
+// this replaced had neither.
+function writeStore(file, store, expectedSnapshot = null) {
   const body = `${JSON.stringify(store, null, 2)}\n`;
   if (Buffer.byteLength(body, 'utf8') > MAX_FILE_BYTES) {
     throw new Error(`refusing to write >${MAX_FILE_BYTES} bytes — hooks would ignore the whole file; run 'agentsmd exception prune' first`);
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, body);
-  fs.renameSync(tmp, file);
+  const options = {};
+  if (expectedSnapshot) options.expectedSnapshot = expectedSnapshot;
+  // This file is committed and reviewed by the whole team — it is NOT one of the
+  // private 0600 artifacts, so a NEW one gets the ordinary shared-file mode. An
+  // existing file keeps whatever mode it already has.
+  if (!F.pathExists(file)) options.mode = 0o644;
+  F.writeFileAtomic(file, body, options);
 }
 
 function fingerprintId(rule, detector, fingerprint) {
@@ -181,13 +190,17 @@ function main(argv) {
   const file = exceptionsPath(root);
   try {
     const store = readStore(file);
+    // Snapshot what we read, so every write below is a compare-and-swap against
+    // it: a concurrent `exception add` between this read and our rename is
+    // refused instead of silently losing the other entry.
+    const seen = F.pathExists(file) ? F.snapshotFile(file) : null;
     const now = new Date().toISOString();
     if (opts.command === 'add') {
       const entry = buildEntry(opts, root);
       const kept = store.exceptions.filter((e) => e.id !== entry.id);
       const renewed = kept.length !== store.exceptions.length;
       store.exceptions = [...kept, entry];
-      writeStore(file, store);
+      writeStore(file, store, seen);
       process.stdout.write(`${renewed ? 'renewed' : 'added'}: ${describe(entry)}\n${file}\n`);
       return 0;
     }
@@ -213,7 +226,7 @@ function main(argv) {
         return 1;
       }
       store.exceptions = kept;
-      writeStore(file, store);
+      writeStore(file, store, seen);
       process.stdout.write(`removed ${opts.id}\n`);
       return 0;
     }
@@ -221,7 +234,7 @@ function main(argv) {
     const kept = store.exceptions.filter((e) => typeof e.expires_at === 'string' && e.expires_at > now);
     const dropped = store.exceptions.length - kept.length;
     store.exceptions = kept;
-    writeStore(file, store);
+    writeStore(file, store, seen);
     process.stdout.write(`pruned ${dropped} expired exception(s); ${kept.length} remain\n`);
     return 0;
   } catch (err) {

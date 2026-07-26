@@ -48,7 +48,7 @@ hook_is_readonly_bash "$CMD" && exit 0
 # Parse command positions, quotes, escapes, wrappers, expansions, and pipelines
 # once. The shared lexer is also used by commit/ship hooks, avoiding whole-string
 # matches that mistake data passed to echo/printf for executable shell syntax.
-SAFETY="$(node "$LIB_DIR/command-parse.js" --safety "$CMD" 2>/dev/null)" || {
+SAFETY="$(printf '%s' "$CMD" | node "$LIB_DIR/command-parse.js" --stdin --safety 2>/dev/null)" || {
   hook_record_failopen "$HOOK" "command-parse-failed"
   exit 0
 }
@@ -86,14 +86,14 @@ if [[ "$SKEY" != "global" && -r "$REMOTE_STATE" ]]; then
   REMOTE_SNAPSHOT="$(cat "$REMOTE_STATE" 2>/dev/null)"
   while IFS= read -r remote_path; do
     [[ -n "$remote_path" && -f "$remote_path" ]] || continue
-    if [[ "$(node "$LIB_DIR/command-parse.js" --executes-file "$CMD" "$remote_path" "$CWD" 2>/dev/null)" == "true" ]]; then
+    if [[ "$(printf '%s' "$CMD" | node "$LIB_DIR/command-parse.js" --stdin --executes-file "$remote_path" "$CWD" 2>/dev/null)" == "true" ]]; then
       REMOTE_EXEC=true
       REMOTE_KIND="cross-tool"
       break
     fi
     while IFS= read -r propagated_path; do
       remember_remote_path "$propagated_path"
-    done < <(node "$LIB_DIR/command-parse.js" --propagates-file "$CMD" "$remote_path" "$CWD" 2>/dev/null | jq -r '.[]?' 2>/dev/null)
+    done < <(printf '%s' "$CMD" | node "$LIB_DIR/command-parse.js" --stdin --propagates-file "$remote_path" "$CWD" 2>/dev/null | jq -r '.[]?' 2>/dev/null)
   done <<< "$REMOTE_SNAPSHOT"
 fi
 

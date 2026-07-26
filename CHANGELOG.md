@@ -3,6 +3,69 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.21.0 — 2026-07-26 — audit remediation round 2: the argv ceiling, the last non-atomic uninstall step, and the ungoverned rules (minor)
+
+**Migration note**: one user-visible default change, restoring documented behavior.
+
+**A command larger than 128 KiB no longer skips the §8 gates.** Linux caps a
+single argv element at `MAX_ARG_STRLEN`; the command was passed to the parser
+that way, so padding a command past the limit made `exec` fail E2BIG, the hook
+record a parse failure, and both §8 gates fail open. The command now travels on
+stdin. **A second boundary made the first fix look complete while the block was
+still lost**: `hook_block` echoed the offending command back through
+`jq --arg`, so at 140 KiB `jq` itself failed E2BIG and the block JSON was never
+emitted — the tool call then ran unchecked. Hook messages are now clipped
+(`hook_clip`, 2 KB reason / 8 KB message / 60 KB context) before crossing any
+exec boundary. **If you pipe very large commands, expect them to be enforced
+now, and expect the quoted command in a block message to be truncated with a
+`[+N more characters]` marker.**
+
+Also fixed:
+
+- **The uninstall compatibility shims are written atomically.** They were the
+  last non-atomic mutation in the uninstall commit phase, running *after* the
+  deploy tree was quarantined: a crash mid-write left a partial shim tree, which
+  the recovery planner classified as `other` → `conflict`, and every later
+  `install` / `update` / `uninstall` / `repair --confirm` / `restore --confirm`
+  refused until a human deleted the journal by hand. The tree is now built in a
+  stage directory and renamed into place, so the path is only ever absent or
+  complete. New crash-injection point `u-shims-staged` covers the window (the
+  R2-04 matrix injected before it, which is why it was untested).
+- **`agentsmd exception` writes through the shared atomic writer** — fsync before
+  rename, parent-dir fsync after, and a compare-and-swap against the store it
+  read, so a concurrent `exception add` is refused rather than silently
+  overwritten. It was the one writer in the repo still hand-rolling tmp+rename.
+
+Governance (no runtime effect):
+
+- **The reverse drift gate now works per declaration, not per line.** A line
+  carrying three `**Name (HARD)**` declarations passed on a single anchor; the
+  other two sat outside the ledger, free to be reworded or dropped with CI green.
+  Tightening it immediately surfaced one: **`Mid-SPINE turn-yield`**, whose
+  always-on binding line has lived in the core spec since v4.3.0 while the
+  manifest still pointed at the extended elaboration. Re-anchored.
+- **Two §5 AUTH clauses that had shipped ungoverned now carry manifest entries**:
+  `Scoped = named` (activated in v4.10.0 through a measured conformance delta)
+  and `Scope-bound` (present since the first commit, and the clause the audit
+  named as the clearest blind spot — no anchor, no test, no conformance case).
+  Neither is a new rule, so neither claims a behavior delta.
+- **The demote-review cadence was re-run on corrected denominators.** The only
+  prior review (2026-07-14) predates v4.18.0, which found that ~50 of its 60
+  "projects" were this project's own QA sandboxes posing as external field data.
+  Re-running on fenced data over 1199 rows / 132 sessions / 62 projects kept all
+  43 rules; `§10-specificity` keeps its caveat unchanged, because the 30-day
+  window still reaches back before the v4.14.0 opportunity gate. Next review due
+  2026-08-23.
+- `enforcement: "external"` is a documented manifest value no rule uses yet; the
+  branch handling it is now covered by a test instead of shipping unexercised.
+  `shellcheck` covers `hooks/tests/*.sh` and `qa/*.sh` (0 findings at adoption).
+
+Rollback: `npm i -g @sdsrs/agentsmd@4.20.0 && agentsmd update`, or
+`install.sh --ref v4.20.0`.
+
+Suites: smoke 351 → 353, audit 88 → 89, fault-injection 17 → 18 — `npm run check`
+exit 0.
+
 ## v4.20.0 — 2026-07-25 — audit remediation: enforcement gaps that went quiet (minor)
 
 **Migration note**: no spec/rule text changes. Two user-visible default changes,

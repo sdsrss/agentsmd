@@ -719,6 +719,24 @@ try {
     assert.strictEqual(raCadence.rules.find((x) => x.id === 'r-new').reviewStatus, 'pending-first-review');
     assert.strictEqual(raCadence.reviewCadenceDays, 28, 'cadence from governance block, not --days=7');
   });
+  t('rules: enforcement:external routes to external-audit (declared enum, no rule uses it yet)', () => {
+    // `external` is a documented enforcement value (manifest _doc: self | hook |
+    // external | both) that no rule currently carries, so the branch shipped
+    // unexercised. Deleting it would silently reclassify a future external rule
+    // as self-enforced; covering it costs one fixture.
+    const extFix = path.join(tmp, 'external-rules.json');
+    fs.writeFileSync(extFix, JSON.stringify({
+      live_sections: [],
+      governance: { review_cadence_days: 28 },
+      rules: [
+        { id: 'r-ext', scope: 'core', enforcement: 'external', rule_hits_section: null, added_at: day(2), last_demote_review: day(2) },
+        { id: 'r-self', scope: 'core', enforcement: 'self', rule_hits_section: null, added_at: day(2), last_demote_review: day(2) },
+      ],
+    }));
+    const ra = rulesAudit({ days: 30, now: NOW, logPath: empty, hardRulesPath: extFix });
+    assert.strictEqual(ra.rules.find((r) => r.id === 'r-ext').signal, 'external-audit');
+    assert.strictEqual(ra.rules.find((r) => r.id === 'r-self').signal, 'self-enforced');
+  });
   t('rules and doctor read the SAME cadence classifier over one fixture (no hand-mirrored copy)', () => {
     // The two surfaces answered "is this review current?" with two copies of the
     // predicate and diverged once (v4.19.1 unparseable-stamp fix). They now share

@@ -1166,25 +1166,75 @@ function collectPublisherMatches(source, depth = 0) {
   return matches;
 }
 
+// Leading `--stdin` moves the COMMAND out of argv and onto stdin, keeping every
+// other argument in its usual position. A command is attacker-influenced and
+// unbounded in length, while Linux caps a single argv element at MAX_ARG_STRLEN
+// (128 KiB): past that, exec fails E2BIG, the hook records a parse failure and
+// fails open — so appending padding to a command was a one-line way to skip both
+// §8 gates, and a legitimate large heredoc went unchecked for the same reason.
+// Without the flag the positional form is unchanged (in-repo tests and any
+// out-of-tree caller keep working).
+// fs.readFileSync(0) is NOT safe here: when the parent leaves fd 0 non-blocking
+// it throws EAGAIN mid-stream, and swallowing that would hand the analyzer a
+// TRUNCATED command — which reports "nothing dangerous" and is strictly worse
+// than a fail-open, because the caller cannot tell the difference. Read in a
+// loop, retry EAGAIN with a 1 ms synchronous sleep, and let a genuinely
+// unreadable stdin surface as an error to the caller.
+function readStdinCommand() {
+  if (process.stdin.isTTY) return "";
+  const fs = require("fs");
+  const chunks = [];
+  const buf = Buffer.alloc(65536);
+  const idle = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    let read;
+    try {
+      read = fs.readSync(0, buf, 0, buf.length, null);
+    } catch (error) {
+      if (error.code === "EAGAIN") { Atomics.wait(idle, 0, 0, 1); continue; }
+      if (error.code === "EOF") break;
+      throw error;
+    }
+    if (read === 0) break;
+    chunks.push(Buffer.from(buf.subarray(0, read)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 function main() {
-  if (process.argv[2] === "--executes-file") {
-    process.stdout.write(JSON.stringify(sourceExecutesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "--stdin") {
+    argv.shift();
+    const command = readStdinCommand();
+    // Callers only use --stdin for a command they already know is non-empty, so
+    // an empty read means the stream was lost, not that there was nothing to
+    // analyze. Exit non-zero: the hook then records an honest fail-open instead
+    // of acting on an "all clear" derived from nothing.
+    if (command === "") {
+      process.stderr.write("command-parse: --stdin received an empty command\n");
+      process.exitCode = 1;
+      return;
+    }
+    argv.splice(1, 0, command); // command sits right after the mode
+  }
+  if (argv[0] === "--executes-file") {
+    process.stdout.write(JSON.stringify(sourceExecutesFile(argv[1] || "", argv[2] || "", argv[3] || "")));
     return;
   }
-  if (process.argv[2] === "--safety") {
-    process.stdout.write(JSON.stringify(analyzeSafety(process.argv[3] || "")));
+  if (argv[0] === "--safety") {
+    process.stdout.write(JSON.stringify(analyzeSafety(argv[1] || "")));
     return;
   }
-  if (process.argv[2] === "--propagates-file") {
-    process.stdout.write(JSON.stringify(sourcePropagatesFile(process.argv[3] || "", process.argv[4] || "", process.argv[5] || "")));
+  if (argv[0] === "--propagates-file") {
+    process.stdout.write(JSON.stringify(sourcePropagatesFile(argv[1] || "", argv[2] || "", argv[3] || "")));
     return;
   }
-  if (process.argv[2] === "--publishers") {
-    process.stdout.write(JSON.stringify(collectPublisherMatches(process.argv[3] || "")));
+  if (argv[0] === "--publishers") {
+    process.stdout.write(JSON.stringify(collectPublisherMatches(argv[1] || "")));
     return;
   }
-  const wanted = new Set((process.argv[2] || "").toLowerCase().split("|").filter(Boolean));
-  const source = process.argv[3] || "";
+  const wanted = new Set((argv[0] || "").toLowerCase().split("|").filter(Boolean));
+  const source = argv[1] || "";
   const matches = collectGitMatches(source, wanted);
   process.stdout.write(JSON.stringify(matches));
 }

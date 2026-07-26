@@ -443,8 +443,11 @@ function uninstallCore() {
 
     // 4. Current-session compatibility shims are part of the deploy swap.
     if (deploySwap) {
-      try { result.compatibilityShimsWritten = S.writeUninstalledHookShims(); }
-      finally { markDirectoryAfter(deploySwap); }
+      try {
+        result.compatibilityShimsWritten = S.writeUninstalledHookShims({
+          onStaged: () => J.maybeCrash('u-shims-staged'),
+        });
+      } finally { markDirectoryAfter(deploySwap); }
     } else result.compatibilityShimsWritten = 0;
 
     // 5. Legacy cleanup is inside the same transaction boundary.

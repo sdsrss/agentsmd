@@ -1,18 +1,45 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both. bypassable: false = immutable — no inline token or exception may skip enforcement in hooks (structured per-repo exceptions for §8-secrets/§8-unknown-script are fingerprint+expiry lookups, not bypasses, and are telemetried as exception events); true requires bypass_token and telemetry on every use.",
-  "spec_version": "v4.20.0",
+  "spec_version": "v4.21.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
   },
-  "supported_hook_events": ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"],
-  "registered_hook_events": ["SessionStart", "PreToolUse", "UserPromptSubmit", "Stop"],
+  "supported_hook_events": [
+    "SessionStart",
+    "PreToolUse",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "Stop"
+  ],
+  "registered_hook_events": [
+    "SessionStart",
+    "PreToolUse",
+    "UserPromptSubmit",
+    "Stop"
+  ],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
-  "operational_sections": ["§hooks-fail-open"],
+  "operational_sections": [
+    "§hooks-fail-open"
+  ],
   "_behavior_evidence_doc": "Required on every rule with added_version > v4.16.0 (CI drift gate; R5-05): names the measured before/after behavior delta that justified the addition — a conformance capture id or a governance-log review entry. Rules predating the gate carry their evidence in spec/governance-log.json instead.",
   "_live_sections_doc": "spec_section values emitted or observed by a built and registered hook. A live section with zero rule-specific eligible/evaluated opportunities is no-opportunity, not a demotion signal. Update this array when a hook starts or stops emitting/observing a section.",
   "_demote_policy_doc": "Optional per-rule governance policy used by scripts/rules.js. A standard live core rule becomes a demotion candidate only after the minimum distinct eligible and evaluated sessions with zero enforcement outcomes. deterrence rules are never demoted from telemetry alone. governance_parent marks an overlapping subclause whose promotion/demotion signal is inherited from one disjoint parent rule, preventing duplicate recommendations from the same telemetry bucket. Extended rules have no lower prompt tier and receive hook-value-review instead. Every signal remains operator input, not an automatic edit.",
-  "live_sections": ["§8-rm-rf-var", "§8-unknown-script", "§8-secrets", "§10-V", "§E3-ship-baseline", "§7-user-global-state", "§8.V4", "§10-four-section-order", "§7-memory-read", "§7-session-exit", "§7-memory-hygiene", "§6-iron-law-2", "§10-honesty"],
+  "live_sections": [
+    "§8-rm-rf-var",
+    "§8-unknown-script",
+    "§8-secrets",
+    "§10-V",
+    "§E3-ship-baseline",
+    "§7-user-global-state",
+    "§8.V4",
+    "§10-four-section-order",
+    "§7-memory-read",
+    "§7-session-exit",
+    "§7-memory-hygiene",
+    "§6-iron-law-2",
+    "§10-honesty"
+  ],
   "rules": [
     {
       "id": "§8-rm-rf-var",
@@ -26,7 +53,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Immutable §8. First blocking hook to port (pre-bash-safety-check.sh).",
       "added_at": "2026-07-03"
     },
@@ -42,7 +69,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Covers curl, wget, fetch, HTTPie, and aria2 downloads executed in the same command or by a later command in the same session, including bounded nested-shell downloads. Cross-tool blocking requires the exact recorded output path to exist and resolves later relative execution against the event cwd. Unpinned npx is a separate non-safety advisory and never contributes to this immutable rule's telemetry.",
       "added_at": "2026-07-03"
     },
@@ -58,7 +85,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Hook scans outgoing git commit/diff for key/token patterns; self-enforced elsewhere.",
       "added_at": "2026-07-03"
     },
@@ -73,7 +100,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "DELETE/UPDATE require a bounded predicate and remain prohibited even with authorization. DROP/TRUNCATE use the separate hard-AUTH + reviewed backup/rollback rule because those statements have no WHERE clause.",
       "added_at": "2026-07-03"
     },
@@ -88,7 +115,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Self-enforced — same rationale as §8-sql-no-where: reliable mechanical detection at the bash-hook layer is infeasible (legitimate recursive rg/find/ls -R commands are common). A narrow PreToolUse detector (unscoped traversal of ~/.codex ~/.claude ~ without -maxdepth) is a PLANNED addition, NOT yet built; the manifest must not claim a hook that does not exist. Flip to enforcement 'both' + add §8-home-traversal to live_sections only when that detector actually ships.",
       "added_at": "2026-07-03"
     },
@@ -103,7 +130,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "V4 sandbox-artifact disposal partially hookable via a Stop residue/disposal check; V1-V3 self-enforced.",
       "added_at": "2026-07-03"
     },
@@ -119,7 +146,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Stop-hook advisory on mkdtemp/scratch residue newer than session baseline; excludes Codex runtime-owned synthetic mount targets because recency alone does not prove task ownership.",
       "added_at": "2026-07-03"
     },
@@ -133,7 +160,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -147,7 +174,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Never deferrable (not even under EMERGENCY), and never demotable — a foundational Iron Law stays core regardless of hit count (demote_policy 'deterrence': 0 hits = no unanchored claim arose, not dilution). transcript-structure-scan.sh (Stop) realizes the 'evidence-anchor presence' observer: a completed-fix claim (fixed / resolved / 修复 / 解决了) with NO evidence fingerprint anywhere (test count / file:line / exit code / commit hash / failing-state token / inline `code`) records under §6-iron-law-2 + queues an advisory. Complements §10-V banned-vocab (which fires on the PRESENCE of a bad phrasing) by catching the ABSENCE of any anchor behind a fix claim; the general 'done without evidence' case the heuristic can't see stays self-enforced.",
       "added_at": "2026-07-03"
     },
@@ -161,7 +188,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -175,7 +202,7 @@
       "rule_hits_section": "§10-V",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Shares the banned-vocab pattern set AND the §10-V telemetry bucket with §10-specificity by design — the two are governed as one banned-vocab signal (per-rule attribution is intentionally merged; a §10-V hit is not split between bugfix-anchor vs specificity). Hook scans commit prose + Stop transcript.",
       "added_at": "2026-07-03"
     },
@@ -189,7 +216,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -204,7 +231,7 @@
       "rule_hits_section": "§7-memory-read",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Hook fires on git push/merge/publish Bash; requires successful tool-output evidence for the selected MEMORY.md index and a linked local memory file when the index contains local Markdown links.",
       "added_at": "2026-07-03"
     },
@@ -218,7 +245,7 @@
       "rule_hits_section": null,
       "added_version": "v4.3.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Audit 2026-07-13 gap G-3: Codex sessions compact/resume like any harness, but the re-read duty previously existed nowhere in core. Self-enforced; no hook can observe context loss directly.",
       "added_at": "2026-07-13"
     },
@@ -232,7 +259,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -245,7 +272,7 @@
       "rule_hits_section": "§7-session-exit",
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Stop hook session-exit-checkpoint.sh records an advisory (once per unvalidated streak) when a mutation is not followed by test/lint/typecheck/build evidence, and drops a per-session state flag; git commit/push are not validation. session-start-check.sh surfaces a prior session's leftover flag at the next SessionStart. The paused-task file itself stays self-enforced (the hook observes + nudges, it never writes into the user's repo).",
       "added_at": "2026-07-03"
     },
@@ -259,7 +286,7 @@
       "rule_hits_section": "§7-memory-hygiene",
       "added_version": "v2.12.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Stop hook mem-audit.sh audits the resolved MEMORY.md (the same hook_find_memory_file the hint routes off): index_orphan (index line → missing memory/*.md) and file_orphan (memory/*.md with no index line) queue one advisory per memory-dir per 24h; missing_header (a memory/*.md lacking the mandated `verified: <date> | source:` line) records telemetry only, never surfaced — soft decay is measured, not nagged. Depth-1 dir read (§8); fail-open. The archival / re-verify actions themselves stay self-enforced.",
       "added_at": "2026-07-06"
     },
@@ -275,7 +302,7 @@
       "rule_hits_section": "§E3-ship-baseline",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Hook blocks a shared-branch push only when the latest observable GitHub run is conclusively red. Full/local/fresh validation remains self-enforced by §E3-ship-checklist.",
       "added_at": "2026-07-03"
     },
@@ -289,7 +316,7 @@
       "rule_hits_section": "§10-four-section-order",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Stop transcript-structure scan checks section presence + order in four-section reports.",
       "added_at": "2026-07-03"
     },
@@ -304,7 +331,7 @@
       "demote_policy": "deterrence",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "transcript-structure-scan.sh (Stop) observes the hedging clause: an Uncertain section that hedges (may / could / might / 可能 / 或许) without a because / 因为 / 由于 justification records under §10-honesty + queues an advisory. Scoped to the Uncertain-section tail so legitimate hedges elsewhere don't trip it. The yes/no-first and no-evaluative-framing clauses stay self-enforced. Foundational honesty rule — never demotable (demote_policy 'deterrence': 0 hits = no hedge arose, not dilution).",
       "added_at": "2026-07-03"
     },
@@ -320,7 +347,7 @@
       "rule_hits_section": "§10-V",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Hook enforces banned-vocab subset on git commit messages; Stop scan covers assistant prose; self-enforced elsewhere. Shares the §10-V telemetry bucket with §6-bugfix-anchor by design — a §10-V hit is governed as one merged banned-vocab signal, not attributed per-rule.",
       "added_at": "2026-07-03"
     },
@@ -334,7 +361,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -347,7 +374,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Git history is the signature store — the recurrence detector runs without extended loaded.",
       "added_at": "2026-07-03"
     },
@@ -361,7 +388,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "AUTH is operation-scoped and independent of LEVEL; L3 alone is not a gate. Explicit commit-and-release intent authorizes the standard current-repo ship closure without a redundant prompt; other irreversible, external-state, CI, production, data, security, global-config/routing, and out-of-scope ship operations still ask.",
       "added_at": "2026-07-03"
     },
@@ -375,7 +402,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -388,7 +415,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -400,7 +427,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Worktree sweep (git-status accounting) is self-enforced. The ~/.codex/tmp growth telemetry was a proxy for this rule through v4.13.0; split to §9-tmp-residue-proxy in v4.14.0 (audit M-05).",
       "added_at": "2026-07-03"
     },
@@ -414,7 +441,7 @@
       "rule_hits_section": null,
       "added_version": "v2.13.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "§9 Beyond-green-tests parallel-path rule (fallback / feature flag / default match arm / early return / multi-dispatch): enumerate every branch before edit, verify each after; main-path green + silent siblings is not evidence. Self-enforced — 'did you check every branch' has no reliable bash-hook detector (semantic, needs code understanding); the manifest entry makes it a first-class governed rule (rules.js review cadence) instead of un-tracked prose. The rule text already lived in AGENTS.md §9; C2 adds a manifest row, no spec prose.",
       "added_at": "2026-07-06"
     },
@@ -428,7 +455,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "The rule predates this manifest row; reverse HARD/MUST drift coverage now prevents it from becoming ungoverned prose.",
       "added_at": "2026-07-03"
     },
@@ -443,7 +470,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Immutable §8; dynamic command/config forms make a low-false-positive generic hook infeasible, so enforcement remains self.",
       "added_at": "2026-07-03"
     },
@@ -459,7 +486,7 @@
       "rule_hits_section": "§8-secrets",
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "secrets-scan blocks high-confidence secret filenames in the effective commit while allowing documented .env templates; non-Bash and ambiguous key formats remain self-enforced.",
       "added_at": "2026-07-03"
     },
@@ -474,7 +501,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Immutable §8; Git plumbing and worktree layouts make path-only interception unsafe, so enforcement remains self.",
       "added_at": "2026-07-03"
     },
@@ -488,7 +515,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -501,7 +528,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -514,7 +541,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "high",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -527,7 +554,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -540,7 +567,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "The full 9-item gate order includes local/full/fresh validation, explicit-authorization reuse, default-branch integration, artifact verification, and merged release-branch cleanup. The sibling §E3-ship-baseline hook is only a known-red remote observer and owns its telemetry section.",
       "added_at": "2026-07-03"
     },
@@ -554,7 +581,7 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
@@ -567,21 +594,21 @@
       "rule_hits_section": null,
       "added_version": "v1.4.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "added_at": "2026-07-03"
     },
     {
       "id": "§E8-turn-yield",
       "name": "Mid-SPINE turn-yield — silent mid-cycle stop + next-turn done-claim = Iron Law #2 evasion",
-      "scope": "extended",
-      "section_anchor": "MID-SPINE TURN-YIELD",
+      "scope": "core",
+      "section_anchor": "Mid-SPINE turn-yield",
       "enforcement": "self",
       "codex_hook_event": null,
       "rule_hits_section": null,
       "added_version": "v2.12.0",
       "confidence": "medium",
-      "last_demote_review": "2026-07-14",
-      "note": "Extended §E8. Per-turn analog of core §7 Session-exit mid-SPINE: yielding a turn mid-cycle (before VALIDATE) then claiming done next turn asserts unrun steps = Iron Law #2 violation. Self-enforced; the always-on protection is core Iron Law #2 + §7 session-exit, this elaborates the specific evasion. An optional retrospective Stop observer overlaps B1 (session-exit-checkpoint) + roadmap C4 (iron-law-2 evidence-fingerprint), so measurement is deferred there rather than adding a third overlapping Stop hook.",
+      "last_demote_review": "2026-07-26",
+      "note": "Binding declaration lives in CORE §7 (\"Mid-SPINE turn-yield (HARD, all levels)\"), added in v4.3.0 to close audit finding G-1: while the rule was anchored only to extended §E8, the extended-load triggers exclude L1/L2, so the rule was unreachable at the most common levels. Extended §E8 remains the elaboration. Per-turn analog of core session-exit mid-SPINE: yielding a turn mid-cycle (before VALIDATE) then claiming done next turn asserts unrun steps = Iron Law #2 violation. Self-enforced; the always-on protection is core Iron Law #2 + session-exit, this names the specific evasion. An optional retrospective Stop observer overlaps B1 (session-exit-checkpoint) + roadmap C4 (iron-law-2 evidence-fingerprint), so measurement is deferred there rather than adding a third overlapping Stop hook.",
       "added_at": "2026-07-06"
     },
     {
@@ -596,8 +623,36 @@
       "added_version": "v4.14.0",
       "added_at": "2026-07-14",
       "confidence": "low",
-      "last_demote_review": "2026-07-14",
+      "last_demote_review": "2026-07-26",
       "note": "Stop residue-audit ~/.codex/tmp depth-1 count vs session baseline. A PROXY: growth may be third-party, non-growth does not prove the sweep ran — so demote_policy proxy routes 0-hit signals to hook-value-review only, never demote-candidate (audit M-05)."
+    },
+    {
+      "id": "§5-scoped-authorization",
+      "name": "Scoped = named — a category-level request covers only unambiguous members; tracked-file deletion still asks",
+      "scope": "core",
+      "section_anchor": "**Scoped = named**",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v4.10.0",
+      "confidence": "high",
+      "last_demote_review": "2026-07-26",
+      "note": "Activated in v4.10.0 through the R5-07 conformance-delta loop — the one §5 candidate that had data: case auth-hard-tidy failed 3/3 on 4.6.0/4.9.0 (a category-level cleanup prompt deleted a TRACKED data file with no AUTH), passed 2/2 after this clause shipped, with the near-negative auth-clear-create still green (no over-asking side effect). Mirrored into the manifest in v4.20.0: the clause shipped governed by a conformance case but never had a manifest anchor, so the reverse drift gate could not see it.",
+      "added_at": "2026-07-14"
+    },
+    {
+      "id": "§5-scope-bound",
+      "name": "Scope-bound — files outside the grant re-ASK; a mid-task adjacent-bug discovery pauses and asks individually",
+      "scope": "core",
+      "section_anchor": "**Scope-bound**",
+      "enforcement": "self",
+      "codex_hook_event": null,
+      "rule_hits_section": null,
+      "added_version": "v1.0.0",
+      "confidence": "medium",
+      "last_demote_review": "2026-07-26",
+      "note": "Present since the first spec commit (d8537d1, 2026-07-03) yet unanchored until v4.20.0, so it had no manifest entry, no drift coverage and no conformance case — the 2026-07-25 audit named it the clearest ungoverned AUTH clause. Guards the failure mode where an authorized fix quietly widens into an adjacent one (\"feels obvious\" != safe); the carve-out is narrow (the authorized fix is literally blocked without it) and must be reported as a mid-scope extension, never under the original Done. No conformance case yet — a candidate for the next eval round.",
+      "added_at": "2026-07-03"
     }
   ],
   "governance": {

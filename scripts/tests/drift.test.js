@@ -26,15 +26,33 @@ t('hard-rules: all section_anchors resolve in the spec', () => {
 // clause must be represented by at least one same-scope manifest anchor. This
 // prevents a new hard rule from landing in prose while the one-way anchor check
 // remains green.
-t('hard-rules: explicit HARD/MUST prose is represented in the manifest', () => {
+// Granularity matters: the check used to run per LINE, so a line declaring three
+// HARD rules passed on a single anchor and the other two sat outside the ledger,
+// free to be reworded or dropped with every gate green. A line that carries
+// several bold `**Name (HARD)**:` declarations is therefore split at those
+// declaration boundaries and each segment must carry its own anchor. Lines that
+// state HARD/MUST in running prose (no bold declaration) keep the whole-line
+// check — there is nothing to split.
+function hardDeclarationSegments(line) {
+  const declaration = /\*\*[^*]*?\((?:HARD|MUST)[^)]*\)\*\*/g;
+  const starts = [];
+  let match;
+  while ((match = declaration.exec(line)) !== null) starts.push(match.index);
+  if (starts.length < 2) return [line];
+  return starts.map((start, i) => line.slice(start, i + 1 < starts.length ? starts[i + 1] : line.length));
+}
+
+t('hard-rules: every explicit HARD/MUST declaration is represented in the manifest', () => {
   const missing = [];
   for (const [scope, text] of Object.entries(specFiles)) {
     for (const line of text.split('\n').filter((l) => /\b(?:HARD|MUST)\b/.test(l))) {
-      const represented = hr.rules.some((r) => r.scope === scope && line.includes(r.section_anchor));
-      if (!represented) missing.push(`${scope}: ${line.trim()}`);
+      for (const segment of hardDeclarationSegments(line)) {
+        const represented = hr.rules.some((r) => r.scope === scope && segment.includes(r.section_anchor));
+        if (!represented) missing.push(`${scope}: ${segment.trim().slice(0, 120)}`);
+      }
     }
   }
-  assert.deepStrictEqual(missing, [], 'ungoverned HARD/MUST lines:\n' + missing.join('\n'));
+  assert.deepStrictEqual(missing, [], 'ungoverned HARD/MUST declarations:\n' + missing.join('\n'));
 });
 
 t('hard-rules: every immutable Never clause has a manifest anchor', () => {

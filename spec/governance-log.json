@@ -303,6 +303,405 @@
           "evaluated_sessions": 12
         }
       ]
+    },
+    {
+      "date": "2026-07-26",
+      "spec_version_reviewed": "v4.19.1",
+      "shipped_in": "v4.20.0",
+      "window_days": 30,
+      "telemetry_rows": 1199,
+      "sessions": 132,
+      "projects": 62,
+      "method": "node scripts/rules.js --days=30 on live telemetry, plus semantic review of rule text for self-enforced rules. FIRST review run on qa-fenced denominators: the 2026-07-14 review predates v4.18.0, which found that roughly 50 of its 60 \"projects\" were this project's own QA sandboxes posing as external field data, and fenced them out (AGENTSMD_TELEMETRY_TAG=qa going forward, classifyProject path-segment anchor for history). Re-running on the corrected denominators was the corrective action named by the 2026-07-25 audit. No verdict flipped, which is itself the finding: the fencing changed who counted as external, not which rules earn their residence.",
+      "entries": [
+        {
+          "id": "§8-rm-rf-var",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "23 enforcement hits / 13 eligible / 13 evaluated sessions in the 30d window — earning residence.",
+          "hits": 23,
+          "eligible_sessions": 13,
+          "evaluated_sessions": 13
+        },
+        {
+          "id": "§8-unknown-script",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "2 enforcement hits / 2 eligible / 2 evaluated sessions in the 30d window — earning residence.",
+          "hits": 2,
+          "eligible_sessions": 2,
+          "evaluated_sessions": 2
+        },
+        {
+          "id": "§8-secrets",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "8 enforcement hits / 30 eligible / 30 evaluated sessions in the 30d window — earning residence.",
+          "hits": 8,
+          "eligible_sessions": 30,
+          "evaluated_sessions": 30
+        },
+        {
+          "id": "§8-sql-no-where",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§8-home-traversal",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§8-verify-before-claim",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§8.V4-sandbox-disposal",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "30 enforcement hits / 92 eligible / 92 evaluated sessions in the 30d window — earning residence.",
+          "hits": 30,
+          "eligible_sessions": 92,
+          "evaluated_sessions": 92
+        },
+        {
+          "id": "§6-iron-law-1",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§6-iron-law-2",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "2 enforcement hits / 15 eligible / 15 evaluated sessions in the 30d window — earning residence.",
+          "hits": 2,
+          "eligible_sessions": 15,
+          "evaluated_sessions": 15
+        },
+        {
+          "id": "§6-iron-law-3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§6-bugfix-anchor",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Signal inherited from §10-specificity; the parent rule is active, so this subclause is not separately demotable.",
+          "hits": 0,
+          "eligible_sessions": 68,
+          "evaluated_sessions": 68
+        },
+        {
+          "id": "§6-destructive-smoke",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§7-memory-read",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "56 enforcement hits / 8 eligible / 7 evaluated sessions in the 30d window — earning residence.",
+          "hits": 56,
+          "eligible_sessions": 8,
+          "evaluated_sessions": 7
+        },
+        {
+          "id": "§7-post-compaction",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§7-exit-archival",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§7-session-exit",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "19 enforcement hits / 20 eligible / 20 evaluated sessions in the 30d window — earning residence.",
+          "hits": 19,
+          "eligible_sessions": 20,
+          "evaluated_sessions": 20
+        },
+        {
+          "id": "§7-memory-hygiene",
+          "signal": "insufficient-opportunity",
+          "verdict": "keep",
+          "evidence": "Only 3 eligible session(s) in the window — below the 5-session exposure floor, so 0 hits is not evidence of dilution.",
+          "hits": 0,
+          "eligible_sessions": 3,
+          "evaluated_sessions": 3
+        },
+        {
+          "id": "§E3-ship-baseline",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "10 enforcement hits / 9 eligible / 9 evaluated sessions in the 30d window — earning residence.",
+          "hits": 10,
+          "eligible_sessions": 9,
+          "evaluated_sessions": 9
+        },
+        {
+          "id": "§10-four-section-order",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "11 enforcement hits / 29 eligible / 29 evaluated sessions in the 30d window — earning residence.",
+          "hits": 11,
+          "eligible_sessions": 29,
+          "evaluated_sessions": 29
+        },
+        {
+          "id": "§10-honesty",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "3 enforcement hits / 18 eligible / 18 evaluated sessions in the 30d window — earning residence.",
+          "hits": 3,
+          "eligible_sessions": 18,
+          "evaluated_sessions": 18
+        },
+        {
+          "id": "§10-specificity",
+          "signal": "demote-candidate",
+          "verdict": "keep-with-caveat",
+          "evidence": "0 enforcement hits over 68 evaluated sessions. Verdict UNCHANGED from the 2026-07-14 review and for the same reason: the 30d window still reaches back before v4.14.0, when the opportunity gate for this section did not exist and every message counted as an opportunity, so eligible is inflated by sessions that made no value claim. The denominator only becomes trustworthy once the whole window is post-v4.14.0 (from roughly 2026-08-13) — re-evaluate then; do not demote on this data.",
+          "hits": 0,
+          "eligible_sessions": 68,
+          "evaluated_sessions": 68
+        },
+        {
+          "id": "§3-plan-before-execute",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§3-recurrence-check",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§5-hard-auth",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§2-hard-upgrades",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§9-preflight",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§9-end-of-task-sweep",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§9-parallel-path",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§0-extended-load",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§8-disable-ssl",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§8-env-key-commit",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Signal inherited from §8-secrets; the parent rule is active, so this subclause is not separately demotable.",
+          "hits": 8,
+          "eligible_sessions": 30,
+          "evaluated_sessions": 30
+        },
+        {
+          "id": "§8-git-internals",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E1-emergency-followup",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E6-skill-description",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E7-plugin-boundary",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E2-phase-gate",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E3-ship-checklist",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E4-evidence-ladder",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E6-skill-authoring-l3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§E8-turn-yield",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it. Re-anchored in v4.20.0 from extended to the core binding line added in v4.3.0 — the manifest had kept pointing at the elaboration while the always-on declaration lived in core.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§9-tmp-residue-proxy",
+          "signal": "hook-value-review",
+          "verdict": "keep",
+          "evidence": "Proxy metric (demote_policy: proxy): 0 hits judges whether the HOOK earns its upkeep, never the core residence of the rule.",
+          "hits": 0,
+          "eligible_sessions": 14,
+          "evaluated_sessions": 14
+        },
+        {
+          "id": "§5-scoped-authorization",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "FIRST review. Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it. Manifest anchor added in v4.20.0 for a clause that had already shipped ungoverned; no behavior change, so no conformance delta is claimed.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        },
+        {
+          "id": "§5-scope-bound",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "FIRST review. Semantic review: rule text and manifest agree, enforcement is self by design, so telemetry carries no demotion signal for it. Manifest anchor added in v4.20.0 for a clause that had already shipped ungoverned; no behavior change, so no conformance delta is claimed.",
+          "hits": 0,
+          "eligible_sessions": 0,
+          "evaluated_sessions": 0
+        }
+      ]
     }
   ]
 }

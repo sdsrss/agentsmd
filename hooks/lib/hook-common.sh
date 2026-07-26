@@ -107,10 +107,29 @@ hook_json_field() {
   printf '%s' "$ev" | jq -r "${path} // empty" 2>/dev/null
 }
 
+# hook_clip TEXT MAX — bound a payload that is about to cross an exec boundary.
+# Every emitter below hands its strings to jq as ARGUMENTS, and Linux caps one
+# argv element at MAX_ARG_STRLEN (128 KiB). Hook messages routinely quote the
+# offending command back to the user, so a padded 140 KiB command made `jq` fail
+# E2BIG and the BLOCK vanished silently — the tool call then ran unchecked. A
+# message that long is useless to a human anyway; clip it and say how much was
+# dropped. Pure bash: no exec, so it cannot hit the same limit.
+hook_clip() {
+  local text="$1" max="$2"
+  if (( ${#text} > max )); then
+    printf '%s… [+%d more characters]' "${text:0:max}" "$(( ${#text} - max ))"
+  else
+    printf '%s' "$text"
+  fi
+}
+
 # hook_block REASON [SYSTEM_MSG] [EVENT] — emit Codex block JSON, exit 0.
 #   Denies a PreToolUse tool call / forces a Stop to continue.
 hook_block() {
-  local reason="$1" msg="${2:-$1}" event="${3:-PreToolUse}"
+  local reason msg event
+  reason="$(hook_clip "$1" 2000)"
+  msg="$(hook_clip "${2:-$1}" 8000)"
+  event="${3:-PreToolUse}"
   jq -cn --arg r "$reason" --arg m "$msg" --arg e "$event" '{
     decision: "block",
     reason: $r,
@@ -122,7 +141,9 @@ hook_block() {
 
 # hook_advisory SYSTEM_MSG [EVENT] — emit non-blocking warning, exit 0.
 hook_advisory() {
-  local msg="$1" event="${2:-PreToolUse}"
+  local msg event
+  msg="$(hook_clip "$1" 8000)"
+  event="${2:-PreToolUse}"
   jq -cn --arg m "$msg" --arg e "$event" '{
     hookSpecificOutput: { hookEventName: $e },
     systemMessage: $m
@@ -133,7 +154,12 @@ hook_advisory() {
 # hook_context ADDITIONAL_CONTEXT [EVENT] — inject context (SessionStart /
 # UserPromptSubmit), exit 0.
 hook_context() {
-  local ctx="$1" event="${2:-SessionStart}"
+  # Injected context is agentsmd-authored (the deployed spec block is gated at
+  # ≤16 KiB), so the cap here is a backstop against an unbounded caller, not a
+  # working limit — set far above any legitimate payload.
+  local ctx event
+  ctx="$(hook_clip "$1" 60000)"
+  event="${2:-SessionStart}"
   jq -cn --arg c "$ctx" --arg e "$event" '{
     hookSpecificOutput: { hookEventName: $e, additionalContext: $c }
   }' 2>/dev/null
@@ -354,7 +380,9 @@ hook_git_invocations_json() {
   local sub="$1" cmd="$2" lib_dir
   command -v node >/dev/null 2>&1 || return 1
   lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  node "$lib_dir/command-parse.js" "$sub" "$cmd" 2>/dev/null
+  # Command on STDIN, never argv: a >128 KiB command would fail exec with E2BIG,
+  # which the caller can only treat as a parse failure and fail open.
+  printf '%s' "$cmd" | node "$lib_dir/command-parse.js" --stdin "$sub" 2>/dev/null
 }
 
 # Backward-compatible single-invocation accessor for out-of-tree hook consumers.
@@ -371,7 +399,7 @@ hook_publisher_invocations_json() {
   local cmd="$1" lib_dir
   command -v node >/dev/null 2>&1 || return 1
   lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  node "$lib_dir/command-parse.js" --publishers "$cmd" 2>/dev/null
+  printf '%s' "$cmd" | node "$lib_dir/command-parse.js" --stdin --publishers 2>/dev/null
 }
 
 # hook_cmd_invokes_git SUBCMD_ALT CMD — 0 if CMD contains an actual matching Git

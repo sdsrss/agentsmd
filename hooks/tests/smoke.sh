@@ -84,6 +84,20 @@ j() { jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}, session_i
 
 echo "== pre-bash-safety-check.sh =="
 OUT="$(run_hook pre-bash-safety-check.sh "$(j 'rm -rf $VAR')")";            is_block "$OUT"    && ok "rm -rf \$VAR → block"           || bad "rm -rf \$VAR → block" "$OUT"
+# Argv-limit evasion (2026-07-25 audit): Linux caps ONE argv element at 128 KiB.
+# Padding a command past that used to make `node command-parse.js "$CMD"` fail
+# E2BIG → parse failure → fail open, and even after the command moved to stdin
+# the BLOCK itself was still lost, because hook_block echoed the command back
+# through `jq --arg`. Both boundaries are covered here. The fixture is built with
+# node, not jq — jq would hit the same limit inside the harness.
+BIG_EVENT="$(node -e 'const d=["rm","-rf","$"+"TARGET"].join(" ");process.stdout.write(JSON.stringify({tool_name:"Bash",tool_input:{command:"echo "+"x".repeat(140000)+" ; "+d},session_id:"smokebig",cwd:"/tmp"}))')"
+OUT="$(run_hook pre-bash-safety-check.sh "$BIG_EVENT")"
+is_block "$OUT" && ok "140KB command still reaches the §8 rm-rf-var gate (no argv E2BIG bypass)" || bad "oversized command bypassed the §8 gate" "${OUT:0:200}"
+BIG_MSG_LEN="$(printf '%s' "$OUT" | jq -r '.systemMessage // ""' | wc -c)"
+[[ "$BIG_MSG_LEN" -gt 0 && "$BIG_MSG_LEN" -lt 20000 ]] \
+  && ok "block message is clipped rather than echoing the whole command (${BIG_MSG_LEN}B)" \
+  || bad "block message not clipped" "$BIG_MSG_LEN bytes"
+unset BIG_EVENT BIG_MSG_LEN
 OUT="$(run_hook pre-bash-safety-check.sh "$(j 'rm -rf "${BUILD_DIR}"')")"; is_block "$OUT"    && ok "rm -rf \${BUILD_DIR} → block"    || bad "rm -rf \${BUILD_DIR} → block" "$OUT"
 B="$(telemetry_count)"; OUT="$(run_hook pre-bash-safety-check.sh "$(j 'rm -rf /tmp/literal/path')")"; NEW="$(telemetry_new "$B")"
 { is_empty "$OUT" && rows_have_observe "$NEW" '§8-rm-rf-var' true true; } && ok "rm -rf literal path → allow + evaluated observation" || bad "rm -rf literal path → allow + observe" "out=[$OUT] new=[$NEW]"
