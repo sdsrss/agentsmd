@@ -15,7 +15,7 @@ set -eu
 NAME="agentsmd"
 DEFAULT_REPO="sdsrss/agentsmd"
 # Synchronized by scripts/version-sync.js — must equal package.json version.
-INSTALLER_VERSION="4.19.1"
+INSTALLER_VERSION="4.20.0"
 DEFAULT_REF="v$INSTALLER_VERSION"
 
 ACTION="install"
@@ -164,10 +164,29 @@ script_dir_source() {
 download_to() {
   url="$1"
   out="$2"
+  # This chain fetches code that is about to be executed, so the protocol is
+  # pinned on the request AND on every redirect: a plain-HTTP hop must fail rather
+  # than silently downgrade. `file://` is reachable only through an explicit
+  # AGENTSMD_RELEASE_BASE override (local path, no transit to protect); anything
+  # else is refused outright rather than fetched.
+  case "$url" in
+    https://*) proto_opt='--proto =https --proto-redir =https' ;;
+    file://*)  proto_opt='--proto =file' ;;
+    *) die "refusing to download over a non-HTTPS URL: $url" ;;
+  esac
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$out"
+    # shellcheck disable=SC2086  # proto_opt holds literal flags, split on purpose
+    curl -fsSL $proto_opt --max-time 300 "$url" -o "$out"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$out" "$url"
+    # --https-only ("only follow secure HTTPS links") is wget >= 1.14; probe for it
+    # rather than assume, and say so when it is missing instead of silently
+    # downgrading the guarantee.
+    if wget --help 2>&1 | grep -q -- '--https-only'; then
+      wget -qO "$out" --https-only --timeout=60 "$url"
+    else
+      say "agentsmd installer: wget lacks --https-only; redirects are not protocol-pinned on this host" >&2
+      wget -qO "$out" --timeout=60 "$url"
+    fi
   else
     die "missing curl or wget; cannot download $url"
   fi
@@ -294,7 +313,15 @@ fetch_release_asset() {
   pkg_version=$(sed -n 's/^  "version": "\([0-9][^"]*\)",$/\1/p' "$src/package.json" | sed -n '1p')
   [ "$pkg_version" = "$version" ] \
     || die "release identity mismatch: tag $tag carries package version $pkg_version"
-  RESOLVED_IDENTITY="$NAME v$version ($tag, sha256 verified: $(printf '%s' "$actual" | cut -c1-12)…)"
+  # The checksum proves the archive matches what THIS base URL published — it is
+  # an integrity check, not a publisher identity check. When the base has been
+  # substituted, the two files come from the same overridden host and verify
+  # against each other, so say "mirror", not a bare "sha256 verified".
+  if [ -n "${AGENTSMD_RELEASE_BASE:-}" ]; then
+    RESOLVED_IDENTITY="$NAME v$version ($tag, from UNOFFICIAL mirror $base, self-consistent sha256: $(printf '%s' "$actual" | cut -c1-12)…)"
+  else
+    RESOLVED_IDENTITY="$NAME v$version ($tag, sha256 verified: $(printf '%s' "$actual" | cut -c1-12)…)"
+  fi
   SRC_PATH="$src"
 }
 

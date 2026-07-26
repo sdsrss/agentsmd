@@ -62,6 +62,12 @@ scan_commit_invocation() {
   local added_by_file hit_paths hit_path uncovered exc_root exc_file exc_state expired_note
   local -a git_repo=(-C "$CWD") dangerous_paths=()
   local -a pathspecs=() pathspec_file_args=() tracked_paths=()
+  # The added-line extractor below keys on the `+++ b/<path>` header. `diff.noprefix`,
+  # `diff.mnemonicPrefix` and `diff.srcPrefix`/`dstPrefix` in the USER's git config all
+  # rewrite that header, which would silently strip every line of its path attribution
+  # and let the pattern scan pass an entire commit. Pin the prefixes on the command
+  # line (they override all three config forms) and refuse an external diff driver.
+  local -a diff_opts=(--no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/)
   while IFS= read -r repo_arg; do
     [[ -n "$repo_arg" ]] && git_repo+=("$repo_arg")
   done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
@@ -133,10 +139,10 @@ scan_commit_invocation() {
         done
       fi
     fi
-    diff="$(GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" diff --cached 2>/dev/null)" \
+    diff="$(GIT_INDEX_FILE="$TEMP_INDEX" git "${git_repo[@]}" diff --cached "${diff_opts[@]}" 2>/dev/null)" \
       || { secret_failopen "git-diff-failed"; return 0; }
   else
-    diff="$(git "${git_repo[@]}" diff --cached 2>/dev/null)" \
+    diff="$(git "${git_repo[@]}" diff --cached "${diff_opts[@]}" 2>/dev/null)" \
       || { secret_failopen "git-diff-failed"; return 0; }
   fi
   dangerous_paths=()
@@ -166,6 +172,26 @@ scan_commit_invocation() {
     done < <(git "${git_repo[@]}" diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
   fi
   cleanup_index
+
+  # Attribute added lines to their file BEFORE claiming the diff was evaluated.
+  # Lines are attributed as "path<TAB>content" so a hit can be matched against
+  # per-path exceptions; an unattributable line has no path and can never be
+  # excepted — the block stands. A secret already in the base tree is not
+  # something this commit introduces, so only ADDED lines are scanned.
+  # If the diff carries added lines but NONE can be attributed, the header shape
+  # is not what the extractor understands: the pattern scan below would pass the
+  # whole commit silently. That is a fail-open and must be recorded as one, never
+  # as an evaluated clean run.
+  added_by_file="$(printf '%s' "$diff" | awk '
+    /^\+\+\+ b\// { p = substr($0, 7); next }
+    /^\+\+\+ /    { p = "";            next }
+    /^\+/         { if (p != "") print p "\t" substr($0, 2) }')"
+  if [[ -z "$added_by_file" ]] \
+    && printf '%s' "$diff" | awk '/^\+\+\+ /{next} /^\+/{found=1} END{exit !found}'; then
+    secret_failopen "diff-attribution-failed"
+    return 0
+  fi
+
   hook_observe "$HOOK" '§8-secrets' "$SID" true true '{"stage":"diff-complete"}'
   [[ -n "$diff" ]] || return 0
 
@@ -197,15 +223,6 @@ scan_commit_invocation() {
       "PreToolUse"
   done
 
-  # Scan only ADDED lines (leading '+', excluding the '+++' file header) — a
-  # secret already in the base tree is not something this commit introduces.
-  # Lines are attributed to their file ("path<TAB>content") so a hit can be
-  # matched against per-path exceptions; an unattributable line has no path and
-  # can never be excepted — the block stands.
-  added_by_file="$(printf '%s' "$diff" | awk '
-    /^\+\+\+ b\// { p = substr($0, 7); next }
-    /^\+\+\+ /    { p = "";            next }
-    /^\+/         { if (p != "") print p "\t" substr($0, 2) }')"
   [[ -n "$added_by_file" ]] || return 0
 
   if [[ -r "$PATTERNS_FILE" ]]; then

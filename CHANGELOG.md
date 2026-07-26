@@ -3,6 +3,97 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.20.0 — 2026-07-25 — audit remediation: enforcement gaps that went quiet (minor)
+
+**Migration note**: no spec/rule text changes. Two user-visible default changes,
+both restoring the behavior the docs already promised.
+
+1. **`doctor` no longer goes red on a calendar date for a task you cannot
+   perform.** The `governance demote-review current` check reads the
+   `last_demote_review` stamps frozen into the release you installed, so from
+   2026-08-12 every installed copy would have failed with a remedy only a
+   maintainer can carry out (editing a deployed `hard-rules.json` trips the
+   tree-hash ownership check on the next update), making `doctor`'s exit code
+   unusable for downstream gating. The check is now gated on a source checkout
+   (`.git` at the repo root) — the forcing function stays exactly where it works,
+   in the maintainer's ship round. **If you scripted around a red doctor, that
+   workaround is no longer needed.**
+2. **`git commit` secret scanning now blocks under your own git config.** The
+   added-line extractor keyed on the `+++ b/<path>` diff header; with
+   `diff.noprefix`, `diff.mnemonicPrefix`, or custom `diff.srcPrefix`/`dstPrefix`
+   set, no added line could be attributed and the whole §8 pattern scan passed
+   the commit silently — while still recording the check as *evaluated*. Prefixes
+   are now pinned on the command line (they override all three config forms), and
+   an unattributable diff records a `diff-attribution-failed` fail-open instead of
+   a clean run. **If one of those settings is in your git config, commits that
+   previously slipped through will now be blocked** — that is the fix, not a
+   regression; register a reviewed false positive with `agentsmd exception add`.
+
+Also fixed:
+
+- **Exception expiry is capped at read time, not just at write time.** `exception
+  add` refused `--days` over 90, but the hooks only checked "not yet expired" — a
+  hand-edited or merge-resolved `"expires_at": "2099-01-01"` was a permanent §8
+  waiver that no command surfaced. Hooks now require the `created_at → expires_at`
+  window to be within the cap (an entry with no `created_at` cannot be bounded and
+  is not live), and `doctor` names over-long entries alongside lapsed ones.
+- **`config.toml` is no longer edited inside your own string data.** The
+  status-line scanner did not mask multiline strings, so a `notes = """ … [tui] …
+  """` read as a real table and install spliced `status_line` into the string
+  literal — the one path where agentsmd wrote into another tenant's bytes instead
+  of refusing. Same masking applied to `project_doc_max_bytes`, which is now read
+  as a top-level key only.
+- **A duplicated `# >>> agentsmd >>>` block in a shared `AGENTS.md` is healed.**
+  The block regex was non-global: install updated the first and orphaned the rest,
+  and uninstall left a complete spec block behind while reporting success. Install
+  now collapses duplicates to one; uninstall removes every occurrence.
+- **`agentsmd exception` uses exit code 2 for argv/usage errors**, matching the
+  contract the CLI help documents (it returned 1 for both usage and runtime
+  errors).
+
+Hardening of the checks themselves (no runtime effect):
+
+- The live-home test guard watched 7 surfaces and missed three agentsmd writes
+  (`skills/agentsmd-*`, `logs/agentsmd.jsonl`, the lifecycle lock/journal) — the
+  telemetry log being exactly what the 2026-07-14 4800-row incident polluted. It
+  now covers them (the log by signal, so a concurrent real session is not a
+  flake), and it runs even when the suite FAILS — previously it was the last link
+  of a fail-fast `&&` chain, so the aborted mid-transaction run most likely to
+  have polluted was the one never checked. New suite: `live-guard.test.js` (11).
+- `npm publish --provenance` now gates on the full CI workflow (node 18/20/22/24 +
+  macOS + shellcheck + user-journey) instead of its own single-runner rerun.
+- The hook smoke harness discarded stderr and exit status, so a hook that broke
+  only on its allow path passed 78 `is_empty` assertions silently. Exit codes are
+  captured (through the command-substitution subshell, via a file) and fail the run.
+- New drift gate: the L1→L2 isolation invariant is asserted, with the single
+  `session-start-check.sh` spawn-with-fail-open carve-out documented in
+  ARCHITECTURE.md and its three guards checked.
+- `doctor` and `agentsmd rules` now share one cadence classifier
+  (`scripts/lib/governance-review.js`); they were hand-mirrored copies that had
+  already diverged once, and a parity test pins them to one fixture.
+
+Docs corrected against the code: ARCHITECTURE.md status-line uninstall semantics,
+CLAUDE.md's ownership test (argv containment, not a `/agentsmd/` substring),
+SECURITY.md's telemetry `extra` disclosure (it can carry a repo-relative path),
+and the extended spec's changelog pointer.
+
+Rollback: `npm i -g @sdsrs/agentsmd@4.19.1 && agentsmd update`, or
+`install.sh --ref v4.19.1`.
+
+Also hardened: the bootstrap pins the protocol per request and per redirect
+(`http://` is refused outright; `file://` stays reachable only through an explicit
+`AGENTSMD_RELEASE_BASE`, and that path now reports "UNOFFICIAL mirror /
+self-consistent sha256" instead of a bare "sha256 verified", because a checksum
+fetched from the same substituted host proves integrity, not publisher identity);
+`surface-advisories` records a fail-open when `jq` is missing (it was the one hook
+that went silent); an exception id containing `*` can no longer glob into a
+telemetry row; `ship-baseline-check` no longer aborts under `set -u` on bash 3.2
+when a push names no branch.
+
+Suites: install 201 → 207, smoke 346 → 351, drift 30 → 31, audit 87 → 88,
+distribution 39 → 40, plus a new live-guard suite (11) — 1207 assertions,
+`npm run check` exit 0.
+
 ## v4.19.1 — 2026-07-14 — uninstall status-line reversibility + doctor governance parity (patch)
 
 **Migration note**: no spec/rule changes; bugfix-only patch over v4.19.0.

@@ -14,7 +14,7 @@ hook_plugin_shadowed_by_standalone && exit 0
 
 HOOK="surface-advisories"
 hook_kill_switch "SURFACE_ADVISORIES" || exit 0
-hook_require_jq || exit 0
+hook_require_jq || { hook_record_failopen "$HOOK" "jq-missing"; exit 0; }
 
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"

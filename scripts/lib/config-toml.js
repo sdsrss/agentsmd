@@ -442,26 +442,42 @@ function collectArrayValue(lines, startIdx, firstValue) {
   return value;
 }
 
+// Scans structure over MASKED content (multiline-string bodies blanked, byte
+// positions and line count preserved) but reports indices into — and values read
+// from — the ORIGINAL lines, which is what callers splice. Without the mask a
+// `notes = """\n[tui]\n"""` in the user's own config reads as a real [tui] table
+// and ensureTuiStatusLine writes status_line INSIDE their string literal:
+// the one place agentsmd would corrupt another tenant's bytes instead of
+// refusing. `valid` mirrors maskMultilineStrings — false = unterminated string,
+// so no edit is safe.
 function scanTuiStatusLine(content) {
-  const lines = (typeof content === 'string' ? content : '').split('\n');
+  const raw = typeof content === 'string' ? content : '';
+  const masked = maskMultilineStrings(raw);
+  const lines = raw.split('\n');
+  const scan = masked.content.split('\n');
+  const valid = masked.valid;
   let cur = '';
   let hasTui = false, tuiHeaderIdx = -1, topLevelTuiDottedIdx = -1;
   let inlineTuiIdx = -1, inlineTuiInner = null; // top-level `tui = { ... }`
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const th = tableName(line);
+  const base = { hasTui: false, tuiHeaderIdx: -1, topLevelTuiDottedIdx: -1, inlineTuiIdx: -1, inlineTuiInner: null, lines, valid };
+  for (let i = 0; i < scan.length; i++) {
+    const th = tableName(scan[i]);
     if (th !== null) { cur = th; if (cur === 'tui') { hasTui = true; if (tuiHeaderIdx < 0) tuiHeaderIdx = i; } continue; }
-    const a = assignment(line);
+    const a = assignment(scan[i]);
+    // Structure came from the masked line; every value we act on is re-read from
+    // the original at the same index (identical outside multiline-string bodies).
+    const orig = assignment(lines[i]);
     if (cur === '') {
       const inl = a && a.keys.length === 1 && a.keys[0] === 'tui' ? inlineTableInner(a.value) : null;
-      if (inl !== null) {
-        inlineTuiIdx = i; inlineTuiInner = inl;
+      const inlOrig = inl !== null && orig ? inlineTableInner(orig.value) : null;
+      if (inlOrig !== null) {
+        inlineTuiIdx = i; inlineTuiInner = inlOrig;
         // An inline tui table that already carries status_line = the user's own
         // footer → treat as existing so ensureTuiStatusLine no-ops (never appends
         // a second [tui] table → duplicate-key TOML error in a shared file).
-        const statusValue = inlineField(inl, 'status_line');
+        const statusValue = inlineField(inlOrig, 'status_line');
         if (statusValue !== null) {
-          return { exists: true, items: parseStatusLineItems(statusValue), line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
+          return { ...base, exists: true, items: parseStatusLineItems(statusValue), line: lines[i].trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner };
         }
         continue;
       }
@@ -469,12 +485,12 @@ function scanTuiStatusLine(content) {
     }
     const statusAssignment = a && ((cur === 'tui' && a.keys.length === 1 && a.keys[0] === 'status_line')
       || (cur === '' && a.keys.length === 2 && a.keys[0] === 'tui' && a.keys[1] === 'status_line'));
-    if (!statusAssignment || !/^\[/.test(a.value)) continue;
-    const value = collectArrayValue(lines, i, a.value).replace(/[ \t]+#.*$/, '').trim();
+    if (!statusAssignment || !/^\[/.test(a.value) || !orig) continue;
+    const value = collectArrayValue(lines, i, orig.value).replace(/[ \t]+#.*$/, '').trim();
     const items = parseStatusLineItems(value);
-    return { exists: true, items, line: line.trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
+    return { ...base, exists: true, items, line: lines[i].trim(), index: i, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner };
   }
-  return { exists: false, items: null, line: '', index: -1, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner, lines };
+  return { ...base, exists: false, items: null, line: '', index: -1, hasTui, tuiHeaderIdx, topLevelTuiDottedIdx, inlineTuiIdx, inlineTuiInner };
 }
 
 function getTuiStatusLine(input) {
@@ -489,6 +505,7 @@ function isAgentsmdStatusLineEnabled(input) {
 function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
   const content = typeof input === 'string' ? input : '';
   const s = scanTuiStatusLine(content);
+  if (!s.valid) throw new Error('cannot safely update config.toml with an unterminated TOML string');
   if (s.exists) {
     return {
       content,
@@ -532,6 +549,9 @@ function ensureTuiStatusLine(input, items = AGENTSMD_STATUS_LINE) {
 function removeAgentsmdStatusLine(input, appendedTable = false) {
   const content = typeof input === 'string' ? input : '';
   const s = scanTuiStatusLine(content);
+  // Uninstall must never make an already-broken config worse: refuse the edit and
+  // report it, rather than splicing a line out of an unparseable file.
+  if (!s.valid) return { content, changed: false, reason: 'unparseable-toml-string' };
   if (!s.exists || !sameArray(s.items, AGENTSMD_STATUS_LINE)) {
     return { content, changed: false, reason: s.exists ? 'left-custom-status-line' : 'no-status-line' };
   }
@@ -560,10 +580,22 @@ function removeAgentsmdStatusLine(input, appendedTable = false) {
 // ~/.codex/AGENTS.md shares with every project's AGENTS.md chain. Truncation past
 // it is SILENT, so tooling should watch it. Default 32 KiB when unset.
 const DEFAULT_DOC_MAX_BYTES = 32768;
+// Table-scoped and string-masked: Codex reads this as a TOP-LEVEL key, so a
+// same-named key under another table — or the text of a multiline string — must
+// not move the budget doctor/init/analyze report.
 function projectDocMaxBytes(input) {
-  const content = typeof input === 'string' ? input : '';
-  const m = content.match(/(?:^|\n)[ \t]*project_doc_max_bytes[ \t]*=[ \t]*([0-9]+)/);
-  return m ? Number(m[1]) : DEFAULT_DOC_MAX_BYTES;
+  const masked = maskMultilineStrings(typeof input === 'string' ? input : '');
+  let cur = '';
+  for (const line of masked.content.split('\n')) {
+    const th = tableName(line);
+    if (th !== null) { cur = th; continue; }
+    if (cur !== '') continue;
+    const a = assignment(line);
+    if (!a || a.keys.length !== 1 || a.keys[0] !== 'project_doc_max_bytes') continue;
+    const m = a.value.match(/^([0-9][0-9_]*)/);
+    if (m) return Number(m[1].replace(/_/g, ''));
+  }
+  return DEFAULT_DOC_MAX_BYTES;
 }
 
 // Budget the combined global + project AGENTS.md against the cap (bytes).

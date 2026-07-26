@@ -167,9 +167,11 @@ function describe(e) {
 
 function main(argv) {
   const opts = parseArgs(argv);
+  // Exit codes follow the CLI contract in bin/agentsmd.js: 2 = argv/usage error,
+  // 1 = a valid command reporting a negative result. This command used 1 for both.
   if (opts.error) {
     process.stderr.write(`${opts.error}\n${USAGE}\n`);
-    return 1;
+    return 2;
   }
   const root = repoRoot(process.cwd());
   if (!root) {
@@ -204,7 +206,7 @@ function main(argv) {
       return 0;
     }
     if (opts.command === 'rm') {
-      if (!opts.id) { process.stderr.write(`--id is required\n${USAGE}\n`); return 1; }
+      if (!opts.id) { process.stderr.write(`--id is required\n${USAGE}\n`); return 2; }
       const kept = store.exceptions.filter((e) => e.id !== opts.id);
       if (kept.length === store.exceptions.length) {
         process.stderr.write(`no exception with id ${opts.id}\n`);

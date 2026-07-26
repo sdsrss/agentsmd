@@ -3,6 +3,9 @@ name: CI
 on:
   push:
   pull_request:
+  # Callable so the Release workflow can gate on the FULL gate (node 18/20/22/24
+  # + macOS + shellcheck + user-journey), not just its own single-runner rerun.
+  workflow_call:
 
 permissions:
   contents: read

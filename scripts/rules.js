@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const P = require('./lib/paths');
+const GOV = require('./lib/governance-review');
 const { audit, parseDaysArg } = require('./audit');
 
 // Distinct evaluated sessions for THIS RULE that a window must hold before a live
@@ -91,30 +92,16 @@ function rulesAudit({ days = 30, now = Date.now(), hardRulesPath = path.join(P.r
   //                          (a rule born yesterday is not overdue)
   //   review-due           — review (or, when never reviewed, added_at) older
   //                          than cadence; unparseable dates land here (safer)
-  const cadenceDays = (hr.governance && hr.governance.review_cadence_days) || 28;
-  const cadenceMs = cadenceDays * 86400 * 1000;
-  const parseTs = (d) => {
-    if (!d) return NaN;
-    const ts = new Date(d).getTime();
-    return Number.isFinite(ts) ? ts : NaN;
-  };
-  const reviewRows = hr.rules.map((r) => {
-    const reviewedTs = parseTs(r.last_demote_review);
-    const addedTs = parseTs(r.added_at);
-    let reviewStatus;
-    let dueAtMs;
-    if (Number.isFinite(reviewedTs)) {
-      reviewStatus = now - reviewedTs <= cadenceMs ? 'fresh' : 'review-due';
-      dueAtMs = reviewedTs + cadenceMs;
-    } else if (!r.last_demote_review && Number.isFinite(addedTs) && now - addedTs <= cadenceMs) {
-      reviewStatus = 'pending-first-review';
-      dueAtMs = addedTs + cadenceMs;
-    } else {
-      reviewStatus = 'review-due'; // never reviewed past cadence, or unparseable
-      dueAtMs = now;
-    }
-    return { id: r.id, reviewStatus, dueAtMs, lastDemoteReview: r.last_demote_review || null };
-  });
+  // Shared classifier — doctor consumes the same function, so the two surfaces
+  // cannot disagree on due/not-due (they did once; see lib/governance-review.js).
+  const governance = GOV.classifyGovernanceReview(hr, now);
+  const cadenceDays = governance.cadenceDays;
+  const reviewRows = governance.rows.map((r) => ({
+    id: r.id,
+    reviewStatus: r.status,
+    dueAtMs: r.dueAtMs,
+    lastDemoteReview: r.lastDemoteReview,
+  }));
   const reviewStatusById = new Map(reviewRows.map((r) => [r.id, r.reviewStatus]));
   for (const row of rows) row.reviewStatus = reviewStatusById.get(row.id);
   const reviewDue = reviewRows.filter((r) => r.reviewStatus === 'review-due');

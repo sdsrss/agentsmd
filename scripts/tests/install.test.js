@@ -1547,5 +1547,89 @@ withSandbox((dir) => {
   });
 });
 
+// ── Shared-file text handling: two audit findings where a lexical scan read
+// structure that was really user DATA, or acted on only the first of N matches.
+{
+  const CT = require('../lib/config-toml');
+  const AM = require('../lib/agents-md');
+
+  t('config.toml: a [tui] inside a multiline string is DATA — never a table to write into', () => {
+    const content = 'notes = """\n[tui]\njust documentation\n"""\n\n[features]\nhooks = true\n';
+    const scanned = CT.getTuiStatusLine(content);
+    assert.strictEqual(scanned.exists, false, 'string body must not register as an existing status_line');
+    const out = CT.ensureTuiStatusLine(content);
+    assert.ok(out.changed);
+    assert.ok(content.split('\n').every((line) => out.content.includes(line)),
+      'every original line must survive verbatim — the user string was edited');
+    assert.strictEqual(out.reason, 'appended-tui-table', `wrote into user data instead: ${out.reason}`);
+    assert.ok(/\[tui\]\nstatus_line = /.test(out.content), 'preset must land in a real table');
+    // …and the reversal still round-trips to the original bytes.
+    const back = CT.removeAgentsmdStatusLine(out.content, true);
+    assert.strictEqual(back.content, content, 'uninstall must restore the pre-install bytes');
+  });
+
+  t('config.toml: an unterminated multiline string is refused, not half-edited', () => {
+    const broken = 'notes = """\n[tui]\n';
+    assert.throws(() => CT.ensureTuiStatusLine(broken), /unterminated/);
+    assert.strictEqual(CT.removeAgentsmdStatusLine(broken, false).reason, 'unparseable-toml-string');
+  });
+
+  t('config.toml: project_doc_max_bytes is read top-level only, not from a string or another table', () => {
+    assert.strictEqual(CT.projectDocMaxBytes('project_doc_max_bytes = 4096\n'), 4096);
+    assert.strictEqual(CT.projectDocMaxBytes('[other]\nproject_doc_max_bytes = 4096\n'), CT.DEFAULT_DOC_MAX_BYTES);
+    assert.strictEqual(CT.projectDocMaxBytes('doc = """\nproject_doc_max_bytes = 4096\n"""\n'), CT.DEFAULT_DOC_MAX_BYTES);
+  });
+
+  t('AGENTS.md: a duplicated managed block is healed on install and fully removed on uninstall', () => {
+    const block = (body) => `${AM.BEGIN}\n${body}\n${AM.END}`;
+    const doubled = `# user top\n\n${block('old one')}\n\n# user middle\n\n${block('old two')}\n\n# user tail\n`;
+    assert.strictEqual(AM.countBlocks(doubled, AM.BEGIN, AM.END), 2);
+    const injected = AM.injectSpecBlock(doubled, 'fresh spec');
+    assert.strictEqual(injected.duplicatesRemoved, 1);
+    assert.strictEqual(AM.countBlocks(injected.content, AM.BEGIN, AM.END), 1, 'install must leave exactly one block');
+    assert.ok(!/old one|old two/.test(injected.content), 'stale duplicate content must be gone');
+    for (const line of ['# user top', '# user middle', '# user tail']) {
+      assert.ok(injected.content.includes(line), `other tenants' line lost: ${line}`);
+    }
+    const removed = AM.removeSpecBlock(doubled);
+    assert.strictEqual(removed.removed, 2);
+    assert.ok(!AM.hasSpecBlock(removed.content), 'uninstall must not orphan a second block');
+  });
+
+  t('doctor: the demote-review cadence check is a maintainer gate, absent from a deployed/npm tree', () => {
+    // All 41 rules ship with the stamp their release froze. Wall-clock alone
+    // would turn every installed doctor red on a fixed date with a remedy only a
+    // maintainer can perform (editing the deployed hard-rules.json trips the
+    // tree-hash ownership check). Gate: a `.git` at the source root.
+    const ROOT = path.join(__dirname, '..', '..');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-govgate.'));
+    const deployed = path.join(home, 'tree');
+    fs.mkdirSync(deployed, { recursive: true });
+    for (const dir of ['scripts', 'spec']) {
+      fs.cpSync(path.join(ROOT, dir), path.join(deployed, dir), { recursive: true });
+    }
+    assert.ok(!fs.existsSync(path.join(deployed, '.git')), 'fixture must have no .git');
+    const runDoctor = (entry) => cp.spawnSync(process.execPath, [entry], {
+      env: { ...process.env, CODEX_HOME: path.join(home, 'codex') },
+      encoding: 'utf8',
+    }).stdout || '';
+    const fromDeployed = runDoctor(path.join(deployed, 'scripts', 'doctor.js'));
+    const fromCheckout = runDoctor(path.join(ROOT, 'scripts', 'doctor.js'));
+    assert.ok(fromDeployed.length > 0, 'deployed doctor produced no output');
+    assert.ok(!/governance demote-review/.test(fromDeployed),
+      'a deployed tree must not carry the maintainer cadence check');
+    assert.ok(/governance demote-review/.test(fromCheckout),
+      'the source checkout must keep the forcing function');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  t('AGENTS.md: the single-block path is byte-identical to before the duplicate fix', () => {
+    const one = `# user\n\n${AM.BEGIN}\nold\n${AM.END}\n`;
+    const injected = AM.injectSpecBlock(one, 'new');
+    assert.strictEqual(injected.duplicatesRemoved, 0);
+    assert.strictEqual(injected.content, `# user\n\n${AM.BEGIN}\nnew\n${AM.END}\n`);
+  });
+}
+
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

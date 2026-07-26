@@ -719,6 +719,33 @@ try {
     assert.strictEqual(raCadence.rules.find((x) => x.id === 'r-new').reviewStatus, 'pending-first-review');
     assert.strictEqual(raCadence.reviewCadenceDays, 28, 'cadence from governance block, not --days=7');
   });
+  t('rules and doctor read the SAME cadence classifier over one fixture (no hand-mirrored copy)', () => {
+    // The two surfaces answered "is this review current?" with two copies of the
+    // predicate and diverged once (v4.19.1 unparseable-stamp fix). They now share
+    // lib/governance-review; this asserts the WIRING, not just the pure function.
+    const GOV = require('../lib/governance-review');
+    const { classifyGovernanceReview: doctorClassify } = require('../doctor');
+    const hr = JSON.parse(fs.readFileSync(cadenceFix, 'utf8'));
+    const shared = GOV.classifyGovernanceReview(hr, NOW);
+    assert.deepStrictEqual(
+      raCadence.reviewDue.map((s) => s.id).sort(),
+      shared.overdue.slice().sort(),
+      'rules.js review-due set must equal the shared classifier'
+    );
+    assert.deepStrictEqual(
+      doctorClassify(hr, NOW).overdue.slice().sort(),
+      shared.overdue.slice().sort(),
+      'doctor must consume the same classifier'
+    );
+    for (const row of shared.rows) {
+      assert.strictEqual(
+        raCadence.rules.find((x) => x.id === row.id).reviewStatus,
+        row.status,
+        `per-rule status drift on ${row.id}`
+      );
+    }
+    assert.strictEqual(raCadence.reviewCadenceDays, shared.cadenceDays);
+  });
   t('rules formatReport renders the review-cadence block with the due id', () => {
     const rep = rulesFormat(raCadence);
     assert.ok(/review cadence 28d/.test(rep), 'missing cadence summary:\n' + rep);

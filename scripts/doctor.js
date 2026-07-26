@@ -66,39 +66,25 @@ function classifySpecFreshness(srcVer, depVer, manifestInstalled) {
   return { ok: true, state: 'same-version', detail: `v${depVer}` };
 }
 
-// Pure cadence classification over hard-rules.json governance stamps. A rule is
-// due when neither its last_demote_review nor (for never-reviewed rules) its
-// added_at falls within the cadence window; an unparseable/missing stamp is due
-// immediately. Mirrors rules.js reviewStatus so doctor and `agentsmd rules`
-// never disagree on due/not-due.
-function classifyGovernanceReview(hr, nowMs) {
-  const cadenceDays = (hr.governance && hr.governance.review_cadence_days) || 28;
-  const cadenceMs = cadenceDays * 86400000;
-  const parseTs = (d) => {
-    const t = Date.parse(String(d || ''));
-    return Number.isFinite(t) ? t : NaN;
-  };
-  const overdue = [];
-  let nextDueMs = null;
-  for (const r of hr.rules || []) {
-    const reviewedTs = parseTs(r.last_demote_review);
-    // Fall back to added_at (never-reviewed = pending) ONLY when the review stamp
-    // is genuinely absent — a present-but-unparseable stamp is due now, matching
-    // rules.js reviewStatus (which gates the added_at branch on !last_demote_review).
-    const baseTs = Number.isFinite(reviewedTs)
-      ? reviewedTs
-      : (!r.last_demote_review ? parseTs(r.added_at) : NaN);
-    const dueAtMs = Number.isFinite(baseTs) ? baseTs + cadenceMs : nowMs;
-    if (nowMs > dueAtMs || !Number.isFinite(baseTs)) overdue.push(r.id);
-    if (nextDueMs === null || dueAtMs < nextDueMs) nextDueMs = dueAtMs;
+// Cadence classification over hard-rules.json governance stamps — re-exported
+// from the shared classifier so doctor and `agentsmd rules` cannot drift apart.
+const { classifyGovernanceReview } = require('./lib/governance-review');
+
+// The demote-review cadence is a MAINTAINER obligation (OPERATOR §O2): review the
+// telemetry-vs-rules loop, stamp last_demote_review, append spec/governance-log.json.
+// An installed copy carries whatever stamps its release froze, and its user cannot
+// act on them — editing the deployed hard-rules.json would trip the deploy
+// tree-hash ownership check on the next update. Gating on a `.git` at the source
+// root keeps the forcing function exactly where it works (ship rounds run doctor
+// from the checkout) and keeps an end user's doctor from going red on a calendar
+// date for a task that is not theirs. npm-installed and deployed trees have no
+// `.git`; the maintainer's working copy does.
+function isSourceCheckout() {
+  try {
+    return fs.existsSync(path.join(P.repoRoot(), '.git'));
+  } catch {
+    return false;
   }
-  return {
-    ok: overdue.length === 0,
-    overdue,
-    total: (hr.rules || []).length,
-    cadenceDays,
-    nextDueIso: nextDueMs === null ? null : new Date(nextDueMs).toISOString().slice(0, 10),
-  };
 }
 
 function doctor() {
@@ -396,14 +382,16 @@ function doctor() {
     // review window means the telemetry-vs-rules loop has stopped being audited.
     // Same fresh/pending/due semantics as `agentsmd rules`, minus telemetry —
     // doctor only needs past-due-or-not plus the next due date.
-    const review = classifyGovernanceReview(hr, Date.now());
-    add(
-      'governance demote-review current',
-      review.ok,
-      review.ok
-        ? `${review.total}/${review.total} within ${review.cadenceDays}d cadence — next review due ${review.nextDueIso}`
-        : `${review.overdue.length}/${review.total} rule(s) past the ${review.cadenceDays}d demote-review cadence — run \`agentsmd rules\`, review, stamp last_demote_review + append spec/governance-log.json (OPERATOR §O2)`
-    );
+    if (isSourceCheckout()) {
+      const review = classifyGovernanceReview(hr, Date.now());
+      add(
+        'governance demote-review current',
+        review.ok,
+        review.ok
+          ? `${review.total}/${review.total} within ${review.cadenceDays}d cadence — next review due ${review.nextDueIso}`
+          : `${review.overdue.length}/${review.total} rule(s) past the ${review.cadenceDays}d demote-review cadence — run \`agentsmd rules\`, review, stamp last_demote_review + append spec/governance-log.json (OPERATOR §O2)`
+      );
+    }
   } catch (e) { add('hard-rules anchors resolve', false, e.message); }
 
   // Extended spec must exist at the top-level path core §2/§5 order the agent to
@@ -506,10 +494,29 @@ function doctor() {
           const store = EXC.readStore(excFile);
           const nowIso = new Date().toISOString();
           const expired = store.exceptions.filter((e) => !(typeof e.expires_at === 'string' && e.expires_at > nowIso));
-          excOk = expired.length === 0;
+          // An entry whose created_at → expires_at window exceeds the cap is dead
+          // on arrival at the hooks (they enforce the same bound) but would read
+          // as "active" here — surface it by name, since a hand-edited far-future
+          // expiry is exactly what the cap exists to catch.
+          const maxWindowMs = EXC.MAX_DAYS * 86400000;
+          const overlong = store.exceptions.filter((e) => {
+            if (expired.includes(e)) return false;
+            const created = Date.parse(String(e.created_at || ''));
+            const expires = Date.parse(String(e.expires_at || ''));
+            return !Number.isFinite(created) || !Number.isFinite(expires)
+              || expires - created > maxWindowMs;
+          });
+          excOk = expired.length === 0 && overlong.length === 0;
+          const problems = [];
+          if (expired.length > 0) {
+            problems.push(`${expired.length} expired entr${expired.length === 1 ? 'y' : 'ies'} (${expired.map((e) => e.id).slice(0, 4).join(', ')})`);
+          }
+          if (overlong.length > 0) {
+            problems.push(`${overlong.length} entr${overlong.length === 1 ? 'y' : 'ies'} past the ${EXC.MAX_DAYS}d window cap or missing created_at (${overlong.map((e) => e.id).slice(0, 4).join(', ')}) — hooks treat these as expired`);
+          }
           excDetail = excOk
             ? `${store.exceptions.length} active exception(s) in ${path.relative(process.cwd(), excFile) || excFile}`
-            : `${expired.length} expired entr${expired.length === 1 ? 'y' : 'ies'} (${expired.map((e) => e.id).slice(0, 4).join(', ')}) — run agentsmd exception prune`;
+            : `${problems.join('; ')} — run agentsmd exception prune`;
         } catch (err) {
           excOk = false;
           excDetail = `unparseable — hooks treat this as no-exceptions (blocks stand): ${err.message}`;

@@ -83,8 +83,13 @@ try {
       ['add', '--rule=§8-secrets', '--path=tests/fixtures/fake.js', '--reason=   '],
       ['add', '--rule=§8-secrets', '--path=tests/fixtures/fake.js', '--bogus=1', '--reason=x'],
     ];
+    // Exit codes follow the contract in bin/agentsmd.js: an argv/usage error
+    // (out-of-range --days, unknown flag) is 2; a semantic rejection reached by a
+    // well-formed invocation is 1. This command returned 1 for both.
+    const USAGE_ERRORS = new Set(['--days=91', '--bogus=1']);
     for (const argv of cases) {
-      assert.strictEqual(inDir(REPO, () => EXC.main(argv)), 1, `expected rejection: ${argv.join(' ')}`);
+      const want = argv.some((a) => USAGE_ERRORS.has(a)) ? 2 : 1;
+      assert.strictEqual(inDir(REPO, () => EXC.main(argv)), want, `expected rejection: ${argv.join(' ')}`);
     }
   });
 

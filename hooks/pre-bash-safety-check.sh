@@ -121,11 +121,15 @@ if [[ "$REMOTE_EXEC" == "true" ]]; then
     fi
   fi
   if [[ "$EXC_ALLOW" == "true" ]]; then
+    # Word-split deliberately (one id per line), but never glob: an id of `*`
+    # would otherwise expand against the cwd and land in a telemetry row.
+    set -f
     for exc_id in $EXC_IDS; do
       hook_record "$HOOK" "exception" \
         "$(jq -cn --arg i "$exc_id" '{id:$i,detector:"url"}' 2>/dev/null || echo null)" \
         '§8-unknown-script' "$SID"
     done
+    set +f
   else
     if [[ -n "$EXC_EXPIRED_ID" ]]; then
       hook_record "$HOOK" "exception-expired" \

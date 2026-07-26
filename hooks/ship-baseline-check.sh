@@ -90,7 +90,10 @@ check_push_invocation() {
 
   if [[ -n "$explicit_repo" ]]; then
     remote="$explicit_repo"
-    branches=("${positionals[@]}")
+    # `${arr[@]}` on an EMPTY array is an unbound-variable error under `set -u` in
+    # bash 3.2 (stock macOS) — the `+` form is the portable expansion this file
+    # already uses elsewhere.
+    branches=(${positionals[@]+"${positionals[@]}"})
   else
     remote="${positionals[0]:-}"
     (( ${#positionals[@]} > 1 )) && branches=("${positionals[@]:1}")

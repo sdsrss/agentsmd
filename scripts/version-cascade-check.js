@@ -20,7 +20,10 @@ const SCANNED_FILES = ['README.md', 'README.zh-CN.md'];
 // never "the current version", so never stale, yet same-major so they'd otherwise
 // trip the scan. Stable constants: a past rename version can't become current
 // again. A new deliberate historical ref = a conscious addition here.
-const INTENTIONAL_TOKENS = new Set(['v2.0.0']);
+// v2.0.0 — the rename release both READMEs cite by name.
+// v4.19.0 — the release npm provenance started at ("Since v4.19.0 …"); it names
+//           when the guarantee began, not the current version.
+const INTENTIONAL_TOKENS = new Set(['v2.0.0', 'v4.19.0']);
 
 const readOrNull = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 

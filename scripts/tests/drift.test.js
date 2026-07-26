@@ -384,6 +384,33 @@ t('workflows: every uses: ref is pinned to a full commit SHA', () => {
   assert.strictEqual(offenders.length, 0, `mutable action refs: ${offenders.join(', ')}`);
 });
 
+// 19. L1→L2 isolation (ARCHITECTURE.md §2). A broken install must still leave
+//     working (or fail-open) hooks, so the bash layer may not depend on the Node
+//     management layer. One documented carve-out exists — session-start-check
+//     SPAWNS the surface inspector behind three guards and degrades to a shorter
+//     banner when it is missing — and it stayed unguarded by any test, which is
+//     how a second one would land unchallenged (2026-07-25 audit).
+t('hooks: no L1 hook depends on the L2 scripts/ layer beyond the documented carve-out', () => {
+  const hooksDir = path.join(ROOT, 'hooks');
+  const CARVE_OUT = 'session-start-check.sh';
+  // Full-line comments are documentation, not a dependency — a hook may name an
+  // L2 module in prose. Code lines (incl. trailing comments) stay in scope.
+  const codeOf = (src) => src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  const referencing = fs.readdirSync(hooksDir).filter((f) => f.endsWith('.sh'))
+    .filter((f) => /(^|[^a-z-])scripts\//.test(codeOf(fs.readFileSync(path.join(hooksDir, f), 'utf8'))));
+  assert.deepStrictEqual(referencing.sort(), [CARVE_OUT],
+    `hooks referencing scripts/ must be exactly the documented carve-out; got: ${referencing.join(', ')}`);
+  // The carve-out is only acceptable BECAUSE it cannot block the user: node must
+  // be probed, the file must be readable, and the call must be time-boxed.
+  const src = fs.readFileSync(path.join(hooksDir, CARVE_OUT), 'utf8');
+  for (const guard of ['command -v node', 'platform_timeout']) {
+    assert.ok(src.includes(guard), `${CARVE_OUT}: spawn carve-out lost its ${guard} guard`);
+  }
+  const arch = fs.readFileSync(path.join(ROOT, 'ARCHITECTURE.md'), 'utf8');
+  assert.ok(/session-start-check/.test(arch) && /spawn/i.test(arch),
+    'ARCHITECTURE.md must document the spawn-with-fail-open carve-out it permits');
+});
+
 // 18. bypassable governance (R1-01). A rule marked bypassable:false is immutable
 //     at the enforcement layer: no hook may emit a "bypass" telemetry event for
 //     its section (every inline-token acceptance branch records exactly that, so

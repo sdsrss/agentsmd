@@ -118,7 +118,14 @@ t('install.sh tag path verifies the release SHA-256 end-to-end; a tampered archi
 
   const goodHome = path.join(dir, 'home-good');
   const out = run(['--ref', tag], { ...base, CODEX_HOME: goodHome });
-  assert.match(out, /Resolved: agentsmd v.*sha256 verified/, out);
+  // This harness serves the asset from a local file:// mirror via
+  // AGENTSMD_RELEASE_BASE, so it exercises the SUBSTITUTED-base wording. The
+  // checksum gates execution identically either way; what it proves against a
+  // substituted base is that the archive matches what THAT base published —
+  // integrity, not publisher identity — so the installer must not report a bare
+  // "sha256 verified" there. The unsubstituted wording needs the real GitHub base.
+  assert.match(out, /Resolved: agentsmd v.*UNOFFICIAL mirror.*self-consistent sha256/, out);
+  assert.ok(!/sha256 verified/.test(out), `a mirror install must not claim publisher verification:\n${out}`);
   assert(fs.existsSync(path.join(goodHome, 'agentsmd', 'scripts', 'install.js')), 'verified install did not land');
 
   const archive = path.join(relDir, `agentsmd-${ver}.tgz`);

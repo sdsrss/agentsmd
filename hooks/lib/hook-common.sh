@@ -272,12 +272,24 @@ hook_exception_state() {
   [[ "$size" =~ ^[0-9]+$ && "$size" -le 16384 ]] || { printf 'none'; return 0; }
   local now out
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || { printf 'none'; return 0; }
-  out="$(jq -r --arg rule "$rule" --arg now "$now" "$@" '
+  # The 90-day cap is enforced HERE as well as in `agentsmd exception add`. A
+  # write-side-only cap is not a cap: a hand-edited or merge-resolved
+  # `"expires_at": "2099-01-01T00:00:00Z"` would otherwise be a permanent §8
+  # waiver. An entry is live only if it has not lapsed AND its created_at →
+  # expires_at window is within the cap; a missing/unparseable created_at cannot
+  # be bounded, so it is not live either (fail-closed). An over-long window
+  # reports as `expired` — same remedy for the user (re-review, re-register), and
+  # `agentsmd doctor` names the window explicitly.
+  out="$(jq -r --arg rule "$rule" --arg now "$now" --argjson maxwin 7776000 "$@" '
     if (type != "object") or (.schemaVersion != 1) or ((.exceptions | type) != "array") then "none"
     else
       (.exceptions | map(select((type == "object") and .rule == $rule))) as $same
       | ($same | map(select('"$cond"'))) as $matched
-      | (($matched | map(select((.expires_at | type) == "string" and .expires_at > $now))) | .[0]) as $live
+      | (($matched | map(select(
+            ((.expires_at | type) == "string") and (.expires_at > $now)
+            and ((try ((.expires_at | fromdateiso8601) - (.created_at | fromdateiso8601)) catch null) as $win
+                 | ($win != null) and ($win > 0) and ($win <= $maxwin))
+          ))) | .[0]) as $live
       | if $live then "live:" + ($live.id // "unknown")
         elif ($matched | length) > 0 then "expired:" + ($matched[0].id // "unknown")
         elif ($same | length) > 0 then "miss"

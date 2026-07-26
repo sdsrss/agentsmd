@@ -14,7 +14,15 @@ permissions:
   contents: write
 
 jobs:
+  # The full CI gate, reused verbatim. Without it the release path validated only
+  # ubuntu/node-22: the node 18/20/24 matrix, macOS hooks and shellcheck could all
+  # be red while `npm publish --provenance` succeeded, and a provenance
+  # attestation makes an artifact traceable, not correct.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release-assets:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
