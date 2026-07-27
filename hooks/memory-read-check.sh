@@ -193,6 +193,7 @@ const consulted = process.argv.slice(2).filter((memory) => {
   // carry a harmless doubled separator that Git removes during canonicalization.
   const normalize = (value) => value
     .replace(/\/private\/var\//g, "/var/")
+    .replace(/\/private\/tmp\//g, "/tmp/")
     .replace(/\/{2,}/g, "/");
   const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pathMentioned = (source, target) => new RegExp(`(^|[\\s\"\x27=])${escapeRe(normalize(target))}($|[\\s\"\x27])`).test(normalize(source));
@@ -201,7 +202,7 @@ const consulted = process.argv.slice(2).filter((memory) => {
     const mentioned = (segment) => {
       if (pathMentioned(segment, target)) return true;
       if (typeof workdir !== "string" || !path.isAbsolute(workdir)) return false;
-      const relative = path.relative(workdir, target);
+      const relative = path.relative(normalize(workdir), normalize(target));
       return relative !== "" && !path.isAbsolute(relative) && pathMentioned(segment, relative);
     };
     return source.split(/\r?\n|;|&&|\|\||\|/).some((segment) => {

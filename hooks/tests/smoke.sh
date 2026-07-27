@@ -1202,6 +1202,16 @@ RELATIVE_READ_CMD="sed -n '1,200p' 'MEMORY.md' 'memory/auth.md'"
 RELATIVE_READ_ARGS="$(jq -cn --arg c "$RELATIVE_READ_CMD" --arg w "$PROJ" '{cmd:$c,workdir:$w}')"
 { jq -cn --arg a "$RELATIVE_READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"relative-read-ok",arguments:$a}}'
   jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"relative-read-ok",output:"auth index and linked notes"}}'; } > "$SANDBOX/tr-tool-relative-read.jsonl"
+case "$PROJ" in
+  /private/var/*) PROJ_ALIAS="/var/${PROJ#/private/var/}" ;;
+  /var/*) PROJ_ALIAS="/private/var/${PROJ#/var/}" ;;
+  /private/tmp/*) PROJ_ALIAS="/tmp/${PROJ#/private/tmp/}" ;;
+  /tmp/*) PROJ_ALIAS="/private/tmp/${PROJ#/tmp/}" ;;
+  *) PROJ_ALIAS="$PROJ" ;;
+esac
+ALIAS_WORKDIR_READ_ARGS="$(jq -cn --arg c "$RELATIVE_READ_CMD" --arg w "$PROJ_ALIAS" '{cmd:$c,workdir:$w}')"
+{ jq -cn --arg a "$ALIAS_WORKDIR_READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"alias-workdir-read",arguments:$a}}'
+  jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"alias-workdir-read",output:"auth index and linked notes"}}'; } > "$SANDBOX/tr-tool-alias-workdir-read.jsonl"
 WRONG_WORKDIR_READ_ARGS="$(jq -cn --arg c "$RELATIVE_READ_CMD" --arg w "$SANDBOX" '{cmd:$c,workdir:$w}')"
 { jq -cn --arg a "$WRONG_WORKDIR_READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"wrong-workdir-read",arguments:$a}}'
   jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"wrong-workdir-read",output:"unrelated files"}}'; } > "$SANDBOX/tr-tool-wrong-workdir-read.jsonl"
@@ -1253,6 +1263,7 @@ mk_mr() { jq -cn --arg c "$1" --arg cwd "$2" --arg tr "$3" '{tool_name:"Bash",to
 B="$(clog_count)"; OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-read.jsonl")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && rows_have_observe "$NEW" '§7-memory-read' true true; } && ok "ship + MEMORY.md consulted → allow + evaluated observation" || bad "ship + MEMORY consulted → observe" "out=[$OUT] new=[$NEW]"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-relative-read.jsonl")")"; is_empty "$OUT" && ok "ship + relative memory reads resolved from exec_command workdir → allow" || bad "exec_command relative memory reads" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-alias-workdir-read.jsonl")")"; is_empty "$OUT" && ok "ship + relative memory reads resolve across macOS workdir aliases → allow" || bad "exec_command aliased-workdir memory reads" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-wrong-workdir-read.jsonl")")"; is_block "$OUT" && ok "ship + relative memory reads under a different workdir → block" || bad "exec_command wrong-workdir memory reads" "$OUT"
 cp "$SANDBOX/tr-tool-read.jsonl" "$SANDBOX/tr-tool-read-long.jsonl"
 node -e 'for(let i=0;i<700;i++) console.log(JSON.stringify({type:"message",payload:{role:"assistant",content:[{text:"x".repeat(1024)}]}}))' >> "$SANDBOX/tr-tool-read-long.jsonl"
