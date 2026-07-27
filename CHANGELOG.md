@@ -3,6 +3,17 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.25.3 — 2026-07-27 — registry propagation retry correction (patch)
+
+- Changed the post-publish `npm pack` probe to run directly as an `if`
+  condition, which is exempt from shell `errexit` handling even when GitHub
+  Actions launches the step with `bash -e`.
+- This lets the existing bounded registry-propagation loop survive an initial
+  transient `ETARGET` and continue into byte-for-byte release-asset,
+  signature, provenance, and marketplace verification.
+- Runtime behavior is unchanged from v4.25.2. The already-published v4.25.2
+  tag and package remain immutable; v4.25.3 carries the corrected release gate.
+
 ## v4.25.2 — 2026-07-27 — marketplace lifecycle release-gate correction (patch)
 
 - Corrected the public Codex marketplace end-to-end gate to seed and clean
@@ -14,10 +25,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   `CODEX_HOME`. Runtime behavior is unchanged from v4.25.1; this patch replaces
   stale pre-isolation test assumptions so the published lifecycle can close
   against Codex CLI 0.145.0.
-- Registry-byte verification now records a failed `npm pack` probe with
-  `errexit` temporarily disabled, so a just-published version can use the
-  existing bounded propagation retry instead of terminating on its first
-  transient `ETARGET`.
+- Registry-byte verification added a bounded `npm pack` propagation retry, but
+  the first failed probe still terminated under the GitHub Actions runner's
+  outer `bash -e`; v4.25.3 corrects that shell-control-flow edge case.
 
 ## v4.25.1 — 2026-07-27 — macOS canonical-path compatibility (patch)
 

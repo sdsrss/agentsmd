@@ -126,15 +126,11 @@ jobs:
 
           REGISTRY_READY=0
           for attempt in {1..12}; do
-            set +e
-            npm pack "$NAME@$VER" \
+            if npm pack "$NAME@$VER" \
               --pack-destination "$VERIFY_DIR/registry" \
               --json \
               --prefer-online \
-              >"$VERIFY_DIR/registry-pack.json"
-            PACK_STATUS=$?
-            set -e
-            if test "$PACK_STATUS" -eq 0; then
+              >"$VERIFY_DIR/registry-pack.json"; then
               REGISTRY_READY=1
               break
             fi
