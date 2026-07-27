@@ -63,6 +63,7 @@ withEnv((codexHome) => {
     assert.strictEqual(result.pluginBundle.detected, true);
     assert.strictEqual(result.pluginBundle.complete, true);
     assert.strictEqual(result.pluginBundle.manifest.hooksPath, './hooks.json');
+    assert.strictEqual(result.pluginBundle.protocolVersion, 1);
     assert.strictEqual(result.pluginBundle.hooks.registered, 15);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingScripts, []);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingSupport, []);
@@ -437,6 +438,11 @@ t('official PLUGIN_ROOT is the preferred runtime bundle location', () => {
   assert.strictEqual(result.detected, true);
   assert.strictEqual(result.contextSource, 'PLUGIN_ROOT');
   assert.strictEqual(result.complete, true);
+});
+
+t('plugin manifest does not overstate reciprocal yield support', () => {
+  const plugin = JSON.parse(fs.readFileSync(path.join(ROOT, '.codex-plugin', 'plugin.json'), 'utf8'));
+  assert.strictEqual(plugin.surfaceProtocolVersion, 1);
 });
 
 t('a conflicting official plugin root remains authoritative but fails health closed', () => {

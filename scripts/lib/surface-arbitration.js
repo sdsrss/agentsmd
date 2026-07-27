@@ -700,6 +700,7 @@ function inspectStandaloneSurface() {
     hooksRegistered: registeredHooks,
     hooksExpected: REG.HOOK_REGISTRY.length,
     activeSpec: activeGlobalSpec(),
+    bundleProfilesComplete: null,
     profile: manifestState.manifest && manifestState.manifest.manifestSchemaVersion === 2
       ? {
         selectionMode: manifestState.manifest.profile.selectionMode,
@@ -804,30 +805,38 @@ function inspectStandaloneSurface() {
   if (deployedPackage && deployedPackage.version !== manifest.version) reasons.push('standalone package version differs from manifest version');
   if (result.activeSpec.version !== manifest.version) reasons.push('active spec version differs from standalone manifest version');
   if (manifest.manifestSchemaVersion === 2) {
+    result.bundleProfilesComplete = true;
     for (const name of ['full', 'omx-compatible', 'extended']) {
       const record = manifest.bundleProfiles[name];
       const target = path.join(P.installDir(), record.relativePath);
       try {
         const descriptor = F.describePath(target);
         if (!descriptor.present || descriptor.type !== 'file') {
+          result.bundleProfilesComplete = false;
           reasons.push(`bundle profile is missing or not a regular file: ${name}`);
         } else if (descriptor.sha256 !== record.sha256) {
+          result.bundleProfilesComplete = false;
           reasons.push(`bundle profile hash differs from manifest: ${name}`);
         } else if (specVersion(readText(target)) !== manifest.version) {
+          result.bundleProfilesComplete = false;
           reasons.push(`bundle profile version differs from manifest: ${name}`);
         }
       } catch {
+        result.bundleProfilesComplete = false;
         reasons.push(`bundle profile is missing or unreadable: ${name}`);
       }
     }
     try {
       const layout = F.describePath(path.join(P.installDir(), 'spec/source/layout.json'));
       if (!layout.present || layout.type !== 'file') {
+        result.bundleProfilesComplete = false;
         reasons.push('bundle profile layout is missing or not a regular file');
       } else if (layout.sha256 !== manifest.bundleProfiles.layoutSha256) {
+        result.bundleProfilesComplete = false;
         reasons.push('bundle profile layout hash differs from manifest');
       }
     } catch {
+      result.bundleProfilesComplete = false;
       reasons.push('bundle profile layout is missing or unreadable');
     }
   }

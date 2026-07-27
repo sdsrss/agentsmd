@@ -494,6 +494,27 @@ t('agentsmd install is concise by default and --json emits the full manifest', (
   assert(manifest.ownedArtifacts && manifest.ownedArtifacts.deploy);
 }));
 
+t('agentsmd install/update expose strict standalone profile selection without silent fallback', () => withSandbox((dir) => {
+  const env = { CODEX_HOME: dir };
+  const invalid = cliResult(['install', '--profile=other'], env);
+  assert.strictEqual(invalid.status, 2, invalid.stdout + invalid.stderr);
+  assert.match(invalid.stderr, /profile must be one of/);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+
+  const bare = cliResult(['install', '--profile'], env);
+  assert.strictEqual(bare.status, 2, bare.stdout + bare.stderr);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+
+  const installed = JSON.parse(cli(['install', '--profile=auto', '--json'], env));
+  assert.strictEqual(installed.manifestSchemaVersion, 2);
+  assert.strictEqual(installed.profile.selectionMode, 'auto');
+  assert.strictEqual(installed.profile.materialized, 'full');
+
+  const updated = JSON.parse(cli(['update', '--json'], env));
+  assert.strictEqual(updated.profile.selectionMode, 'auto');
+  assert.strictEqual(updated.profile.materialized, 'full');
+}));
+
 t('agentsmd install skips an accidental dual surface and --allow-dual-surface explicitly overrides it', () => withSandbox((dir) => {
   const pluginList = JSON.stringify({
     installed: [{

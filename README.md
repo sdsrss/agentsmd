@@ -144,6 +144,24 @@ with `--allow-dual-surface`; `doctor` will continue to report the dual surface
 as a cleanup requirement. The dedicated reviewed `install.sh` path is already
 an explicit standalone choice and therefore proceeds.
 
+Standalone manifests use additive schema v2 while retaining the complete v1
+ownership records used by update, repair, restore, and uninstall. Every
+standalone bundle carries the full, OMX-compatible, and extended specs. New and
+v1-upgraded installs keep the full core by default (`legacy-full`), so upgrading
+does not silently shrink the global guidance. Profile changes are explicit,
+journaled lifecycle transactions:
+
+```bash
+agentsmd update --profile=full
+agentsmd update --profile=auto
+agentsmd update --profile=omx-compatible  # requires the exact active OMX marker
+```
+
+`auto` selects the OMX-compatible core only from the active global guidance
+(`AGENTS.override.md` takes precedence); absent or unreadable evidence falls
+back to the full core. SessionStart never rewrites global files. `status`
+separately reports configured/desired profile, drift, and bundle completeness.
+
 A bare `agentsmd` prints help and writes nothing. Exit codes are consistent: `0` = success/help, `1` = negative result or runtime failure, `2` = argv/usage error.
 
 Since v4.19.0 every npm version is published from CI with a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements) (Sigstore / SLSA) binding the package to this repository and tag; verify it with `npm audit signatures`.

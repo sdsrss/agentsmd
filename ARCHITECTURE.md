@@ -103,7 +103,10 @@ spec/AGENTS*.md 的 (HARD) 规则
 - **阻止新双面，而不破坏旧面更新**：仅在 npm CLI 能证明不存在 standalone manifest、注册 hook、AGENTS sentinel、extended 文件、非 shim deploy、待迁移 `codexmd` surface 或本包同名 global skill 的 fresh install 前，使用 `codex plugin list --json` 精确检查 `installed===true`、`enabled===true` 的 `agentsmd@agentsmd`。命中时零修改跳过；CLI 不可用、schema/字段不认识、disabled/近似名称均不伪造命中；已有 standalone 继续 update，manifest-less/legacy/skill partial 则进入既有 migration、ownership fail-closed 或 repair 诊断。`--allow-dual-surface` 是显式高级 opt-in，专用 `install.sh` 路径因用户已明确选择 standalone 而携带该 opt-in。
 - 天然处理两种边界：目标文件**不存在**（从 `{}` 起，创建自己的）· **有没有 OMX**（OMX 条目只是「其他条目」，原样保留）。
 - 安装器把 deploy、extended spec、skills 的 exact path + hash，以及共享面变更结果写入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`；共享配置仍由 hook path/sentinel 识别。
-- standalone manifest 与 plugin manifest 都声明 `surfaceProtocolVersion: 1`；未知/旧值按 legacy 处理，不能据此宣称双面 exact-once。
+- standalone schema-v2 manifest 声明 `surfaceProtocolVersion: 2` 并保留全部
+  v1 ownership 字段；plugin manifest 当前仍声明 `surfaceProtocolVersion: 1`。
+  三份 plugin profile 继续由 bundle 健康检查证明；反向 yield 尚未发布，因此
+  plugin 胜出的双面状态仍不能宣称 exact-once。
 
 **每个共享面的隔离策略**：
 
@@ -173,7 +176,7 @@ agentsmd/
 | **3** | L2 脚本（install/status/audit/doctor/rules）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | ✅ 已完成 |
 | **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | ✅ 已完成 |
 | **5** | 标准 Codex plugin + marketplace + GitHub Actions CI（Node 18/20/22/24 全套测试 + shellcheck）+ drift gates | 部署时 | ✅ 已完成 |
-| **6** | Surface Protocol v2：manifest/profile capability、双向 yield、混合版本迁移与 lifecycle 兼容设计 | 否（当前 checkpoint） | 🟡 设计与 strict v1/v2 dual reader 已完成；writer 仍为 v1 |
+| **6** | Surface Protocol v2：manifest/profile capability、双向 yield、混合版本迁移与 lifecycle 兼容设计 | 否（当前 checkpoint） | 🟡 schema-v2 writer + opt-in profile transaction 已完成；双向 yield 与 auto 默认仍待真实 E2E |
 
 每个 hook 移植遵循 `spec/AGENTS.md §6` 证据规则：先对 temp fixture 灌样例 stdin 冒烟（§8.V3 destructive-smoke），再接 live。
 

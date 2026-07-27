@@ -17,6 +17,7 @@ const R = require('./lib/release-artifact');
 const PF = require('./lib/preflight');
 const LOCK = require('./lib/lifecycle-lock');
 const J = require('./lib/lifecycle-journal');
+const PS = require('./lib/profile-selection');
 const crypto = require('crypto');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
@@ -286,6 +287,12 @@ function hasManifestlessStandaloneFootprint() {
 }
 
 function install(nowIso, options = {}) {
+  PS.validateRequestedProfile(options.profile);
+  // Explicit OMX selection is an evidence-gated request. Refuse before the
+  // prerequisite probe, lock, staging directory, or backup creates any state.
+  if (options.profile === 'omx-compatible') {
+    PS.resolveInstallProfile(options.profile, null);
+  }
   // Plugin-first UX: a fresh standalone install beside an already-enabled
   // agentsmd plugin creates duplicate hooks and policy surfaces that no runtime
   // can prove exactly-once. Existing standalone installs remain updateable, and
@@ -418,13 +425,19 @@ function installCore(nowIso, options, preflight, txid) {
     const hooksBaseline = F.snapshotFile(P.hooksJsonPath());
     const configBaseline = F.snapshotFile(P.configTomlPath());
     const agentsBaseline = F.snapshotFile(P.agentsMdPath());
+    const selectedProfile = PS.resolveInstallProfile(options.profile, priorManifest, {
+      preserveMaterialized: Boolean(options.repair),
+    });
     assertRepairSharedFiles(options.repair);
     const hooksDir = P.installHooksDir();
     const managed = H.buildManagedConfig(hooksDir, path.join(stagedDeploy, 'hooks', 'hooks.json'));
     const mergedHooks = H.mergeAgentsmdHooks(snapshotText(hooksBaseline), managed);
     const cfg = CT.ensureCodexHooksFlag(snapshotText(configBaseline));
     const statusLine = CT.ensureTuiStatusLine(cfg.content);
-    const specText = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS.md'), 'utf8');
+    const coreRelativePath = selectedProfile.materialized === 'omx-compatible'
+      ? 'spec/AGENTS-omx.md'
+      : 'spec/AGENTS.md';
+    const specText = fs.readFileSync(path.join(stagedDeploy, coreRelativePath), 'utf8');
     const am = AM.injectSpecBlock(snapshotText(agentsBaseline), specText);
     const extendedSrc = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md'), 'utf8');
     const packageInfo = (() => { try { return JSON.parse(fs.readFileSync(path.join(stagedDeploy, 'package.json'), 'utf8')); } catch { return {}; } })();
@@ -434,10 +447,42 @@ function installCore(nowIso, options, preflight, txid) {
       path: path.join(P.codexSkillsDir(), name),
       sha256: F.sha256Tree(path.join(stagedSkillsDir, name)),
     }));
+    const deployedFiles = F.treeEntries(stagedDeploy).filter((entry) => entry.type !== 'dir');
+    const deployedSha256 = (relativePath) => {
+      const record = deployedFiles.find((candidate) => candidate.path === relativePath);
+      if (!record || record.type !== 'file' || typeof record.sha256 !== 'string') {
+        throw new Error(`staged profile artifact missing from deploy inventory: ${relativePath}`);
+      }
+      return record.sha256;
+    };
     const manifest = {
       name: 'agentsmd',
       version: packageInfo.version || null,
-      surfaceProtocolVersion: 1,
+      manifestSchemaVersion: 2,
+      surfaceProtocolVersion: 2,
+      deliverySurface: 'standalone',
+      profile: {
+        ...selectedProfile,
+        coreRelativePath,
+        coreSha256: deployedSha256(coreRelativePath),
+        capabilityContractVersion: 1,
+      },
+      bundleProfiles: {
+        full: {
+          relativePath: 'spec/AGENTS.md',
+          sha256: deployedSha256('spec/AGENTS.md'),
+        },
+        'omx-compatible': {
+          relativePath: 'spec/AGENTS-omx.md',
+          sha256: deployedSha256('spec/AGENTS-omx.md'),
+        },
+        extended: {
+          relativePath: 'spec/AGENTS-extended.md',
+          sha256: deployedSha256('spec/AGENTS-extended.md'),
+        },
+        layoutSchemaVersion: 1,
+        layoutSha256: deployedSha256('spec/source/layout.json'),
+      },
       installedAt: stamp,
       backup: options.repair ? (priorManifest.backup || null) : (backupInfo ? backupInfo.id : null),
       installDir: P.installDir(),
@@ -455,7 +500,7 @@ function installCore(nowIso, options, preflight, txid) {
         extended: { path: P.agentsExtendedMdPath(), sha256: F.sha256File(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md')) },
         skills: ownedSkills,
       },
-      deployedFiles: F.treeEntries(stagedDeploy).filter((entry) => entry.type !== 'dir'),
+      deployedFiles,
       configFlag: cfg.reason,
       configFlagAddedByUs: cfg.changed,
       statusLine: statusLine.reason,
@@ -593,7 +638,7 @@ function tightenPrivateArtifacts() {
 
 function installUsage(command = 'install') {
   return [
-  `Usage: agentsmd ${command} [--json] [--degraded] [--allow-dual-surface]`,
+  `Usage: agentsmd ${command} [--json] [--degraded] [--allow-dual-surface] [--profile=<mode>]`,
   '',
   'Install or update agentsmd in $CODEX_HOME.',
   '',
@@ -609,6 +654,9 @@ function installUsage(command = 'install') {
   '  --allow-dual-surface',
   '               Explicitly create a standalone surface even when the agentsmd',
   '               Codex plugin is already installed and enabled.',
+  '  --profile=<mode>',
+  '               Materialize auto, full, or omx-compatible. Existing v2 mode',
+  '               is preserved on update; new/v1 installs default to legacy-full.',
   '  -h, --help   Show this help without changing any files.',
   ].join('\n');
 }
@@ -622,7 +670,13 @@ if (require.main === module) {
   const argv = process.argv.slice(2);
   printHelpAndExit(argv, usage);
   let parsed;
-  try { parsed = parseStrict(argv, { bools: ['json', 'degraded', 'allow-dual-surface'] }); }
+  try {
+    parsed = parseStrict(argv, {
+      bools: ['json', 'degraded', 'allow-dual-surface'],
+      values: ['profile'],
+    });
+    PS.validateRequestedProfile(parsed.values.profile);
+  }
   catch (error) {
     console.error(`agentsmd ${command}: ${error.message}`);
     console.error(usage);
@@ -632,6 +686,7 @@ if (require.main === module) {
     const manifest = install(null, {
       degraded: PF.degradedOptIn(parsed.bools),
       allowDualSurface: parsed.bools.has('allow-dual-surface'),
+      profile: parsed.values.profile,
       pluginGuard: dispatchedCommand === 'install' || dispatchedCommand === 'update',
     });
     if (parsed.bools.has('json')) console.log(JSON.stringify(manifest, null, 2));

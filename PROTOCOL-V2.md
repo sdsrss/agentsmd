@@ -1,6 +1,6 @@
 # agentsmd Surface Protocol v2
 
-Status: **checkpoint 2 — strict v1/v2 dual reader implemented; writer remains v1**
+Status: **checkpoint 5 (opt-in) — schema-v2 writer and explicit standalone profiles implemented; reciprocal yield and automatic default remain deferred**
 
 Baseline: `v4.24.0`, `surfaceProtocolVersion: 1`
 
@@ -288,9 +288,10 @@ An OMX state change after installation creates profile drift:
 - SessionStart continues using the already materialized standalone profile;
 - no hook mutates global files automatically.
 
-The initial v2 writer uses `legacy-full` for v1 upgrades. Automatic standalone
-profile adaptation is enabled only in a later rollout step after profile parity
-and real Codex E2E gates pass.
+The v2 writer uses `legacy-full` for new installs and v1 upgrades unless the
+operator passes `--profile=auto|full|omx-compatible`. Existing v2 selection mode
+is preserved across ordinary updates. `auto` re-evaluates only inside the
+explicit lifecycle transaction; it is available but is not the default.
 
 ## 7. Mixed-version arbitration
 
@@ -444,6 +445,15 @@ Protocol v2 is delivered in independently reversible checkpoints:
 
 Each checkpoint must pass the full existing suite plus the protocol-v2 matrix.
 Failure rolls back the checkpoint; later stages do not weaken an earlier gate.
+
+Implemented release boundary:
+
+- checkpoints 1–3 are implemented;
+- checkpoint 5 is implemented as an explicit opt-in without changing the
+  `legacy-full` default;
+- checkpoint 4 remains deferred, so the plugin manifest continues to advertise
+  surface protocol 1 and plugin-winner dual surfaces remain non-exclusive;
+- checkpoint 6 remains deferred pending the post-publication real Codex matrix.
 
 ## 11. Implementation stop condition
 

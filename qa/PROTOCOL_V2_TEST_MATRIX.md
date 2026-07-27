@@ -1,6 +1,6 @@
 # Protocol v2 compatibility and no-regression matrix
 
-Status: **strict dual-reader gate implemented; v2 writer not implemented**
+Status: **schema-v2 writer and opt-in standalone profiles implemented; reciprocal yield and auto-by-default deferred**
 
 Design: [`../PROTOCOL-V2.md`](../PROTOCOL-V2.md)
 
@@ -36,8 +36,14 @@ baseline before any v2 writer behavior is introduced.
 The dual-reader checkpoint additionally covers a valid metadata-only v2 full
 profile, a valid materialized OMX-compatible profile, strict missing-profile
 and future-schema rejection, declared fallback-artifact hash verification, and
-the additive status fields. The production writer still emits schema 1 and
-protocol 1.
+the additive status fields.
+
+The writer/profile checkpoint covers the default `legacy-full` v1→v2 migration,
+strict `--profile=auto|full|omx-compatible` parsing, exact-marker-only OMX
+selection, full fallback, update-time auto re-evaluation, repair-time profile
+preservation, bundle digests, status drift reporting, and zero mutation when an
+explicit OMX-compatible selection lacks activation evidence. `auto` is opt-in;
+the default remains compatibility-preserving `legacy-full`.
 
 ## 2. Preservation gates
 

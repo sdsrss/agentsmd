@@ -11,6 +11,7 @@ const AM = require('./lib/agents-md');
 const CT = require('./lib/config-toml');
 const REG = require('./lib/hook-registry');
 const SA = require('./lib/surface-arbitration');
+const PS = require('./lib/profile-selection');
 const { readRows } = require('./audit');
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -69,6 +70,7 @@ function status() {
   const standaloneManifestPresent = fs.existsSync(P.manifestPath());
   const hooksContent = read(P.hooksJsonPath());
   const cfg = read(P.configTomlPath()) || '';
+  const profileState = PS.describeProfileState(manifest);
 
   let total = 0, other = 0;
   if (hooksContent) {
@@ -97,6 +99,11 @@ function status() {
     profileSelectionMode: manifest
       ? (manifest.profile ? manifest.profile.selectionMode : 'legacy-full')
       : null,
+    desiredProfile: profileState.desiredProfile,
+    desiredProfileReason: profileState.desiredProfileReason,
+    profileState: profileState.profileState,
+    omxDetection: profileState.omxDetection,
+    bundleProfilesComplete: arbitration.candidates.standalone.bundleProfilesComplete,
     // R1-03: false only after an explicit --degraded install with prerequisites
     // missing; pre-R1-03 manifests carry no field and report true (jq presence
     // is separately doctor-checked). Heals on the next healthy `agentsmd update`.

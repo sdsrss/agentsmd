@@ -401,6 +401,22 @@ function doctor() {
       ? `${[...new Set(integrityFailures)].slice(0, 5).join(', ')} — ${!manifestInstalled && registeredHooks === 0 ? 'run agentsmd install' : 'run agentsmd repair --plan'}`
       : `${manifest.deployedFiles.length}/${manifest.deployedFiles.length}`
   );
+  if (manifest && manifest.manifestSchemaVersion === 2) {
+    add(
+      'standalone profile bundle complete',
+      surfaceStatus.bundleProfilesComplete === true,
+      surfaceStatus.bundleProfilesComplete === true
+        ? 'full + omx-compatible + extended + source layout verified from manifest digests'
+        : 'one or more declared profile artifacts are missing, stale, or unreadable — run agentsmd repair --plan'
+    );
+    add(
+      'standalone profile selection observable',
+      true,
+      surfaceStatus.profileState === 'drift'
+        ? `configured=${surfaceStatus.configuredProfile}; desired=${surfaceStatus.desiredProfile}; mode=${surfaceStatus.profileSelectionMode}; enforcement remains active — run agentsmd update to re-materialize, or choose --profile=full|auto`
+        : `configured=${surfaceStatus.configuredProfile}; desired=${surfaceStatus.desiredProfile}; mode=${surfaceStatus.profileSelectionMode}; state=${surfaceStatus.profileState}`
+    );
+  }
 
   // hard-rules anchors resolve against the spec (drift guard).
   try {

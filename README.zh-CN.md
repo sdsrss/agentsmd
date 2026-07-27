@@ -126,6 +126,22 @@ standalone，guard 不会掩盖它，而是保留原有 fail-closed 恢复诊断
 状态。已经审查并直接运行专用 `install.sh` 本身就是明确选择 standalone，因此
 会继续安装。
 
+standalone manifest 现在使用可加性的 schema v2，同时保留 update、repair、
+restore、uninstall 所依赖的完整 v1 ownership 字段。每个 standalone bundle
+始终携带 full、OMX-compatible、extended 三份规范。新安装和 v1 升级默认仍
+物化完整 core（`legacy-full`），升级不会静默缩减全局指令。profile 变化只通过
+显式、带 journal 的 lifecycle transaction 完成：
+
+```bash
+agentsmd update --profile=full
+agentsmd update --profile=auto
+agentsmd update --profile=omx-compatible  # 必须能证明 active OMX 精确 marker
+```
+
+`auto` 只检查当前生效的全局 guidance（`AGENTS.override.md` 优先）；证据缺失或
+无法读取时回退完整 core。SessionStart 不会改写全局文件。`status` 分开报告
+configured/desired profile、drift 与 bundle 完整性。
+
 直接运行 `agentsmd` 只打印帮助，不写入文件。退出码统一为：`0` 表示成功/帮助，`1` 表示负面结果或运行时失败，`2` 表示 argv/usage 错误。
 
 自 v4.19.0 起，每个 npm 版本都由 CI 携带 [provenance 证明](https://docs.npmjs.com/generating-provenance-statements)（Sigstore / SLSA）发布，将包绑定到本仓库与该 tag；用 `npm audit signatures` 验证。
