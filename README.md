@@ -418,13 +418,20 @@ On macOS use `brew install shellcheck`; Fedora/RHEL use
 ```bash
 npm test
 npm --prefix /path/to/agentsmd run lint:shell
+npm run spec:check
 ```
+
+`spec/AGENTS.md` and `spec/AGENTS-omx.md` are generated artifacts. Edit the
+ordered canonical fragments under `spec/source/`, then run
+`npm run spec:generate`; `npm run spec:check` is the read-only drift gate.
+The release version synchronizer updates the canonical profile headers first
+and regenerates both artifacts from the same source layout.
 
 The test suite covers installation isolation, plugin distribution, hook wiring, drift, telemetry, diagnostics, project workflows, and shell smoke fixtures. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for design boundaries and [`CHANGELOG.md`](./CHANGELOG.md) for releases.
 
 ```text
 bin/          npm CLI dispatcher
-spec/         core, extended spec, hard-rule manifest, operator guide
+spec/         canonical source, generated cores, extended spec, rule manifest
 hooks/        native hooks, shared shell libraries, smoke tests
 scripts/      lifecycle, diagnostics, governance, project tools, tests
 skills/       15 Codex skill routers

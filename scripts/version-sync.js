@@ -12,17 +12,31 @@ const {
   writeFileAtomic,
 } = require('./lib/fs-atomic');
 const { ArgvError, parseStrict, printHelpAndExit } = require('./lib/argv');
+const SPEC = require('./spec-source');
 
 const FILES = [
   'package.json',
   '.codex-plugin/plugin.json',
   '.agents/plugins/marketplace.json',
   'spec/hard-rules.json',
+  'spec/source/full/00-pre-auth.md',
+  'spec/source/omx/00-pre-auth.md',
   'spec/AGENTS.md',
   'spec/AGENTS-omx.md',
   'spec/AGENTS-extended.md',
   'install.sh',
 ];
+const SPEC_FRAGMENT_FILES = [
+  'spec/source/full/00-pre-auth.md',
+  'spec/source/base/10-auth.md',
+  'spec/source/full/20-post-auth-pre-safety.md',
+  'spec/source/base/30-safety.md',
+  'spec/source/full/40-post-safety.md',
+  'spec/source/omx/00-pre-auth.md',
+  'spec/source/omx/20-post-auth-pre-safety.md',
+  'spec/source/omx/40-post-safety.md',
+];
+const SNAPSHOT_FILES = [...new Set([...FILES, SPEC.LAYOUT, ...SPEC_FRAGMENT_FILES])];
 
 const RELEASE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const MARKETPLACE_MIN_VERSION = '4.23.0';
@@ -53,7 +67,9 @@ function replaceExactlyOne(content, pattern, replacement, label) {
 }
 
 function renderFiles(root, version, sourceContent = null) {
-  const content = sourceContent || Object.fromEntries(FILES.map((rel) => [rel, fs.readFileSync(path.join(root, rel), 'utf8')]));
+  const content = sourceContent || Object.fromEntries(
+    SNAPSHOT_FILES.map((rel) => [rel, fs.readFileSync(path.join(root, rel), 'utf8')])
+  );
   const pkg = JSON.parse(content['package.json']);
   const plugin = JSON.parse(content['.codex-plugin/plugin.json']);
   const marketplace = JSON.parse(content['.agents/plugins/marketplace.json']);
@@ -81,7 +97,7 @@ function renderFiles(root, version, sourceContent = null) {
     ? entry.source.version
     : `${pkg.version} || ${version}`;
 
-  return {
+  const rendered = {
     'package.json': replaceExactlyOne(
       content['package.json'],
       /("version"\s*:\s*")[^"]+("\s*,)/,
@@ -106,17 +122,17 @@ function renderFiles(root, version, sourceContent = null) {
       `$1v${version}$2`,
       'hard-rules.json'
     ),
-    'spec/AGENTS.md': replaceExactlyOne(
-      content['spec/AGENTS.md'],
+    'spec/source/full/00-pre-auth.md': replaceExactlyOne(
+      content['spec/source/full/00-pre-auth.md'],
       /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
       `CODEX-CODING-SPEC v${version}`,
-      'spec/AGENTS.md'
+      'spec/source/full/00-pre-auth.md'
     ),
-    'spec/AGENTS-omx.md': replaceExactlyOne(
-      content['spec/AGENTS-omx.md'],
+    'spec/source/omx/00-pre-auth.md': replaceExactlyOne(
+      content['spec/source/omx/00-pre-auth.md'],
       /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
       `CODEX-CODING-SPEC v${version}`,
-      'spec/AGENTS-omx.md'
+      'spec/source/omx/00-pre-auth.md'
     ),
     'spec/AGENTS-extended.md': replaceExactlyOne(
       content['spec/AGENTS-extended.md'],
@@ -131,12 +147,18 @@ function renderFiles(root, version, sourceContent = null) {
       'install.sh'
     ),
   };
+  const generated = SPEC.renderAll({
+    root,
+    sourceContent: { ...content, ...rendered },
+  });
+  for (const [relative, buffer] of generated) rendered[relative] = buffer;
+  return rendered;
 }
 
 function syncVersion({ root = path.join(__dirname, '..'), version, write = writeFileAtomic }) {
   assertVersion(version);
-  const snapshots = new Map(FILES.map((rel) => [rel, snapshotFile(path.join(root, rel))]));
-  const sourceContent = Object.fromEntries(FILES.map((rel) => {
+  const snapshots = new Map(SNAPSHOT_FILES.map((rel) => [rel, snapshotFile(path.join(root, rel))]));
+  const sourceContent = Object.fromEntries(SNAPSHOT_FILES.map((rel) => {
     const snapshot = snapshots.get(rel);
     if (!snapshot.present) throw new Error(`${rel}: release version source is missing`);
     return [rel, snapshot.content.toString('utf8')];
@@ -145,6 +167,12 @@ function syncVersion({ root = path.join(__dirname, '..'), version, write = write
   const written = [];
   try {
     for (const rel of FILES) {
+      for (const input of SNAPSHOT_FILES) {
+        if (FILES.includes(input)) continue;
+        if (!sameSnapshot(snapshotFile(path.join(root, input)), snapshots.get(input))) {
+          throw new Error(`${input}: concurrent change detected`);
+        }
+      }
       const file = path.join(root, rel);
       write(file, rendered[rel], { expectedSnapshot: snapshots.get(rel) });
       written.push(rel);
@@ -199,6 +227,8 @@ if (require.main === module) {
 
 module.exports = {
   FILES,
+  SNAPSHOT_FILES,
+  SPEC_FRAGMENT_FILES,
   MARKETPLACE_MIN_VERSION,
   RELEASE_VERSION_RE,
   assertVersion,

@@ -390,13 +390,20 @@ macOS 使用 `brew install shellcheck`；Fedora/RHEL 使用
 ```bash
 npm test
 npm --prefix /path/to/agentsmd run lint:shell
+npm run spec:check
 ```
+
+`spec/AGENTS.md` 与 `spec/AGENTS-omx.md` 是生成产物。修改
+`spec/source/` 下按顺序组合的 canonical fragments 后运行
+`npm run spec:generate`；`npm run spec:check` 是只读 drift gate。
+发布版本同步器会先更新 canonical profile header，再从同一 source layout
+重新生成两份产物。
 
 测试覆盖安装隔离、插件分发、hook wiring、drift、遥测、诊断、项目工作流和 shell smoke fixtures。设计边界见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，版本记录见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
 ```text
 bin/          npm CLI dispatcher
-spec/         core、extended spec、hard-rule manifest、operator guide
+spec/         canonical source、生成后的 cores、extended spec、rule manifest
 hooks/        原生 hooks、共享 shell libraries、smoke tests
 scripts/      生命周期、诊断、治理、项目工具、测试
 skills/       15 个 Codex skill routers

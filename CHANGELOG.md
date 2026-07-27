@@ -32,6 +32,10 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   explicit plugin-data environment it reports a safe no-op. Cleanup binds the
   canonical runtime directory identity before mutation and retains recovery
   evidence instead of following a symlink or concurrent path replacement.
+- The full and OMX-compatible cores now have an ordered canonical source layout
+  under `spec/source/`. `spec:generate` concatenates raw fragments without
+  altering bytes, `spec:check` is a read-only artifact drift gate, and release
+  version sync updates source headers before regenerating both shipped cores.
 
 ### OMX-aware SessionStart rehydration
 

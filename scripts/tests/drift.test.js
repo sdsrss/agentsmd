@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const { parseSkillFrontmatter } = require('../lib/skill-frontmatter');
+const specSource = require('../spec-source');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -16,6 +17,10 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 const hr = JSON.parse(read('spec/hard-rules.json'));
 const specFiles = { core: read('spec/AGENTS.md'), extended: read('spec/AGENTS-extended.md') };
 const omxCore = read('spec/AGENTS-omx.md');
+
+t('spec source: canonical fragments render committed artifacts byte-for-byte', () => {
+  assert.doesNotThrow(() => specSource.check({ root: ROOT }));
+});
 
 // 1. every rule anchor still resolves verbatim in its spec file.
 t('hard-rules: all section_anchors resolve in the spec', () => {

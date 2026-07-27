@@ -8,7 +8,9 @@ Core, OMX-compatible, and extended rule text, manifest rules, and every
 `section_anchor` are unchanged. The shared version moves with the package minor
 that adds OMX-aware plugin rehydration, observable plugin activation, guarded
 plugin/standalone coexistence, and physical-surface-private ephemeral runtime
-state with legacy dual-read compatibility. `spec_version` → v4.24.0. Detail:
+state with legacy dual-read compatibility. The full and OMX cores are now
+byte-identical generated artifacts from the ordered canonical fragments under
+`spec/source/`; rule text is unchanged. `spec_version` → v4.24.0. Detail:
 repository `CHANGELOG.md`.
 
 ## v4.23.0 (2026-07-26) — no spec changes (deploy-drift banner + plugin-uninstall fix)

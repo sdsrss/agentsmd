@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "outputs": {
+    "spec/AGENTS.md": [
+      "spec/source/full/00-pre-auth.md",
+      "spec/source/base/10-auth.md",
+      "spec/source/full/20-post-auth-pre-safety.md",
+      "spec/source/base/30-safety.md",
+      "spec/source/full/40-post-safety.md"
+    ],
+    "spec/AGENTS-omx.md": [
+      "spec/source/omx/00-pre-auth.md",
+      "spec/source/base/10-auth.md",
+      "spec/source/omx/20-post-auth-pre-safety.md",
+      "spec/source/base/30-safety.md",
+      "spec/source/omx/40-post-safety.md"
+    ]
+  }
+}

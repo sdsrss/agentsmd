@@ -8,6 +8,12 @@ Codex 版编程全局规范**系统**（不只是一份规范文本）的架构�
 
 `spec/AGENTS.md` 的完整 core 覆盖 SPINE、授权、证据、安全和路由等每轮约束；OMX 全局规范已经生效时，plugin SessionStart 改为注入 `spec/AGENTS-omx.md` 兼容 overlay，省去重复编排内容；展开流程放在按需加载的 extended。三份规范仍需由 drift、测试和人工复审持续校准。
 
+完整 core 与 OMX overlay 的可编辑 source 位于 `spec/source/`：layout 显式排列
+profile adapter 与 byte-identical shared AUTH/SAFETY fragments，generator 仅做
+Buffer 拼接，不 trim、不补换行。`spec/AGENTS.md`、`spec/AGENTS-omx.md` 是随包
+发布的生成产物；只读 `spec:check` 约束 source/artifact drift，`spec:generate`
+负责显式再生。版本同步先修改 source header，再由同一 layout 生成产物。
+
 主要风险是 discovery 预算被 core 占用，以及规则存在但没有对应执行或测量机会。三层加载、选择性 hook 和机会/结果遥测分别约束上下文占用、可检测行为和治理证据；零命中本身不证明规则无价值。
 
 因此本系统把「规则文本」「可检测执行」「机会与结果」连到同一条审计链；数据是 operator 复审输入，不自动证明规则价值或触发 prompt 变更。

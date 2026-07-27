@@ -564,6 +564,8 @@ t('package.json bin maps agentsmd to the dispatcher and files[] ships it', () =>
   assert(fs.existsSync(path.join(ROOT, pkg.bin.agentsmd)));
   assert(pkg.files.includes('bin'));
   assert.strictEqual(pkg.scripts['release:version'], 'node scripts/version-sync.js');
+  assert.strictEqual(pkg.scripts['spec:generate'], 'node scripts/spec-source.js --generate');
+  assert.strictEqual(pkg.scripts['spec:check'], 'node scripts/spec-source.js --check');
   assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run check');
 });
 
@@ -594,6 +596,9 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
   const packedPaths = packResult.files.map((entry) => entry.path);
   assert(packedPaths.includes('spec/AGENTS-omx.md'), 'tarball is missing the OMX-compatible core');
+  assert(packedPaths.includes('spec/source/layout.json'), 'tarball is missing the canonical spec layout');
+  assert(packedPaths.includes('spec/source/base/10-auth.md'), 'tarball is missing canonical shared fragments');
+  assert(packedPaths.includes('scripts/spec-source.js'), 'tarball is missing the spec generator');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,

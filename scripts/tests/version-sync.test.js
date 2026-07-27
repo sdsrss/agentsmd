@@ -8,16 +8,7 @@ const cp = require('child_process');
 const V = require('../version-sync');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const FILES = [
-  'package.json',
-  '.codex-plugin/plugin.json',
-  '.agents/plugins/marketplace.json',
-  'spec/hard-rules.json',
-  'spec/AGENTS.md',
-  'spec/AGENTS-omx.md',
-  'spec/AGENTS-extended.md',
-  'install.sh',
-];
+const FILES = V.FILES;
 
 let PASS = 0, FAIL = 0;
 const t = (name, fn) => {
@@ -28,7 +19,7 @@ const t = (name, fn) => {
 function withFixture(fn) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-version-sync.'));
   try {
-    for (const rel of FILES) {
+    for (const rel of V.SNAPSHOT_FILES) {
       const target = path.join(root, rel);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.copyFileSync(path.join(ROOT, rel), target);
@@ -49,6 +40,8 @@ t('syncVersion updates package, plugin, marketplace fallback selector, manifest,
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'))).spec_version, 'v4.24.1');
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-omx.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
+  assert.match(fs.readFileSync(path.join(root, 'spec/source/full/00-pre-auth.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
+  assert.match(fs.readFileSync(path.join(root, 'spec/source/omx/00-pre-auth.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-extended.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
   assert.match(fs.readFileSync(path.join(root, 'install.sh'), 'utf8'), /INSTALLER_VERSION="4\.24\.1"/);
 }));
