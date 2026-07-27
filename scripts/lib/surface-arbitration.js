@@ -23,6 +23,8 @@ const CONFIG_PARSE_CACHE = new Map();
 // hooks/lib/hook-common.sh whenever the payload shape changes.
 const ARBITRATION_CACHE_SCHEMA = 1;
 const ACTIVATION_RECEIPT_SCHEMA = 1;
+const INSTALL_MANIFEST_SCHEMA = 2;
+const PROFILE_CONTRACT_VERSION = 1;
 
 const PLUGIN_HOOK_SUPPORT = [
   'hooks/banned-vocab.patterns',
@@ -148,7 +150,7 @@ function validateOwnedRecord(record, label) {
   return null;
 }
 
-function validateInstallManifest(manifest) {
+function validateInstallManifestV1(manifest) {
   if (!isObject(manifest)) return 'manifest must be an object';
   if (manifest.name !== 'agentsmd') return 'manifest identity must be agentsmd';
   if (!parseSemver(manifest.version)) return 'manifest version must be semantic version text';
@@ -168,6 +170,88 @@ function validateInstallManifest(manifest) {
     if (error) return error;
   }
   return null;
+}
+
+function validateBundleProfile(record, label, expectedPath) {
+  if (!isObject(record)) return `manifest ${label} must be an object`;
+  if (record.relativePath !== expectedPath) return `manifest ${label}.relativePath must be ${expectedPath}`;
+  if (typeof record.sha256 !== 'string' || !SHA256_RE.test(record.sha256)) {
+    return `manifest ${label}.sha256 must be a SHA-256 hex digest`;
+  }
+  return null;
+}
+
+function validateInstallManifestV2(manifest) {
+  if (manifest.surfaceProtocolVersion !== 2) return 'manifest surfaceProtocolVersion must be 2 for schema 2';
+  if (manifest.deliverySurface !== 'standalone') return 'manifest deliverySurface must be standalone';
+  if (!isObject(manifest.profile)) return 'manifest profile must be an object';
+  const selectionModes = ['legacy-full', 'auto', 'full', 'omx-compatible'];
+  if (!selectionModes.includes(manifest.profile.selectionMode)) {
+    return `manifest profile.selectionMode must be one of: ${selectionModes.join(', ')}`;
+  }
+  const materializedProfiles = ['full', 'omx-compatible'];
+  if (!materializedProfiles.includes(manifest.profile.materialized)) {
+    return `manifest profile.materialized must be one of: ${materializedProfiles.join(', ')}`;
+  }
+  if ((manifest.profile.selectionMode === 'legacy-full' || manifest.profile.selectionMode === 'full')
+      && manifest.profile.materialized !== 'full') {
+    return `manifest profile.materialized must be full for selectionMode ${manifest.profile.selectionMode}`;
+  }
+  if (manifest.profile.selectionMode === 'omx-compatible'
+      && manifest.profile.materialized !== 'omx-compatible') {
+    return 'manifest profile.materialized must be omx-compatible for selectionMode omx-compatible';
+  }
+  if (typeof manifest.profile.reason !== 'string' || !manifest.profile.reason.trim()) {
+    return 'manifest profile.reason must be a non-empty string';
+  }
+  const expectedCore = manifest.profile.materialized === 'full'
+    ? 'spec/AGENTS.md'
+    : 'spec/AGENTS-omx.md';
+  if (manifest.profile.coreRelativePath !== expectedCore) {
+    return `manifest profile.coreRelativePath must be ${expectedCore}`;
+  }
+  if (typeof manifest.profile.coreSha256 !== 'string' || !SHA256_RE.test(manifest.profile.coreSha256)) {
+    return 'manifest profile.coreSha256 must be a SHA-256 hex digest';
+  }
+  if (manifest.profile.capabilityContractVersion !== PROFILE_CONTRACT_VERSION) {
+    return `manifest profile.capabilityContractVersion must be ${PROFILE_CONTRACT_VERSION}`;
+  }
+  if (!isObject(manifest.bundleProfiles)) return 'manifest bundleProfiles must be an object';
+  for (const [name, relativePath] of [
+    ['full', 'spec/AGENTS.md'],
+    ['omx-compatible', 'spec/AGENTS-omx.md'],
+    ['extended', 'spec/AGENTS-extended.md'],
+  ]) {
+    const error = validateBundleProfile(
+      manifest.bundleProfiles[name],
+      `bundleProfiles.${name}`,
+      relativePath
+    );
+    if (error) return error;
+  }
+  if (manifest.bundleProfiles.layoutSchemaVersion !== 1) {
+    return 'manifest bundleProfiles.layoutSchemaVersion must be 1';
+  }
+  if (typeof manifest.bundleProfiles.layoutSha256 !== 'string'
+      || !SHA256_RE.test(manifest.bundleProfiles.layoutSha256)) {
+    return 'manifest bundleProfiles.layoutSha256 must be a SHA-256 hex digest';
+  }
+  const selected = manifest.bundleProfiles[manifest.profile.materialized];
+  if (manifest.profile.coreSha256 !== selected.sha256) {
+    return 'manifest profile.coreSha256 must match the materialized bundle profile';
+  }
+  return null;
+}
+
+function validateInstallManifest(manifest) {
+  const ownershipError = validateInstallManifestV1(manifest);
+  if (ownershipError) return ownershipError;
+  const schema = manifest.manifestSchemaVersion === undefined ? 1 : manifest.manifestSchemaVersion;
+  if (!Number.isInteger(schema) || schema < 1) {
+    return 'manifest manifestSchemaVersion must be a positive integer';
+  }
+  if (schema > INSTALL_MANIFEST_SCHEMA) return `unsupported manifest schema version ${schema}`;
+  return schema === 1 ? null : validateInstallManifestV2(manifest);
 }
 
 function readInstallManifest() {
@@ -602,6 +686,9 @@ function inspectStandaloneSurface() {
   const result = {
     detected,
     version: manifestState.manifest ? manifestState.manifest.version : null,
+    manifestSchemaVersion: manifestState.manifest
+      ? (manifestState.manifest.manifestSchemaVersion || 1)
+      : null,
     protocolVersion: manifestState.manifest && Number.isInteger(manifestState.manifest.surfaceProtocolVersion)
       ? manifestState.manifest.surfaceProtocolVersion
       : 0,
@@ -613,6 +700,17 @@ function inspectStandaloneSurface() {
     hooksRegistered: registeredHooks,
     hooksExpected: REG.HOOK_REGISTRY.length,
     activeSpec: activeGlobalSpec(),
+    profile: manifestState.manifest && manifestState.manifest.manifestSchemaVersion === 2
+      ? {
+        selectionMode: manifestState.manifest.profile.selectionMode,
+        materialized: manifestState.manifest.profile.materialized,
+        reason: manifestState.manifest.profile.reason,
+      }
+      : (manifestState.manifest ? {
+        selectionMode: 'legacy-full',
+        materialized: 'full',
+        reason: 'implicit-schema-1',
+      } : null),
     config: { parseable: false, hooksEnabled: false, validator: 'codex-cli', errorCode: null },
   };
   if (!detected) return result;
@@ -705,7 +803,38 @@ function inspectStandaloneSurface() {
   const deployedPackage = readJson(path.join(P.installDir(), 'package.json'), 'standalone package.json', reasons);
   if (deployedPackage && deployedPackage.version !== manifest.version) reasons.push('standalone package version differs from manifest version');
   if (result.activeSpec.version !== manifest.version) reasons.push('active spec version differs from standalone manifest version');
-  const deployedCore = readText(path.join(P.installSpecDir(), 'AGENTS.md'));
+  if (manifest.manifestSchemaVersion === 2) {
+    for (const name of ['full', 'omx-compatible', 'extended']) {
+      const record = manifest.bundleProfiles[name];
+      const target = path.join(P.installDir(), record.relativePath);
+      try {
+        const descriptor = F.describePath(target);
+        if (!descriptor.present || descriptor.type !== 'file') {
+          reasons.push(`bundle profile is missing or not a regular file: ${name}`);
+        } else if (descriptor.sha256 !== record.sha256) {
+          reasons.push(`bundle profile hash differs from manifest: ${name}`);
+        } else if (specVersion(readText(target)) !== manifest.version) {
+          reasons.push(`bundle profile version differs from manifest: ${name}`);
+        }
+      } catch {
+        reasons.push(`bundle profile is missing or unreadable: ${name}`);
+      }
+    }
+    try {
+      const layout = F.describePath(path.join(P.installDir(), 'spec/source/layout.json'));
+      if (!layout.present || layout.type !== 'file') {
+        reasons.push('bundle profile layout is missing or not a regular file');
+      } else if (layout.sha256 !== manifest.bundleProfiles.layoutSha256) {
+        reasons.push('bundle profile layout hash differs from manifest');
+      }
+    } catch {
+      reasons.push('bundle profile layout is missing or unreadable');
+    }
+  }
+  const selectedCore = manifest.manifestSchemaVersion === 2
+    ? manifest.profile.coreRelativePath
+    : 'spec/AGENTS.md';
+  const deployedCore = readText(path.join(P.installDir(), selectedCore));
   const activeCore = readText(result.activeSpec.path);
   result.activeSpec.contentMatchesDeployed = activeSpecMatchesDeployed(result.activeSpec, activeCore, deployedCore);
   if (!result.activeSpec.contentMatchesDeployed) reasons.push('active spec content differs from deployed standalone core');
@@ -822,7 +951,9 @@ if (require.main === module) {
 module.exports = {
   ACTIVATION_RECEIPT_SCHEMA,
   ARBITRATION_CACHE_SCHEMA,
+  INSTALL_MANIFEST_SCHEMA,
   PLUGIN_HOOK_SUPPORT,
+  PROFILE_CONTRACT_VERSION,
   SEMVER_RE,
   activationReceiptPath,
   arbitrateSurfaces,
@@ -841,4 +972,5 @@ module.exports = {
   specVersion,
   validateCodexConfigSyntax,
   validateInstallManifest,
+  validateInstallManifestV1,
 };

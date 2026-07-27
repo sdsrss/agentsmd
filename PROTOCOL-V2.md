@@ -1,6 +1,6 @@
 # agentsmd Surface Protocol v2
 
-Status: **proposed design; no runtime implementation**
+Status: **checkpoint 2 — strict v1/v2 dual reader implemented; writer remains v1**
 
 Baseline: `v4.24.0`, `surfaceProtocolVersion: 1`
 
@@ -457,4 +457,3 @@ Protocol-v2 implementation is not complete until:
 - dual-surface exact-once is claimed only for a proved yield direction;
 - live-guard proves tests did not modify the real `CODEX_HOME`;
 - real marketplace E2E gaps are stated rather than inferred from fixtures.
-

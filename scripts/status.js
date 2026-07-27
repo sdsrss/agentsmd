@@ -85,6 +85,18 @@ function status() {
     manifestError: manifestState.error,
     installedVersion: (manifest && manifest.version) || null,
     installedAt: (manifest && manifest.installedAt) || null,
+    manifestSchemaVersion: manifest
+      ? (manifest.manifestSchemaVersion || 1)
+      : null,
+    surfaceProtocolVersion: manifest && Number.isInteger(manifest.surfaceProtocolVersion)
+      ? manifest.surfaceProtocolVersion
+      : null,
+    configuredProfile: manifest
+      ? (manifest.profile ? manifest.profile.materialized : 'full')
+      : null,
+    profileSelectionMode: manifest
+      ? (manifest.profile ? manifest.profile.selectionMode : 'legacy-full')
+      : null,
     // R1-03: false only after an explicit --degraded install with prerequisites
     // missing; pre-R1-03 manifests carry no field and report true (jq presence
     // is separately doctor-checked). Heals on the next healthy `agentsmd update`.

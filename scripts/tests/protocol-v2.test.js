@@ -54,12 +54,16 @@ function loadLifecycle() {
 function withSandbox(name, fn) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), `agentsmd-protocol-v2-${name}-`));
   const previous = process.env.CODEX_HOME;
+  const previousCodexBin = process.env.AGENTSMD_CODEX_BIN;
   process.env.CODEX_HOME = home;
+  process.env.AGENTSMD_CODEX_BIN = path.join(__dirname, 'fixtures', 'codex');
   try {
     fn(home);
   } finally {
     if (previous === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previous;
+    if (previousCodexBin === undefined) delete process.env.AGENTSMD_CODEX_BIN;
+    else process.env.AGENTSMD_CODEX_BIN = previousCodexBin;
     clearLifecycleModules();
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -78,6 +82,11 @@ function writeManifest(home, manifest) {
 }
 
 function additiveV2Envelope(manifest, foreignPath = null) {
+  const deployedSha = (relative) => {
+    const record = manifest.deployedFiles.find((candidate) => candidate.path === relative);
+    assert.ok(record && typeof record.sha256 === 'string', `missing deployed digest: ${relative}`);
+    return record.sha256;
+  };
   return {
     ...manifest,
     manifestSchemaVersion: 2,
@@ -88,19 +97,25 @@ function additiveV2Envelope(manifest, foreignPath = null) {
       materialized: 'full',
       reason: 'v1-upgrade-preservation',
       coreRelativePath: 'spec/AGENTS.md',
-      coreSha256: manifest.deployedFiles.find((record) => record.path === 'spec/AGENTS.md').sha256,
+      coreSha256: deployedSha('spec/AGENTS.md'),
       capabilityContractVersion: 1,
     },
     bundleProfiles: {
-      full: { relativePath: 'spec/AGENTS.md', sha256: '0'.repeat(64) },
-      'omx-compatible': { relativePath: 'spec/AGENTS-omx.md', sha256: '1'.repeat(64) },
-      extended: { relativePath: 'spec/AGENTS-extended.md', sha256: '2'.repeat(64) },
-      ...(foreignPath ? {
-        foreign: { relativePath: foreignPath, sha256: '3'.repeat(64) },
-      } : {}),
+      full: { relativePath: 'spec/AGENTS.md', sha256: deployedSha('spec/AGENTS.md') },
+      'omx-compatible': {
+        relativePath: 'spec/AGENTS-omx.md',
+        sha256: deployedSha('spec/AGENTS-omx.md'),
+      },
+      extended: {
+        relativePath: 'spec/AGENTS-extended.md',
+        sha256: deployedSha('spec/AGENTS-extended.md'),
+      },
       layoutSchemaVersion: 1,
-      layoutSha256: '4'.repeat(64),
+      layoutSha256: deployedSha('spec/source/layout.json'),
     },
+    ...(foreignPath ? {
+      futureOwnedArtifactHints: [{ path: foreignPath, purpose: 'must-not-delete' }],
+    } : {}),
   };
 }
 
@@ -117,10 +132,23 @@ withSandbox('v1-read', (home) => {
 
   t('PV2-M08: the previous v1 reader tolerates additive v2 metadata', () => {
     const additive = additiveV2Envelope(manifest);
-    assert.strictEqual(arbitration.validateInstallManifest(additive), null);
+    assert.strictEqual(arbitration.validateInstallManifestV1(additive), null);
     const brokenOwnership = structuredClone(additive);
     brokenOwnership.ownedArtifacts.deploy.sha256 = 'not-a-digest';
-    assert.match(arbitration.validateInstallManifest(brokenOwnership), /SHA-256/);
+    assert.match(arbitration.validateInstallManifestV1(brokenOwnership), /SHA-256/);
+  });
+
+  t('PV2-M02/M04/M07: the current reader strictly separates valid, damaged, and future v2 schemas', () => {
+    const valid = additiveV2Envelope(manifest);
+    assert.strictEqual(arbitration.validateInstallManifest(valid), null);
+
+    const missingProfile = structuredClone(valid);
+    delete missingProfile.bundleProfiles.extended;
+    assert.match(arbitration.validateInstallManifest(missingProfile), /bundleProfiles\.extended/);
+
+    const future = structuredClone(valid);
+    future.manifestSchemaVersion = 3;
+    assert.match(arbitration.validateInstallManifest(future), /unsupported manifest schema version 3/);
   });
 });
 
@@ -140,6 +168,72 @@ withSandbox('v1-update', (home) => {
     assert.ok(fs.existsSync(path.join(home, 'agentsmd', 'spec', 'AGENTS.md')));
     assert.ok(fs.existsSync(path.join(home, 'agentsmd', 'spec', 'AGENTS-omx.md')));
     assert.ok(fs.existsSync(path.join(home, 'agentsmd', 'spec', 'AGENTS-extended.md')));
+  });
+});
+
+withSandbox('v2-full-read', (home) => {
+  const { install } = loadLifecycle();
+  install('2026-07-27T10:15:00.000Z');
+  writeManifest(home, additiveV2Envelope(readManifest(home)));
+
+  clearLifecycleModules();
+  const arbitration = require('../lib/surface-arbitration');
+  const status = require('../status').status();
+  const inspected = arbitration.inspectStandaloneSurface();
+
+  t('dual reader accepts a valid metadata-only v2 full profile without changing active bytes', () => {
+    assert.strictEqual(inspected.healthy, true, JSON.stringify(inspected.reasons));
+    assert.strictEqual(inspected.manifestSchemaVersion, 2);
+    assert.deepStrictEqual(inspected.profile, {
+      selectionMode: 'legacy-full',
+      materialized: 'full',
+      reason: 'v1-upgrade-preservation',
+    });
+    assert.strictEqual(status.manifestSchemaVersion, 2);
+    assert.strictEqual(status.surfaceProtocolVersion, 2);
+    assert.strictEqual(status.configuredProfile, 'full');
+    assert.strictEqual(status.profileSelectionMode, 'legacy-full');
+  });
+
+  const mismatched = readManifest(home);
+  mismatched.bundleProfiles.extended.sha256 = 'f'.repeat(64);
+  writeManifest(home, mismatched);
+  clearLifecycleModules();
+  const damaged = require('../lib/surface-arbitration').inspectStandaloneSurface();
+
+  t('PV2-M04: dual reader fails structural health when a declared fallback artifact hash lies', () => {
+    assert.strictEqual(damaged.healthy, false);
+    assert(damaged.reasons.some((reason) => /bundle profile hash differs.*extended/.test(reason)),
+      JSON.stringify(damaged.reasons));
+  });
+});
+
+withSandbox('v2-omx-read', (home) => {
+  const { install } = loadLifecycle();
+  install('2026-07-27T10:17:00.000Z');
+  const manifest = additiveV2Envelope(readManifest(home));
+  manifest.profile = {
+    selectionMode: 'omx-compatible',
+    materialized: 'omx-compatible',
+    reason: 'active-global-marker',
+    coreRelativePath: 'spec/AGENTS-omx.md',
+    coreSha256: manifest.bundleProfiles['omx-compatible'].sha256,
+    capabilityContractVersion: 1,
+  };
+  const AM = require('../lib/agents-md');
+  const globalPath = path.join(home, 'AGENTS.md');
+  const global = fs.readFileSync(globalPath, 'utf8');
+  const omxCore = fs.readFileSync(path.join(home, 'agentsmd', 'spec', 'AGENTS-omx.md'), 'utf8');
+  fs.writeFileSync(globalPath, AM.injectSpecBlock(global, omxCore).content);
+  writeManifest(home, manifest);
+
+  clearLifecycleModules();
+  const inspected = require('../lib/surface-arbitration').inspectStandaloneSurface();
+
+  t('dual reader validates a materialized OMX-compatible standalone profile', () => {
+    assert.strictEqual(inspected.healthy, true, JSON.stringify(inspected.reasons));
+    assert.strictEqual(inspected.profile.materialized, 'omx-compatible');
+    assert.strictEqual(inspected.activeSpec.contentMatchesDeployed, true);
   });
 });
 
@@ -194,4 +288,3 @@ t('protocol-v1 arbitration exposes only the existing plugin-to-standalone yield 
 
 console.log(`\nprotocol-v2 characterization: ${PASS} passed, ${FAIL} failed`);
 if (FAIL) process.exit(1);
-

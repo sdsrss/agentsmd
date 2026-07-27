@@ -1,6 +1,6 @@
 # Protocol v2 compatibility and no-regression matrix
 
-Status: **characterization gate in progress; v2 writer not implemented**
+Status: **strict dual-reader gate implemented; v2 writer not implemented**
 
 Design: [`../PROTOCOL-V2.md`](../PROTOCOL-V2.md)
 
@@ -32,6 +32,12 @@ The initial characterization file,
 `scripts/tests/protocol-v2.test.js`, now locks PV2-M01, PV2-M08, PV2-L10,
 PV2-L11, complete profile-bundle presence, and the protocol-v1 directional-yield
 baseline before any v2 writer behavior is introduced.
+
+The dual-reader checkpoint additionally covers a valid metadata-only v2 full
+profile, a valid materialized OMX-compatible profile, strict missing-profile
+and future-schema rejection, declared fallback-artifact hash verification, and
+the additive status fields. The production writer still emits schema 1 and
+protocol 1.
 
 ## 2. Preservation gates
 

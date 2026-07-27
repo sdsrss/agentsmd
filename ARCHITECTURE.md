@@ -173,7 +173,7 @@ agentsmd/
 | **3** | L2 脚本（install/status/audit/doctor/rules）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | ✅ 已完成 |
 | **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | ✅ 已完成 |
 | **5** | 标准 Codex plugin + marketplace + GitHub Actions CI（Node 18/20/22/24 全套测试 + shellcheck）+ drift gates | 部署时 | ✅ 已完成 |
-| **6** | Surface Protocol v2：manifest/profile capability、双向 yield、混合版本迁移与 lifecycle 兼容设计 | 否（设计阶段） | 🟡 设计已冻结；运行时实现未开始 |
+| **6** | Surface Protocol v2：manifest/profile capability、双向 yield、混合版本迁移与 lifecycle 兼容设计 | 否（当前 checkpoint） | 🟡 设计与 strict v1/v2 dual reader 已完成；writer 仍为 v1 |
 
 每个 hook 移植遵循 `spec/AGENTS.md §6` 证据规则：先对 temp fixture 灌样例 stdin 冒烟（§8.V3 destructive-smoke），再接 live。
 
