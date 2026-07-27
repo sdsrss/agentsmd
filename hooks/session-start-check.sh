@@ -39,6 +39,32 @@ semver_gt() {
   (( 10#$a3 > 10#$b3 ))
 }
 
+# Print one of present|absent|unknown for OMX guidance in the global file Codex
+# actually activates. AGENTS.override.md precedence is resolved by the caller.
+# A binary, npm package, .omx directory, or inactive AGENTS.md is not enough:
+# this optimization is safe only when OMX guidance is already in the instruction
+# chain. Unknown fails safe to the complete agentsmd core.
+detect_active_omx() {
+  local file="$1" rc
+  if [[ ! -e "$file" && ! -L "$file" ]]; then
+    printf 'absent'
+    return 0
+  fi
+  if [[ ! -f "$file" || ! -r "$file" ]]; then
+    printf 'unknown'
+    return 0
+  fi
+  grep -Fq '<!-- omx:generated:agents-md -->' "$file" 2>/dev/null
+  rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    printf 'present'
+  elif [[ "$rc" -eq 1 ]]; then
+    printf 'absent'
+  else
+    printf 'unknown'
+  fi
+}
+
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
 # R1-03 degraded-mode persistent warning: without jq every enforcement hook
@@ -46,13 +72,16 @@ hook_kill_switch "SESSION_START" || exit 0
 # jq itself is unavailable on this path — the payload is a static literal, so
 # hand-rolled JSON is safe (mirrors the rule-hits jq-less telemetry fallback).
 hook_require_jq || {
+  JQ_INSTALL="$(hook_tool_install_command jq)"
   hook_record_failopen "$HOOK" "jq-missing"
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[agentsmd] enforcement:false — jq is missing on PATH, so every agentsmd enforcement hook FAILS OPEN (no §8 blocks). Install jq, then run: agentsmd doctor"}}\n'
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[agentsmd] enforcement:false — jq is missing on PATH, so every agentsmd enforcement hook FAILS OPEN (no §8 blocks). Manual install command: %s. Restart Codex after installation, then run the agentsmd-doctor skill."}}\n' "$JQ_INSTALL"
   exit 0
 }
 
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
+EVENT_CWD="$(hook_json_field "$EVENT" '.cwd')"
+TOOL_CONTEXT="$(hook_missing_tool_context "$EVENT_CWD")"
 
 # Plugin-only skips the dual-surface fast-path above. SessionStart still computes
 # one structural arbitration record so the banner names the candidate and reason.
@@ -87,11 +116,13 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>
 # resumable, and Stop is only a turn checkpoint. Do not blanket-GC other-session
 # state. The cross-session views below consume only non-self flag/summary files
 # older than seven days; fresh and self state remains untouched.
-# Drop advisories queued by a PREVIOUS session's Stop hooks — but ONLY on a fresh
-# start, never on `resume` (a resumed session continues, so a queued advisory from
-# its last turn must survive to be surfaced at the next UserPromptSubmit).
+# Drop advisories and remote-download provenance only on a truly fresh startup.
+# `resume`, `clear`, and `compact` all continue the same session: clearing state
+# there would lose queued notices and let a previously downloaded unknown script
+# escape the cross-tool §8 correlation gate. A missing source keeps the legacy
+# fresh-start behavior used by older/synthetic harnesses.
 SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
-if [[ "$SS_SOURCE" != "resume" ]]; then
+if [[ -z "$SS_SOURCE" || "$SS_SOURCE" == "startup" ]]; then
   rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
   rm -f "$(hook_advisory_file "$SID")" 2>/dev/null || true
   rm -rf "$STATE_DIR/pending-advisories.d" 2>/dev/null || true
@@ -153,14 +184,33 @@ FORCE_PLUGIN_SPEC=false
 [[ "$FORCE_PLUGIN_SPEC" == "true" ]] && SPEC_ACTIVE=false
 if [[ ( "$SPEC_ACTIVE" != "true" || "$FORCE_PLUGIN_SPEC" == "true" ) && -n "${PLUGIN_ROOT:-}" ]]; then
   PLUGIN_BASE="$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd -P)"
-  PLUGIN_CORE="$PLUGIN_BASE/spec/AGENTS.md"
+  PLUGIN_FULL_CORE="$PLUGIN_BASE/spec/AGENTS.md"
+  PLUGIN_OMX_CORE="$PLUGIN_BASE/spec/AGENTS-omx.md"
   PLUGIN_EXTENDED="$PLUGIN_BASE/spec/AGENTS-extended.md"
+  PLUGIN_CORE="$PLUGIN_FULL_CORE"
+  SPEC_PROFILE="full"
+  OMX_STATE="$(detect_active_omx "$ACTIVE_GLOBAL_SPEC")"
+  if [[ "$OMX_STATE" == "present" ]]; then
+    FULL_VERSION="$(extract_spec_version "$PLUGIN_FULL_CORE")"
+    OMX_VERSION="$(extract_spec_version "$PLUGIN_OMX_CORE")"
+    if [[ -r "$PLUGIN_OMX_CORE" && -n "$FULL_VERSION" && "$OMX_VERSION" == "$FULL_VERSION" ]]; then
+      PLUGIN_CORE="$PLUGIN_OMX_CORE"
+      SPEC_PROFILE="omx-compatible"
+      PROFILE_REASON="active-global-marker"
+    else
+      PROFILE_REASON="omx-profile-unavailable"
+    fi
+  elif [[ "$OMX_STATE" == "unknown" ]]; then
+    PROFILE_REASON="detection-failed"
+  else
+    PROFILE_REASON="no-active-global-marker"
+  fi
   if [[ -n "$PLUGIN_BASE" && -r "$PLUGIN_CORE" && -r "$PLUGIN_EXTENDED" ]]; then
     v="$(extract_spec_version "$PLUGIN_CORE")"
     if [[ -n "$v" ]]; then
       VER="$v"
       SPEC_ACTIVE=true
-      SPEC_CONTEXT=$'\n'"[agentsmd plugin] The packaged core spec follows. Extended spec: ${PLUGIN_EXTENDED} — read it on the core triggers."$'\n'"$(cat "$PLUGIN_CORE" 2>/dev/null)"
+      SPEC_CONTEXT=$'\n'"[agentsmd plugin] profile=${SPEC_PROFILE}; omx=${OMX_STATE}; reason=${PROFILE_REASON}. The packaged core spec follows. Extended spec: ${PLUGIN_EXTENDED} — read it on the core triggers."$'\n'"$(cat "$PLUGIN_CORE" 2>/dev/null)"
     fi
   fi
 fi
@@ -237,4 +287,4 @@ elif [[ "$SPEC_FOUND" == "true" ]]; then
 else
   BANNER="[agentsmd] Native hooks are active, but no CODEX-CODING-SPEC core was found; SPINE/Iron-Law policy is not loaded. Reinstall the plugin or run the standalone installer."
 fi
-hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}" "SessionStart"
+hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}${TOOL_CONTEXT}" "SessionStart"

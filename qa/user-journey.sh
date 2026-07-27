@@ -177,7 +177,7 @@ expect_status 0 'performance baseline one run' node "$CLI" perf-baseline --runs=
 expect_status 2 'performance baseline rejects zero runs' node "$CLI" perf-baseline --runs=0
 
 printf '== packaging ==\n'
-expect_status 0 'npm package dry-run includes CLI' sh -c 'cd "$1" && npm pack --dry-run --json | jq -e ".[0].files | any(.path == \"bin/agentsmd.js\")" >/dev/null' sh "$REPO"
+expect_status 0 'npm package dry-run includes CLI' sh -c 'cd "$1" && npm pack --dry-run --json | jq -e "(if type == \"array\" then . else [.[]] end) | length == 1 and (.[0].files | any(.path == \"bin/agentsmd.js\"))" >/dev/null' sh "$REPO"
 
 printf '\nRESULT: %s passed, %s failed\n' "$PASSED" "$FAILED"
 test "$FAILED" -eq 0

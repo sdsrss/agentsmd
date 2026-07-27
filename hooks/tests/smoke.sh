@@ -287,6 +287,41 @@ echo "== session-start-check.sh =="
 OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
 [ -f "$CODEX_HOME/.agentsmd-state/session-start-smoke1.ref" ] && ok "session start refreshes per-session sandbox-disposal ref (I3)" || bad "session start refreshes per-session sandbox-disposal ref (I3)" "(no ref file)"
+
+# Installation cannot execute arbitrary post-install code on the Codex
+# marketplace surface. The first trusted SessionStart is therefore the
+# deterministic prompt point for project-declared developer tools.
+TOOLS_PROJECT="$SANDBOX/project-needing-shellcheck"
+TOOLS_PLAIN_PROJECT="$SANDBOX/project-without-shellcheck"
+mkdir -p "$TOOLS_PROJECT" "$TOOLS_PLAIN_PROJECT"
+printf '%s\n' '{"scripts":{"lint:shell":"shellcheck hooks/*.sh"}}' > "$TOOLS_PROJECT/package.json"
+printf '%s\n' '{"scripts":{"test":"node test.js"}}' > "$TOOLS_PLAIN_PROJECT/package.json"
+TOOLS_EVENT="$(jq -cn --arg cwd "$TOOLS_PROJECT" '{session_id:"tools-missing",hook_event_name:"SessionStart",cwd:$cwd}')"
+OUT="$(printf '%s' "$TOOLS_EVENT" | AGENTSMD_SHELLCHECK_BIN="$SANDBOX/missing-shellcheck" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+TOOLS_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$TOOLS_CTX" == *'Development tool missing: ShellCheck'* ]] \
+    && [[ "$TOOLS_CTX" == *'not required for plugin runtime'* ]] \
+    && [[ "$TOOLS_CTX" == *'Manual install command:'* ]] \
+    && [[ "$TOOLS_CTX" == *"npm --prefix $TOOLS_PROJECT run lint:shell"* ]]; } \
+  && ok "project-declared missing ShellCheck → SessionStart gives a manual install command" \
+  || bad "missing ShellCheck → actionable SessionStart guidance" "$TOOLS_CTX"
+
+FAKE_SHELLCHECK="$SANDBOX/fake-shellcheck"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "ShellCheck - version: fixture\n"' > "$FAKE_SHELLCHECK"
+chmod +x "$FAKE_SHELLCHECK"
+OUT="$(printf '%s' "$TOOLS_EVENT" | AGENTSMD_SHELLCHECK_BIN="$FAKE_SHELLCHECK" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+TOOLS_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$TOOLS_CTX" != *'Development tool missing: ShellCheck'* ]] \
+  && ok "available ShellCheck → SessionStart tool guidance is silent" \
+  || bad "available ShellCheck must not nag" "$TOOLS_CTX"
+
+TOOLS_EVENT="$(jq -cn --arg cwd "$TOOLS_PLAIN_PROJECT" '{session_id:"tools-plain",hook_event_name:"SessionStart",cwd:$cwd}')"
+OUT="$(printf '%s' "$TOOLS_EVENT" | AGENTSMD_SHELLCHECK_BIN="$SANDBOX/missing-shellcheck" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+TOOLS_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$TOOLS_CTX" != *'Development tool missing: ShellCheck'* ]] \
+  && ok "project without ShellCheck lint → no developer-tool prompt" \
+  || bad "ordinary project must not receive ShellCheck prompt" "$TOOLS_CTX"
+
 # Stale-deploy banner: package upgraded, `agentsmd update` never run. Offline by
 # construction — two local reads, so these cases need no network and no fixture
 # beyond a manifest plus a package.json.
@@ -330,6 +365,80 @@ PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"
     && [[ "$PLUGIN_CTX" == *"$PLUGIN_EXT_REAL"* ]]; } \
   && ok "plugin-only session injects core spec + resolvable extended path" \
   || bad "plugin-only session injects core spec + extended path" "$PLUGIN_CTX"
+
+# SessionStart is also Codex's context-rehydration boundary after /clear and
+# compaction. On every source, choose the spec profile from the CURRENT active
+# global AGENTS file: an OMX marker selects the compatibility overlay; no marker
+# keeps the complete standalone core. This is deliberately runtime detection,
+# not an install-time decision.
+PROFILE_FULL_HOME="$SANDBOX/profile-full-home"
+PROFILE_OMX_HOME="$SANDBOX/profile-omx-home"
+mkdir -p "$PROFILE_FULL_HOME" "$PROFILE_OMX_HOME"
+printf '%s\n' '<!-- omx:generated:agents-md -->' '# oh-my-codex fixture' > "$PROFILE_OMX_HOME/AGENTS.md"
+for SS_PROFILE_SOURCE in startup resume clear compact; do
+  OUT="$(jq -cn --arg source "$SS_PROFILE_SOURCE" \
+      '{session_id:("profile-full-"+$source),hook_event_name:"SessionStart",source:$source}' \
+    | CODEX_HOME="$PROFILE_FULL_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+  PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+  { [[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // empty' 2>/dev/null)" == "SessionStart" ]] \
+      && [[ "$PROFILE_CTX" == *'selected=plugin'* ]] \
+      && [[ "$PROFILE_CTX" == *'profile=full'* ]] \
+      && [[ "$PROFILE_CTX" == *'omx=absent'* ]] \
+      && [[ "$PROFILE_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]] \
+      && [[ "$PROFILE_CTX" != *'OMX compatibility overlay'* ]]; } \
+    && ok "SessionStart($SS_PROFILE_SOURCE), OMX absent → full core re-injected" \
+    || bad "SessionStart($SS_PROFILE_SOURCE), OMX absent → full profile" "$PROFILE_CTX"
+
+  OUT="$(jq -cn --arg source "$SS_PROFILE_SOURCE" \
+      '{session_id:("profile-omx-"+$source),hook_event_name:"SessionStart",source:$source}' \
+    | CODEX_HOME="$PROFILE_OMX_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+  PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+  { [[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // empty' 2>/dev/null)" == "SessionStart" ]] \
+      && [[ "$PROFILE_CTX" == *'selected=plugin'* ]] \
+      && [[ "$PROFILE_CTX" == *'profile=omx-compatible'* ]] \
+      && [[ "$PROFILE_CTX" == *'omx=present'* ]] \
+      && [[ "$PROFILE_CTX" == *'OMX compatibility overlay'* ]] \
+      && [[ "$PROFILE_CTX" != *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+    && ok "SessionStart($SS_PROFILE_SOURCE), active OMX → compatibility core re-injected" \
+    || bad "SessionStart($SS_PROFILE_SOURCE), active OMX → compatibility profile" "$PROFILE_CTX"
+done
+
+# Codex gives AGENTS.override.md precedence over AGENTS.md. The detector must use
+# that same active-file rule, otherwise a masked OMX install would lose the full
+# agentsmd contract.
+PROFILE_OVERRIDE_HOME="$SANDBOX/profile-override-home"
+mkdir -p "$PROFILE_OVERRIDE_HOME"
+printf '%s\n' '<!-- omx:generated:agents-md -->' > "$PROFILE_OVERRIDE_HOME/AGENTS.md"
+printf '%s\n' '# user override without OMX' > "$PROFILE_OVERRIDE_HOME/AGENTS.override.md"
+OUT="$(printf '%s' '{"session_id":"profile-override-full","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$PROFILE_OVERRIDE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$PROFILE_CTX" == *'profile=full'* && "$PROFILE_CTX" == *'omx=absent'* ]] \
+  && ok "non-OMX AGENTS.override.md masks an OMX AGENTS.md → full core" \
+  || bad "active override without OMX must select full profile" "$PROFILE_CTX"
+printf '%s\n' '<!-- omx:generated:agents-md -->' '# OMX override fixture' > "$PROFILE_OVERRIDE_HOME/AGENTS.override.md"
+OUT="$(printf '%s' '{"session_id":"profile-override-omx","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$PROFILE_OVERRIDE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+[[ "$PROFILE_CTX" == *'profile=omx-compatible'* && "$PROFILE_CTX" == *'omx=present'* ]] \
+  && ok "OMX AGENTS.override.md is the active global guidance → compatibility core" \
+  || bad "active OMX override must select compatibility profile" "$PROFILE_CTX"
+
+# Unknown detection state and a damaged compatibility artifact both fail safe
+# toward the complete core. A self-referential symlink is deterministic even
+# under root, unlike chmod-based unreadability fixtures.
+PROFILE_UNKNOWN_HOME="$SANDBOX/profile-unknown-home"
+mkdir -p "$PROFILE_UNKNOWN_HOME"
+ln -s AGENTS.md "$PROFILE_UNKNOWN_HOME/AGENTS.md"
+OUT="$(printf '%s' '{"session_id":"profile-unknown","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$PROFILE_UNKNOWN_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$PROFILE_CTX" == *'profile=full'* ]] && [[ "$PROFILE_CTX" == *'omx=unknown'* ]] \
+    && [[ "$PROFILE_CTX" == *'reason=detection-failed'* ]] \
+    && [[ "$PROFILE_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+  && ok "unreadable active global guidance → full-core fallback" \
+  || bad "unknown OMX detection must fail safe to full core" "$PROFILE_CTX"
+
 BROKEN_DUAL_HOME="$SANDBOX/broken-dual-home"
 mkdir -p "$BROKEN_DUAL_HOME/.agentsmd-state" "$BROKEN_DUAL_HOME/agentsmd/hooks"
 printf '%s\n' '{"name":"agentsmd","version":"4.0.1","ownedArtifacts":{"deploy":{"path":"fixture","sha256":"fixture"}}}' > "$BROKEN_DUAL_HOME/.agentsmd-state/manifest.json"
@@ -345,6 +454,7 @@ FALLBACK_PLUGIN="$SANDBOX/plugin-without-inspector"
 mkdir -p "$FALLBACK_PLUGIN/.codex-plugin" "$FALLBACK_PLUGIN/spec" "$FALLBACK_PLUGIN/hooks/lib"
 cp "$PLUGIN_FIXTURE/.codex-plugin/plugin.json" "$FALLBACK_PLUGIN/.codex-plugin/plugin.json"
 cp "$PLUGIN_FIXTURE/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS.md"
+cp "$PLUGIN_FIXTURE/spec/AGENTS-omx.md" "$FALLBACK_PLUGIN/spec/AGENTS-omx.md"
 cp "$PLUGIN_FIXTURE/spec/AGENTS-extended.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"
 cp "$PLUGIN_FIXTURE/hooks/session-start-check.sh" "$FALLBACK_PLUGIN/hooks/session-start-check.sh"
 cp "$PLUGIN_FIXTURE/hooks/lib/"* "$FALLBACK_PLUGIN/hooks/lib/"
@@ -354,9 +464,22 @@ FALLBACK_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContex
     && [[ "$FALLBACK_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
   && ok "unavailable arbitration fails open toward the executing plugin spec" \
   || bad "unavailable arbitration → plugin spec remains visible" "$FALLBACK_CTX"
+
+DAMAGED_OMX_PLUGIN="$SANDBOX/plugin-damaged-omx-profile"
+cp -R "$FALLBACK_PLUGIN" "$DAMAGED_OMX_PLUGIN"
+rm -f "$DAMAGED_OMX_PLUGIN/spec/AGENTS-omx.md"
+OUT="$(printf '%s' '{"session_id":"omx-profile-missing","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$PROFILE_OMX_HOME" CLAUDE_PLUGIN_ROOT="$DAMAGED_OMX_PLUGIN" bash "$DAMAGED_OMX_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
+DAMAGED_OMX_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ [[ "$DAMAGED_OMX_CTX" == *'profile=full'* ]] && [[ "$DAMAGED_OMX_CTX" == *'omx=present'* ]] \
+    && [[ "$DAMAGED_OMX_CTX" == *'reason=omx-profile-unavailable'* ]] \
+    && [[ "$DAMAGED_OMX_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+  && ok "missing OMX compatibility artifact → complete-core fallback" \
+  || bad "damaged OMX profile must fail safe to full core" "$DAMAGED_OMX_CTX"
+
 SEMVER_FIXTURE_VERSION='4.2.3-rc.1+build.7'
 node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],j=JSON.parse(fs.readFileSync(p));j.version=v;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$FALLBACK_PLUGIN/.codex-plugin/plugin.json" "$SEMVER_FIXTURE_VERSION"
-for SPEC_FILE in "$FALLBACK_PLUGIN/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"; do
+for SPEC_FILE in "$FALLBACK_PLUGIN/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS-omx.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"; do
   node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(/CODEX-CODING-SPEC v\S+/,`CODEX-CODING-SPEC v${v}`))' "$SPEC_FILE" "$SEMVER_FIXTURE_VERSION"
 done
 OUT="$(printf '%s' '{"session_id":"semver-fallback","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$FALLBACK_PLUGIN" bash "$FALLBACK_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
@@ -983,14 +1106,38 @@ CAP_CTX="$(adv_ctx "$OUT")"
   && ok "queue capped at 20: oldest-by-arrival pruned, newest retained" \
   || bad "cap prunes oldest" "n=$CAP_N ctx=[$CAP_CTX]"
 
-echo "== session-start clears queue on startup, PRESERVES on resume =="
+echo "== session-start clears state on startup, preserves continuity on resume/clear/compact =="
 printf 'stale advisory\n' > "$PENDING"; q_adv "stale per-file advisory" "smoke1"
+REMOTE_CONTINUITY_STATE="$CODEX_HOME/.agentsmd-state/remote-downloads-smoke1.paths"
+printf '%s\n' "$SANDBOX/stale-remote-payload.sh" > "$REMOTE_CONTINUITY_STATE"
 run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"startup"}' >/dev/null 2>&1
-{ [[ ! -f "$PENDING" ]] && [[ ! -d "$PENDING_DIR" ]]; } && ok "SessionStart(startup) drops stale queue (file + per-message dir)" || bad "SessionStart(startup) drops stale queue" "(still exists)"
+{ [[ ! -f "$PENDING" ]] && [[ ! -d "$PENDING_DIR" ]] && [[ ! -f "$REMOTE_CONTINUITY_STATE" ]]; } \
+  && ok "SessionStart(startup) drops stale queue and remote-download provenance" \
+  || bad "SessionStart(startup) drops stale state" "(state still exists)"
 printf 'in-session advisory\n' > "$PENDING"; q_adv "in-session per-file advisory" "smoke1"
 run_hook session-start-check.sh '{"session_id":"smoke1","hook_event_name":"SessionStart","source":"resume"}' >/dev/null 2>&1
 { [[ -f "$PENDING" ]] && [[ "$(dir_msg_count "$PENDING_DIR")" -ge 1 ]]; } && ok "SessionStart(resume) PRESERVES queue (I5 empirical fix)" || bad "SessionStart(resume) preserves queue" "(cleared)"
 clear_pending
+
+REMOTE_CONTINUITY_PAYLOAD="$SANDBOX/remote-continuity-payload.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "fixture\n"' > "$REMOTE_CONTINUITY_PAYLOAD"
+for CONTINUITY_SOURCE in clear compact; do
+  printf 'in-session advisory\n' > "$PENDING"
+  q_adv "in-session per-file advisory" "smoke1"
+  printf '%s\n' "$REMOTE_CONTINUITY_PAYLOAD" > "$REMOTE_CONTINUITY_STATE"
+  run_hook session-start-check.sh \
+    "{\"session_id\":\"smoke1\",\"hook_event_name\":\"SessionStart\",\"source\":\"$CONTINUITY_SOURCE\"}" >/dev/null 2>&1
+  { [[ -f "$PENDING" ]] && [[ "$(dir_msg_count "$PENDING_DIR")" -ge 1 ]] \
+      && grep -Fxq "$REMOTE_CONTINUITY_PAYLOAD" "$REMOTE_CONTINUITY_STATE"; } \
+    && ok "SessionStart($CONTINUITY_SOURCE) preserves advisory + remote-download continuity" \
+    || bad "SessionStart($CONTINUITY_SOURCE) must preserve continuity state" "(state missing)"
+  OUT="$(run_hook pre-bash-safety-check.sh "$(j "bash '$REMOTE_CONTINUITY_PAYLOAD'")")"
+  is_block "$OUT" \
+    && ok "SessionStart($CONTINUITY_SOURCE) keeps cross-tool remote execution blocked" \
+    || bad "SessionStart($CONTINUITY_SOURCE) lost remote-download provenance" "$OUT"
+  clear_pending
+done
+
 # per-session baseline isolation: two sessions keep SEPARATE session-start refs, so
 # one session's SessionStart can't reset another's residue/disposal baseline.
 run_hook session-start-check.sh '{"session_id":"sessAAAAA","hook_event_name":"SessionStart","source":"startup"}' >/dev/null 2>&1
@@ -1370,8 +1517,8 @@ fi
 # warning (hand-rolled static JSON — the jq-less path), instead of exiting silent.
 for c in dirname grep sed; do ln -sf "$(command -v "$c")" "$NOJQ/bin/$c"; done
 OUT="$(PATH="$NOJQ/bin" CODEX_HOME="$NOJQ/home" bash hooks/session-start-check.sh </dev/null 2>/dev/null)"
-if printf '%s' "$OUT" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); const c=d.hookSpecificOutput; if (c.hookEventName!=="SessionStart"||!/enforcement:false/.test(c.additionalContext)||!/jq/.test(c.additionalContext)) process.exit(1);' 2>/dev/null; then
-  ok "jq missing → SessionStart emits per-startup enforcement:false warning (valid JSON)"
+if printf '%s' "$OUT" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); const c=d.hookSpecificOutput; if (c.hookEventName!=="SessionStart"||!/enforcement:false/.test(c.additionalContext)||!/jq/.test(c.additionalContext)||!/Manual install command:/.test(c.additionalContext)) process.exit(1);' 2>/dev/null; then
+  ok "jq missing → SessionStart emits per-startup enforcement:false warning + manual command (valid JSON)"
 else
   bad "jq missing → SessionStart degraded warning" "$OUT"
 fi

@@ -63,6 +63,7 @@ withEnv((codexHome) => {
     assert.deepStrictEqual(result.pluginBundle.hooks.missingScripts, []);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingSupport, []);
     assert.strictEqual(result.pluginBundle.spec.core, true);
+    assert.strictEqual(result.pluginBundle.spec.omxCompatible, true);
     assert.strictEqual(result.pluginBundle.spec.extended, true);
     assert.strictEqual(result.dualSurface, false);
     assert.strictEqual(result.selectedSurface, 'plugin');
@@ -91,6 +92,28 @@ withEnv((codexHome) => {
     assert.strictEqual(dualStatus.surfaceArbitration.selection.reasonCode, 'standalone-unhealthy');
     assert.strictEqual(dualStatus.surfaceArbitration.selection.exclusive, false);
   });
+});
+
+withEnv(() => {
+  const damagedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-missing-omx-core.'));
+  try {
+    copyPluginFixture(damagedRoot);
+    fs.unlinkSync(path.join(damagedRoot, 'spec', 'AGENTS-omx.md'));
+    process.env.AGENTSMD_PLUGIN_ROOT = damagedRoot;
+    const { status, doctor } = loadModules();
+    const bundle = status().pluginBundle;
+    const diagnosis = doctor();
+    t('missing OMX-compatible core makes the plugin bundle unhealthy', () => {
+      assert.strictEqual(bundle.spec.core, true);
+      assert.strictEqual(bundle.spec.omxCompatible, false);
+      assert.strictEqual(bundle.healthy, false);
+      assert(bundle.reasons.some((reason) => /AGENTS-omx\.md/.test(reason)));
+      assert(diagnosis.checks.some((check) => check.name === 'plugin OMX-compatible spec present' && !check.ok));
+      assert.strictEqual(diagnosis.ok, false);
+    });
+  } finally {
+    fs.rmSync(damagedRoot, { recursive: true, force: true });
+  }
 });
 
 withEnv(() => {
@@ -491,6 +514,7 @@ withEnv(() => {
       assert.strictEqual(bundle.hooks.registered, 0);
       assert.strictEqual(bundle.hooks.missingScripts.length, 15);
       assert.strictEqual(bundle.spec.core, false);
+      assert.strictEqual(bundle.spec.omxCompatible, false);
       assert.strictEqual(bundle.spec.extended, false);
       assert.strictEqual(diagnosis.ok, false);
     });
@@ -596,12 +620,16 @@ withEnv(() => {
     for (const key of Object.keys(require.cache)) {
       if (/scripts[\\/](lib[\\/])?(?:uninstall|paths)\.js$/.test(key)) delete require.cache[key];
     }
-    const { uninstall } = require('../uninstall');
+    const { uninstallPluginState } = require('../uninstall');
     const stateDir = path.join(codexHome, '.agentsmd-state');
     fs.mkdirSync(stateDir, { recursive: true });
     fs.mkdirSync(path.join(codexHome, 'logs'), { recursive: true });
     fs.writeFileSync(path.join(stateDir, 'session-start-abc.ref'), '');
     fs.writeFileSync(path.join(stateDir, 'arbitration-cache.json'), '{}');
+    fs.writeFileSync(path.join(stateDir, 'pending-advisories'), 'legacy');
+    fs.writeFileSync(path.join(stateDir, 'remote-downloads-abc.paths'), '/tmp/payload');
+    fs.writeFileSync(path.join(stateDir, 'remote-downloads-crash.paths.tmp'), '/tmp/incomplete');
+    fs.writeFileSync(path.join(stateDir, 'failopen-pre_bash-prereq.ts'), '1');
     fs.mkdirSync(path.join(stateDir, 'pending-advisories-abc.d'), { recursive: true });
     fs.writeFileSync(path.join(stateDir, 'pending-advisories-abc.d', '1'), 'x');
     // Not ours: a foreign file must survive and must keep the dir alive.
@@ -611,10 +639,14 @@ withEnv(() => {
     fs.writeFileSync(telemetry, '{"hook":"session-start"}\n');
     assert.ok(!fs.existsSync(path.join(stateDir, 'manifest.json')), 'fixture must have NO standalone manifest');
 
-    const withForeign = uninstall();
+    const withForeign = uninstallPluginState();
     t('plugin-only uninstall sweeps hook-written state even without a manifest', () => {
       assert.ok(!fs.existsSync(path.join(stateDir, 'session-start-abc.ref')), 'session ref survived');
       assert.ok(!fs.existsSync(path.join(stateDir, 'arbitration-cache.json')), 'arbitration cache survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'pending-advisories')), 'legacy advisory file survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'remote-downloads-abc.paths')), 'remote-download state survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'remote-downloads-crash.paths.tmp')), 'remote-download temp state survived');
+      assert.ok(!fs.existsSync(path.join(stateDir, 'failopen-pre_bash-prereq.ts')), 'fail-open debounce state survived');
       assert.ok(!fs.existsSync(path.join(stateDir, 'pending-advisories-abc.d')), 'advisory queue survived');
     });
     t('a foreign file in the state dir is preserved, and keeps the dir', () => {
@@ -627,7 +659,7 @@ withEnv(() => {
     });
 
     fs.unlinkSync(foreign);
-    const clean = uninstall();
+    const clean = uninstallPluginState();
     t('with only agentsmd state present the dir itself is removed', () => {
       assert.strictEqual(clean.stateDirRemoved, true);
       assert.ok(!fs.existsSync(stateDir), 'state dir survived a clean plugin-only uninstall');
@@ -637,6 +669,51 @@ withEnv(() => {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
 }
+
+// Plugin cleanup must stay narrow even when a complete standalone installation
+// coexists. A malformed shared hooks.json is intentionally irrelevant here:
+// plugin cleanup neither owns nor reads it.
+withEnv((codexHome) => {
+  const { install } = loadModules();
+  install('2026-07-14T00:00:00.000Z');
+  const hooksPath = path.join(codexHome, 'hooks.json');
+  const manifestPath = path.join(codexHome, '.agentsmd-state', 'manifest.json');
+  const deployPath = path.join(codexHome, 'agentsmd');
+  const manifestBefore = fs.readFileSync(manifestPath);
+  fs.writeFileSync(hooksPath, '{ malformed but unrelated to plugin cleanup\n');
+  const hooksBefore = fs.readFileSync(hooksPath);
+  fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'session-start-dual.ref'), '');
+  fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'foreign-dual.txt'), 'keep');
+
+  for (const key of Object.keys(require.cache)) {
+    if (/scripts[\\/](lib[\\/])?(?:uninstall|paths)\.js$/.test(key)) delete require.cache[key];
+  }
+  const { uninstallPluginState } = require('../uninstall');
+  const result = uninstallPluginState();
+
+  t('plugin-state-only cleanup ignores malformed shared hooks and preserves standalone bytes', () => {
+    assert.strictEqual(result.pluginStateOnly, true);
+    assert.strictEqual(result.sharedFilesTouched, false);
+    assert.strictEqual(result.standaloneStatePreserved, true);
+    assert.strictEqual(result.stateCleanupSkipped, 'standalone-manifest-present');
+    assert.deepStrictEqual(fs.readFileSync(hooksPath), hooksBefore);
+    assert.deepStrictEqual(fs.readFileSync(manifestPath), manifestBefore);
+    assert.ok(fs.existsSync(deployPath), 'standalone deploy tree was removed');
+  });
+  t('plugin-state-only cleanup preserves ambiguous shared runtime state beside standalone', () => {
+    assert.ok(fs.existsSync(path.join(codexHome, '.agentsmd-state', 'session-start-dual.ref')));
+    assert.strictEqual(fs.readFileSync(path.join(codexHome, '.agentsmd-state', 'foreign-dual.txt'), 'utf8'), 'keep');
+  });
+
+  fs.writeFileSync(manifestPath, '{ malformed standalone marker\n');
+  fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'unvalidated-dual.flag'), '');
+  const malformedManifest = uninstallPluginState();
+  t('a malformed standalone manifest still fails safe and preserves shared state', () => {
+    assert.strictEqual(malformedManifest.stateCleanupSkipped, 'standalone-manifest-present');
+    assert.ok(fs.existsSync(path.join(codexHome, '.agentsmd-state', 'unvalidated-dual.flag')));
+    assert.strictEqual(fs.readFileSync(manifestPath, 'utf8'), '{ malformed standalone marker\n');
+  });
+});
 
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL === 0 ? 0 : 1);

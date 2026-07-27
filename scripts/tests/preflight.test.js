@@ -28,6 +28,7 @@ const INSTALL = path.join(ROOT, 'scripts', 'install.js');
 const STATUS = path.join(ROOT, 'scripts', 'status.js');
 const DOCTOR = path.join(ROOT, 'scripts', 'doctor.js');
 const PF = require('../lib/preflight');
+const TG = require('../lib/tool-guidance');
 
 // A PATH with node but no jq. node is a symlink to the running binary.
 const noJqBin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-nojq.'));
@@ -75,12 +76,32 @@ t('unit: checkPrerequisites flags jq when PATH lacks it, passes when present', (
   assert.strictEqual(ok.ok, true, JSON.stringify(ok.missing));
 });
 
+t('unit: manual install guidance selects the host package manager', () => {
+  assert.strictEqual(
+    TG.manualInstallCommand('shellcheck', { platform: 'linux', osRelease: 'ID=ubuntu\nID_LIKE=debian\n' }),
+    'sudo apt-get update && sudo apt-get install -y shellcheck'
+  );
+  assert.strictEqual(
+    TG.manualInstallCommand('jq', { platform: 'darwin' }),
+    'brew install jq'
+  );
+  assert.strictEqual(
+    TG.manualInstallCommand('node', { platform: 'linux', osRelease: 'ID=fedora\n' }),
+    'sudo dnf install -y nodejs'
+  );
+  assert.strictEqual(
+    TG.manualInstallCommand('shellcheck', { platform: 'linux', osRelease: 'ID=arch\n' }),
+    'sudo pacman -S --needed shellcheck'
+  );
+});
+
 t('jq missing, no opt-in → install exits 1 with ZERO mutation (tree byte-identical)', () => {
   const before = fingerprint(SANDBOX);
   const r = runChild(INSTALL, [], { PATH: noJqBin });
   assert.strictEqual(r.status, 1, `status=${r.status} stderr=${r.stderr}`);
   assert.ok(/zero-mutation/.test(r.stderr), r.stderr);
   assert.ok(/--degraded/.test(r.stderr), 'refusal must teach the explicit opt-in');
+  assert.ok(/apt-get|dnf|pacman|apk|brew|OS package manager/.test(r.stderr), 'refusal must include a manual install command');
   assert.strictEqual(fingerprint(SANDBOX), before, 'CODEX_HOME changed despite refusal');
   assert.ok(!fs.existsSync(path.join(SANDBOX, '.agentsmd-state')), 'state dir must not appear');
 });

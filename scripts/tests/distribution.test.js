@@ -44,6 +44,42 @@ const withSandbox = (fn) => {
   try { fn(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 };
 
+const singlePackResult = (packOutput) => {
+  const results = Array.isArray(packOutput)
+    ? packOutput
+    : (packOutput && typeof packOutput === 'object' ? Object.values(packOutput) : []);
+  assert.strictEqual(results.length, 1, `expected one npm pack result, got ${results.length}`);
+  return results[0];
+};
+
+const provenanceUrlFromNpmView = require('../lib/release-artifact').provenanceUrlFromNpmView;
+
+t('npm pack JSON accepts legacy arrays and npm 12 package maps only when singular', () => {
+  const result = { filename: 'agentsmd.tgz', files: [] };
+  assert.strictEqual(singlePackResult([result]), result);
+  assert.strictEqual(singlePackResult({ '@sdsrs/agentsmd': result }), result);
+  assert.throws(() => singlePackResult(null), /expected one npm pack result, got 0/);
+  assert.throws(() => singlePackResult({ a: result, b: result }), /expected one npm pack result, got 2/);
+});
+
+t('npm provenance metadata accepts npm 10 objects and npm 12 arrays only when singular', () => {
+  const provenance = {
+    url: 'https://registry.npmjs.org/-/npm/v1/attestations/%40sdsrs%2fagentsmd@4.24.0',
+    provenance: { predicateType: 'https://slsa.dev/provenance/v1' },
+  };
+  assert.strictEqual(provenanceUrlFromNpmView(provenance), provenance.url);
+  assert.strictEqual(provenanceUrlFromNpmView([provenance]), provenance.url);
+  assert.throws(() => provenanceUrlFromNpmView(null), /expected one npm SLSA provenance URL, found 0/);
+  assert.throws(() => provenanceUrlFromNpmView([
+    provenance,
+    { ...provenance, url: provenance.url + '?other=1' },
+  ]), /expected one npm SLSA provenance URL, found 2/);
+  assert.throws(() => provenanceUrlFromNpmView({
+    ...provenance,
+    url: 'https://example.com/attestation',
+  }), /must use https:\/\/registry\.npmjs\.org/);
+});
+
 t('install.sh has valid POSIX shell syntax', () => {
   cp.execFileSync('sh', ['-n', path.join(ROOT, 'install.sh')]);
 });
@@ -241,18 +277,21 @@ t('repo marketplace exposes the root agentsmd plugin with install policy metadat
   assert.strictEqual(marketplace.plugins.length, 1);
 
   const entry = marketplace.plugins[0];
+  const sourceVersions = String(entry.source.version).split(/\s*\|\|\s*/);
   assert.strictEqual(entry.name, 'agentsmd');
   assert.deepStrictEqual(entry.source, {
     source: 'npm',
     package: pkg.name,
-    version: pkg.version,
+    version: entry.source.version,
   });
   assert.deepStrictEqual(entry.policy, { installation: 'AVAILABLE', authentication: 'ON_INSTALL' });
   assert.strictEqual(entry.category, 'Coding');
   assert.strictEqual(plugin.name, entry.name);
   assert.strictEqual(plugin.version, pkg.version);
   assert.strictEqual(entry.source.package, pkg.name);
-  assert.strictEqual(entry.source.version, plugin.version);
+  assert(sourceVersions.length >= 1 && sourceVersions.length <= 2);
+  assert(sourceVersions.every((version) => /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(version)));
+  assert.strictEqual(sourceVersions[sourceVersions.length - 1], plugin.version);
   assert(Array.isArray(plugin.interface.defaultPrompt));
   assert(plugin.interface.defaultPrompt.length > 0);
   assert(plugin.interface.defaultPrompt.every((prompt) => (
@@ -518,15 +557,17 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   // project targets bash-hook platforms); no deps, so the install is offline.
   const packDir = path.join(dir, 'pack');
   fs.mkdirSync(packDir, { recursive: true });
-  const packResult = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
+  const packOutput = JSON.parse(cp.execFileSync('npm', ['pack', '--json', '--pack-destination', packDir], {
     cwd: ROOT,
     env: { ...process.env, npm_config_dry_run: 'false' },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-  }))[0];
+  }));
+  const packResult = singlePackResult(packOutput);
   const tarball = path.join(packDir, packResult.filename);
   assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
   const packedPaths = packResult.files.map((entry) => entry.path);
+  assert(packedPaths.includes('spec/AGENTS-omx.md'), 'tarball is missing the OMX-compatible core');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,
@@ -580,6 +621,22 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     assert.ok(manifest.description.trim(), `${rel} in the npm artifact needs a description`);
   }
 
+  const pluginHome = path.join(dir, 'plugin-home');
+  const pluginState = path.join(pluginHome, '.agentsmd-state');
+  fs.mkdirSync(pluginState, { recursive: true });
+  fs.writeFileSync(path.join(pluginHome, 'hooks.json'), '{ unrelated malformed shared config\n');
+  fs.writeFileSync(path.join(pluginState, 'session-start-package.ref'), '');
+  fs.writeFileSync(path.join(pluginState, 'foreign-package.txt'), 'keep');
+  const pluginCleanup = cp.execFileSync(binLink, ['uninstall', '--plugin-state-only'], {
+    env: { ...process.env, CODEX_HOME: pluginHome },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.match(pluginCleanup, /agentsmd plugin state removed:/);
+  assert(!fs.existsSync(path.join(pluginState, 'session-start-package.ref')));
+  assert.strictEqual(fs.readFileSync(path.join(pluginState, 'foreign-package.txt'), 'utf8'), 'keep');
+  assert.strictEqual(fs.readFileSync(path.join(pluginHome, 'hooks.json'), 'utf8'), '{ unrelated malformed shared config\n');
+
   assert(installedCli(['install']).includes('agentsmd installed:'));
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
@@ -612,6 +669,30 @@ t('README (EN + zh) leads with global install, not the flaky bare npx form', () 
     const md = read(f);
     assert(md.includes('npm install -g @sdsrs/agentsmd'), `${f}: must document the global install`);
     assert(!bareNpx.test(md), `${f}: bare "npx @sdsrs/agentsmd <cmd>" is unreliable — use "npx --package @sdsrs/agentsmd agentsmd <cmd>"`);
+  }
+});
+
+t('README plugin lifecycle resolves the installed version and default Codex home', () => {
+  for (const f of ['README.md', 'README.zh-CN.md']) {
+    const md = read(f);
+    const normalized = md.replace(/\s+/g, ' ');
+    assert(md.includes('codex plugin marketplace add sdsrss/agentsmd --json'),
+      `${f}: must document the GitHub marketplace install`);
+    assert(md.includes('select(.pluginId == "agentsmd@agentsmd")'),
+      `${f}: uninstall must resolve the installed plugin version`);
+    assert(md.includes('${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only'),
+      `${f}: uninstall must work when CODEX_HOME is unset`);
+    assert(!md.includes('$CODEX_HOME/plugins/cache/agentsmd/agentsmd/<version>'),
+      `${f}: uninstall must not require an unset CODEX_HOME or manual version placeholder`);
+    const cleanupIndex = md.indexOf('node "${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only');
+    const pluginRemoveIndex = md.indexOf('codex plugin remove agentsmd --marketplace agentsmd --json');
+    const marketplaceRemoveIndex = md.indexOf('codex plugin marketplace remove agentsmd --json');
+    assert(cleanupIndex >= 0 && cleanupIndex < pluginRemoveIndex && pluginRemoveIndex < marketplaceRemoveIndex,
+      `${f}: packaged cleanup must run before plugin and marketplace removal`);
+    assert(!normalized.includes('removed the plugin, delete those two paths by hand'),
+      `${f}: must not tell users to delete shared state or retained telemetry`);
+    assert(!normalized.includes('手动 删除这两个路径'),
+      `${f}: must not tell users to delete shared state or retained telemetry`);
   }
 });
 

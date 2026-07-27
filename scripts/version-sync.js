@@ -19,15 +19,30 @@ const FILES = [
   '.agents/plugins/marketplace.json',
   'spec/hard-rules.json',
   'spec/AGENTS.md',
+  'spec/AGENTS-omx.md',
   'spec/AGENTS-extended.md',
   'install.sh',
 ];
 
 const RELEASE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const MARKETPLACE_MIN_VERSION = '4.23.0';
+
+function compareStableVersions(left, right) {
+  const a = String(left).split('.').map(BigInt);
+  const b = String(right).split('.').map(BigInt);
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] > b[index]) return 1;
+    if (a[index] < b[index]) return -1;
+  }
+  return 0;
+}
 
 function assertVersion(version) {
   if (!RELEASE_VERSION_RE.test(String(version))) {
     throw new Error(`release version must be a stable X.Y.Z semantic version: ${version}`);
+  }
+  if (compareStableVersions(version, MARKETPLACE_MIN_VERSION) < 0) {
+    throw new Error(`release version must be >= marketplace baseline ${MARKETPLACE_MIN_VERSION}: ${version}`);
   }
 }
 
@@ -50,6 +65,21 @@ function renderFiles(root, version, sourceContent = null) {
   if (!entry || entry.source?.source !== 'npm' || entry.source.package !== pkg.name) {
     throw new Error('marketplace.json: agentsmd must select the published @sdsrs/agentsmd npm package');
   }
+  if (compareStableVersions(version, pkg.version) < 0) {
+    throw new Error(`release version must not move backward from ${pkg.version} to ${version}`);
+  }
+  const marketplaceVersions = String(entry.source.version || '').split(/\s*\|\|\s*/);
+  if (
+    marketplaceVersions.length < 1
+    || marketplaceVersions.length > 2
+    || marketplaceVersions.some((candidate) => !RELEASE_VERSION_RE.test(candidate))
+    || marketplaceVersions[marketplaceVersions.length - 1] !== pkg.version
+  ) {
+    throw new Error('marketplace.json: source.version must end at the current package version and contain at most one exact fallback');
+  }
+  const marketplaceSelector = version === pkg.version
+    ? entry.source.version
+    : `${pkg.version} || ${version}`;
 
   return {
     'package.json': replaceExactlyOne(
@@ -67,7 +97,7 @@ function renderFiles(root, version, sourceContent = null) {
     '.agents/plugins/marketplace.json': replaceExactlyOne(
       content['.agents/plugins/marketplace.json'],
       /("version"\s*:\s*")[^"]+("\s*\n)/,
-      `$1${version}$2`,
+      `$1${marketplaceSelector}$2`,
       'marketplace.json'
     ),
     'spec/hard-rules.json': replaceExactlyOne(
@@ -81,6 +111,12 @@ function renderFiles(root, version, sourceContent = null) {
       /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
       `CODEX-CODING-SPEC v${version}`,
       'spec/AGENTS.md'
+    ),
+    'spec/AGENTS-omx.md': replaceExactlyOne(
+      content['spec/AGENTS-omx.md'],
+      /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
+      `CODEX-CODING-SPEC v${version}`,
+      'spec/AGENTS-omx.md'
     ),
     'spec/AGENTS-extended.md': replaceExactlyOne(
       content['spec/AGENTS-extended.md'],
@@ -161,4 +197,12 @@ if (require.main === module) {
   }
 }
 
-module.exports = { FILES, RELEASE_VERSION_RE, assertVersion, renderFiles, syncVersion };
+module.exports = {
+  FILES,
+  MARKETPLACE_MIN_VERSION,
+  RELEASE_VERSION_RE,
+  assertVersion,
+  compareStableVersions,
+  renderFiles,
+  syncVersion,
+};

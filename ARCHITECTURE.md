@@ -6,7 +6,7 @@ Codex 版编程全局规范**系统**（不只是一份规范文本）的架构�
 
 ## 1. 为什么需要「系统」而不只是「一份 AGENTS.md」
 
-`spec/AGENTS.md` 的 core 覆盖 SPINE、授权、证据、安全和路由等每轮约束；展开流程放在按需加载的 extended。两层内容仍需由 drift、测试和人工复审持续校准。
+`spec/AGENTS.md` 的完整 core 覆盖 SPINE、授权、证据、安全和路由等每轮约束；OMX 全局规范已经生效时，plugin SessionStart 改为注入 `spec/AGENTS-omx.md` 兼容 overlay，省去重复编排内容；展开流程放在按需加载的 extended。三份规范仍需由 drift、测试和人工复审持续校准。
 
 主要风险是 discovery 预算被 core 占用，以及规则存在但没有对应执行或测量机会。三层加载、选择性 hook 和机会/结果遥测分别约束上下文占用、可检测行为和治理证据；零命中本身不证明规则无价值。
 
@@ -45,7 +45,7 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 | 注册 | repository manifests | standalone 使用 `~/.codex/hooks.json` scoped merge/remove | drift 校验两份 wiring |
 | 事件 | manifest keys | supported 5 个；agentsmd registered 4 个 | fixture 不证明外部事件全集 |
 | 条目形状 | JSON wiring | `{"type":"command","command":"...","timeout":N}` | JSON/drift test |
-| matcher | JSON wiring | `Bash`、`*`、`startup\|resume` | JSON/drift test |
+| matcher | JSON wiring | `Bash`、`*`、`startup\|resume\|clear\|compact` | JSON/drift test |
 | stdin | smoke fixture | snake_case `tool_name/tool_input/session_id/...` | synthetic fixture contract |
 | 阻断输出 | smoke assertion | `decision:block` + reason/systemMessage | synthetic fixture contract |
 | 注入 context | smoke assertion | `hookSpecificOutput.additionalContext` | synthetic fixture contract |
@@ -118,7 +118,8 @@ spec/AGENTS*.md 的 (HARD) 规则
 
 | Tier | 文件 | 何时加载 | 内容 |
 |---|---|---|---|
-| 0 always | `spec/AGENTS.md` → 部署到 `~/.codex` discovery 链 | 每轮 | per-turn gates（SPINE/LEVEL/AUTH/VALIDATE/SAFETY） |
+| 0 full | `spec/AGENTS.md` → standalone 部署到 discovery；plugin 在无 active OMX 时注入 | 每轮 / SessionStart rehydration | 完整 per-turn gates（SPINE/LEVEL/AUTH/VALIDATE/SAFETY） |
+| 0 OMX | `spec/AGENTS-omx.md` → plugin 在 active global 有精确 OMX marker 时注入 | startup/resume/clear/compact | 保留 AUTH/Iron Laws/SAFETY/report，复用 OMX 编排 |
 | 1 triggered | `spec/AGENTS-extended.md`（不在 discovery 链，零预算） | L3/ship/Override/three-strike 时 agent 显式 `cat` | 条件规则（Override 模式/L3 flow/ship 清单/证据阶梯） |
 | 2 keyword | `MEMORY.md` + `memory/*.md` | 关键词/路径命中 | 召回式（feedback_/project_/reference_） |
 | operator | `spec/OPERATOR.md`（Phase 4） | 永不自动加载 | 人类维护者的升降级节奏，不占 agent 注意力 |
@@ -133,6 +134,7 @@ Codex discovery 链共享 `project_doc_max_bytes`（默认 32 KiB）且超限静
 agentsmd/
   spec/                      正典（tracked；已脱离被 gitignore 的 docs/）
     AGENTS.md                core（Tier 0）
+    AGENTS-omx.md            OMX compatibility core（plugin Tier 0 variant）
     AGENTS-extended.md       extended（Tier 1）
     AGENTS-CHANGELOG.md      单一 changelog（core+extended 共版本）
     hard-rules.json          ✅ HARD 规则机器可读清单（本 Phase 已建）

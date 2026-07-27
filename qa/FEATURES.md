@@ -50,13 +50,17 @@ external runtime.
 ## F04 — Codex plugin marketplace
 
 - Normal: manifest exposes the root plugin with hooks and skills. Status:
-  BASELINE for static packaging; real browser/runtime BLIND.
+  BASELINE for static packaging; real GitHub marketplace/cache lifecycle covered
+  by the opt-in and post-publish `qa/plugin-marketplace-e2e.sh`.
 - Boundary 1: browser installation is documented when `codex plugin` is absent.
   Status: documentation ROUND9; runtime BLIND.
 - Boundary 2: `name@marketplace` and `--marketplace` forms are documented.
-  Status: ROUND9; runtime BLIND.
+  Status: ROUND9; both CLI forms and repeated add are covered by the real
+  marketplace smoke.
 - Misuse: wrong names, duplicate add, and confusing plugin-only installation with
-  the full standalone footprint yield clear guidance. Status: BLIND.
+  the full standalone footprint yield clear guidance. Status: duplicate add,
+  dual-surface cleanup, and malformed shared config are covered; wrong-name UI
+  paths remain BLIND.
 
 ## F05 — Local install and multi-tenant ownership
 
@@ -227,9 +231,9 @@ external runtime.
 
 ## Known sandbox blind spots
 
-- Real Codex plugin browser/cache behavior across Codex versions cannot be tested
-  without mutating a live Codex installation; only static manifest/drift and
-  isolated package behavior are in scope.
+- The real Codex 0.145.0 CLI/cache lifecycle is covered in an isolated
+  `CODEX_HOME`; the graphical plugin browser and behavior across other Codex
+  versions remain untested locally.
 - Real GitHub/npm publishing, shared-branch CI, production configuration, and
   third-party accounts are prohibited. Their local parsers use fixtures/mocks.
 - Cross-platform CI behavior on Node 18/20/24 and macOS is represented by local

@@ -9,6 +9,7 @@
 // enforcement:false so status/doctor keep warning until a healthy update.
 
 const { spawnSync } = require('child_process');
+const { manualInstallCommand } = require('./tool-guidance');
 
 const REQUIRED_NODE_MAJOR = 18; // package.json engines.node
 
@@ -20,13 +21,13 @@ const CHECKS = [
       return !r.error && r.status === 0;
     },
     why: 'every enforcement hook parses events with jq; without it hooks FAIL OPEN (no §8 blocks)',
-    remedy: 'install jq (apt/dnf/brew install jq)',
+    remedy: `run \`${manualInstallCommand('jq')}\``,
   },
   {
     name: `node>=${REQUIRED_NODE_MAJOR}`,
     probe: () => Number.parseInt(process.versions.node.split('.')[0], 10) >= REQUIRED_NODE_MAJOR,
     why: 'command parsing and surface arbitration run Node scripts',
-    remedy: `upgrade Node to >= ${REQUIRED_NODE_MAJOR}`,
+    remedy: `run \`${manualInstallCommand('node')}\`, then verify \`node --version\` reports >= ${REQUIRED_NODE_MAJOR}`,
   },
 ];
 

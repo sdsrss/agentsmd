@@ -57,7 +57,7 @@ function usage() {
   '  exception <add|list|rm|prune>   Register reviewed §8 false-positive exceptions in this repo\'s .agentsmd/exceptions.json (fingerprint + expiry; no inline bypass tokens).',
     '  install [--json] [--degraded]   Install/update agentsmd into $CODEX_HOME (~/.codex). Idempotent; missing prerequisites (jq, node >= 18) abort with zero mutation unless --degraded explicitly opts into a fail-open install.',
     '  update [--json] [--degraded]    Alias for install — re-run to refresh to this version.',
-    "  uninstall          Remove agentsmd's own entries; every other tenant is preserved.",
+    "  uninstall [--plugin-state-only]   Remove the standalone install, or only plugin-written runtime state.",
     '  restore [--list] [--id=<id>] [--confirm]   Roll the 3 shared files back to a pre-install backup (dry-run without --confirm).',
     '  repair --plan | --confirm=<planDigest>   Inspect or repair missing files in a manifest-owned standalone install.',
     '  status             Print what agentsmd registered, as JSON.',

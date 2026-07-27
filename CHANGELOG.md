@@ -3,6 +3,78 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.24.0 — 2026-07-27 — GitHub plugin installation hardening and OMX-aware rehydration (minor)
+
+### OMX-aware SessionStart rehydration
+
+- SessionStart now subscribes to `startup`, `resume`, `clear`, and `compact`, so
+  plugin-provided guidance is re-injected at every Codex context-rehydration
+  boundary. `clear` and `compact` preserve the current session's advisory queue
+  and remote-download provenance; only a fresh `startup` resets that state.
+- The plugin checks the currently active global guidance on every SessionStart.
+  An exact OMX-generated marker selects the smaller `spec/AGENTS-omx.md`
+  compatibility overlay; absent OMX keeps the complete core, while unreadable,
+  missing, or version-divergent compatibility metadata falls back to the
+  complete core.
+- Plugin health, release artifact inspection, version synchronization, npm
+  packaging, marketplace smoke, and drift gates now require the OMX-compatible
+  core and keep its authorization, Iron Laws, safety, and reporting invariants
+  aligned with the complete core.
+
+### Post-install tool guidance
+
+- Codex marketplace installation has no arbitrary plugin post-install execution
+  point, so the first trusted `SessionStart` now performs the tool check. Missing
+  runtime prerequisites are distinguished from project-only developer tools and
+  include a current-platform manual install command; agentsmd never installs a
+  system package from a hook.
+- Missing `jq` now keeps the existing per-session `enforcement:false` warning but
+  adds a copy/paste install command even on the jq-less path. `doctor` and the
+  standalone zero-mutation preflight use the same platform command mapping and
+  require Node.js 18 or newer, rather than checking only that some `node` exists.
+- ShellCheck remains optional for plugin runtime. SessionStart suggests it only
+  when the active project has `.shellcheckrc` or a package script that invokes
+  `shellcheck`; the prompt says it is project lint tooling, prints the manual
+  install command, and disappears once the binary is available. For this
+  project's lint script, the verification command uses `npm --prefix` with the
+  detected project root so it also works when pasted from another directory.
+
+### GitHub plugin installation hardening
+
+- Added a zero-model, real-Codex consumer smoke for the public GitHub
+  marketplace lifecycle. It covers marketplace registration, both plugin-add
+  forms, repeated installation, marketplace refresh, the npm-backed cache
+  contents, packaged doctor, dual-surface cleanup, malformed shared config,
+  plugin removal, and marketplace removal in a throwaway `CODEX_HOME`.
+- The release workflow now runs that smoke after npm publication with Codex
+  `0.145.0` against the same default-branch GitHub command documented for users,
+  closing the gap where a tag snapshot passed while the live install path failed.
+- The marketplace rolls an exact two-version selector (`PREVIOUS || TARGET`):
+  before a newly committed target reaches npm, Codex keeps installing the
+  previously verified version; after publication it resolves to the target.
+  This removes the release window where `main` pointed at an unavailable npm
+  version without accepting `latest` or any unverified intermediate version.
+- Release reruns now verify pre-existing GitHub assets and npm versions instead
+  of trusting a version collision. Registry and release tarballs must have the
+  same SHA-256; `npm audit signatures` must validate the registry signature and
+  attestation; and the provenance payload must bind the tarball SHA-512 to this
+  repository, workflow, tag, and commit.
+- Packaging tests and the user-journey gate now accept both the npm 10/11 array
+  and npm 12 package-map shapes of `npm pack --json`, while rejecting empty or
+  ambiguous results.
+- Release metadata parsing accepts both npm 10's single-object and npm 12's
+  array-shaped attestation metadata, while requiring exactly one npm-registry
+  SLSA provenance URL.
+- Plugin uninstall instructions now resolve the installed version and the
+  default Codex home automatically and invoke a dedicated
+  `--plugin-state-only` path. It removes only plugin-written runtime state, even
+  with malformed shared `hooks.json`. If a standalone manifest path also exists,
+  it preserves the two surfaces' ambiguously shared runtime state; standalone
+  hooks, config, manifest, skills, and deploy files are never parsed or changed.
+  Recovery after a premature plugin removal reinstalls the packaged uninstaller
+  instead of telling users to recursively delete shared state or retained
+  telemetry.
+
 ## v4.23.0 — 2026-07-26 — the deploy/package drift you could not see, and the plugin state uninstall never removed (minor)
 
 **Migration note** — two user-visible changes, both narrow:
@@ -45,7 +117,9 @@ one documentation defect:
   successful install, so the documented check looks like a failure. Now points at
   the `installed` array and says so.
 - **Uninstall order is now documented** (both READMEs): run the packaged
-  uninstaller *before* `codex plugin remove`, or delete the two paths by hand.
+  uninstaller *before* `codex plugin remove`. If removal happens prematurely,
+  reinstall the plugin to recover that uninstaller; never delete the shared
+  state directory wholesale.
 - Verified, not changed: `hooks` and `plugins` are both **default-enabled**
   feature flags on Codex 0.144.5 (`codex doctor --all`: 35 enabled, 0 overridden,
   in a sandbox with no `[features]` block), so the README's claim that a plugin

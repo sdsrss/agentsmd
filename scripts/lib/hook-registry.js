@@ -16,7 +16,7 @@
 // matcher is null for events wired without one (UserPromptSubmit / Stop).
 
 const HOOK_REGISTRY = [
-  { basename: 'session-start-check.sh',       displayName: 'session-start-check',       envVarSuffix: 'SESSION_START',           hookEvent: 'SessionStart',     matcher: 'startup|resume', timeout: 5 },
+  { basename: 'session-start-check.sh',       displayName: 'session-start-check',       envVarSuffix: 'SESSION_START',           hookEvent: 'SessionStart',     matcher: 'startup|resume|clear|compact', timeout: 5 },
 
   { basename: 'pre-bash-safety-check.sh',     displayName: 'pre-bash-safety-check',     envVarSuffix: 'PRE_BASH_SAFETY',         hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 3 },
   { basename: 'banned-vocab-check.sh',        displayName: 'banned-vocab-check',        envVarSuffix: 'BANNED_VOCAB',            hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 3 },

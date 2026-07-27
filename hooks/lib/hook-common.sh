@@ -39,6 +39,124 @@ hook_kill_switch() {
 # hook_require_jq — 0 if jq on PATH, else 1.
 hook_require_jq() { command -v jq >/dev/null 2>&1; }
 
+# hook_platform_family — package-manager family used for copy/paste install
+# guidance. /etc/os-release is parsed with shell builtins so the jq-missing
+# SessionStart path can still name a concrete remedy.
+hook_platform_family() {
+  local kernel="" id="" id_like="" key="" value="" identity=""
+  kernel="$(uname -s 2>/dev/null || true)"
+  [[ "$kernel" == "Darwin" ]] && { printf 'macos'; return 0; }
+  if [[ -r /etc/os-release ]]; then
+    while IFS='=' read -r key value; do
+      value="${value#\"}"; value="${value%\"}"
+      value="${value#\'}"; value="${value%\'}"
+      case "$key" in
+        ID) id="$value" ;;
+        ID_LIKE) id_like="$value" ;;
+      esac
+    done < /etc/os-release
+  fi
+  identity=" $id $id_like "
+  case "$identity" in
+    *" ubuntu "*|*" debian "*|*" linuxmint "*|*" pop "*) printf 'apt' ;;
+    *" fedora "*|*" rhel "*|*" centos "*|*" rocky "*|*" almalinux "*) printf 'dnf' ;;
+    *" arch "*|*" manjaro "*) printf 'pacman' ;;
+    *" alpine "*) printf 'apk' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# hook_tool_install_command TOOL — current-platform manual install command.
+# Output intentionally contains no quotes/backslashes/newlines, so the jq-less
+# SessionStart fallback can safely interpolate it into its bounded JSON literal.
+hook_tool_install_command() {
+  local tool="$1" package="$1" label="$1" family=""
+  case "$tool" in
+    node) package="nodejs"; label="Node.js 18 or newer" ;;
+    shellcheck) package="shellcheck"; label="ShellCheck" ;;
+    jq) package="jq"; label="jq" ;;
+    git) package="git"; label="Git" ;;
+    gh) package="gh"; label="GitHub CLI" ;;
+  esac
+  family="$(hook_platform_family)"
+  case "$family" in
+    macos) [[ "$tool" == "node" ]] && package="node"; printf 'brew install %s' "$package" ;;
+    apt) printf 'sudo apt-get update && sudo apt-get install -y %s' "$package" ;;
+    dnf) printf 'sudo dnf install -y %s' "$package" ;;
+    pacman) printf 'sudo pacman -S --needed %s' "$package" ;;
+    apk) printf 'sudo apk add %s' "$package" ;;
+    *) printf 'install %s with your OS package manager and ensure it is on PATH' "$label" ;;
+  esac
+}
+
+# hook_tool_available TOOL — command probe with an optional explicit binary for
+# environments that keep developer tools outside PATH.
+hook_tool_available() {
+  local tool="$1" override=""
+  case "$tool" in
+    node) override="${AGENTSMD_NODE_BIN:-}" ;;
+    shellcheck) override="${AGENTSMD_SHELLCHECK_BIN:-}" ;;
+  esac
+  if [[ -n "$override" ]]; then
+    command -v "$override" >/dev/null 2>&1
+  else
+    command -v "$tool" >/dev/null 2>&1
+  fi
+}
+
+hook_node_major() {
+  local node_bin="${AGENTSMD_NODE_BIN:-node}" version=""
+  hook_tool_available node || return 1
+  version="$("$node_bin" --version 2>/dev/null)" || return 1
+  version="${version#v}"
+  printf '%s' "${version%%.*}"
+}
+
+# Return the nearest project root that declares ShellCheck. It is a contributor
+# lint dependency, not a plugin runtime prerequisite.
+hook_shellcheck_project_root() {
+  local dir="$1" parent=""
+  [[ -n "$dir" && -d "$dir" ]] || return 1
+  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+  while [[ -n "$dir" ]]; do
+    [[ -f "$dir/.shellcheckrc" ]] && { printf '%s' "$dir"; return 0; }
+    if [[ -r "$dir/package.json" ]] \
+      && jq -e '(.scripts // {}) | any(.[]; type == "string" and contains("shellcheck"))' \
+        "$dir/package.json" >/dev/null 2>&1; then
+      printf '%s' "$dir"
+      return 0
+    fi
+    [[ -e "$dir/.git" ]] && return 1
+    parent="${dir%/*}"
+    [[ -n "$parent" && "$parent" != "$dir" ]] || return 1
+    dir="$parent"
+  done
+  return 1
+}
+
+# hook_missing_tool_context CWD — bounded SessionStart guidance. Required
+# runtime dependencies are distinguished from project-only developer tools.
+hook_missing_tool_context() {
+  local cwd="${1:-}" context="" major="" command="" project_root="" quoted_root="" verify=""
+  major="$(hook_node_major 2>/dev/null || true)"
+  if [[ ! "$major" =~ ^[0-9]+$ ]] || (( major < 18 )); then
+    command="$(hook_tool_install_command node)"
+    context+=$'\n'"[agentsmd tools] Runtime dependency missing: Node.js 18 or newer. Manual install command: ${command}. Restart Codex after installation, then run the agentsmd-doctor skill."
+  fi
+  project_root="$(hook_shellcheck_project_root "$cwd" 2>/dev/null || true)"
+  if [[ -n "$project_root" ]] && ! hook_tool_available shellcheck; then
+    command="$(hook_tool_install_command shellcheck)"
+    verify="shellcheck --version"
+    if jq -e '.scripts["lint:shell"] | type == "string" and contains("shellcheck")' \
+      "$project_root/package.json" >/dev/null 2>&1; then
+      printf -v quoted_root '%q' "$project_root"
+      verify+=" && npm --prefix ${quoted_root} run lint:shell"
+    fi
+    context+=$'\n'"[agentsmd tools] Development tool missing: ShellCheck (project lint only; not required for plugin runtime). Manual install command: ${command}. Verify from any directory with: ${verify}."
+  fi
+  printf '%s' "$context"
+}
+
 # Plugin and standalone are alternative delivery surfaces. When both current
 # protocol surfaces can see the plugin root, the losing physical hook copy
 # yields. Legacy standalone hooks remain non-cooperative and are reported by

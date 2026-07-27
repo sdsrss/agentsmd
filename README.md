@@ -33,6 +33,13 @@ Then start a new Codex session so the packaged hooks and skills are loaded. To v
 codex plugin list --json    # look for agentsmd under "installed"
 ```
 
+On that first trusted `SessionStart`, agentsmd checks its runtime prerequisites
+and any developer tool explicitly declared by the current project. A missing
+tool is never installed automatically: the banner identifies whether it is
+required for plugin runtime or only for project linting and prints a
+current-platform command you can copy and run manually. The reminder disappears
+once the tool is available.
+
 Read the `installed` array, not `available`: for an npm-sourced marketplace entry
 Codex reports `"available": []` both before and after a successful install, so an
 empty `available` is not a failure signal.
@@ -41,7 +48,7 @@ Codex asks you to review trust before plugin hooks run for the first time. Inspe
 
 Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugins`, open the `agentsmd` marketplace entry, and select **Install plugin**.
 
-> The plugin bundle provides hooks, skills, and the specification through Codex's plugin cache. A trusted `SessionStart` hook adds the packaged core spec to the current session and announces the actual extended-spec path. It does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or migrate a previous `codexmd` installation. Use standalone/npm when you need global files and the full lifecycle.
+> The plugin bundle provides hooks, skills, and the specification through Codex's plugin cache. On every trusted `SessionStart` (`startup`, `resume`, `clear`, or `compact`), the hook reads the active global guidance (`AGENTS.override.md` else `AGENTS.md`). An exact OMX-generated marker selects the smaller `spec/AGENTS-omx.md` compatibility overlay; otherwise it injects the complete `spec/AGENTS.md`. Missing, unreadable, or version-divergent compatibility metadata falls back to the complete core. The hook also announces the actual extended-spec path. It does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or migrate a previous `codexmd` installation. Use standalone/npm when you need global files and the full lifecycle.
 
 Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
@@ -120,12 +127,24 @@ node scripts/status.js
 node scripts/doctor.js
 ```
 
+To exercise the exact public GitHub marketplace lifecycle without a model call:
+
+```bash
+npm run test:plugin-marketplace
+```
+
+This networked smoke test requires a real `codex` binary, Node.js, and `jq`. It
+uses a throwaway `CODEX_HOME`, covers repeated installation, marketplace
+upgrade, packaged health, safe cleanup, and removal, and is intended only after
+the current package version has been published to npm.
+
 ## Requirements
 
 - OpenAI Codex CLI with native hooks support, plus an available `bash`.
 - Node.js 18 or newer and `jq` on `PATH`; Git workflows also require `git`.
 - Standalone installs enable `[features] hooks = true`; plugin installs rely on the Codex plugin runtime.
 - GitHub-aware shared-branch checks optionally use `gh`.
+- ShellCheck is contributor tooling, not a plugin runtime dependency. SessionStart suggests it only when the current project declares a ShellCheck-backed lint script (or `.shellcheckrc`) and the binary is missing.
 - Automation covers Linux and macOS; on Windows, run the Bash hooks under WSL.
 
 Hooks fail open when required input or prerequisites cannot be evaluated, and record the failure when possible.
@@ -154,7 +173,7 @@ An explicit request to commit and release or publish authorizes the standard shi
 
 | Layer | Role | Main artifacts |
 |---|---|---|
-| Specification | Defines workflow, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-extended.md` |
+| Specification | Defines workflow, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-omx.md`, `spec/AGENTS-extended.md` |
 | Native hooks | Blocks or observes selected detectable patterns across four Codex events | `hooks/*.sh`, `hooks.json` |
 | Management | Installs, diagnoses, restores, audits, and governs | `scripts/*.js`, `agentsmd` CLI |
 | Project tools | Generates project facts, conventions, and design-token references | `agentsmd init`, `analyze`, `design` |
@@ -172,7 +191,7 @@ agentsmd registers 15 hooks across `SessionStart`, `PreToolUse`, `UserPromptSubm
 | `ship-baseline-check` | PreToolUse:Bash | Blocks a shared-branch push when its CI baseline is known red |
 | `memory-read-check` | PreToolUse:Bash | Requires the project index and canonical, same-repository linked-memory reads before shipping |
 | `secrets-scan` | PreToolUse:Bash | Blocks commits with detected secrets or high-confidence secret filenames |
-| `session-start-check` | SessionStart | Injects the active-spec banner and resets the advisory queue |
+| `session-start-check` | SessionStart | Rehydrates the active full/OMX-compatible spec on startup, resume, clear, and compact; only a fresh startup resets stale session state |
 | `surface-advisories` | UserPromptSubmit | Surfaces advisories queued by the previous turn |
 | `memory-prompt-hint` | UserPromptSubmit | Surfaces prompt-matched `MEMORY.md` entries |
 | `residue-audit` | Stop | Flags growth in task residue under Codex temporary storage |
@@ -254,7 +273,8 @@ codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
 # uninstall — clear agentsmd's runtime state FIRST, while the tooling still exists
-node "$CODEX_HOME/plugins/cache/agentsmd/agentsmd/<version>/scripts/uninstall.js"
+AGENTSMD_PLUGIN_VERSION="$(codex plugin list --json | jq -er '.installed[] | select(.pluginId == "agentsmd@agentsmd") | .version')"
+node "${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only
 codex plugin remove agentsmd --marketplace agentsmd --json
 codex plugin marketplace remove agentsmd --json
 ```
@@ -266,8 +286,12 @@ Order matters on uninstall. The plugin's hooks write session state to
 `codex plugin remove` deletes the plugin cache — including the uninstaller that
 clears them — so run the uninstaller first. It removes only agentsmd-owned state
 (another tenant's file in that directory is preserved, and keeps the directory),
-retains the telemetry log as your data, and prints its exact path. If you already
-removed the plugin, delete those two paths by hand.
+and `--plugin-state-only` never removes or edits a coexisting standalone install;
+when a standalone manifest exists, ambiguously shared runtime state is preserved.
+It retains the telemetry log as your data and prints its exact path. If you already
+removed the plugin, install it again, run the packaged uninstaller above, and
+then remove it again. Do not recursively delete `.agentsmd-state`: another
+tenant may own files there, and the telemetry log is intentionally retained.
 
 ### Standalone or npm
 
@@ -325,7 +349,7 @@ the extended spec, or the ownership manifest.
 
 Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, the extended spec, and the status-line preset it added — a status line you have since customized is left untouched. It retains recovery backups, unknown state, telemetry, the enabled hook flag (removing it could break other tenants' hooks), and unregistered no-op shims needed by already-running sessions.
 
-agentsmd is independent of oh-my-codex. If OMX is present, agentsmd treats its entries as another tenant and leaves them intact.
+agentsmd does not require oh-my-codex and preserves OMX-owned files and hooks. When the marketplace plugin sees the exact OMX marker in the currently active global guidance, it injects the smaller OMX compatibility overlay instead of duplicating orchestration rules. Merely finding an `omx` binary or inactive file does not activate this profile.
 
 If upgrading from `codexmd` v1.4.0–v1.4.3, the standalone installer migrates only artifacts with verifiable legacy provenance. The project was renamed to agentsmd in v2.0.0.
 
@@ -349,9 +373,20 @@ See [`SECURITY.md`](./SECURITY.md) for the vulnerability-reporting channel and r
 
 ## Development
 
+Install ShellCheck before running the shell lint. On Ubuntu/Debian:
+
+```bash
+sudo apt-get update && sudo apt-get install -y shellcheck
+shellcheck --version
+```
+
+On macOS use `brew install shellcheck`; Fedora/RHEL use
+`sudo dnf install -y shellcheck`; Arch uses
+`sudo pacman -S --needed shellcheck`.
+
 ```bash
 npm test
-npm run lint:shell
+npm --prefix /path/to/agentsmd run lint:shell
 ```
 
 The test suite covers installation isolation, plugin distribution, hook wiring, drift, telemetry, diagnostics, project workflows, and shell smoke fixtures. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for design boundaries and [`CHANGELOG.md`](./CHANGELOG.md) for releases.

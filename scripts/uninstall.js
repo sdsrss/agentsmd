@@ -84,7 +84,7 @@ function validateOwnership(manifest) {
 // the plugin cache — the only copy of the tooling that could have cleaned them.
 function ownedStateFiles(manifest) {
   const state = P.stateDir();
-  const ownedName = /^(?:pending-advisories-.+|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|arbitration-cache\.json)$/;
+  const ownedName = /^(?:pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|arbitration-cache\.json)$/;
   const files = manifest ? [P.manifestPath()] : [];
   let entries = [];
   try { entries = fs.readdirSync(state, { withFileTypes: true }); }
@@ -243,6 +243,97 @@ function uninstall() {
     return uninstallCore();
   } finally {
     LOCK.release(lock);
+  }
+}
+
+// Codex plugins are removed by `codex plugin remove`, but their hooks can leave
+// short-lived runtime state under $CODEX_HOME. This deliberately narrower path
+// exists for the plugin lifecycle: it must never infer authority over a
+// standalone install merely because a standalone manifest happens to coexist.
+//
+// In particular, do not call J.processPending(), parse hooks.json/config.toml,
+// read the standalone manifest, or inspect/remove deploy/skill trees here.
+// Those are all standalone lifecycle concerns. The two surfaces currently share
+// state names, so the filename/directory allowlists establish plugin ownership
+// only when no standalone manifest path exists. If one exists (even malformed
+// or symlinked), preserving all shared runtime state is the only safe choice.
+function uninstallPluginState() {
+  const lock = LOCK.acquire('uninstall-plugin-state');
+  try {
+    return uninstallPluginStateCore();
+  } finally {
+    LOCK.release(lock);
+  }
+}
+
+function uninstallPluginStateCore() {
+  const result = {
+    pluginStateOnly: true,
+    stateFilesRemoved: 0,
+    stateDirsRemoved: 0,
+    stateDirRemoved: false,
+    sharedFilesTouched: false,
+  };
+
+  let standaloneManifestPresent = false;
+  try {
+    fs.lstatSync(P.manifestPath());
+    standaloneManifestPresent = true;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+  if (standaloneManifestPresent) {
+    result.standaloneStatePreserved = true;
+    result.stateCleanupSkipped = 'standalone-manifest-present';
+    if (F.pathExists(P.logPath())) result.telemetryRetainedAt = P.logPath();
+    return result;
+  }
+
+  const stateFiles = ownedStateFiles(null);
+  const stateDirs = ownedStateDirs();
+  const stageRoot = path.join(P.codexHome(), `.agentsmd-plugin-cleanup-stage-${process.pid}-${Date.now()}`);
+  fs.mkdirSync(stageRoot, { mode: 0o700 });
+  let transaction = null;
+
+  try {
+    transaction = createTransaction(stageRoot, stateFiles);
+    snapshotDirectories(transaction, stateDirs);
+
+    for (const file of stateFiles) {
+      if (!F.pathExists(file)) continue;
+      const snapshot = transactionFile(transaction, file).before;
+      mutateFile(transaction, file, () => F.unlinkFileIfUnchanged(file, snapshot));
+      result.stateFilesRemoved += 1;
+    }
+    for (const dir of stateDirs) {
+      if (!F.pathExists(dir)) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+      result.stateDirsRemoved += 1;
+    }
+    markDirectorySnapshotsAfter(transaction);
+
+    try {
+      fs.rmdirSync(P.stateDir());
+      result.stateDirRemoved = true;
+    } catch (error) {
+      if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error;
+      result.stateDirRemoved = error.code === 'ENOENT';
+    }
+
+    if (F.pathExists(P.logPath())) result.telemetryRetainedAt = P.logPath();
+    const cleanupWarning = cleanupTransaction(transaction);
+    if (cleanupWarning) result.cleanupWarnings = [cleanupWarning];
+    return result;
+  } catch (error) {
+    const rollbackErrors = transaction ? rollback(transaction) : [];
+    if (transaction) {
+      const cleanupWarning = cleanupTransaction(transaction);
+      if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+    } else {
+      try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
+    }
+    if (rollbackErrors.length) error.message += `; ${rollbackErrors.join('; ')}`;
+    throw error;
   }
 }
 
@@ -491,27 +582,30 @@ function uninstallCore() {
 }
 
 const UNINSTALL_USAGE = [
-  'Usage: agentsmd uninstall',
+  'Usage: agentsmd uninstall [--plugin-state-only]',
   '',
   "Remove agentsmd's owned entries while preserving other tenants.",
   '',
   'Options:',
-  '  -h, --help   Show this help without changing any files.',
+  '  --plugin-state-only   Remove only plugin-written runtime state; never modify a standalone install.',
+  '  -h, --help            Show this help without changing any files.',
 ].join('\n');
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
   printHelpAndExit(argv, UNINSTALL_USAGE);
-  try { parseStrict(argv); }
+  let opts;
+  try { opts = parseStrict(argv, { bools: ['plugin-state-only'] }); }
   catch (error) {
     console.error(`agentsmd uninstall: ${error.message}`);
     console.error(UNINSTALL_USAGE);
     process.exit(2);
   }
   try {
-    const result = uninstall();
+    const result = opts.bools.has('plugin-state-only') ? uninstallPluginState() : uninstall();
     if (result.backupWarning) console.error(`agentsmd uninstall warning: ${result.backupWarning}`);
-    console.log('agentsmd uninstalled:\n' + JSON.stringify(result, null, 2));
+    const label = result.pluginStateOnly ? 'agentsmd plugin state removed' : 'agentsmd uninstalled';
+    console.log(`${label}:\n` + JSON.stringify(result, null, 2));
   } catch (e) { console.error('agentsmd uninstall failed:', e.message); process.exit(1); }
 }
-module.exports = { uninstall, UNINSTALL_USAGE };
+module.exports = { uninstall, uninstallPluginState, UNINSTALL_USAGE };

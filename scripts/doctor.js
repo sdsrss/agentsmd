@@ -12,6 +12,7 @@ const F = require('./lib/fs-atomic');
 const SA = require('./lib/surface-arbitration');
 const LOCK = require('./lib/lifecycle-lock');
 const J = require('./lib/lifecycle-journal');
+const { manualInstallCommand } = require('./lib/tool-guidance');
 const { parseNoArgs, status: readStatus } = require('./status');
 
 const REQUIRED_HOOK_SUPPORT = [
@@ -91,8 +92,27 @@ function doctor() {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail: detail || '' });
 
-  add('jq present', has('jq'), 'hooks require jq');
-  add('node present', has('node'), 'transcript scan + scripts require node');
+  const jqPresent = has('jq');
+  add(
+    'jq present',
+    jqPresent,
+    jqPresent
+      ? 'jq on PATH'
+      : `hooks require jq; manual install command: ${manualInstallCommand('jq')}`
+  );
+  let nodeVersion = '';
+  try {
+    nodeVersion = cp.execFileSync('node', ['--version'], { encoding: 'utf8' }).trim();
+  } catch {}
+  const nodeMajor = Number.parseInt(nodeVersion.replace(/^v/, '').split('.')[0], 10);
+  const nodePresent = Number.isInteger(nodeMajor) && nodeMajor >= 18;
+  add(
+    'node present',
+    nodePresent,
+    nodePresent
+      ? `${nodeVersion} on PATH`
+      : `transcript scan + scripts require Node.js >=18${nodeVersion ? ` (found ${nodeVersion})` : ''}; manual install command: ${manualInstallCommand('node')}`
+  );
   add('codex present', has('codex'), 'standalone config health uses the Codex CLI parser');
 
   const surfaceStatus = readStatus();
@@ -180,6 +200,11 @@ function doctor() {
       'plugin core spec present',
       pluginBundle.spec.core,
       pluginBundle.spec.core ? 'spec/AGENTS.md' : 'missing spec/AGENTS.md'
+    );
+    add(
+      'plugin OMX-compatible spec present',
+      pluginBundle.spec.omxCompatible,
+      pluginBundle.spec.omxCompatible ? 'spec/AGENTS-omx.md' : 'missing spec/AGENTS-omx.md'
     );
     add(
       'plugin extended spec present',

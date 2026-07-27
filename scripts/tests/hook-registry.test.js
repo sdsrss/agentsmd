@@ -63,6 +63,16 @@ for (const rel of ['hooks/hooks.json', 'hooks.json']) {
   });
 }
 
+t('SessionStart subscribes to every context-rehydration source', () => {
+  const expected = 'startup|resume|clear|compact';
+  const registry = REG.HOOK_REGISTRY.find((hook) => hook.basename === 'session-start-check.sh');
+  assert.strictEqual(registry && registry.matcher, expected, 'registry SessionStart matcher');
+  for (const relative of ['hooks.json', 'hooks/hooks.json']) {
+    const wiring = JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
+    assert.strictEqual(wiring.hooks.SessionStart[0].matcher, expected, `${relative} SessionStart matcher`);
+  }
+});
+
 t('each hook file calls hook_kill_switch "<envVarSuffix>" (registry <-> hook source)', () => {
   for (const h of REG.HOOK_REGISTRY) {
     const src = fs.readFileSync(path.join(ROOT, 'hooks', h.basename), 'utf8');

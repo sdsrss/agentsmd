@@ -33,6 +33,10 @@ codex plugin add agentsmd@agentsmd
 codex plugin list --json    # 在 "installed" 中查看 agentsmd
 ```
 
+第一次可信的 `SessionStart` 会检查 agentsmd 的运行依赖，以及当前项目明确声明的
+开发工具。插件不会自动安装任何工具：banner 会说明缺失项是插件运行必需，还是仅用于
+项目 lint，并给出适合当前平台、可复制后手动执行的命令；工具可用后提示自动消失。
+
 看 `installed` 数组，不要看 `available`：对 npm 来源的 marketplace 条目，Codex 在安装前后都报
 `"available": []`，空的 `available` 不代表失败。
 
@@ -40,7 +44,7 @@ Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plug
 
 偏好图形界面？在 Codex app 中打开 **插件**；或运行 `codex`，输入 `/plugins`，打开 `agentsmd` marketplace 条目并选择安装。
 
-> 插件通过 Codex plugin cache 提供 hooks、skills 和规范。可信的 `SessionStart` hook 会把打包的 core spec 加入当前会话，并给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
+> 插件通过 Codex plugin cache 提供 hooks、skills 和规范。每次可信的 `SessionStart`（`startup`、`resume`、`clear`、`compact`）都会读取当前生效的全局规范（`AGENTS.override.md` 优先，否则 `AGENTS.md`）：精确命中 OMX 生成标记时加载较小的 `spec/AGENTS-omx.md` 兼容 overlay，否则加载完整 `spec/AGENTS.md`；兼容文件缺失、不可读或版本不一致时回退完整版。Hook 同时给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
 
 插件与 standalone 是两种安装面，建议只选一种。双面进程先验证 manifest-backed standalone 完整性，再比较 SemVer：健康的同版/新版 standalone 胜出并让 protocol-v1 plugin hooks 退出；缺失、manifest 损坏、artifact 损坏、hooks 被禁用/错接、core 内容不一致或版本较旧的 standalone 不能遮蔽健康 plugin。`status` 在不改变既有 standalone 字段语义的前提下新增 `selectedSurface` 和稳定的 `surfaceArbitration`。`doctor` 把任何 manifest-backed 双面都保留为要求清理的红色状态，即使 protocol-v1 fixture 已证明其中一份 hook 会退出。新版 plugin 无法关闭旧 standalone 已注册的命令，也无法移除 SessionStart 前已进入 discovery context 的旧 global core；逻辑选择 plugin 只会加入 packaged core，不能证明它是唯一 policy/hook。需要 update/uninstall 旧面才能消除这个不协作边界。
 
@@ -111,12 +115,23 @@ node scripts/status.js
 node scripts/doctor.js
 ```
 
+若要在不调用模型的情况下验证完整的公开 GitHub marketplace 生命周期：
+
+```bash
+npm run test:plugin-marketplace
+```
+
+这个联网 smoke test 需要真实的 `codex`、Node.js 与 `jq`。它使用一次性的
+`CODEX_HOME`，覆盖重复安装、marketplace 更新、打包健康检查、安全清理与移除，
+仅应在当前 package 版本已发布到 npm 后运行。
+
 ## 环境要求
 
 - 支持原生 hooks 的 OpenAI Codex CLI，以及可用的 `bash`。
 - `PATH` 中有 Node.js 18 或更高版本和 `jq`；Git 工作流还需要 `git`。
 - standalone 安装会启用 `[features] hooks = true`；插件安装依赖 Codex plugin runtime。
 - 共享分支 GitHub 状态检查可选依赖 `gh`。
+- ShellCheck 是贡献者开发工具，不是插件运行依赖；只有当前项目声明了 ShellCheck lint script（或 `.shellcheckrc`）且找不到二进制时，SessionStart 才会提示。
 - 自动化覆盖 Linux 与 macOS；Windows 建议在 WSL 中运行 Bash hooks。
 
 当输入或依赖不足以完成判断时，hooks 会 fail-open，并在可行时记录失败。
@@ -145,7 +160,7 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 
 | 层 | 作用 | 主要内容 |
 |---|---|---|
-| 规范 | 定义流程、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-extended.md` |
+| 规范 | 定义流程、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-omx.md`、`spec/AGENTS-extended.md` |
 | 原生 hooks | 在四类 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
 | 管理层 | 安装、诊断、恢复、审计和治理 | `scripts/*.js`、`agentsmd` CLI |
 | 项目工具 | 生成项目事实、编码约定和设计令牌引用 | `agentsmd init`、`analyze`、`design` |
@@ -163,7 +178,7 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`UserPromptSubmit` 和 `Stop` 上�
 | `ship-baseline-check` | PreToolUse:Bash | 已知 CI 基线为红色时阻断推送共享分支 |
 | `memory-read-check` | PreToolUse:Bash | ship 前要求读取项目 memory index 与同仓库、经 canonical 校验的关联 memory |
 | `secrets-scan` | PreToolUse:Bash | 阻断检测到 secrets 或高置信 secret 文件名的 commit |
-| `session-start-check` | SessionStart | 注入当前规范 banner，并重置提示队列 |
+| `session-start-check` | SessionStart | 在 startup、resume、clear、compact 时重新注入完整或 OMX 兼容规范；只有全新 startup 清理旧会话状态 |
 | `surface-advisories` | UserPromptSubmit | 呈现上一轮排队的提示 |
 | `memory-prompt-hint` | UserPromptSubmit | 呈现与 prompt 匹配的 `MEMORY.md` 条目 |
 | `residue-audit` | Stop | 标记 Codex 临时存储中的任务残留增长 |
@@ -245,7 +260,8 @@ codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
 # 卸载——先清理 agentsmd 运行时状态，此时工具还在
-node "$CODEX_HOME/plugins/cache/agentsmd/agentsmd/<version>/scripts/uninstall.js"
+AGENTSMD_PLUGIN_VERSION="$(codex plugin list --json | jq -er '.installed[] | select(.pluginId == "agentsmd@agentsmd") | .version')"
+node "${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only
 codex plugin remove agentsmd --marketplace agentsmd --json
 codex plugin marketplace remove agentsmd --json
 ```
@@ -255,8 +271,11 @@ codex plugin marketplace remove agentsmd --json
 卸载有先后顺序。插件的 hooks 会把会话状态写到 `$CODEX_HOME/.agentsmd-state/`、把遥测写到
 `$CODEX_HOME/logs/agentsmd.jsonl`；而 `codex plugin remove` 会删掉插件缓存——连同能清理它们的
 卸载器一起删掉，所以要先跑卸载器。它只移除 agentsmd 自己的状态（该目录下其他 tenant 的文件会
-保留，并因此保留目录本身），遥测日志作为你的数据保留并打印确切路径。若已经先移除了插件，手动
-删除这两个路径即可。
+保留，并因此保留目录本身）；`--plugin-state-only` 也绝不会删除或修改并存的 standalone 安装，
+检测到 standalone manifest 时会保留两种 surface 无法区分归属的共享运行时状态。
+遥测日志作为你的数据保留并打印确切路径。若已经先移除了插件，请
+重新安装插件、运行上面的打包卸载器，再次移除插件。不要递归删除 `.agentsmd-state`：其中可能有
+其他 tenant 的文件，而且遥测日志按设计应保留。
 
 ### Standalone 或 npm
 
@@ -309,7 +328,7 @@ manifest。
 
 卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
 
-agentsmd 独立于 oh-my-codex。若存在 OMX，agentsmd 会把它的条目视为其他 tenant 并原样保留。
+agentsmd 不依赖 oh-my-codex，并原样保留 OMX 管理的文件和 hooks。Marketplace 插件只有在当前生效的全局规范中精确看到 OMX 生成标记时，才改用较小的 OMX 兼容 overlay；仅存在 `omx` 命令或被 override 遮蔽的文件不会触发精简 profile。
 
 从 `codexmd` v1.4.0–v1.4.3 升级时，standalone 安装器只迁移 legacy provenance 可验证的 artifact。项目在 v2.0.0 更名为 agentsmd。
 
@@ -333,9 +352,20 @@ agentsmd sparkline --windows=6 --bucket-days=7
 
 ## 开发
 
+运行 shell lint 前先安装 ShellCheck。Ubuntu/Debian：
+
+```bash
+sudo apt-get update && sudo apt-get install -y shellcheck
+shellcheck --version
+```
+
+macOS 使用 `brew install shellcheck`；Fedora/RHEL 使用
+`sudo dnf install -y shellcheck`；Arch 使用
+`sudo pacman -S --needed shellcheck`。
+
 ```bash
 npm test
-npm run lint:shell
+npm --prefix /path/to/agentsmd run lint:shell
 ```
 
 测试覆盖安装隔离、插件分发、hook wiring、drift、遥测、诊断、项目工作流和 shell smoke fixtures。设计边界见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，版本记录见 [`CHANGELOG.md`](./CHANGELOG.md)。

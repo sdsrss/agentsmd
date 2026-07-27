@@ -278,7 +278,14 @@ function inspectPluginBundle(env = process.env) {
       missingScripts: [...REG.HOOK_BASENAMES],
       missingSupport: [...PLUGIN_HOOK_SUPPORT],
     },
-    spec: { core: false, extended: false, coreVersion: null, extendedVersion: null },
+    spec: {
+      core: false,
+      omxCompatible: false,
+      extended: false,
+      coreVersion: null,
+      omxCompatibleVersion: null,
+      extendedVersion: null,
+    },
   };
   if (!root) return result;
 
@@ -339,14 +346,19 @@ function inspectPluginBundle(env = process.env) {
   }
 
   const core = readBundleFile(root, 'spec/AGENTS.md', 'spec/AGENTS.md', result.errors);
+  const omxCompatible = readBundleFile(root, 'spec/AGENTS-omx.md', 'spec/AGENTS-omx.md', result.errors);
   const extended = readBundleFile(root, 'spec/AGENTS-extended.md', 'spec/AGENTS-extended.md', result.errors);
   result.spec.core = F.pathExists(path.join(root, 'spec', 'AGENTS.md'));
+  result.spec.omxCompatible = F.pathExists(path.join(root, 'spec', 'AGENTS-omx.md'));
   result.spec.extended = F.pathExists(path.join(root, 'spec', 'AGENTS-extended.md'));
   result.spec.coreVersion = specVersion(core);
+  result.spec.omxCompatibleVersion = specVersion(omxCompatible);
   result.spec.extendedVersion = specVersion(extended);
   if (!result.spec.core) result.errors.push('missing spec/AGENTS.md');
+  if (!result.spec.omxCompatible) result.errors.push('missing spec/AGENTS-omx.md');
   if (!result.spec.extended) result.errors.push('missing spec/AGENTS-extended.md');
   if (plugin && result.spec.coreVersion !== plugin.version) result.errors.push('plugin core spec version differs from manifest version');
+  if (plugin && result.spec.omxCompatibleVersion !== plugin.version) result.errors.push('plugin OMX-compatible spec version differs from manifest version');
   if (plugin && result.spec.extendedVersion !== plugin.version) result.errors.push('plugin extended spec version differs from manifest version');
 
   result.complete = result.manifest.valid
@@ -354,6 +366,7 @@ function inspectPluginBundle(env = process.env) {
     && result.hooks.missingScripts.length === 0
     && result.hooks.missingSupport.length === 0
     && result.spec.core
+    && result.spec.omxCompatible
     && result.spec.extended
     && result.errors.length === 0;
   result.healthy = result.complete;
