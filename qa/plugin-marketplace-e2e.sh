@@ -44,6 +44,9 @@ command -v node >/dev/null 2>&1 || {
 EXPECTED_VERSION="$(node -p 'require(process.argv[1]).version' "$ROOT/package.json")"
 EXPECTED_SOURCE_VERSION="$(node -p 'require(process.argv[1]).plugins.find((entry) => entry.name === "agentsmd").source.version' "$ROOT/.agents/plugins/marketplace.json")"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-plugin-marketplace.XXXXXX")"
+PLUGIN_DATA_DIR="$SANDBOX/plugin-data/agentsmd"
+STANDALONE_HOME="$SANDBOX/standalone-home"
+STANDALONE_PLUGIN_DATA="$STANDALONE_HOME/plugin-data/agentsmd"
 
 cleanup() {
   if [ "$KEEP" -eq 1 ]; then
@@ -137,48 +140,91 @@ AGENTSMD_PLUGIN_ROOT="$PLUGIN_ROOT" CODEX_HOME="$SANDBOX" \
   node "$PLUGIN_ROOT/bin/agentsmd.js" doctor
 
 printf '== safe cleanup and Codex removal ==\n'
-mkdir -p "$SANDBOX/.agentsmd-state" "$SANDBOX/logs"
-printf '%s\n' 'owned by agentsmd' >"$SANDBOX/.agentsmd-state/session-start-e2e.ref"
+mkdir -p "$SANDBOX/.agentsmd-state" "$SANDBOX/logs" "$PLUGIN_DATA_DIR/runtime"
+printf '%s\n' 'owned by agentsmd' >"$PLUGIN_DATA_DIR/runtime/session-start-e2e.ref"
+printf '%s\n' 'ambiguous legacy state' >"$SANDBOX/.agentsmd-state/session-start-legacy.ref"
 printf '%s\n' 'owned by another tenant' >"$SANDBOX/.agentsmd-state/foreign.txt"
 printf '%s\n' '{"hook":"session-start"}' >"$SANDBOX/logs/agentsmd.jsonl"
 
-CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only >"$SANDBOX/uninstall.out"
+CODEX_HOME="$SANDBOX" PLUGIN_DATA="$PLUGIN_DATA_DIR" \
+  node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only >"$SANDBOX/uninstall.out"
 sed -n '/^{/,$p' "$SANDBOX/uninstall.out" >"$SANDBOX/uninstall.json"
-jq -e '.pluginStateOnly == true and .sharedFilesTouched == false' "$SANDBOX/uninstall.json" >/dev/null
-test ! -e "$SANDBOX/.agentsmd-state/session-start-e2e.ref"
-test -f "$SANDBOX/.agentsmd-state/foreign.txt"
-test -f "$SANDBOX/logs/agentsmd.jsonl"
-
-CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/bin/agentsmd.js" install >/dev/null
-test -f "$SANDBOX/.agentsmd-state/manifest.json"
-test -d "$SANDBOX/agentsmd"
-cp "$SANDBOX/hooks.json" "$SANDBOX/hooks.before-plugin-cleanup.json"
-cp "$SANDBOX/.agentsmd-state/manifest.json" "$SANDBOX/manifest.before-plugin-cleanup.json"
-printf '%s\n' 'ambiguous shared state' >"$SANDBOX/.agentsmd-state/session-start-dual.ref"
-CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only \
-  >"$SANDBOX/uninstall-dual.out"
-sed -n '/^{/,$p' "$SANDBOX/uninstall-dual.out" >"$SANDBOX/uninstall-dual.json"
 jq -e '
   .pluginStateOnly == true
   and .sharedFilesTouched == false
   and .standaloneStatePreserved == true
-  and .stateCleanupSkipped == "standalone-manifest-present"
-' "$SANDBOX/uninstall-dual.json" >/dev/null
-test -f "$SANDBOX/.agentsmd-state/session-start-dual.ref"
-cmp "$SANDBOX/hooks.before-plugin-cleanup.json" "$SANDBOX/hooks.json"
+  and .stateFilesRemoved == 1
+  and .stateDirRemoved == true
+' "$SANDBOX/uninstall.json" >/dev/null
+test ! -e "$PLUGIN_DATA_DIR/runtime"
+test -f "$SANDBOX/.agentsmd-state/session-start-legacy.ref"
+test -f "$SANDBOX/.agentsmd-state/foreign.txt"
+test -f "$SANDBOX/logs/agentsmd.jsonl"
 
-printf '%s\n' '{ malformed shared hooks remain outside plugin cleanup' >"$SANDBOX/hooks.json"
-cp "$SANDBOX/hooks.json" "$SANDBOX/hooks.malformed.before"
+CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/bin/agentsmd.js" install \
+  >"$SANDBOX/standalone-yield.out"
+grep -Fq 'standalone install skipped: the agentsmd Codex plugin is already installed and enabled' \
+  "$SANDBOX/standalone-yield.out"
+test ! -e "$SANDBOX/.agentsmd-state/manifest.json"
+test ! -e "$SANDBOX/agentsmd"
+
+CODEX_HOME="$STANDALONE_HOME" node "$PLUGIN_ROOT/bin/agentsmd.js" install >/dev/null
+test -f "$STANDALONE_HOME/.agentsmd-state/manifest.json"
+test -d "$STANDALONE_HOME/agentsmd"
+cp "$STANDALONE_HOME/hooks.json" "$STANDALONE_HOME/hooks.before-plugin-cleanup.json"
+cp "$STANDALONE_HOME/.agentsmd-state/manifest.json" \
+  "$STANDALONE_HOME/manifest.before-plugin-cleanup.json"
+printf '%s\n' 'ambiguous shared state' \
+  >"$STANDALONE_HOME/.agentsmd-state/session-start-dual.ref"
+mkdir -p "$STANDALONE_PLUGIN_DATA/runtime"
+printf '%s\n' 'plugin-private state' \
+  >"$STANDALONE_PLUGIN_DATA/runtime/session-start-dual.ref"
+CODEX_HOME="$STANDALONE_HOME" PLUGIN_DATA="$STANDALONE_PLUGIN_DATA" \
+  node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only \
+  >"$STANDALONE_HOME/uninstall-dual.out"
+sed -n '/^{/,$p' "$STANDALONE_HOME/uninstall-dual.out" \
+  >"$STANDALONE_HOME/uninstall-dual.json"
+jq -e '
+  .pluginStateOnly == true
+  and .sharedFilesTouched == false
+  and .standaloneStatePreserved == true
+  and .stateFilesRemoved == 1
+  and .stateDirRemoved == true
+  and (has("stateCleanupSkipped") | not)
+' "$STANDALONE_HOME/uninstall-dual.json" >/dev/null
+test ! -e "$STANDALONE_PLUGIN_DATA/runtime"
+test -f "$STANDALONE_HOME/.agentsmd-state/session-start-dual.ref"
+cmp "$STANDALONE_HOME/hooks.before-plugin-cleanup.json" "$STANDALONE_HOME/hooks.json"
+
+printf '%s\n' '{ malformed shared hooks remain outside plugin cleanup' \
+  >"$STANDALONE_HOME/hooks.json"
+cp "$STANDALONE_HOME/hooks.json" "$STANDALONE_HOME/hooks.malformed.before"
 printf '%s\n' '{ malformed standalone marker still preserves shared state' \
-  >"$SANDBOX/.agentsmd-state/manifest.json"
-printf '%s\n' 'owned by agentsmd' >"$SANDBOX/.agentsmd-state/session-start-malformed.ref"
-CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only \
-  >"$SANDBOX/uninstall-malformed.out"
-test -f "$SANDBOX/.agentsmd-state/session-start-malformed.ref"
-cmp "$SANDBOX/hooks.malformed.before" "$SANDBOX/hooks.json"
-cp "$SANDBOX/hooks.before-plugin-cleanup.json" "$SANDBOX/hooks.json"
-cp "$SANDBOX/manifest.before-plugin-cleanup.json" "$SANDBOX/.agentsmd-state/manifest.json"
-CODEX_HOME="$SANDBOX" node "$SANDBOX/agentsmd/scripts/status.js" |
+  >"$STANDALONE_HOME/.agentsmd-state/manifest.json"
+printf '%s\n' 'owned by agentsmd' \
+  >"$STANDALONE_HOME/.agentsmd-state/session-start-malformed.ref"
+mkdir -p "$STANDALONE_PLUGIN_DATA/runtime"
+printf '%s\n' 'plugin-private state' \
+  >"$STANDALONE_PLUGIN_DATA/runtime/session-start-malformed.ref"
+CODEX_HOME="$STANDALONE_HOME" PLUGIN_DATA="$STANDALONE_PLUGIN_DATA" \
+  node "$PLUGIN_ROOT/scripts/uninstall.js" --plugin-state-only \
+  >"$STANDALONE_HOME/uninstall-malformed.out"
+sed -n '/^{/,$p' "$STANDALONE_HOME/uninstall-malformed.out" \
+  >"$STANDALONE_HOME/uninstall-malformed.json"
+jq -e '
+  .pluginStateOnly == true
+  and .sharedFilesTouched == false
+  and .standaloneStatePreserved == true
+  and .stateFilesRemoved == 1
+  and .stateDirRemoved == true
+' "$STANDALONE_HOME/uninstall-malformed.json" >/dev/null
+test ! -e "$STANDALONE_PLUGIN_DATA/runtime"
+test -f "$STANDALONE_HOME/.agentsmd-state/session-start-malformed.ref"
+cmp "$STANDALONE_HOME/hooks.malformed.before" "$STANDALONE_HOME/hooks.json"
+cp "$STANDALONE_HOME/hooks.before-plugin-cleanup.json" "$STANDALONE_HOME/hooks.json"
+cp "$STANDALONE_HOME/manifest.before-plugin-cleanup.json" \
+  "$STANDALONE_HOME/.agentsmd-state/manifest.json"
+CODEX_HOME="$STANDALONE_HOME" node "$STANDALONE_HOME/agentsmd/scripts/status.js" |
   jq -e '.installed == true' >/dev/null
 
 run_codex plugin remove agentsmd --marketplace agentsmd --json >"$SANDBOX/plugin-remove.json"

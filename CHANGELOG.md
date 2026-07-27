@@ -3,6 +3,22 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.25.2 — 2026-07-27 — marketplace lifecycle release-gate correction (patch)
+
+- Corrected the public Codex marketplace end-to-end gate to seed and clean
+  plugin-owned ephemeral state under `PLUGIN_DATA/runtime`, while proving that
+  legacy shared state, telemetry, and a separate standalone installation remain
+  untouched.
+- The gate now explicitly verifies the existing plugin-first standalone yield
+  before exercising standalone preservation in a separate throwaway
+  `CODEX_HOME`. Runtime behavior is unchanged from v4.25.1; this patch replaces
+  stale pre-isolation test assumptions so the published lifecycle can close
+  against Codex CLI 0.145.0.
+- Registry-byte verification now records a failed `npm pack` probe with
+  `errexit` temporarily disabled, so a just-published version can use the
+  existing bounded propagation retry instead of terminating on its first
+  transient `ETARGET`.
+
 ## v4.25.1 — 2026-07-27 — macOS canonical-path compatibility (patch)
 
 - Standalone and plugin-state uninstall now treat macOS' system
