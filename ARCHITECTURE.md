@@ -173,8 +173,17 @@ agentsmd/
 | **3** | L2 脚本（install/status/audit/doctor/rules）+ **标记式 merge/remove 安装器**（§5，只增删 `/agentsmd/` 自有条目）+ 自有 manifest + kill-switch；首次 **re-AUTH** 触碰 live hooks.json/config.toml/AGENTS.md | 是（re-AUTH） | ✅ 已完成 |
 | **4** | 遥测闭环 + `OPERATOR.md` + 命令层 skills | 是（re-AUTH） | ✅ 已完成 |
 | **5** | 标准 Codex plugin + marketplace + GitHub Actions CI（Node 18/20/22/24 全套测试 + shellcheck）+ drift gates | 部署时 | ✅ 已完成 |
+| **6** | Surface Protocol v2：manifest/profile capability、双向 yield、混合版本迁移与 lifecycle 兼容设计 | 否（设计阶段） | 🟡 设计已冻结；运行时实现未开始 |
 
 每个 hook 移植遵循 `spec/AGENTS.md §6` 证据规则：先对 temp fixture 灌样例 stdin 冒烟（§8.V3 destructive-smoke），再接 live。
+
+Protocol v2 的完整 ADR 与“功能零损失”验收矩阵分别见
+[`PROTOCOL-V2.md`](PROTOCOL-V2.md) 和
+[`qa/PROTOCOL_V2_TEST_MATRIX.md`](qa/PROTOCOL_V2_TEST_MATRIX.md)。其核心边界是：
+v2 先做可加性 schema/能力协商，继续携带 full、OMX-compatible、extended
+全部 artifact；standalone profile 只在显式 lifecycle transaction 中物化，
+SessionStart 不改写 global guidance；任何 exact-once 声明都必须由 loser
+方向的 yield capability 与新鲜 cache 共同证明。
 
 ---
 
