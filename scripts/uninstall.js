@@ -111,6 +111,18 @@ function ownedStateDirs() {
   return dirs;
 }
 
+function normalizeCanonicalAlias(value, platform = process.platform) {
+  const normalized = path.normalize(value);
+  if (platform !== 'darwin') return normalized;
+  return normalized
+    .replace(/^\/private\/var(?=\/|$)/, '/var')
+    .replace(/^\/private\/tmp(?=\/|$)/, '/tmp');
+}
+
+function sameCanonicalPath(left, right, platform = process.platform) {
+  return normalizeCanonicalAlias(left, platform) === normalizeCanonicalAlias(right, platform);
+}
+
 function inspectPluginRuntime() {
   const configured = process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || '';
   if (!configured) return { reason: 'plugin-data-unavailable' };
@@ -122,7 +134,7 @@ function inspectPluginRuntime() {
       return { pluginData, reason: 'plugin-data-not-directory' };
     }
     const canonicalData = fs.realpathSync.native(pluginData);
-    if (canonicalData !== pluginData) {
+    if (!sameCanonicalPath(canonicalData, pluginData)) {
       return { pluginData, reason: 'plugin-data-symlinked' };
     }
   } catch (error) {
@@ -139,7 +151,7 @@ function inspectPluginRuntime() {
       return { pluginData, runtime, reason: 'plugin-runtime-not-directory' };
     }
     const canonicalRuntime = fs.realpathSync.native(runtime);
-    if (canonicalRuntime !== runtime) {
+    if (!sameCanonicalPath(canonicalRuntime, runtime)) {
       return { pluginData, runtime, reason: 'plugin-runtime-symlinked' };
     }
     return {
@@ -190,7 +202,7 @@ function inspectStandaloneRuntime() {
     throw new Error('ownership collision: standalone state root is not a plain directory');
   }
   const canonicalState = fs.realpathSync.native(state);
-  if (canonicalState !== state) {
+  if (!sameCanonicalPath(canonicalState, state)) {
     throw new Error('ownership collision: standalone state root has a symlinked ancestor');
   }
 
@@ -201,7 +213,7 @@ function inspectStandaloneRuntime() {
       throw new Error('ownership collision: standalone runtime is not a plain directory');
     }
     const canonicalRuntime = fs.realpathSync.native(runtime);
-    if (canonicalRuntime !== runtime || path.dirname(canonicalRuntime) !== canonicalState) {
+    if (!sameCanonicalPath(canonicalRuntime, runtime) || path.dirname(canonicalRuntime) !== canonicalState) {
       throw new Error('ownership collision: standalone runtime escapes the state root');
     }
     return {
@@ -832,4 +844,4 @@ if (require.main === module) {
     console.log(`${label}:\n` + JSON.stringify(result, null, 2));
   } catch (e) { console.error('agentsmd uninstall failed:', e.message); process.exit(1); }
 }
-module.exports = { uninstall, uninstallPluginState, UNINSTALL_USAGE };
+module.exports = { uninstall, uninstallPluginState, sameCanonicalPath, UNINSTALL_USAGE };

@@ -3,6 +3,19 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.25.1 — 2026-07-27 — macOS canonical-path compatibility (patch)
+
+- Standalone and plugin-state uninstall now treat macOS' system
+  `/var` ↔ `/private/var` and `/tmp` ↔ `/private/tmp` spellings as the same
+  canonical location. Arbitrary symlink ancestors and equivalent rewrites on
+  non-macOS platforms remain rejected.
+- Memory-read ship evidence now resolves relative reader paths against the
+  recorded `exec_command`/orchestrated `workdir`, while a mismatched working
+  directory, failed read, or path-only mention remains insufficient.
+- Added Linux unit coverage plus the macOS install/uninstall release gate for
+  both compatibility paths. The original `v4.25.0` tag failed before artifact
+  or npm publication; this patch preserves immutable tag history.
+
 ## v4.25.0 — 2026-07-27 — additive standalone profiles without capability loss (minor)
 
 ### Surface Protocol v2 standalone manifests

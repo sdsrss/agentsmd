@@ -85,6 +85,30 @@ const withInstalledPlugin = (fn) => {
   }
 };
 
+t('macOS system path aliases compare as the same canonical path', () => {
+  const { sameCanonicalPath } = require('../uninstall');
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/aa/state', '/private/var/folders/aa/state', 'darwin'),
+    true
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/tmp/agentsmd/state', '/private/tmp/agentsmd/state', 'darwin'),
+    true
+  );
+});
+
+t('canonical path comparison still rejects arbitrary aliases and non-macOS rewrites', () => {
+  const { sameCanonicalPath } = require('../uninstall');
+  assert.strictEqual(
+    sameCanonicalPath('/work/link/state', '/real/state', 'darwin'),
+    false
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/aa/state', '/private/var/folders/aa/state', 'linux'),
+    false
+  );
+});
+
 // ── 0. plugin-first guard: avoid creating an accidental second surface ─────
 withSandbox((dir) => {
   const { install } = loadModules();
