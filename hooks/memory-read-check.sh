@@ -196,11 +196,17 @@ const consulted = process.argv.slice(2).filter((memory) => {
     .replace(/\/{2,}/g, "/");
   const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pathMentioned = (source, target) => new RegExp(`(^|[\\s\"\x27=])${escapeRe(normalize(target))}($|[\\s\"\x27])`).test(normalize(source));
-  const commandReads = (source, target) => {
+  const commandReads = (source, target, workdir) => {
     if (typeof source !== "string") return false;
+    const mentioned = (segment) => {
+      if (pathMentioned(segment, target)) return true;
+      if (typeof workdir !== "string" || !path.isAbsolute(workdir)) return false;
+      const relative = path.relative(workdir, target);
+      return relative !== "" && !path.isAbsolute(relative) && pathMentioned(segment, relative);
+    };
     return source.split(/\r?\n|;|&&|\|\||\|/).some((segment) => {
       const reader = /^\s*(?:(?:command|sudo)\s+)*(?:env(?:\s+(?:-[^\s]+|[A-Za-z_]\w*=[^\s]+))*\s+)?(?:[A-Za-z_]\w*=[^\s]+\s+)*(?:\/[^\s]+\/)?(?:cat|sed|head|tail|awk|rg|grep|bat|less|more|perl)\b/.test(segment);
-      return reader && pathMentioned(segment, target);
+      return reader && mentioned(segment);
     });
   };
   const exactPathField = (value, target) => {
@@ -290,25 +296,34 @@ const consulted = process.argv.slice(2).filter((memory) => {
       if (source[start] !== "{") { i += marker.length; continue; }
       const parsed = objectFields(start);
       if (!parsed) break;
+      let command = null, workdir = null;
       for (const field of parsed.fields) {
-        const value = fieldValue(field, new Set(["cmd", "command"]));
-        if (typeof value === "string") found.push(value);
+        const commandValue = fieldValue(field, new Set(["cmd", "command"]));
+        if (typeof commandValue === "string") command = commandValue;
+        const workdirValue = fieldValue(field, new Set(["workdir"]));
+        if (typeof workdirValue === "string") workdir = workdirValue;
       }
+      if (command !== null) found.push({ source: command, workdir });
       i = parsed.end;
     }
     return found;
   };
   const commandFields = (value, name) => {
-    if (typeof value === "string") return name === "exec" ? orchestratedCommands(value) : [value];
+    if (typeof value === "string") {
+      return name === "exec" ? orchestratedCommands(value) : [{ source: value, workdir: null }];
+    }
     if (!value || typeof value !== "object") return [];
-    return [value.cmd, value.command, value.source].filter((v) => typeof v === "string");
+    return [value.cmd, value.command, value.source]
+      .filter((v) => typeof v === "string")
+      .map((source) => ({ source, workdir: typeof value.workdir === "string" ? value.workdir : null }));
   };
   const wasRead = (target) => {
     for (const [callId, call] of calls) {
       if (!outputs.has(callId)) continue;
       if (call.name === "read_file" && exactPathField(call.arguments, target)) return true;
       if ((call.name === "exec_command" || call.name === "exec")
-          && commandFields(call.arguments, call.name).some((source) => commandReads(source, target))) return true;
+          && commandFields(call.arguments, call.name)
+            .some(({ source, workdir }) => commandReads(source, target, workdir))) return true;
     }
     return false;
   };

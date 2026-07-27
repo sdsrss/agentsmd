@@ -51,7 +51,7 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 - Added protocol-v1/v2 reader, writer, migration, explicit-profile, repair,
   status, doctor, CLI, fallback-integrity, and no-mutation fixtures. Existing
   install, uninstall, repair, restore, crash recovery, plugin, runtime-state,
-  distribution, drift, and 382-case shell-hook smoke suites remain release
+  distribution, drift, and 385-case shell-hook smoke suites remain release
   gates.
 
 ## v4.24.0 — 2026-07-27 — GitHub plugin installation hardening and OMX-aware rehydration (minor)

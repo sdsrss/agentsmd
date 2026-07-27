@@ -1198,12 +1198,22 @@ READ_CMD="sed -n '1,200p' '$PROJ_TRANSCRIPT_PATH/MEMORY.md' '$PROJ_TRANSCRIPT_PA
 READ_ARGS="$(jq -cn --arg c "$READ_CMD" '{cmd:$c}')"
 { jq -cn --arg a "$READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"read-ok",arguments:$a}}'
   jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"read-ok",output:"auth index and linked notes"}}'; } > "$SANDBOX/tr-tool-read.jsonl"
+RELATIVE_READ_CMD="sed -n '1,200p' 'MEMORY.md' 'memory/auth.md'"
+RELATIVE_READ_ARGS="$(jq -cn --arg c "$RELATIVE_READ_CMD" --arg w "$PROJ" '{cmd:$c,workdir:$w}')"
+{ jq -cn --arg a "$RELATIVE_READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"relative-read-ok",arguments:$a}}'
+  jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"relative-read-ok",output:"auth index and linked notes"}}'; } > "$SANDBOX/tr-tool-relative-read.jsonl"
+WRONG_WORKDIR_READ_ARGS="$(jq -cn --arg c "$RELATIVE_READ_CMD" --arg w "$SANDBOX" '{cmd:$c,workdir:$w}')"
+{ jq -cn --arg a "$WRONG_WORKDIR_READ_ARGS" '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"wrong-workdir-read",arguments:$a}}'
+  jq -cn '{type:"response_item",payload:{type:"function_call_output",call_id:"wrong-workdir-read",output:"unrelated files"}}'; } > "$SANDBOX/tr-tool-wrong-workdir-read.jsonl"
 EXEC_READ_SOURCE="const r = await tools.exec_command({\"cmd\":$(jq -Rn --arg c "$READ_CMD" '$c')}); text(r.output);"
 { jq -cn --arg i "$EXEC_READ_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-read-ok",input:$i}}'
   jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-read-ok",output:[{type:"input_text",text:"Script completed"},{type:"input_text",text:"auth index and linked notes"}]}}'; } > "$SANDBOX/tr-functions-exec-read.jsonl"
 EXEC_COMMON_SOURCE="const r = await tools.exec_command({cmd: $(jq -Rn --arg c "$READ_CMD" '$c'), workdir: \"$PROJ\"}); text(r.output);"
 { jq -cn --arg i "$EXEC_COMMON_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-common-read",input:$i}}'
   jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-common-read",output:"Script completed: auth index and linked notes"}}'; } > "$SANDBOX/tr-functions-exec-common-read.jsonl"
+EXEC_RELATIVE_SOURCE="const r = await tools.exec_command({cmd: $(jq -Rn --arg c "$RELATIVE_READ_CMD" '$c'), workdir: \"$PROJ\"}); text(r.output);"
+{ jq -cn --arg i "$EXEC_RELATIVE_SOURCE" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-relative-read",input:$i}}'
+  jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-relative-read",output:"Script completed: auth index and linked notes"}}'; } > "$SANDBOX/tr-functions-exec-relative-read.jsonl"
 EXEC_STRING_MARKER="text('tools.exec_command({\"cmd\":$(jq -Rn --arg c "$READ_CMD" '$c')})')"
 { jq -cn --arg i "$EXEC_STRING_MARKER" '{type:"response_item",payload:{type:"custom_tool_call",name:"exec",call_id:"exec-string-marker",input:$i}}'
   jq -cn '{type:"response_item",payload:{type:"custom_tool_call_output",call_id:"exec-string-marker",output:"Script completed: printed source text"}}'; } > "$SANDBOX/tr-functions-exec-string-marker.jsonl"
@@ -1242,12 +1252,15 @@ printf '%s\n' '{"type":"message","payload":{"role":"user","content":[{"text":"Pu
 mk_mr() { jq -cn --arg c "$1" --arg cwd "$2" --arg tr "$3" '{tool_name:"Bash",tool_input:{command:$c},session_id:"smoke1",cwd:$cwd,transcript_path:$tr}'; }
 B="$(clog_count)"; OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-read.jsonl")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && rows_have_observe "$NEW" '§7-memory-read' true true; } && ok "ship + MEMORY.md consulted → allow + evaluated observation" || bad "ship + MEMORY consulted → observe" "out=[$OUT] new=[$NEW]"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-relative-read.jsonl")")"; is_empty "$OUT" && ok "ship + relative memory reads resolved from exec_command workdir → allow" || bad "exec_command relative memory reads" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-wrong-workdir-read.jsonl")")"; is_block "$OUT" && ok "ship + relative memory reads under a different workdir → block" || bad "exec_command wrong-workdir memory reads" "$OUT"
 cp "$SANDBOX/tr-tool-read.jsonl" "$SANDBOX/tr-tool-read-long.jsonl"
 node -e 'for(let i=0;i<700;i++) console.log(JSON.stringify({type:"message",payload:{role:"assistant",content:[{text:"x".repeat(1024)}]}}))' >> "$SANDBOX/tr-tool-read-long.jsonl"
 [[ "$(wc -c < "$SANDBOX/tr-tool-read-long.jsonl")" -gt 524288 ]] || bad "long transcript fixture exceeds former tail cap" "fixture too small"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-tool-read-long.jsonl")")"; is_empty "$OUT" && ok "ship + valid read before >512 KiB transcript tail → allow" || bad "full transcript consultation scan" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-read.jsonl")")"; is_empty "$OUT" && ok "ship + orchestrated exec reader → allow" || bad "functions.exec reader evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-common-read.jsonl")")"; is_empty "$OUT" && ok "ship + common object-literal exec reader → allow" || bad "functions.exec common object reader evidence" "$OUT"
+OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-relative-read.jsonl")")"; is_empty "$OUT" && ok "ship + orchestrated relative memory reads resolved from workdir → allow" || bad "functions.exec relative memory reads" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-string-marker.jsonl")")"; is_block "$OUT" && ok "ship + marker inside JS string → block" || bad "string marker is not exec evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-comment-marker.jsonl")")"; is_block "$OUT" && ok "ship + marker inside JS comment → block" || bad "comment marker is not exec evidence" "$OUT"
 OUT="$(run_hook memory-read-check.sh "$(mk_mr 'git push origin main' "$PROJ" "$SANDBOX/tr-functions-exec-common-fail.jsonl")")"; is_block "$OUT" && ok "ship + failed common exec reader → block" || bad "failed orchestrated reader is not evidence" "$OUT"
