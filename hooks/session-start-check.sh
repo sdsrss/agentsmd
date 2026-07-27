@@ -152,7 +152,10 @@ fi
 # Refresh the per-session reference timestamp that sandbox-disposal-check.sh
 # uses to detect THIS session's undisposed scratch dirs (§8.V4). Without this
 # refresh the reference would freeze at the first-ever Stop and grow stale.
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
+STATE_READ_DIRS=("$STATE_DIR")
+[[ "$LEGACY_STATE_DIR" == "$STATE_DIR" ]] || STATE_READ_DIRS+=("$LEGACY_STATE_DIR")
 SKEY="$(hook_session_key "$SID")"
 mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>/dev/null || true
 # SessionStart also is not proof that another key ended: sessions can remain
@@ -166,13 +169,25 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>
 # fresh-start behavior used by older/synthetic harnesses.
 SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
 if [[ -z "$SS_SOURCE" || "$SS_SOURCE" == "startup" ]]; then
-  rm -f "$STATE_DIR/pending-advisories" 2>/dev/null || true
-  rm -f "$(hook_advisory_file "$SID")" 2>/dev/null || true
-  rm -rf "$STATE_DIR/pending-advisories.d" 2>/dev/null || true
-  rm -rf "$(hook_advisory_dir "$SID")" 2>/dev/null || true
-  rm -f "$STATE_DIR/remote-downloads-$SKEY.paths" 2>/dev/null || true
+  for cleanup_dir in "${STATE_READ_DIRS[@]}"; do
+    [[ -n "$cleanup_dir" ]] || continue
+    if [[ "$cleanup_dir" == "$STATE_DIR" ]]; then
+      cleanup_file="$(hook_advisory_file "$SID")"
+      cleanup_queue="$(hook_advisory_dir "$SID")"
+    else
+      cleanup_file="$(hook_legacy_advisory_file "$SID")"
+      cleanup_queue="$(hook_legacy_advisory_dir "$SID")"
+    fi
+    rm -f "$cleanup_dir/pending-advisories" 2>/dev/null || true
+    rm -f "$cleanup_file" 2>/dev/null || true
+    rm -rf "$cleanup_dir/pending-advisories.d" 2>/dev/null || true
+    rm -rf "$cleanup_queue" 2>/dev/null || true
+    rm -f "$cleanup_dir/remote-downloads-$SKEY.paths" 2>/dev/null || true
+  done
 fi
-find "$STATE_DIR" -maxdepth 1 -type f -name 'remote-downloads-*.paths' -mtime +7 -delete 2>/dev/null || true
+for gc_dir in "${STATE_READ_DIRS[@]}"; do
+  find "$gc_dir" -maxdepth 1 -type f -name 'remote-downloads-*.paths' -mtime +7 -delete 2>/dev/null || true
+done
 
 # Resolve the active spec. Standalone installs already place the core in Codex's
 # discovery chain. Plugin-only installs do not, so a trusted plugin hook injects
@@ -285,13 +300,16 @@ fi
 CHECKPOINT=""
 SELF_FLAG="unvalidated-$SKEY.flag"
 CP_FOUND=0; CP_CWD=""
-while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
-  [[ "$(basename "$f")" == "$SELF_FLAG" ]] && continue
-  CP_FOUND=$((CP_FOUND+1))
-  c="$(grep -m1 '^cwd=' "$f" 2>/dev/null | cut -d= -f2-)"; [[ -n "$c" ]] && CP_CWD="$c"
-  rm -f "$f" 2>/dev/null || true
-done < <(find "$STATE_DIR" -maxdepth 1 -type f -name 'unvalidated-*.flag' -mtime +7 2>/dev/null)
+for checkpoint_dir in "${STATE_READ_DIRS[@]}"; do
+  [[ -n "$checkpoint_dir" ]] || continue
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    [[ "$(basename "$f")" == "$SELF_FLAG" ]] && continue
+    CP_FOUND=$((CP_FOUND+1))
+    c="$(grep -m1 '^cwd=' "$f" 2>/dev/null | cut -d= -f2-)"; [[ -n "$c" ]] && CP_CWD="$c"
+    rm -f "$f" 2>/dev/null || true
+  done < <(find "$checkpoint_dir" -maxdepth 1 -type f -name 'unvalidated-*.flag' -mtime +7 2>/dev/null)
+done
 if [[ "$CP_FOUND" -gt 0 ]]; then
   CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/typecheck/build ran after the last mutation). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
@@ -308,7 +326,7 @@ fi
 STALE_DEPLOY=""
 STALE_FLAG=false
 if [[ "$SELECTED_SURFACE" != "plugin" ]]; then
-  STATE_MANIFEST="$STATE_DIR/manifest.json"
+  STATE_MANIFEST="$LEGACY_STATE_DIR/manifest.json"
   if [[ -r "$STATE_MANIFEST" ]]; then
     DEPLOYED_V="$(jq -r '.version // empty' "$STATE_MANIFEST" 2>/dev/null)"
     SRC_ROOT="$(jq -r '.sourceRoot // empty' "$STATE_MANIFEST" 2>/dev/null)"

@@ -20,7 +20,9 @@ EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
 PENDING_DIR="$(hook_advisory_dir "$SID")"
-LEGACY="$(hook_advisory_file "$SID")"
+SINGLE_FILE="$(hook_advisory_file "$SID")"
+LEGACY_PENDING_DIR="$(hook_legacy_advisory_dir "$SID")"
+LEGACY_SINGLE_FILE="$(hook_legacy_advisory_file "$SID")"
 MSG=""
 
 # Claim each pending advisory by renaming it into a private per-consumer dir. A
@@ -28,25 +30,32 @@ MSG=""
 # surfaced twice, and a producer writing a new file after the claim scan keeps it
 # pending for the next turn rather than losing it. Concatenate in name (arrival)
 # order, matching what the single-file consumer emitted before.
-CLAIM="$PENDING_DIR/.claim-$$"
-if [[ -d "$PENDING_DIR" ]] && mkdir "$CLAIM" 2>/dev/null; then
-  for f in "$PENDING_DIR"/[0-9]*; do
-    [[ -f "$f" ]] || continue
-    mv "$f" "$CLAIM/" 2>/dev/null || continue
-  done
-  for c in "$CLAIM"/[0-9]*; do
-    [[ -f "$c" ]] || continue
-    MSG+="$(cat "$c" 2>/dev/null)"$'\n'
-  done
-  rm -rf "$CLAIM" 2>/dev/null || true
-fi
+consume_advisory_paths() {
+  local pending_dir="$1" single_file="$2" claim="" f="" c="" legacy_msg=""
+  claim="$pending_dir/.claim-$$"
+  if [[ -d "$pending_dir" ]] && mkdir "$claim" 2>/dev/null; then
+    for f in "$pending_dir"/[0-9]*; do
+      [[ -f "$f" ]] || continue
+      mv "$f" "$claim/" 2>/dev/null || continue
+    done
+    for c in "$claim"/[0-9]*; do
+      [[ -f "$c" ]] || continue
+      MSG+="$(cat "$c" 2>/dev/null)"$'\n'
+    done
+    rm -rf "$claim" 2>/dev/null || true
+  fi
 
-# Migrate a ≤4.3.0 single-file queue: surface its lines once, then remove it so a
-# live install does not orphan advisories queued before the upgrade.
-if [[ -s "$LEGACY" ]]; then
-  LEGACY_MSG="$(cat "$LEGACY" 2>/dev/null)"
-  rm -f "$LEGACY" 2>/dev/null || true
-  [[ -n "$LEGACY_MSG" ]] && MSG+="$LEGACY_MSG"$'\n'
+  # Migrate a ≤4.3.0 single-file queue: surface its lines once, then remove it.
+  if [[ -s "$single_file" ]]; then
+    legacy_msg="$(cat "$single_file" 2>/dev/null)"
+    rm -f "$single_file" 2>/dev/null || true
+    [[ -n "$legacy_msg" ]] && MSG+="$legacy_msg"$'\n'
+  fi
+}
+
+consume_advisory_paths "$PENDING_DIR" "$SINGLE_FILE"
+if [[ "$LEGACY_PENDING_DIR" != "$PENDING_DIR" || "$LEGACY_SINGLE_FILE" != "$SINGLE_FILE" ]]; then
+  consume_advisory_paths "$LEGACY_PENDING_DIR" "$LEGACY_SINGLE_FILE"
 fi
 
 MSG="${MSG%$'\n'}"

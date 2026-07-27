@@ -21,6 +21,17 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   enabled. Existing standalone installs remain updateable; manifest-less partial
   installs retain fail-closed recovery diagnostics; advanced users can
   explicitly opt into both surfaces with `--allow-dual-surface`.
+- Short-lived hook state now follows the physically executing surface: plugin
+  hooks write under `PLUGIN_DATA/runtime`, standalone hooks under
+  `$CODEX_HOME/.agentsmd-state/runtime`, and migration readers fall back to
+  legacy shared files without moving or deleting ambiguous state. Manifest,
+  arbitration cache, and telemetry remain shared.
+- Plugin-state cleanup now removes only allowlisted regular files/directories
+  from the private plugin runtime. It preserves unknown files, symlinks,
+  coexisting standalone state, and all legacy shared entries; without an
+  explicit plugin-data environment it reports a safe no-op. Cleanup binds the
+  canonical runtime directory identity before mutation and retains recovery
+  evidence instead of following a symlink or concurrent path replacement.
 
 ### OMX-aware SessionStart rehydration
 

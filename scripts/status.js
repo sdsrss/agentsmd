@@ -16,17 +16,29 @@ const { readRows } = require('./audit');
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 function inspectSessionSummaries() {
-  let entries;
-  try {
-    entries = fs.readdirSync(P.stateDir(), { withFileTypes: true })
-      .filter((entry) => entry.isFile() && /^session-summary-[A-Za-z0-9_.-]+\.json$/.test(entry.name));
-  } catch (error) {
-    if (error && error.code === 'ENOENT') return { count: 0, latest: null };
-    return { count: 0, latest: null, error: error.message };
+  const pluginData = process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || null;
+  const stores = [
+    pluginData && path.join(pluginData, 'runtime'),
+    path.join(P.stateDir(), 'runtime'),
+    P.stateDir(),
+  ].filter(Boolean);
+  const entries = new Map();
+  let readError = null;
+  for (const store of stores) {
+    let found;
+    try {
+      found = fs.readdirSync(store, { withFileTypes: true });
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') readError ||= error.message;
+      continue;
+    }
+    for (const entry of found) {
+      if (!entry.isFile() || !/^session-summary-[A-Za-z0-9_.-]+\.json$/.test(entry.name)) continue;
+      if (!entries.has(entry.name)) entries.set(entry.name, path.join(store, entry.name));
+    }
   }
   let latest = null;
-  for (const entry of entries) {
-    const file = path.join(P.stateDir(), entry.name);
+  for (const file of entries.values()) {
     try {
       const stat = fs.statSync(file);
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -43,7 +55,9 @@ function inspectSessionSummaries() {
     } catch { /* malformed summary is omitted from latest, but remains counted */ }
   }
   if (latest) delete latest.mtimeMs;
-  return { count: entries.length, latest };
+  const result = { count: entries.size, latest };
+  if (readError) result.error = readError;
+  return result;
 }
 
 function status() {

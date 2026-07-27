@@ -55,6 +55,13 @@ hooks 都已被信任或执行。运行时优先解析官方
 `PLUGIN_ROOT`，再兼容 `CLAUDE_PLUGIN_ROOT`；两者指向不同 bundle 时健康检查
 fail closed。
 
+短生命周期 hook 状态按实际执行脚本的物理 surface 选择位置，而不是只看继承的环境变量：
+plugin hook 写入 `PLUGIN_DATA/runtime`（兼容回退到 `CLAUDE_PLUGIN_DATA`），
+standalone hook 写入 `$CODEX_HOME/.agentsmd-state/runtime`。迁移期 reader 仍会读取
+`$CODEX_HOME/.agentsmd-state` 中的旧 ephemeral 文件，但所有新写入都进入私有 runtime；
+standalone manifest、surface 仲裁缓存和遥测继续作为共享协调/运维数据。`status` 合并私有与
+旧摘要；同名迁移副本以 plugin-private 版本为准。
+
 插件与 standalone 是两种安装面，建议只选一种。双面进程先验证 manifest-backed standalone 完整性，再比较 SemVer：健康的同版/新版 standalone 胜出并让 protocol-v1 plugin hooks 退出；缺失、manifest 损坏、artifact 损坏、hooks 被禁用/错接、core 内容不一致或版本较旧的 standalone 不能遮蔽健康 plugin。`status` 在不改变既有 standalone 字段语义的前提下新增 `selectedSurface` 和稳定的 `surfaceArbitration`。`doctor` 把任何 manifest-backed 双面都保留为要求清理的红色状态，即使 protocol-v1 fixture 已证明其中一份 hook 会退出。新版 plugin 无法关闭旧 standalone 已注册的命令，也无法移除 SessionStart 前已进入 discovery context 的旧 global core；逻辑选择 plugin 只会加入 packaged core，不能证明它是唯一 policy/hook。需要 update/uninstall 旧面才能消除这个不协作边界。
 
 ### 完整 standalone 安装
@@ -277,7 +284,7 @@ agentsmd design --write
 codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
-# 卸载——先清理 agentsmd 运行时状态，此时工具还在
+# 卸载——趁工具还在，先请求清理 plugin 私有状态
 AGENTSMD_PLUGIN_VERSION="$(codex plugin list --json | jq -er '.installed[] | select(.pluginId == "agentsmd@agentsmd") | .version')"
 node "${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only
 codex plugin remove agentsmd --marketplace agentsmd --json
@@ -286,14 +293,13 @@ codex plugin marketplace remove agentsmd --json
 
 插件更新后新开一个 Codex 会话，并重新审查发生变化的 hook 命令。
 
-卸载有先后顺序。插件的 hooks 会把会话状态写到 `$CODEX_HOME/.agentsmd-state/`、把遥测写到
-`$CODEX_HOME/logs/agentsmd.jsonl`；而 `codex plugin remove` 会删掉插件缓存——连同能清理它们的
-卸载器一起删掉，所以要先跑卸载器。它只移除 agentsmd 自己的状态（该目录下其他 tenant 的文件会
-保留，并因此保留目录本身）；`--plugin-state-only` 也绝不会删除或修改并存的 standalone 安装，
-检测到 standalone manifest 时会保留两种 surface 无法区分归属的共享运行时状态。
-遥测日志作为你的数据保留并打印确切路径。若已经先移除了插件，请
-重新安装插件、运行上面的打包卸载器，再次移除插件。不要递归删除 `.agentsmd-state`：其中可能有
-其他 tenant 的文件，而且遥测日志按设计应保留。
+卸载有先后顺序，因为 `codex plugin remove` 会连同打包清理工具一起删除 plugin cache。
+先运行该工具：当 `PLUGIN_DATA`（或兼容变量）可用时，`--plugin-state-only` 只删除该
+plugin 私有 `runtime` 目录中的白名单文件；未知文件、符号链接、所有旧共享状态、并存的
+standalone 安装以及 `$CODEX_HOME/logs/agentsmd.jsonl` 都会保留。若拿不到 plugin data 路径，
+工具会报告 `stateCleanupSkipped: "plugin-data-unavailable"`，且不会修改共享状态。
+迁移期旧 ephemeral 记录仍可读取，并按原有有界保留策略自然过期；不要递归删除
+`.agentsmd-state`，其中包含共享协调数据，也可能包含其他 tenant 的文件。
 
 ### Standalone 或 npm
 

@@ -173,6 +173,30 @@ t('plugin: architecture separates runtime entry root from self-derived support p
   assert(read('ARCHITECTURE.md').includes('`${CLAUDE_PLUGIN_ROOT}` 仅用于定位入口脚本'));
 });
 
+t('runtime state: ephemeral hooks use the physical-surface resolver', () => {
+  const common = read('hooks/lib/hook-common.sh');
+  for (const symbol of ['hook_current_surface', 'hook_shared_state_dir', 'hook_runtime_state_dir', 'hook_runtime_read_dirs']) {
+    assert.match(common, new RegExp(`${symbol}\\(\\)`), `missing ${symbol}`);
+  }
+  const runtimeHooks = [
+    'hooks/pre-bash-safety-check.sh',
+    'hooks/residue-audit.sh',
+    'hooks/sandbox-disposal-check.sh',
+    'hooks/session-exit-checkpoint.sh',
+    'hooks/session-start-check.sh',
+    'hooks/session-summary.sh',
+    'hooks/mem-audit.sh',
+  ];
+  for (const relative of runtimeHooks) {
+    const source = read(relative);
+    assert(source.includes('hook_runtime_state_dir'), `${relative} bypasses hook_runtime_state_dir`);
+    assert(!source.includes('/.agentsmd-state'), `${relative} hardcodes the shared state root`);
+  }
+  const advisories = read('hooks/surface-advisories.sh');
+  assert(advisories.includes('hook_advisory_dir'), 'advisory consumer bypasses the runtime resolver');
+  assert(advisories.includes('hook_legacy_advisory_dir'), 'advisory consumer lacks legacy dual-read');
+});
+
 // 5. version is consistent across package.json / plugin.json / marketplace target /
 //    manifest / BOTH spec headers. Core + extended carry ONE shared version and move together
 //    (AGENTS-CHANGELOG.md, since v1.4.0) — the extended header must be asserted

@@ -717,51 +717,94 @@ withEnv(() => {
   }
 });
 
-// Plugin-surface uninstall: the plugin has NO standalone manifest, but its hooks
-// write the same $CODEX_HOME state files. Gating the sweep on a manifest left
-// them behind permanently — and `codex plugin remove` deletes the plugin cache
-// (the only copy of the tooling that could clean them) moments later. Verified
-// against a real `codex plugin add` sandbox before this test was written.
+// Plugin-surface uninstall owns only the surface-private runtime under
+// PLUGIN_DATA. Legacy shared runtime names are ambiguous during migration and
+// must survive even without a standalone manifest.
 {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-plugin-uninstall.'));
-  const previous = process.env.CODEX_HOME;
+  const previous = {
+    CODEX_HOME: process.env.CODEX_HOME,
+    PLUGIN_DATA: process.env.PLUGIN_DATA,
+    CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA,
+  };
   process.env.CODEX_HOME = codexHome;
+  process.env.PLUGIN_DATA = path.join(codexHome, 'plugin-data');
+  delete process.env.CLAUDE_PLUGIN_DATA;
   try {
     for (const key of Object.keys(require.cache)) {
       if (/scripts[\\/](lib[\\/])?(?:uninstall|paths)\.js$/.test(key)) delete require.cache[key];
     }
     const { uninstallPluginState } = require('../uninstall');
     const stateDir = path.join(codexHome, '.agentsmd-state');
+    const runtimeDir = path.join(process.env.PLUGIN_DATA, 'runtime');
     fs.mkdirSync(stateDir, { recursive: true });
+    fs.mkdirSync(runtimeDir, { recursive: true });
     fs.mkdirSync(path.join(codexHome, 'logs'), { recursive: true });
-    fs.writeFileSync(path.join(stateDir, 'session-start-abc.ref'), '');
-    fs.writeFileSync(path.join(stateDir, 'arbitration-cache.json'), '{}');
-    fs.writeFileSync(path.join(stateDir, 'pending-advisories'), 'legacy');
-    fs.writeFileSync(path.join(stateDir, 'remote-downloads-abc.paths'), '/tmp/payload');
-    fs.writeFileSync(path.join(stateDir, 'remote-downloads-crash.paths.tmp'), '/tmp/incomplete');
-    fs.writeFileSync(path.join(stateDir, 'failopen-pre_bash-prereq.ts'), '1');
-    fs.mkdirSync(path.join(stateDir, 'pending-advisories-abc.d'), { recursive: true });
-    fs.writeFileSync(path.join(stateDir, 'pending-advisories-abc.d', '1'), 'x');
-    // Not ours: a foreign file must survive and must keep the dir alive.
-    const foreign = path.join(stateDir, 'someone-elses.txt');
+    for (const [name, content] of [
+      ['activation.json', '{}'],
+      ['session-start-abc.ref', ''],
+      ['remote-downloads-abc.paths', '/sandbox/payload'],
+      ['remote-downloads-crash.paths.tmp', '/sandbox/incomplete'],
+      ['failopen-pre_bash-prereq.ts', '1'],
+      ['tmp-baseline-abc.txt', '1'],
+      ['unvalidated-abc.flag', 'mutations=1'],
+      ['mem-audit-abc.stamp', ''],
+      ['session-summary-abc.json', '{}'],
+    ]) fs.writeFileSync(path.join(runtimeDir, name), content);
+    fs.mkdirSync(path.join(runtimeDir, 'pending-advisories-abc.d'), { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, 'pending-advisories-abc.d', '1'), 'x');
+
+    const foreign = path.join(runtimeDir, 'someone-elses.txt');
     fs.writeFileSync(foreign, 'keep me');
+    const symlinkTarget = path.join(codexHome, 'symlink-target');
+    const matchingSymlink = path.join(runtimeDir, 'session-start-link.ref');
+    fs.writeFileSync(symlinkTarget, 'external');
+    fs.symlinkSync(symlinkTarget, matchingSymlink);
+
+    for (const [name, content] of [
+      ['session-start-legacy.ref', ''],
+      ['arbitration-cache.json', '{"shared":true}'],
+      ['pending-advisories', 'legacy'],
+      ['remote-downloads-legacy.paths', '/sandbox/legacy'],
+      ['failopen-legacy.ts', '1'],
+    ]) fs.writeFileSync(path.join(stateDir, name), content);
+    fs.mkdirSync(path.join(stateDir, 'pending-advisories-legacy.d'), { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'pending-advisories-legacy.d', '1'), 'legacy');
     const telemetry = path.join(codexHome, 'logs', 'agentsmd.jsonl');
     fs.writeFileSync(telemetry, '{"hook":"session-start"}\n');
     assert.ok(!fs.existsSync(path.join(stateDir, 'manifest.json')), 'fixture must have NO standalone manifest');
 
     const withForeign = uninstallPluginState();
-    t('plugin-only uninstall sweeps hook-written state even without a manifest', () => {
-      assert.ok(!fs.existsSync(path.join(stateDir, 'session-start-abc.ref')), 'session ref survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'arbitration-cache.json')), 'arbitration cache survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'pending-advisories')), 'legacy advisory file survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'remote-downloads-abc.paths')), 'remote-download state survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'remote-downloads-crash.paths.tmp')), 'remote-download temp state survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'failopen-pre_bash-prereq.ts')), 'fail-open debounce state survived');
-      assert.ok(!fs.existsSync(path.join(stateDir, 'pending-advisories-abc.d')), 'advisory queue survived');
+    t('plugin-only uninstall removes allowlisted PLUGIN_DATA runtime state', () => {
+      for (const name of [
+        'activation.json',
+        'session-start-abc.ref',
+        'remote-downloads-abc.paths',
+        'remote-downloads-crash.paths.tmp',
+        'failopen-pre_bash-prereq.ts',
+        'tmp-baseline-abc.txt',
+        'unvalidated-abc.flag',
+        'mem-audit-abc.stamp',
+        'session-summary-abc.json',
+        'pending-advisories-abc.d',
+      ]) assert.ok(!fs.existsSync(path.join(runtimeDir, name)), `${name} survived`);
     });
-    t('a foreign file in the state dir is preserved, and keeps the dir', () => {
+    t('plugin-only uninstall preserves unknown private files and matching symlinks', () => {
       assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'keep me');
+      assert.ok(fs.lstatSync(matchingSymlink).isSymbolicLink());
+      assert.strictEqual(fs.readFileSync(symlinkTarget, 'utf8'), 'external');
       assert.strictEqual(withForeign.stateDirRemoved, false, 'must not remove a dir still holding another tenant\'s file');
+    });
+    t('plugin-only uninstall preserves every ambiguous legacy shared state entry', () => {
+      for (const name of [
+        'session-start-legacy.ref',
+        'arbitration-cache.json',
+        'pending-advisories',
+        'remote-downloads-legacy.paths',
+        'failopen-legacy.ts',
+        'pending-advisories-legacy.d',
+      ]) assert.ok(fs.existsSync(path.join(stateDir, name)), `${name} was removed`);
+      assert.strictEqual(withForeign.sharedFilesTouched, false);
     });
     t('telemetry is retained by design and its path is reported', () => {
       assert.ok(fs.existsSync(telemetry), 'telemetry must not be deleted');
@@ -769,13 +812,110 @@ withEnv(() => {
     });
 
     fs.unlinkSync(foreign);
+    fs.unlinkSync(matchingSymlink);
     const clean = uninstallPluginState();
-    t('with only agentsmd state present the dir itself is removed', () => {
+    t('with only removed plugin state present the private runtime dir is removed', () => {
       assert.strictEqual(clean.stateDirRemoved, true);
-      assert.ok(!fs.existsSync(stateDir), 'state dir survived a clean plugin-only uninstall');
+      assert.ok(!fs.existsSync(runtimeDir), 'private runtime dir survived a clean plugin-only uninstall');
+      assert.ok(fs.existsSync(stateDir), 'shared state dir must survive plugin cleanup');
+    });
+
+    delete process.env.PLUGIN_DATA;
+    delete process.env.CLAUDE_PLUGIN_DATA;
+    fs.writeFileSync(path.join(stateDir, 'unvalidated-no-plugin-data.flag'), 'keep');
+    const unavailable = uninstallPluginState();
+    t('plugin-state-only without a plugin data path makes no shared-state mutation', () => {
+      assert.strictEqual(unavailable.stateCleanupSkipped, 'plugin-data-unavailable');
+      assert.ok(fs.existsSync(path.join(stateDir, 'unvalidated-no-plugin-data.flag')));
+    });
+
+    const fallbackData = path.join(codexHome, 'fallback-plugin-data');
+    const fallbackRuntime = path.join(fallbackData, 'runtime');
+    process.env.CLAUDE_PLUGIN_DATA = fallbackData;
+    fs.mkdirSync(fallbackRuntime, { recursive: true });
+    fs.writeFileSync(path.join(fallbackRuntime, 'session-start-fallback.ref'), '');
+    const fallback = uninstallPluginState();
+    t('CLAUDE_PLUGIN_DATA remains the plugin cleanup fallback', () => {
+      assert.strictEqual(fallback.pluginRuntime, fallbackRuntime);
+      assert.ok(!fs.existsSync(path.join(fallbackRuntime, 'session-start-fallback.ref')));
+      assert.ok(fs.existsSync(path.join(stateDir, 'unvalidated-no-plugin-data.flag')));
+    });
+
+    const symlinkData = path.join(codexHome, 'symlink-plugin-data');
+    const externalRuntime = path.join(codexHome, 'external-runtime');
+    process.env.PLUGIN_DATA = symlinkData;
+    delete process.env.CLAUDE_PLUGIN_DATA;
+    fs.mkdirSync(symlinkData, { recursive: true });
+    fs.mkdirSync(externalRuntime, { recursive: true });
+    fs.writeFileSync(path.join(externalRuntime, 'session-start-external.ref'), 'keep');
+    fs.symlinkSync(externalRuntime, path.join(symlinkData, 'runtime'));
+    const symlinkRuntime = uninstallPluginState();
+    t('plugin-state-only refuses a symlinked runtime root', () => {
+      assert.strictEqual(symlinkRuntime.stateCleanupSkipped, 'plugin-runtime-not-directory');
+      assert.strictEqual(fs.readFileSync(path.join(externalRuntime, 'session-start-external.ref'), 'utf8'), 'keep');
+      assert.ok(fs.lstatSync(path.join(symlinkData, 'runtime')).isSymbolicLink());
+    });
+
+    const externalPluginData = path.join(codexHome, 'external-plugin-data');
+    const pluginDataAlias = path.join(codexHome, 'plugin-data-alias');
+    fs.mkdirSync(path.join(externalPluginData, 'runtime'), { recursive: true });
+    const externalState = path.join(externalPluginData, 'runtime', 'session-start-external.ref');
+    fs.writeFileSync(externalState, 'keep through ancestor symlink');
+    fs.symlinkSync(externalPluginData, pluginDataAlias);
+    process.env.PLUGIN_DATA = pluginDataAlias;
+    const symlinkAncestor = uninstallPluginState();
+    t('plugin-state-only refuses a symlinked PLUGIN_DATA ancestor', () => {
+      assert.strictEqual(symlinkAncestor.stateCleanupSkipped, 'plugin-data-not-directory');
+      assert.strictEqual(fs.readFileSync(externalState, 'utf8'), 'keep through ancestor symlink');
+      assert.ok(fs.lstatSync(pluginDataAlias).isSymbolicLink());
+    });
+
+    const concurrentData = path.join(codexHome, 'concurrent-plugin-data');
+    const concurrentRuntime = path.join(concurrentData, 'runtime');
+    const parkedRuntime = path.join(concurrentData, 'runtime-before-swap');
+    const concurrentExternal = path.join(codexHome, 'concurrent-external-runtime');
+    fs.mkdirSync(concurrentRuntime, { recursive: true });
+    fs.mkdirSync(path.join(concurrentExternal, 'pending-advisories-external.d'), { recursive: true });
+    const concurrentExternalState = path.join(concurrentExternal, 'session-start-external.ref');
+    fs.writeFileSync(path.join(concurrentRuntime, 'session-start-original.ref'), 'original');
+    fs.writeFileSync(concurrentExternalState, 'keep after concurrent swap');
+    fs.writeFileSync(
+      path.join(concurrentExternal, 'pending-advisories-external.d', '1'),
+      'keep queue'
+    );
+    process.env.PLUGIN_DATA = concurrentData;
+    const realReaddir = fs.readdirSync;
+    let swapped = false;
+    fs.readdirSync = (target, ...args) => {
+      const entries = realReaddir(target, ...args);
+      if (!swapped && path.resolve(String(target)) === path.resolve(concurrentRuntime)) {
+        swapped = true;
+        fs.renameSync(concurrentRuntime, parkedRuntime);
+        fs.symlinkSync(concurrentExternal, concurrentRuntime);
+      }
+      return entries;
+    };
+    let concurrentError;
+    try {
+      uninstallPluginState();
+    } catch (error) {
+      concurrentError = error;
+    } finally {
+      fs.readdirSync = realReaddir;
+    }
+    t('plugin-state-only revalidates runtime identity after enumeration', () => {
+      assert(concurrentError && /plugin runtime changed concurrently/.test(concurrentError.message));
+      assert.strictEqual(fs.readFileSync(concurrentExternalState, 'utf8'), 'keep after concurrent swap');
+      assert.strictEqual(
+        fs.readFileSync(path.join(concurrentExternal, 'pending-advisories-external.d', '1'), 'utf8'),
+        'keep queue'
+      );
+      assert.strictEqual(fs.readFileSync(path.join(parkedRuntime, 'session-start-original.ref'), 'utf8'), 'original');
     });
   } finally {
-    if (previous === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous;
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
 }
@@ -794,6 +934,9 @@ withEnv((codexHome) => {
   const hooksBefore = fs.readFileSync(hooksPath);
   fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'session-start-dual.ref'), '');
   fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'foreign-dual.txt'), 'keep');
+  const pluginRuntime = path.join(process.env.PLUGIN_DATA, 'runtime');
+  fs.mkdirSync(pluginRuntime, { recursive: true });
+  fs.writeFileSync(path.join(pluginRuntime, 'session-start-plugin.ref'), '');
 
   for (const key of Object.keys(require.cache)) {
     if (/scripts[\\/](lib[\\/])?(?:uninstall|paths)\.js$/.test(key)) delete require.cache[key];
@@ -805,10 +948,10 @@ withEnv((codexHome) => {
     assert.strictEqual(result.pluginStateOnly, true);
     assert.strictEqual(result.sharedFilesTouched, false);
     assert.strictEqual(result.standaloneStatePreserved, true);
-    assert.strictEqual(result.stateCleanupSkipped, 'standalone-manifest-present');
     assert.deepStrictEqual(fs.readFileSync(hooksPath), hooksBefore);
     assert.deepStrictEqual(fs.readFileSync(manifestPath), manifestBefore);
     assert.ok(fs.existsSync(deployPath), 'standalone deploy tree was removed');
+    assert.ok(!fs.existsSync(path.join(pluginRuntime, 'session-start-plugin.ref')));
   });
   t('plugin-state-only cleanup preserves ambiguous shared runtime state beside standalone', () => {
     assert.ok(fs.existsSync(path.join(codexHome, '.agentsmd-state', 'session-start-dual.ref')));
@@ -819,7 +962,7 @@ withEnv((codexHome) => {
   fs.writeFileSync(path.join(codexHome, '.agentsmd-state', 'unvalidated-dual.flag'), '');
   const malformedManifest = uninstallPluginState();
   t('a malformed standalone manifest still fails safe and preserves shared state', () => {
-    assert.strictEqual(malformedManifest.stateCleanupSkipped, 'standalone-manifest-present');
+    assert.strictEqual(malformedManifest.sharedFilesTouched, false);
     assert.ok(fs.existsSync(path.join(codexHome, '.agentsmd-state', 'unvalidated-dual.flag')));
     assert.strictEqual(fs.readFileSync(manifestPath, 'utf8'), '{ malformed standalone marker\n');
   });

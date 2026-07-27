@@ -111,6 +111,139 @@ function ownedStateDirs() {
   return dirs;
 }
 
+function inspectPluginRuntime() {
+  const configured = process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || '';
+  if (!configured) return { reason: 'plugin-data-unavailable' };
+
+  const pluginData = path.resolve(configured);
+  try {
+    const dataStat = fs.lstatSync(pluginData);
+    if (!dataStat.isDirectory() || dataStat.isSymbolicLink()) {
+      return { pluginData, reason: 'plugin-data-not-directory' };
+    }
+    const canonicalData = fs.realpathSync.native(pluginData);
+    if (canonicalData !== pluginData) {
+      return { pluginData, reason: 'plugin-data-symlinked' };
+    }
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return { pluginData, runtime: path.join(pluginData, 'runtime'), present: false };
+    }
+    throw error;
+  }
+
+  const runtime = path.join(pluginData, 'runtime');
+  try {
+    const runtimeStat = fs.lstatSync(runtime);
+    if (!runtimeStat.isDirectory() || runtimeStat.isSymbolicLink()) {
+      return { pluginData, runtime, reason: 'plugin-runtime-not-directory' };
+    }
+    const canonicalRuntime = fs.realpathSync.native(runtime);
+    if (canonicalRuntime !== runtime) {
+      return { pluginData, runtime, reason: 'plugin-runtime-symlinked' };
+    }
+    return {
+      pluginData,
+      runtime,
+      present: true,
+      identity: {
+        dev: runtimeStat.dev,
+        ino: runtimeStat.ino,
+        realpath: canonicalRuntime,
+      },
+    };
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return { pluginData, runtime, present: false };
+    throw error;
+  }
+}
+
+function assertSameRuntimeDirectory(runtime, identity, label = 'runtime') {
+  let current;
+  try {
+    current = fs.lstatSync(runtime);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      throw new Error(`${label} changed concurrently: directory disappeared`);
+    }
+    throw error;
+  }
+  if (!current.isDirectory() || current.isSymbolicLink()
+      || current.dev !== identity.dev || current.ino !== identity.ino
+      || fs.realpathSync.native(runtime) !== identity.realpath) {
+    throw new Error(`${label} changed concurrently: directory identity mismatch`);
+  }
+}
+
+function inspectStandaloneRuntime() {
+  const state = path.resolve(P.stateDir());
+  let stateStat;
+  try {
+    stateStat = fs.lstatSync(state);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return { state, runtime: path.join(state, 'runtime'), present: false };
+    }
+    throw error;
+  }
+  if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
+    throw new Error('ownership collision: standalone state root is not a plain directory');
+  }
+  const canonicalState = fs.realpathSync.native(state);
+  if (canonicalState !== state) {
+    throw new Error('ownership collision: standalone state root has a symlinked ancestor');
+  }
+
+  const runtime = path.join(state, 'runtime');
+  try {
+    const runtimeStat = fs.lstatSync(runtime);
+    if (!runtimeStat.isDirectory() || runtimeStat.isSymbolicLink()) {
+      throw new Error('ownership collision: standalone runtime is not a plain directory');
+    }
+    const canonicalRuntime = fs.realpathSync.native(runtime);
+    if (canonicalRuntime !== runtime || path.dirname(canonicalRuntime) !== canonicalState) {
+      throw new Error('ownership collision: standalone runtime escapes the state root');
+    }
+    return {
+      state,
+      runtime,
+      present: true,
+      identity: {
+        dev: runtimeStat.dev,
+        ino: runtimeStat.ino,
+        realpath: canonicalRuntime,
+      },
+    };
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return { state, runtime, present: false };
+    throw error;
+  }
+}
+
+function ownedPluginRuntimeFiles(runtime) {
+  const ownedName = /^(?:activation\.json|pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json)$/;
+  const files = [];
+  let entries = [];
+  try { entries = fs.readdirSync(runtime, { withFileTypes: true }); }
+  catch (error) { if (error && error.code === 'ENOENT') return files; throw error; }
+  for (const entry of entries) {
+    if (entry.isFile() && ownedName.test(entry.name)) files.push(path.join(runtime, entry.name));
+  }
+  return files;
+}
+
+function ownedPluginRuntimeDirs(runtime) {
+  const ownedDir = /^pending-advisories(?:-.+)?\.d$/;
+  const dirs = [];
+  let entries = [];
+  try { entries = fs.readdirSync(runtime, { withFileTypes: true }); }
+  catch (error) { if (error && error.code === 'ENOENT') return dirs; throw error; }
+  for (const entry of entries) {
+    if (entry.isDirectory() && ownedDir.test(entry.name)) dirs.push(path.join(runtime, entry.name));
+  }
+  return dirs;
+}
+
 function sameSnapshot(left, right) {
   return left.present === right.present
     && (!left.present || (left.mode === right.mode && left.content.equals(right.content)));
@@ -247,16 +380,15 @@ function uninstall() {
 }
 
 // Codex plugins are removed by `codex plugin remove`, but their hooks can leave
-// short-lived runtime state under $CODEX_HOME. This deliberately narrower path
-// exists for the plugin lifecycle: it must never infer authority over a
-// standalone install merely because a standalone manifest happens to coexist.
+// short-lived runtime state under PLUGIN_DATA/runtime. This deliberately
+// narrower path exists for the plugin lifecycle: it must never infer authority
+// over shared legacy state or a standalone install.
 //
 // In particular, do not call J.processPending(), parse hooks.json/config.toml,
 // read the standalone manifest, or inspect/remove deploy/skill trees here.
-// Those are all standalone lifecycle concerns. The two surfaces currently share
-// state names, so the filename/directory allowlists establish plugin ownership
-// only when no standalone manifest path exists. If one exists (even malformed
-// or symlinked), preserving all shared runtime state is the only safe choice.
+// Those are all standalone lifecycle concerns. The private runtime directory is
+// selected only from the official plugin data env (or its compatibility alias);
+// name allowlists remove known files while unknown files and symlinks survive.
 function uninstallPluginState() {
   const lock = LOCK.acquire('uninstall-plugin-state');
   try {
@@ -275,45 +407,54 @@ function uninstallPluginStateCore() {
     sharedFilesTouched: false,
   };
 
-  let standaloneManifestPresent = false;
-  try {
-    fs.lstatSync(P.manifestPath());
-    standaloneManifestPresent = true;
-  } catch (error) {
-    if (!error || error.code !== 'ENOENT') throw error;
+  const inspected = inspectPluginRuntime();
+  if (inspected.reason) {
+    result.stateCleanupSkipped = inspected.reason;
+    if (inspected.runtime) result.pluginRuntime = inspected.runtime;
+    if (F.pathExists(P.logPath())) result.telemetryRetainedAt = P.logPath();
+    return result;
   }
-  if (standaloneManifestPresent) {
-    result.standaloneStatePreserved = true;
-    result.stateCleanupSkipped = 'standalone-manifest-present';
+  const { runtime, identity } = inspected;
+  result.pluginRuntime = runtime;
+  result.standaloneStatePreserved = true;
+  if (!inspected.present) {
+    result.stateDirRemoved = true;
     if (F.pathExists(P.logPath())) result.telemetryRetainedAt = P.logPath();
     return result;
   }
 
-  const stateFiles = ownedStateFiles(null);
-  const stateDirs = ownedStateDirs();
+  assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
+  const stateFiles = ownedPluginRuntimeFiles(runtime);
+  const stateDirs = ownedPluginRuntimeDirs(runtime);
   const stageRoot = path.join(P.codexHome(), `.agentsmd-plugin-cleanup-stage-${process.pid}-${Date.now()}`);
   fs.mkdirSync(stageRoot, { mode: 0o700 });
   let transaction = null;
 
   try {
+    assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
     transaction = createTransaction(stageRoot, stateFiles);
+    assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
     snapshotDirectories(transaction, stateDirs);
 
     for (const file of stateFiles) {
+      assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
       if (!F.pathExists(file)) continue;
       const snapshot = transactionFile(transaction, file).before;
       mutateFile(transaction, file, () => F.unlinkFileIfUnchanged(file, snapshot));
       result.stateFilesRemoved += 1;
     }
     for (const dir of stateDirs) {
+      assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
       if (!F.pathExists(dir)) continue;
       fs.rmSync(dir, { recursive: true, force: true });
       result.stateDirsRemoved += 1;
     }
+    assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
     markDirectorySnapshotsAfter(transaction);
 
     try {
-      fs.rmdirSync(P.stateDir());
+      assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
+      fs.rmdirSync(runtime);
       result.stateDirRemoved = true;
     } catch (error) {
       if (!error || (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT')) throw error;
@@ -325,10 +466,20 @@ function uninstallPluginStateCore() {
     if (cleanupWarning) result.cleanupWarnings = [cleanupWarning];
     return result;
   } catch (error) {
-    const rollbackErrors = transaction ? rollback(transaction) : [];
+    let runtimeStable = false;
+    try {
+      assertSameRuntimeDirectory(runtime, identity, 'plugin runtime');
+      runtimeStable = true;
+    } catch {}
+    const rollbackErrors = transaction && runtimeStable ? rollback(transaction) : [];
     if (transaction) {
-      const cleanupWarning = cleanupTransaction(transaction);
-      if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+      if (runtimeStable) {
+        const cleanupWarning = cleanupTransaction(transaction);
+        if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+      } else {
+        transaction.keepStage = true;
+        rollbackErrors.push(`plugin runtime identity changed; rollback skipped and quarantine retained at ${stageRoot}`);
+      }
     } else {
       try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
     }
@@ -338,6 +489,11 @@ function uninstallPluginStateCore() {
 }
 
 function uninstallCore() {
+  // Bind the newly-owned standalone runtime cleanup to the real state tree
+  // before journal recovery or any other mutation. A symlinked state/runtime
+  // path is an ownership ambiguity, not an uninstall target.
+  const standaloneRuntimeInspection = inspectStandaloneRuntime();
+
   // R2-03: recover any crashed predecessor's transaction FIRST (we hold the
   // lock), so this uninstall always starts from a coherent tree. Fail-closed
   // throw (journal preserved) when recovery is not derivable from disk.
@@ -401,16 +557,46 @@ function uninstallCore() {
     : null;
   const stateFiles = ownedStateFiles(manifest);
   const stateDirs = ownedStateDirs();
+  const standaloneRuntime = standaloneRuntimeInspection.runtime;
+  if (standaloneRuntimeInspection.present) {
+    assertSameRuntimeDirectory(
+      standaloneRuntime,
+      standaloneRuntimeInspection.identity,
+      'standalone runtime'
+    );
+  }
+  const runtimeFiles = standaloneRuntimeInspection.present
+    ? ownedPluginRuntimeFiles(standaloneRuntime)
+    : [];
+  const runtimeDirs = standaloneRuntimeInspection.present
+    ? ownedPluginRuntimeDirs(standaloneRuntime)
+    : [];
+  stateFiles.push(...runtimeFiles);
+  stateDirs.push(...runtimeDirs);
   const legacy = M.legacyArtifacts();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-uninstall-stage-${process.pid}-${Date.now()}`);
   fs.mkdirSync(stageRoot, { mode: 0o700 });
   let transaction = null;
 
   try {
+    if (standaloneRuntimeInspection.present) {
+      assertSameRuntimeDirectory(
+        standaloneRuntime,
+        standaloneRuntimeInspection.identity,
+        'standalone runtime'
+      );
+    }
     transaction = createTransaction(stageRoot, [
       P.hooksJsonPath(), P.agentsMdPath(), P.agentsExtendedMdPath(), P.configTomlPath(),
       ...stateFiles, ...legacy.files,
     ]);
+    if (standaloneRuntimeInspection.present) {
+      assertSameRuntimeDirectory(
+        standaloneRuntime,
+        standaloneRuntimeInspection.identity,
+        'standalone runtime'
+      );
+    }
     snapshotDirectories(transaction, [...legacy.directories, ...stateDirs]);
 
     // R2-02/R2-03: journal the whole uninstall before its first mutation. Every
@@ -460,6 +646,13 @@ function uninstallCore() {
     for (const record of ownership.skills) planQuarantine(record.target, record.sha256);
     if (ownership.deploy) planQuarantine(ownership.deploy.target, ownership.deploy.sha256, 'uninstalled-shims');
     for (const file of stateFiles) {
+      if (runtimeFiles.includes(file)) {
+        assertSameRuntimeDirectory(
+          standaloneRuntime,
+          standaloneRuntimeInspection.identity,
+          'standalone runtime'
+        );
+      }
       if (!F.pathExists(file)) continue;
       const snapshot = path.resolve(file) === path.resolve(P.manifestPath()) ? manifestSnapshot : transactionFile(transaction, file).before;
       planWrite(file, snapshot, null);
@@ -519,6 +712,13 @@ function uninstallCore() {
 
     // 3. Remove only manifest/session files; backups and unknown state survive.
     for (const file of stateFiles) {
+      if (runtimeFiles.includes(file)) {
+        assertSameRuntimeDirectory(
+          standaloneRuntime,
+          standaloneRuntimeInspection.identity,
+          'standalone runtime'
+        );
+      }
       if (F.pathExists(file)) {
         const expected = path.resolve(file) === path.resolve(P.manifestPath()) ? manifestSnapshot : transactionFile(transaction, file).before;
         mutateFile(transaction, file, () => F.unlinkFileIfUnchanged(file, expected));
@@ -527,6 +727,13 @@ function uninstallCore() {
     // Remove owned advisory-queue directories (snapshotted above for rollback;
     // markDirectorySnapshotsAfter records their absence) so the state dir can empty.
     for (const dir of stateDirs) {
+      if (runtimeDirs.includes(dir)) {
+        assertSameRuntimeDirectory(
+          standaloneRuntime,
+          standaloneRuntimeInspection.identity,
+          'standalone runtime'
+        );
+      }
       if (F.pathExists(dir)) fs.rmSync(dir, { recursive: true, force: true });
     }
 
@@ -566,10 +773,27 @@ function uninstallCore() {
     if (recoveredJournal) result.recoveredJournal = recoveredJournal;
     return result;
   } catch (error) {
-    const rollbackErrors = transaction ? rollback(transaction) : [];
+    let runtimeStable = true;
+    if (standaloneRuntimeInspection.present) {
+      try {
+        assertSameRuntimeDirectory(
+          standaloneRuntime,
+          standaloneRuntimeInspection.identity,
+          'standalone runtime'
+        );
+      } catch {
+        runtimeStable = false;
+      }
+    }
+    const rollbackErrors = transaction && runtimeStable ? rollback(transaction) : [];
     if (transaction) {
-      const cleanupWarning = cleanupTransaction(transaction);
-      if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+      if (runtimeStable) {
+        const cleanupWarning = cleanupTransaction(transaction);
+        if (cleanupWarning) rollbackErrors.push(cleanupWarning);
+      } else {
+        transaction.keepStage = true;
+        rollbackErrors.push(`standalone runtime identity changed; rollback skipped and quarantine retained at ${stageRoot}`);
+      }
     } else {
       try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
     }

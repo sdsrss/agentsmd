@@ -2,6 +2,15 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v4.24.0 (2026-07-27) — no spec changes (plugin runtime compatibility release)
+
+Core, OMX-compatible, and extended rule text, manifest rules, and every
+`section_anchor` are unchanged. The shared version moves with the package minor
+that adds OMX-aware plugin rehydration, observable plugin activation, guarded
+plugin/standalone coexistence, and physical-surface-private ephemeral runtime
+state with legacy dual-read compatibility. `spec_version` → v4.24.0. Detail:
+repository `CHANGELOG.md`.
+
 ## v4.23.0 (2026-07-26) — no spec changes (deploy-drift banner + plugin-uninstall fix)
 
 Core and extended rule text, the manifest rules, and every `section_anchor` are

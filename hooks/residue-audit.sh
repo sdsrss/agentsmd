@@ -20,10 +20,12 @@ EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 
 TMP_DIR="${CODEX_HOME:-$HOME/.codex}/tmp"
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
 # Per-session baseline so concurrent sessions don't clobber each other's tmp count
 # (a shared file made parallel runs report false residue growth against each other).
 BASELINE="$STATE_DIR/tmp-baseline-$(hook_session_key "$SID").txt"
+LEGACY_BASELINE="$LEGACY_STATE_DIR/tmp-baseline-$(hook_session_key "$SID").txt"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
 # Count immediate children of ~/.codex/tmp (depth 1; spec §8 forbids deep
@@ -32,7 +34,11 @@ NOW_COUNT=0
 [[ -d "$TMP_DIR" ]] && NOW_COUNT="$(find "$TMP_DIR" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
 
 PREV_COUNT=""
-[[ -r "$BASELINE" ]] && PREV_COUNT="$(cat "$BASELINE" 2>/dev/null)"
+if [[ -r "$BASELINE" ]]; then
+  PREV_COUNT="$(cat "$BASELINE" 2>/dev/null)"
+elif [[ "$LEGACY_BASELINE" != "$BASELINE" && -r "$LEGACY_BASELINE" ]]; then
+  PREV_COUNT="$(cat "$LEGACY_BASELINE" 2>/dev/null)"
+fi
 printf '%s' "$NOW_COUNT" > "$BASELINE" 2>/dev/null || true
 
 # First run (no baseline) → establish silently.

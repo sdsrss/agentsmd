@@ -28,10 +28,14 @@ SID="$(hook_json_field "$EVENT" '.session_id')"
 [[ -n "$SID" ]] || exit 0
 SKEY="$(hook_session_key "$SID")"
 
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
 LOG_FILE="${CODEX_HOME:-$HOME/.codex}/logs/agentsmd.jsonl"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 find "$STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' -mtime +30 -delete 2>/dev/null || true
+if [[ "$LEGACY_STATE_DIR" != "$STATE_DIR" ]]; then
+  find "$LEGACY_STATE_DIR" -maxdepth 1 -type f -name 'session-summary-*.json' -mtime +30 -delete 2>/dev/null || true
+fi
 [[ -r "$LOG_FILE" ]] || exit 0
 
 # Aggregate this session's enforcement rows from the 512 KiB log tail. A clean

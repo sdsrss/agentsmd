@@ -162,6 +162,26 @@ hook_missing_tool_context() {
 # protocol surfaces can see the plugin root, the losing physical hook copy
 # yields. Legacy standalone hooks remain non-cooperative and are reported by
 # status/doctor as non-exclusive.
+hook_current_surface() {
+  local home="${CODEX_HOME:-$HOME/.codex}"
+  local current_hooks="" plugin_hooks="" standalone_hooks=""
+  current_hooks="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)"
+  [[ -n "$current_hooks" ]] || { printf 'unknown'; return 0; }
+  if [[ -n "${PLUGIN_ROOT:-}" ]]; then
+    plugin_hooks="$(cd "$PLUGIN_ROOT/hooks" 2>/dev/null && pwd -P)"
+    if [[ -n "$plugin_hooks" && "$current_hooks" == "$plugin_hooks" ]]; then
+      printf 'plugin'
+      return 0
+    fi
+  fi
+  standalone_hooks="$(cd "$home/agentsmd/hooks" 2>/dev/null && pwd -P)"
+  if [[ -n "$standalone_hooks" && "$current_hooks" == "$standalone_hooks" ]]; then
+    printf 'standalone'
+    return 0
+  fi
+  printf 'unknown'
+}
+
 hook_plugin_shadowed_by_standalone() {
   [[ -n "${PLUGIN_ROOT:-}" ]] || return 1
   local home="${CODEX_HOME:-$HOME/.codex}"
@@ -181,13 +201,8 @@ hook_plugin_shadowed_by_standalone() {
   # Resolve which physical surface THIS hook copy was loaded from. CLAUDE_PLUGIN_ROOT
   # can be inherited by a globally registered standalone command, so only the copy
   # physically loaded from the plugin (or standalone) tree may act on the cache.
-  local current_hooks plugin_hooks standalone_hooks current_surface="unknown"
-  current_hooks="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)"
-  plugin_hooks="$(cd "$PLUGIN_ROOT/hooks" 2>/dev/null && pwd -P)"
-  standalone_hooks="$(cd "$home/agentsmd/hooks" 2>/dev/null && pwd -P)"
-  [[ -n "$current_hooks" ]] || return 1
-  [[ -n "$plugin_hooks" && "$current_hooks" == "$plugin_hooks" ]] && current_surface="plugin"
-  [[ -n "$standalone_hooks" && "$current_hooks" == "$standalone_hooks" ]] && current_surface="standalone"
+  local current_surface
+  current_surface="$(hook_current_surface)"
   [[ "$current_surface" != "unknown" ]] || return 1
 
   # Read the cache. ANY parse failure, unknown schema, plugin-root mismatch, or
@@ -285,11 +300,50 @@ hook_context() {
   exit 0
 }
 
-# hook_state_dir — echo (and ensure) agentsmd's state dir under the Codex home.
-hook_state_dir() {
+# hook_shared_state_dir — shared coordination state. Manifest and arbitration
+# cache intentionally stay here so both physical surfaces observe one decision.
+# Resolving the path is read-only: plugin legacy-fallback reads must not create an
+# otherwise absent shared root. Writers create their selected runtime explicitly.
+hook_shared_state_dir() {
   local d="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
-  mkdir -p "$d" 2>/dev/null || true
   printf '%s' "$d"
+}
+
+# hook_runtime_state_dir — surface-private short-lived state. Physical hook
+# location decides the surface; inherited plugin env alone is not authoritative.
+# Unknown/source-tree hooks and plugin hooks without a data path retain the
+# legacy shared-root fallback so older runtimes and test harnesses fail open.
+hook_runtime_state_dir() {
+  local surface plugin_data d
+  surface="$(hook_current_surface)"
+  plugin_data="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-}}"
+  case "$surface" in
+    plugin)
+      if [[ -n "$plugin_data" ]]; then d="$plugin_data/runtime"
+      else d="$(hook_shared_state_dir)"
+      fi
+      ;;
+    standalone) d="$(hook_shared_state_dir)/runtime" ;;
+    *) d="$(hook_shared_state_dir)" ;;
+  esac
+  mkdir -p "$d" 2>/dev/null || true
+  chmod 700 "$d" 2>/dev/null || true
+  printf '%s' "$d"
+}
+
+# Backward-compatible name for ephemeral hook state.
+hook_state_dir() {
+  hook_runtime_state_dir
+}
+
+# Print runtime first, then the legacy shared root when it is distinct. Readers
+# use this during the migration window; writers always target runtime only.
+hook_runtime_read_dirs() {
+  local runtime shared
+  runtime="$(hook_runtime_state_dir)"
+  shared="$(hook_shared_state_dir)"
+  printf '%s\n' "$runtime"
+  [[ "$runtime" != "$shared" ]] && printf '%s\n' "$shared"
 }
 
 hook_session_key() {
@@ -312,12 +366,27 @@ hook_advisory_file() {
   fi
 }
 
+hook_legacy_advisory_file() {
+  local key d
+  d="$(hook_shared_state_dir)"
+  key="$(hook_session_key "${1:-}")"
+  if [[ "$key" == "global" ]]; then
+    printf '%s/pending-advisories' "$d"
+  else
+    printf '%s/pending-advisories-%s' "$d" "$key"
+  fi
+}
+
 # hook_advisory_dir [SID] — per-session directory holding one file per queued
 # advisory. A directory (not a shared file) is what makes produce/consume atomic:
 # each message is created by temp-then-rename and claimed by rename, so a producer
 # and a consumer can never corrupt or drop each other's messages.
 hook_advisory_dir() {
   printf '%s.d' "$(hook_advisory_file "${1:-}")"
+}
+
+hook_legacy_advisory_dir() {
+  printf '%s.d' "$(hook_legacy_advisory_file "${1:-}")"
 }
 
 hook_find_memory_file() {
@@ -475,13 +544,18 @@ hook_observe() {
 hook_record_failopen() {
   [[ "${DISABLE_RULE_HITS_LOG:-0}" == "1" ]] && return 0
   local hook="${1:-unknown}" reason="${2:-unspecified}"
-  local state_dir="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+  local state_dir legacy_dir
+  state_dir="$(hook_runtime_state_dir)"
+  legacy_dir="$(hook_shared_state_dir)"
   mkdir -p "$state_dir" 2>/dev/null || return 0
   local stamp; stamp=$(printf '%s-%s' "$hook" "$reason" | tr '/. ' '___')
   local marker="$state_dir/failopen-${stamp}.ts"
+  local legacy_marker="$legacy_dir/failopen-${stamp}.ts"
   local now; now=$(date +%s 2>/dev/null) || return 0
-  if [[ -r "$marker" ]]; then
-    local last; last=$(cat "$marker" 2>/dev/null) || last=0; [[ -z "$last" ]] && last=0
+  local read_marker="$marker"
+  [[ -r "$read_marker" || "$legacy_marker" == "$marker" ]] || read_marker="$legacy_marker"
+  if [[ -r "$read_marker" ]]; then
+    local last; last=$(cat "$read_marker" 2>/dev/null) || last=0; [[ -z "$last" ]] && last=0
     (( now - last < 60 )) && return 0
   fi
   printf '%s' "$now" > "$marker" 2>/dev/null || return 0

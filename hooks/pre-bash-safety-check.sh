@@ -73,7 +73,10 @@ fi
 REMOTE_EXEC="$(printf '%s' "$SAFETY" | jq -r '.remoteExec // false')"
 REMOTE_KIND="same-tool"
 SKEY="$(hook_session_key "$SID")"
-REMOTE_STATE="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state/remote-downloads-$SKEY.paths"
+RUNTIME_STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
+REMOTE_STATE="$RUNTIME_STATE_DIR/remote-downloads-$SKEY.paths"
+LEGACY_REMOTE_STATE="$LEGACY_STATE_DIR/remote-downloads-$SKEY.paths"
 remember_remote_path() {
   local download_path="$1" resolved
   [[ -n "$download_path" && "$SKEY" != "global" ]] || return 0
@@ -82,8 +85,14 @@ remember_remote_path() {
   mkdir -p "$(dirname "$REMOTE_STATE")" 2>/dev/null || return 0
   grep -Fxq -- "$resolved" "$REMOTE_STATE" 2>/dev/null || printf '%s\n' "$resolved" >> "$REMOTE_STATE" 2>/dev/null || true
 }
-if [[ "$SKEY" != "global" && -r "$REMOTE_STATE" ]]; then
-  REMOTE_SNAPSHOT="$(cat "$REMOTE_STATE" 2>/dev/null)"
+if [[ "$SKEY" != "global" ]]; then
+  REMOTE_SNAPSHOT=""
+  if [[ -r "$REMOTE_STATE" ]]; then
+    REMOTE_SNAPSHOT+="$(cat "$REMOTE_STATE" 2>/dev/null)"$'\n'
+  fi
+  if [[ "$LEGACY_REMOTE_STATE" != "$REMOTE_STATE" && -r "$LEGACY_REMOTE_STATE" ]]; then
+    REMOTE_SNAPSHOT+="$(cat "$LEGACY_REMOTE_STATE" 2>/dev/null)"$'\n'
+  fi
   while IFS= read -r remote_path; do
     [[ -n "$remote_path" && -f "$remote_path" ]] || continue
     if [[ "$(printf '%s' "$CMD" | node "$LIB_DIR/command-parse.js" --stdin --executes-file "$remote_path" "$CWD" 2>/dev/null)" == "true" ]]; then

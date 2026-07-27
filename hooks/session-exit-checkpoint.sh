@@ -40,8 +40,10 @@ TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 [[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || exit 0
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
 
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
 FLAG="$STATE_DIR/unvalidated-$SKEY.flag"
+LEGACY_FLAG="$LEGACY_STATE_DIR/unvalidated-$SKEY.flag"
 
 # Walk the transcript tail (512 KiB — the current turn lives at the end; caps the
 # per-Stop cost at O(1), not O(transcript)). Since the last user turn: count
@@ -129,7 +131,7 @@ if [[ "$MUT" -gt 0 && "$VAL" == "0" ]]; then
   # Mutated without validating. Record telemetry ONCE per streak — only on the
   # absent→present transition — so the ledger gets one row per unvalidated streak,
   # not one per turn (which would flood §7-session-exit with mid-work edits).
-  if [[ ! -f "$FLAG" ]]; then
+  if [[ ! -f "$FLAG" && ( "$LEGACY_FLAG" == "$FLAG" || ! -f "$LEGACY_FLAG" ) ]]; then
     hook_record "$HOOK" "advisory" \
       "$(jq -cn --argjson n "$MUT" --arg cwd "$CWD" '{mutations:$n,cwd:$cwd}' 2>/dev/null || echo null)" \
       '§7-session-exit' "$SID"
@@ -139,5 +141,6 @@ if [[ "$MUT" -gt 0 && "$VAL" == "0" ]]; then
 else
   # Validated this turn (or nothing mutated) → clear any outstanding flag.
   rm -f "$FLAG" 2>/dev/null || true
+  [[ "$LEGACY_FLAG" == "$FLAG" ]] || rm -f "$LEGACY_FLAG" 2>/dev/null || true
 fi
 exit 0

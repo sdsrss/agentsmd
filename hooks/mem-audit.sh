@@ -38,12 +38,16 @@ MEMFILE="$(hook_find_memory_file "$CWD" 2>/dev/null || true)"
 # Debounce: one audit per memory-dir per 24h. The stamp's mtime IS the clock (no
 # stored epoch). Keyed by a cksum of the resolved path so per-project dirs debounce
 # independently; a dir untouched >7d has its stamp GC'd by session-start-check.sh.
-STATE_DIR="${CODEX_HOME:-$HOME/.codex}/.agentsmd-state"
+STATE_DIR="$(hook_runtime_state_dir)"
+LEGACY_STATE_DIR="$(hook_shared_state_dir)"
 HASH="$(printf '%s' "$MEMFILE" | cksum | cut -d' ' -f1)"
 STAMP="$STATE_DIR/mem-audit-$HASH.stamp"
+LEGACY_STAMP="$LEGACY_STATE_DIR/mem-audit-$HASH.stamp"
+READ_STAMP="$STAMP"
+[[ -f "$READ_STAMP" || "$LEGACY_STAMP" == "$STAMP" ]] || READ_STAMP="$LEGACY_STAMP"
 # find prints the path only when the mtime test holds → non-empty = "scanned <24h
 # ago, stay quiet". -maxdepth 0 applies the test to the named file itself.
-if [[ -f "$STAMP" ]] && [[ -n "$(find "$STAMP" -maxdepth 0 -mmin -1440 2>/dev/null)" ]]; then
+if [[ -f "$READ_STAMP" ]] && [[ -n "$(find "$READ_STAMP" -maxdepth 0 -mmin -1440 2>/dev/null)" ]]; then
   exit 0
 fi
 

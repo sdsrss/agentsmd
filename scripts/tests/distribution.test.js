@@ -649,17 +649,24 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
 
   const pluginHome = path.join(dir, 'plugin-home');
   const pluginState = path.join(pluginHome, '.agentsmd-state');
+  const pluginData = path.join(dir, 'plugin-data');
+  const pluginRuntime = path.join(pluginData, 'runtime');
   fs.mkdirSync(pluginState, { recursive: true });
+  fs.mkdirSync(pluginRuntime, { recursive: true });
   fs.writeFileSync(path.join(pluginHome, 'hooks.json'), '{ unrelated malformed shared config\n');
-  fs.writeFileSync(path.join(pluginState, 'session-start-package.ref'), '');
+  fs.writeFileSync(path.join(pluginRuntime, 'session-start-package.ref'), '');
+  fs.writeFileSync(path.join(pluginState, 'session-start-legacy.ref'), '');
+  fs.writeFileSync(path.join(pluginState, 'arbitration-cache.json'), '{"shared":true}');
   fs.writeFileSync(path.join(pluginState, 'foreign-package.txt'), 'keep');
   const pluginCleanup = cp.execFileSync(binLink, ['uninstall', '--plugin-state-only'], {
-    env: { ...process.env, CODEX_HOME: pluginHome },
+    env: { ...process.env, CODEX_HOME: pluginHome, PLUGIN_DATA: pluginData },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   assert.match(pluginCleanup, /agentsmd plugin state removed:/);
-  assert(!fs.existsSync(path.join(pluginState, 'session-start-package.ref')));
+  assert(!fs.existsSync(path.join(pluginRuntime, 'session-start-package.ref')));
+  assert(fs.existsSync(path.join(pluginState, 'session-start-legacy.ref')));
+  assert(fs.existsSync(path.join(pluginState, 'arbitration-cache.json')));
   assert.strictEqual(fs.readFileSync(path.join(pluginState, 'foreign-package.txt'), 'utf8'), 'keep');
   assert.strictEqual(fs.readFileSync(path.join(pluginHome, 'hooks.json'), 'utf8'), '{ unrelated malformed shared config\n');
 

@@ -422,11 +422,94 @@ withSandbox((dir) => {
   const { install, uninstall } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   const foreign = path.join(dir, '.agentsmd-state', 'foreign.txt');
+  const runtime = path.join(dir, '.agentsmd-state', 'runtime');
+  const runtimeForeign = path.join(runtime, 'foreign-runtime.txt');
+  const runtimeOwned = path.join(runtime, 'session-start-owned.ref');
+  fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(foreign, 'foreign state\n');
+  fs.writeFileSync(runtimeForeign, 'foreign runtime state\n');
+  fs.writeFileSync(runtimeOwned, '');
   uninstall();
   t('uninstall removes owned state but preserves unknown state files', () => {
     assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'foreign state\n');
+    assert.strictEqual(fs.readFileSync(runtimeForeign, 'utf8'), 'foreign runtime state\n');
+    assert(!fs.existsSync(runtimeOwned));
     assert(!fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const runtime = path.join(dir, '.agentsmd-state', 'runtime');
+  const parkedRuntime = path.join(dir, '.agentsmd-state', 'runtime-before-swap');
+  const externalRuntime = path.join(dir, 'external-runtime');
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.mkdirSync(externalRuntime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, 'session-start-a.ref'), 'original-a');
+  fs.writeFileSync(path.join(runtime, 'session-start-b.ref'), 'original-b');
+
+  const F = require('../lib/fs-atomic');
+  const realUnlink = F.unlinkFileIfUnchanged;
+  let swapped = false;
+  F.unlinkFileIfUnchanged = (file, expected) => {
+    const result = realUnlink(file, expected);
+    if (!swapped && path.dirname(path.resolve(String(file))) === path.resolve(runtime)) {
+      swapped = true;
+      fs.renameSync(runtime, parkedRuntime);
+      fs.symlinkSync(externalRuntime, runtime);
+    }
+    return result;
+  };
+  let error;
+  try {
+    uninstall();
+  } catch (caught) {
+    error = caught;
+  } finally {
+    F.unlinkFileIfUnchanged = realUnlink;
+  }
+  t('standalone uninstall skips rollback through a concurrently replaced runtime', () => {
+    assert(error && /standalone runtime changed concurrently/.test(error.message));
+    assert.match(error.message, /rollback skipped and quarantine retained/);
+    assert.deepStrictEqual(fs.readdirSync(externalRuntime), []);
+    assert.ok(fs.existsSync(parkedRuntime));
+    assert.ok(fs.existsSync(path.join(dir, '.agentsmd-lifecycle-journal.json')));
+    assert(
+      fs.readdirSync(dir).some((name) => name.startsWith('.agentsmd-uninstall-stage-')),
+      'transaction quarantine was not retained'
+    );
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const runtime = path.join(dir, '.agentsmd-state', 'runtime');
+  const externalRuntime = path.join(dir, 'external-runtime');
+  fs.mkdirSync(externalRuntime, { recursive: true });
+  const externalState = path.join(externalRuntime, 'session-start-external.ref');
+  fs.writeFileSync(externalState, 'keep');
+  fs.symlinkSync(externalRuntime, runtime);
+  t('standalone uninstall refuses a symlinked runtime directory', () => {
+    assert.throws(() => uninstall(), /standalone runtime is not a plain directory/);
+    assert.strictEqual(fs.readFileSync(externalState, 'utf8'), 'keep');
+    assert.ok(fs.lstatSync(runtime).isSymbolicLink());
+    assert.ok(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const runtime = path.join(dir, '.agentsmd-state', 'runtime');
+  fs.mkdirSync(path.join(runtime, 'pending-advisories-owned.d'), { recursive: true });
+  fs.writeFileSync(path.join(runtime, 'pending-advisories-owned.d', '1'), 'owned');
+  fs.writeFileSync(path.join(runtime, 'session-start-owned.ref'), '');
+  const result = uninstall();
+  t('uninstall removes known state from an exclusively-owned standalone runtime', () => {
+    assert.strictEqual(result.stateDirRemoved, false, 'retained recovery backups keep the shared state root');
+    assert.deepStrictEqual(fs.readdirSync(runtime), []);
   });
 });
 

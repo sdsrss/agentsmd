@@ -60,6 +60,16 @@ response, or that every plugin hook was trusted or executed. The runtime
 resolves the official `PLUGIN_ROOT` first, then the compatibility
 `CLAUDE_PLUGIN_ROOT`; conflicting roots fail plugin health closed.
 
+Short-lived hook state follows the physical hook surface, not inherited
+environment variables alone. Plugin hooks write under `PLUGIN_DATA/runtime`
+(falling back to `CLAUDE_PLUGIN_DATA`); standalone hooks write under
+`$CODEX_HOME/.agentsmd-state/runtime`. During migration, readers also consume
+legacy ephemeral files from `$CODEX_HOME/.agentsmd-state`, while all new writes
+use the private runtime. The standalone manifest, surface-arbitration cache, and
+telemetry remain shared coordination/operator data. `status` merges summaries
+from private and legacy stores and prefers the plugin-private copy when the same
+logical filename exists in both.
+
 Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
 ### Full standalone installation
@@ -293,7 +303,7 @@ Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HO
 codex plugin marketplace upgrade agentsmd --json
 codex plugin add agentsmd --marketplace agentsmd --json
 
-# uninstall — clear agentsmd's runtime state FIRST, while the tooling still exists
+# uninstall — request private-state cleanup FIRST, while the tooling still exists
 AGENTSMD_PLUGIN_VERSION="$(codex plugin list --json | jq -er '.installed[] | select(.pluginId == "agentsmd@agentsmd") | .version')"
 node "${CODEX_HOME:-$HOME/.codex}/plugins/cache/agentsmd/agentsmd/$AGENTSMD_PLUGIN_VERSION/scripts/uninstall.js" --plugin-state-only
 codex plugin remove agentsmd --marketplace agentsmd --json
@@ -302,17 +312,17 @@ codex plugin marketplace remove agentsmd --json
 
 Start a new Codex session after a plugin update and review any changed hook commands again.
 
-Order matters on uninstall. The plugin's hooks write session state to
-`$CODEX_HOME/.agentsmd-state/` and telemetry to `$CODEX_HOME/logs/agentsmd.jsonl`;
-`codex plugin remove` deletes the plugin cache — including the uninstaller that
-clears them — so run the uninstaller first. It removes only agentsmd-owned state
-(another tenant's file in that directory is preserved, and keeps the directory),
-and `--plugin-state-only` never removes or edits a coexisting standalone install;
-when a standalone manifest exists, ambiguously shared runtime state is preserved.
-It retains the telemetry log as your data and prints its exact path. If you already
-removed the plugin, install it again, run the packaged uninstaller above, and
-then remove it again. Do not recursively delete `.agentsmd-state`: another
-tenant may own files there, and the telemetry log is intentionally retained.
+Order matters because `codex plugin remove` deletes the plugin cache, including
+the packaged cleanup tool. Run it first: when `PLUGIN_DATA` (or its compatibility
+alias) is available, `--plugin-state-only` removes only allowlisted files under
+that plugin's private `runtime` directory. Unknown files, symlinks, all legacy
+shared state, a coexisting standalone install, and
+`$CODEX_HOME/logs/agentsmd.jsonl` are preserved. If no plugin-data path is
+available, it reports `stateCleanupSkipped: "plugin-data-unavailable"` and makes
+no shared-state mutation. Old shared ephemeral records remain readable during
+the migration window and expire through their normal bounded retention; do not
+recursively delete `.agentsmd-state`, because it contains shared coordination
+and may contain another tenant's files.
 
 ### Standalone or npm
 
