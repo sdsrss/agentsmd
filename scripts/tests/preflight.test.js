@@ -29,6 +29,7 @@ const STATUS = path.join(ROOT, 'scripts', 'status.js');
 const DOCTOR = path.join(ROOT, 'scripts', 'doctor.js');
 const PF = require('../lib/preflight');
 const TG = require('../lib/tool-guidance');
+const CODEX_FIXTURE = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'codex');
 
 // A PATH with node but no jq. node is a symlink to the running binary.
 const noJqBin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-nojq.'));
@@ -61,7 +62,12 @@ function fingerprint(dir) {
 
 const runChild = (script, args, env) => cp.spawnSync(process.execPath, [script, ...args], {
   encoding: 'utf8',
-  env: { HOME: os.homedir(), CODEX_HOME: SANDBOX, ...env },
+  env: {
+    HOME: os.homedir(),
+    CODEX_HOME: SANDBOX,
+    AGENTSMD_CODEX_BIN: CODEX_FIXTURE,
+    ...env,
+  },
 });
 
 t('unit: checkPrerequisites flags jq when PATH lacks it, passes when present', () => {
@@ -74,6 +80,44 @@ t('unit: checkPrerequisites flags jq when PATH lacks it, passes when present', (
   } finally { process.env.PATH = prevPath; }
   const ok = PF.checkPrerequisites();
   assert.strictEqual(ok.ok, true, JSON.stringify(ok.missing));
+});
+
+t('unit: plugin guard recognizes only the exact installed and enabled agentsmd plugin', () => {
+  const base = {
+    ...process.env,
+    AGENTSMD_CODEX_BIN: CODEX_FIXTURE,
+  };
+  const inspect = (installed) => PF.inspectInstalledAgentsmdPlugin({
+    ...base,
+    AGENTSMD_TEST_PLUGIN_LIST_JSON: JSON.stringify({ installed, available: [] }),
+  });
+  const exact = {
+    pluginId: 'agentsmd@agentsmd',
+    installed: true,
+    enabled: true,
+    version: '4.24.0',
+  };
+  assert.strictEqual(inspect([exact]).state, 'installed');
+  assert.strictEqual(inspect([{ ...exact, enabled: false }]).state, 'absent');
+  assert.strictEqual(inspect([{ ...exact, installed: false }]).state, 'absent');
+  assert.strictEqual(inspect([{ pluginId: exact.pluginId, enabled: true }]).state, 'absent');
+  assert.strictEqual(inspect([{ pluginId: exact.pluginId, installed: true }]).state, 'absent');
+  assert.strictEqual(inspect([{ ...exact, pluginId: 'agentsmd-plus@agentsmd' }]).state, 'absent');
+});
+
+t('unit: unavailable or unrecognized plugin-list output stays unknown and does not invent presence', () => {
+  const failed = PF.inspectInstalledAgentsmdPlugin({
+    ...process.env,
+    AGENTSMD_CODEX_BIN: CODEX_FIXTURE,
+    AGENTSMD_TEST_PLUGIN_LIST_STATUS: '1',
+  });
+  assert.strictEqual(failed.state, 'unavailable');
+  const malformed = PF.inspectInstalledAgentsmdPlugin({
+    ...process.env,
+    AGENTSMD_CODEX_BIN: CODEX_FIXTURE,
+    AGENTSMD_TEST_PLUGIN_LIST_JSON: '{"plugins":[]}',
+  });
+  assert.strictEqual(malformed.state, 'unavailable');
 });
 
 t('unit: manual install guidance selects the host package manager', () => {
@@ -153,7 +197,13 @@ t('env opt-in AGENTSMD_ALLOW_DEGRADED=1 equals --degraded', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-preflight-env.'));
   const r = cp.spawnSync(process.execPath, [INSTALL], {
     encoding: 'utf8',
-    env: { HOME: os.homedir(), CODEX_HOME: dir, PATH: noJqBin, AGENTSMD_ALLOW_DEGRADED: '1' },
+    env: {
+      HOME: os.homedir(),
+      CODEX_HOME: dir,
+      PATH: noJqBin,
+      AGENTSMD_ALLOW_DEGRADED: '1',
+      AGENTSMD_CODEX_BIN: CODEX_FIXTURE,
+    },
   });
   assert.strictEqual(r.status, 0, r.stderr);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.agentsmd-state', 'manifest.json'), 'utf8'));

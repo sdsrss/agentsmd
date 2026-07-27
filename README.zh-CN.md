@@ -46,6 +46,15 @@ Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plug
 
 > 插件通过 Codex plugin cache 提供 hooks、skills 和规范。每次可信的 `SessionStart`（`startup`、`resume`、`clear`、`compact`）都会读取当前生效的全局规范（`AGENTS.override.md` 优先，否则 `AGENTS.md`）：精确命中 OMX 生成标记时加载较小的 `spec/AGENTS-omx.md` 兼容 overlay，否则加载完整 `spec/AGENTS.md`；兼容文件缺失、不可读或版本不一致时回退完整版。Hook 同时给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
 
+插件自己的 SessionStart 成功后，会在
+`PLUGIN_DATA/runtime/activation.json` 写入私有激活凭据，并兼容回退到
+`CLAUDE_PLUGIN_DATA`。`status`/`doctor` 将它与静态 bundle 健康分开报告为
+`observed` 或 `unverified`。`observed` 只证明 SessionStart handler 已按记录选择
+profile 并准备把它放入响应；它不能证明 Codex 已接纳该响应，也不代表所有 plugin
+hooks 都已被信任或执行。运行时优先解析官方
+`PLUGIN_ROOT`，再兼容 `CLAUDE_PLUGIN_ROOT`；两者指向不同 bundle 时健康检查
+fail closed。
+
 插件与 standalone 是两种安装面，建议只选一种。双面进程先验证 manifest-backed standalone 完整性，再比较 SemVer：健康的同版/新版 standalone 胜出并让 protocol-v1 plugin hooks 退出；缺失、manifest 损坏、artifact 损坏、hooks 被禁用/错接、core 内容不一致或版本较旧的 standalone 不能遮蔽健康 plugin。`status` 在不改变既有 standalone 字段语义的前提下新增 `selectedSurface` 和稳定的 `surfaceArbitration`。`doctor` 把任何 manifest-backed 双面都保留为要求清理的红色状态，即使 protocol-v1 fixture 已证明其中一份 hook 会退出。新版 plugin 无法关闭旧 standalone 已注册的命令，也无法移除 SessionStart 前已进入 discovery context 的旧 global core；逻辑选择 plugin 只会加入 packaged core，不能证明它是唯一 policy/hook。需要 update/uninstall 旧面才能消除这个不协作边界。
 
 ### 完整 standalone 安装
@@ -100,6 +109,15 @@ agentsmd doctor
 ```bash
 npx --package @sdsrs/agentsmd agentsmd install
 ```
+
+首次通过 npm CLI 安装 standalone 前，会先只读检查
+`codex plugin list --json`。若精确发现已安装且启用的
+`agentsmd@agentsmd` plugin，命令成功退出且不修改 `$CODEX_HOME`，从源头避免
+重复 policy/hook surface；既有 standalone 仍可正常 update。仅高级恢复场景可
+用 `--allow-dual-surface` 显式保留两套 surface。若存在丢失 manifest 的 partial
+standalone，guard 不会掩盖它，而是保留原有 fail-closed 恢复诊断；`doctor` 仍会把双面报告为待清理
+状态。已经审查并直接运行专用 `install.sh` 本身就是明确选择 standalone，因此
+会继续安装。
 
 直接运行 `agentsmd` 只打印帮助，不写入文件。退出码统一为：`0` 表示成功/帮助，`1` 表示负面结果或运行时失败，`2` 表示 argv/usage 错误。
 

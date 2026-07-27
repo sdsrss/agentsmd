@@ -456,7 +456,9 @@ case "$ACTION" in
     # Prerequisites (jq, node >= 18) gate inside install.js's shared preflight
     # (R1-03): a miss aborts BEFORE any $CODEX_HOME byte changes. --degraded is
     # the explicit opt-in for a NON-ENFORCING install (manifest enforcement:false).
-    run_node_script "$src" install.js ${DEGRADED_MODE:+--degraded}
+    # Reaching this dedicated standalone installer is already an explicit
+    # surface choice, so bypass the npm-CLI accidental-dual guard.
+    run_node_script "$src" install.js --allow-dual-surface ${DEGRADED_MODE:+--degraded}
     say ""
     say "Verifying install (doctor):"
     if run_node_script "$src" doctor.js; then

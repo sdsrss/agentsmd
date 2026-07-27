@@ -62,6 +62,146 @@ const withSandbox = (fn) => {
   }
 };
 
+const withInstalledPlugin = (fn) => {
+  const previousJson = process.env.AGENTSMD_TEST_PLUGIN_LIST_JSON;
+  const previousBin = process.env.AGENTSMD_CODEX_BIN;
+  process.env.AGENTSMD_CODEX_BIN = path.join(__dirname, 'fixtures', 'codex');
+  process.env.AGENTSMD_TEST_PLUGIN_LIST_JSON = JSON.stringify({
+    installed: [{
+      pluginId: 'agentsmd@agentsmd',
+      name: 'agentsmd',
+      marketplaceName: 'agentsmd',
+      version: '4.24.0',
+      installed: true,
+      enabled: true,
+    }],
+    available: [],
+  });
+  try { return fn(); } finally {
+    if (previousJson === undefined) delete process.env.AGENTSMD_TEST_PLUGIN_LIST_JSON;
+    else process.env.AGENTSMD_TEST_PLUGIN_LIST_JSON = previousJson;
+    if (previousBin === undefined) delete process.env.AGENTSMD_CODEX_BIN;
+    else process.env.AGENTSMD_CODEX_BIN = previousBin;
+  }
+};
+
+// ── 0. plugin-first guard: avoid creating an accidental second surface ─────
+withSandbox((dir) => {
+  const { install } = loadModules();
+  const result = withInstalledPlugin(() => install(
+    '2026-07-02T00:00:00.000Z',
+    { pluginGuard: true }
+  ));
+  t('fresh standalone install skips with zero mutation when the agentsmd plugin is active', () => {
+    assert.strictEqual(result.skipped, true);
+    assert.strictEqual(result.reason, 'plugin-installed');
+    assert.deepStrictEqual(fs.readdirSync(dir), []);
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  const result = withInstalledPlugin(() => install(
+    '2026-07-02T00:00:00.000Z',
+    { allowDualSurface: true, pluginGuard: true }
+  ));
+  t('explicit standalone override creates the standalone surface beside the plugin', () => {
+    assert.strictEqual(result.name, 'agentsmd');
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const result = withInstalledPlugin(() => install(
+    '2026-07-03T00:00:00.000Z',
+    { pluginGuard: true }
+  ));
+  t('an existing standalone remains updateable when the plugin is also installed', () => {
+    assert.strictEqual(result.skipped, undefined);
+    assert.strictEqual(result.installedAt, '2026-07-03T00:00:00.000Z');
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  const result = withInstalledPlugin(() => install('2026-07-02T00:00:00.000Z'));
+  t('the shared installer API remains explicit standalone and does not inherit the npm CLI guard', () => {
+    assert.strictEqual(result.skipped, undefined);
+    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+  });
+});
+
+withSandbox((dir) => {
+  const { install } = loadModules();
+  const F = require('../lib/fs-atomic');
+  install('2026-07-02T00:00:00.000Z');
+  fs.unlinkSync(path.join(dir, '.agentsmd-state', 'manifest.json'));
+  const before = F.sha256Tree(dir);
+  t('active plugin does not hide or mutate a manifest-less standalone footprint', () => {
+    assert.throws(
+      () => withInstalledPlugin(() => install(
+        '2026-07-03T00:00:00.000Z',
+        { pluginGuard: true }
+      )),
+      /ownership collision|ownership cannot be verified/
+    );
+    assert.strictEqual(F.sha256Tree(dir), before);
+  });
+});
+
+withSandbox((dir) => {
+  const legacyCommand = `bash "${path.join(dir, 'codexmd', 'hooks', 'session-start-check.sh')}"`;
+  fs.writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify({
+    hooks: {
+      SessionStart: [{
+        matcher: 'startup',
+        hooks: [{ type: 'command', command: legacyCommand }],
+      }],
+    },
+  }, null, 2) + '\n');
+  fs.writeFileSync(
+    path.join(dir, 'AGENTS.md'),
+    '# User\n\n# >>> codexmd >>>\nlegacy policy\n# <<< codexmd <<<\n'
+  );
+  fs.mkdirSync(path.join(dir, 'codexmd', 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'codexmd', 'hooks', 'session-start-check.sh'), '#!/bin/sh\n');
+  const { install, H, M } = loadModules();
+  const result = withInstalledPlugin(() => install(
+    '2026-07-03T00:00:00.000Z',
+    { pluginGuard: true }
+  ));
+  t('active plugin does not hide a legacy codexmd surface that requires migration', () => {
+    assert.strictEqual(result.skipped, undefined);
+    assert.strictEqual(result.migratedFromCodexmd.detected, true);
+    assert.strictEqual(
+      H.removeMarkedHooks(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), M.isLegacyCommand).removed,
+      0
+    );
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /# >>> codexmd >>>/);
+  });
+});
+
+withSandbox((dir) => {
+  const foreignSkill = path.join(dir, 'skills', 'agentsmd-status');
+  fs.mkdirSync(foreignSkill, { recursive: true });
+  fs.writeFileSync(path.join(foreignSkill, 'SKILL.md'), 'foreign bytes\n');
+  const { install } = loadModules();
+  const F = require('../lib/fs-atomic');
+  const before = F.sha256Tree(dir);
+  t('active plugin does not hide a global skill collision', () => {
+    assert.throws(
+      () => withInstalledPlugin(() => install(
+        '2026-07-03T00:00:00.000Z',
+        { pluginGuard: true }
+      )),
+      /ownership collision/
+    );
+    assert.strictEqual(F.sha256Tree(dir), before);
+  });
+});
+
 // ── 1. install alongside OMX: agentsmd added, OMX preserved ──────────────────
 withSandbox((dir) => {
   fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());

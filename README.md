@@ -50,6 +50,16 @@ Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugin
 
 > The plugin bundle provides hooks, skills, and the specification through Codex's plugin cache. On every trusted `SessionStart` (`startup`, `resume`, `clear`, or `compact`), the hook reads the active global guidance (`AGENTS.override.md` else `AGENTS.md`). An exact OMX-generated marker selects the smaller `spec/AGENTS-omx.md` compatibility overlay; otherwise it injects the complete `spec/AGENTS.md`. Missing, unreadable, or version-divergent compatibility metadata falls back to the complete core. The hook also announces the actual extended-spec path. It does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or migrate a previous `codexmd` installation. Use standalone/npm when you need global files and the full lifecycle.
 
+After a successful plugin-owned SessionStart, agentsmd writes a private
+activation receipt under `PLUGIN_DATA/runtime/activation.json` (with
+`CLAUDE_PLUGIN_DATA` as a compatibility fallback). `status` and `doctor`
+report this separately from bundle health as `observed` or `unverified`.
+`observed` proves that the SessionStart handler selected and prepared the
+reported profile for its response; it cannot prove that Codex accepted that
+response, or that every plugin hook was trusted or executed. The runtime
+resolves the official `PLUGIN_ROOT` first, then the compatibility
+`CLAUDE_PLUGIN_ROOT`; conflicting roots fail plugin health closed.
+
 Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
 ### Full standalone installation
@@ -112,6 +122,17 @@ One-shot form without a global CLI:
 ```bash
 npx --package @sdsrs/agentsmd agentsmd install
 ```
+
+A fresh npm-CLI standalone install first checks
+`codex plugin list --json`. If the exact installed and enabled
+`agentsmd@agentsmd` plugin is present, it exits successfully without changing
+`$CODEX_HOME`, avoiding a duplicate policy/hook surface. Existing standalone
+installs remain updateable, while a manifest-less partial standalone footprint
+keeps the existing fail-closed recovery diagnostic instead of being hidden by
+the plugin guard. Advanced recovery setups can opt into both surfaces
+with `--allow-dual-surface`; `doctor` will continue to report the dual surface
+as a cleanup requirement. The dedicated reviewed `install.sh` path is already
+an explicit standalone choice and therefore proceeds.
 
 A bare `agentsmd` prints help and writes nothing. Exit codes are consistent: `0` = success/help, `1` = negative result or runtime failure, `2` = argv/usage error.
 

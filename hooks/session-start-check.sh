@@ -78,6 +78,49 @@ hook_require_jq || {
   exit 0
 }
 
+write_plugin_activation_receipt() {
+  local plugin_data="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-}}"
+  local plugin_version="$1" session_id="$2" profile="$3" profile_reason="$4" extended_path="$5"
+  local runtime_dir tmp_file observed_at
+  [[ -n "$plugin_data" && -n "$plugin_version" && -n "$session_id" && -n "$profile" \
+    && -n "$profile_reason" && -n "$extended_path" ]] || return 0
+  runtime_dir="$plugin_data/runtime"
+  mkdir -p "$runtime_dir" 2>/dev/null || return 0
+  chmod 700 "$runtime_dir" 2>/dev/null || true
+  tmp_file="$(mktemp "$runtime_dir/.activation.XXXXXX" 2>/dev/null)" || return 0
+  observed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)" || {
+    rm -f -- "$tmp_file" 2>/dev/null || true
+    return 0
+  }
+  if ! jq -cn \
+      --arg pluginVersion "$plugin_version" \
+      --arg sessionId "$session_id" \
+      --arg observedAt "$observed_at" \
+      --arg profile "$profile" \
+      --arg profileReason "$profile_reason" \
+      --arg extendedPath "$extended_path" \
+      '{
+        schemaVersion: 1,
+        pluginVersion: $pluginVersion,
+        sessionId: $sessionId,
+        observedAt: $observedAt,
+        profile: $profile,
+        profileReason: $profileReason,
+        extendedPath: $extendedPath
+      }' > "$tmp_file" 2>/dev/null; then
+    rm -f -- "$tmp_file" 2>/dev/null || true
+    return 0
+  fi
+  chmod 600 "$tmp_file" 2>/dev/null || {
+    rm -f -- "$tmp_file" 2>/dev/null || true
+    return 0
+  }
+  mv -f -- "$tmp_file" "$runtime_dir/activation.json" 2>/dev/null || {
+    rm -f -- "$tmp_file" 2>/dev/null || true
+    return 0
+  }
+}
+
 EVENT="$(hook_read_event)" || EVENT=""
 SID="$(hook_json_field "$EVENT" '.session_id')"
 EVENT_CWD="$(hook_json_field "$EVENT" '.cwd')"
@@ -228,6 +271,10 @@ else
   SPEC_ACTIVE=false
   SELECTED_SURFACE="none"
   SURFACE_CONTEXT=$'\n'"[agentsmd surface] plugin=context-unavailable; standalone=${VER}/healthy:unknown; selected=none; reason=arbitration-unavailable; exclusive=unknown."
+fi
+if [[ "$SELECTED_SURFACE" == "plugin" && "$SPEC_ACTIVE" == "true" ]]; then
+  write_plugin_activation_receipt \
+    "$PLUGIN_VERSION" "$SID" "$SPEC_PROFILE" "$PROFILE_REASON" "$PLUGIN_EXTENDED"
 fi
 
 # Cross-session §7 safety net: surface only EXPIRED (>7-day) non-self checkpoint

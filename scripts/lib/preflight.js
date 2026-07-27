@@ -42,6 +42,37 @@ function checkPrerequisites() {
   return { ok: missing.length === 0, missing };
 }
 
+// inspectInstalledAgentsmdPlugin() is a read-only guard against accidentally
+// creating a second delivery surface. The Codex registry is authoritative for
+// installation/enabled state; cache presence alone is not. An unavailable or
+// older CLI is reported as unknown so standalone remains usable.
+function inspectInstalledAgentsmdPlugin(env = process.env) {
+  const codex = typeof env.AGENTSMD_CODEX_BIN === 'string' && env.AGENTSMD_CODEX_BIN.trim()
+    ? env.AGENTSMD_CODEX_BIN.trim()
+    : 'codex';
+  const result = spawnSync(codex, ['plugin', 'list', '--json'], {
+    encoding: 'utf8',
+    env,
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.error || result.status !== 0) {
+    return { state: 'unavailable', plugin: null };
+  }
+  let parsed;
+  try { parsed = JSON.parse(result.stdout); }
+  catch { return { state: 'unavailable', plugin: null }; }
+  const installed = parsed && Array.isArray(parsed.installed) ? parsed.installed : null;
+  if (!installed) return { state: 'unavailable', plugin: null };
+  const plugin = installed.find((entry) => (
+    entry
+    && entry.pluginId === 'agentsmd@agentsmd'
+    && entry.installed === true
+    && entry.enabled === true
+  )) || null;
+  return { state: plugin ? 'installed' : 'absent', plugin };
+}
+
 // degradedOptIn(parsedBools) — true only on the EXPLICIT opt-ins.
 function degradedOptIn(bools) {
   if (bools && typeof bools.has === 'function' && bools.has('degraded')) return true;
@@ -56,4 +87,10 @@ function refusalMessage(missing) {
   return lines.join('\n');
 }
 
-module.exports = { checkPrerequisites, degradedOptIn, refusalMessage, REQUIRED_NODE_MAJOR };
+module.exports = {
+  checkPrerequisites,
+  inspectInstalledAgentsmdPlugin,
+  degradedOptIn,
+  refusalMessage,
+  REQUIRED_NODE_MAJOR,
+};

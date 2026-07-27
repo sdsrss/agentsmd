@@ -5,6 +5,23 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## v4.24.0 — 2026-07-27 — GitHub plugin installation hardening and OMX-aware rehydration (minor)
 
+### Plugin activation evidence and duplicate-surface prevention
+
+- A selected plugin SessionStart now writes a private, atomic activation receipt
+  under the official `PLUGIN_DATA` directory, with `CLAUDE_PLUGIN_DATA` as a
+  compatibility fallback. Status and doctor distinguish static bundle health
+  from `observed` or `unverified` SessionStart evidence and explicitly avoid
+  claiming that every hook was trusted or executed.
+- Runtime bundle resolution now prefers the official `PLUGIN_ROOT`, retains
+  `CLAUDE_PLUGIN_ROOT` and skill-resolved `AGENTSMD_PLUGIN_ROOT` compatibility,
+  and fails plugin health closed when those roots conflict.
+- A fresh npm-CLI standalone install now skips with zero `$CODEX_HOME` mutation
+  only when no active or partial standalone footprint exists and
+  `codex plugin list --json` proves the exact agentsmd plugin is installed and
+  enabled. Existing standalone installs remain updateable; manifest-less partial
+  installs retain fail-closed recovery diagnostics; advanced users can
+  explicitly opt into both surfaces with `--allow-dual-surface`.
+
 ### OMX-aware SessionStart rehydration
 
 - SessionStart now subscribes to `startup`, `resume`, `clear`, and `compact`, so

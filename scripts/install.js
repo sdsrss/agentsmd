@@ -241,7 +241,73 @@ function cleanupTransaction(transaction, stageRoot) {
   try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
 }
 
+function hasManifestlessStandaloneFootprint() {
+  let hooksRaw = '';
+  try {
+    hooksRaw = F.readFileOptional(P.hooksJsonPath(), 'utf8') || '';
+    if (H.countAgentsmdHooks(hooksRaw) > 0) return true;
+    if (H.removeMarkedHooks(hooksRaw, M.isLegacyCommand).removed > 0) return true;
+  } catch {
+    // Let the existing installer reject malformed shared hooks; a plugin guard
+    // must never hide an ownership or recovery diagnostic.
+    return true;
+  }
+  const agentsRaw = F.readFileOptional(P.agentsMdPath(), 'utf8');
+  if (AM.hasSpecBlock(agentsRaw)) return true;
+  if (AM.hasBlockBetween(agentsRaw, M.LEGACY_BEGIN, M.LEGACY_END)) return true;
+  if (F.pathExists(P.agentsExtendedMdPath())) return true;
+  if (F.pathExists(P.installDir()) && !S.isExactUninstalledShimTree(P.installDir())) return true;
+
+  const legacyManifest = path.join(P.codexHome(), '.codexmd-state', 'manifest.json');
+  const legacyRaw = F.readFileOptional(legacyManifest, 'utf8');
+  if (legacyRaw !== null) {
+    try {
+      const parsed = JSON.parse(legacyRaw);
+      if (parsed && parsed.name === 'codexmd') return true;
+    } catch {
+      // A malformed former-install manifest must reach migration/ownership
+      // diagnostics instead of being hidden by a successful plugin skip.
+      return true;
+    }
+  }
+
+  const packagedSkills = path.join(P.repoRoot(), 'skills');
+  try {
+    for (const entry of fs.readdirSync(packagedSkills, { withFileTypes: true })) {
+      if (entry.isDirectory()
+          && entry.name.startsWith('agentsmd-')
+          && F.pathExists(path.join(P.codexSkillsDir(), entry.name))) return true;
+    }
+  } catch {
+    // Source validation later provides the actionable error.
+    return true;
+  }
+  return false;
+}
+
 function install(nowIso, options = {}) {
+  // Plugin-first UX: a fresh standalone install beside an already-enabled
+  // agentsmd plugin creates duplicate hooks and policy surfaces that no runtime
+  // can prove exactly-once. Existing standalone installs remain updateable, and
+  // callers can explicitly request the recovery/advanced standalone surface.
+  if (options.pluginGuard === true
+      && !options.repair
+      && options.allowDualSurface !== true
+      && !F.pathExists(P.manifestPath())
+      && !hasManifestlessStandaloneFootprint()) {
+    const plugin = PF.inspectInstalledAgentsmdPlugin();
+    if (plugin.state === 'installed') {
+      let version = null;
+      try { version = require('../package.json').version || null; } catch {}
+      return {
+        name: 'agentsmd',
+        version,
+        skipped: true,
+        reason: 'plugin-installed',
+        plugin: plugin.plugin,
+      };
+    }
+  }
   // R1-03: prerequisites gate BEFORE any mutation — including the staging dir,
   // which lives inside $CODEX_HOME. A missing prerequisite without the explicit
   // --degraded opt-in must leave every byte of $CODEX_HOME untouched. The check
@@ -527,7 +593,7 @@ function tightenPrivateArtifacts() {
 
 function installUsage(command = 'install') {
   return [
-  `Usage: agentsmd ${command} [--json] [--degraded]`,
+  `Usage: agentsmd ${command} [--json] [--degraded] [--allow-dual-surface]`,
   '',
   'Install or update agentsmd in $CODEX_HOME.',
   '',
@@ -540,6 +606,9 @@ function installUsage(command = 'install') {
   '               Hooks FAIL OPEN (no §8 enforcement); the manifest records',
   '               enforcement:false and status/doctor warn until a healthy',
   `               \`agentsmd update\`. Env equivalent: AGENTSMD_ALLOW_DEGRADED=1.`,
+  '  --allow-dual-surface',
+  '               Explicitly create a standalone surface even when the agentsmd',
+  '               Codex plugin is already installed and enabled.',
   '  -h, --help   Show this help without changing any files.',
   ].join('\n');
 }
@@ -547,25 +616,33 @@ function installUsage(command = 'install') {
 const INSTALL_USAGE = installUsage();
 
 if (require.main === module) {
-  const command = process.env.AGENTSMD_CLI_COMMAND === 'update' ? 'update' : 'install';
+  const dispatchedCommand = process.env.AGENTSMD_CLI_COMMAND;
+  const command = dispatchedCommand === 'update' ? 'update' : 'install';
   const usage = installUsage(command);
   const argv = process.argv.slice(2);
   printHelpAndExit(argv, usage);
   let parsed;
-  try { parsed = parseStrict(argv, { bools: ['json', 'degraded'] }); }
+  try { parsed = parseStrict(argv, { bools: ['json', 'degraded', 'allow-dual-surface'] }); }
   catch (error) {
     console.error(`agentsmd ${command}: ${error.message}`);
     console.error(usage);
     process.exit(2);
   }
   try {
-    const manifest = install(null, { degraded: PF.degradedOptIn(parsed.bools) });
+    const manifest = install(null, {
+      degraded: PF.degradedOptIn(parsed.bools),
+      allowDualSurface: parsed.bools.has('allow-dual-surface'),
+      pluginGuard: dispatchedCommand === 'install' || dispatchedCommand === 'update',
+    });
     if (parsed.bools.has('json')) console.log(JSON.stringify(manifest, null, 2));
+    else if (manifest.skipped === true && manifest.reason === 'plugin-installed') {
+      console.log('agentsmd standalone install skipped: the agentsmd Codex plugin is already installed and enabled. Use --allow-dual-surface only when you intentionally need a second delivery surface.');
+    }
     else console.log(`agentsmd installed: v${manifest.version || 'unknown'}, ${manifest.hookCount} hooks, ${manifest.installedSkills.length} skills (backup ${manifest.backup})`);
-    if (manifest.enforcement === false) {
+    if (manifest.skipped !== true && manifest.enforcement === false) {
       console.error(`WARNING: degraded install — missing: ${manifest.missingPrerequisites.join(', ')}. Hooks FAIL OPEN (no §8 enforcement). Install the prerequisites and run \`agentsmd update\` to restore enforcement.`);
     }
   } catch (error) { console.error(`agentsmd ${command} failed:`, error.message); process.exit(1); }
 }
 
-module.exports = { install, installUsage, INSTALL_USAGE };
+module.exports = { hasManifestlessStandaloneFootprint, install, installUsage, INSTALL_USAGE };

@@ -170,6 +170,7 @@ function doctor() {
   if (pluginBundle.detected && arbitration.selection.selected !== 'standalone') {
     const dualSurface = surfaceStatus.dualSurface;
     const standaloneCandidate = arbitration.candidates.standalone;
+    const pluginActivation = surfaceStatus.pluginActivation;
     add(
       'plugin manifest selects ./hooks.json',
       pluginBundle.manifest.valid,
@@ -212,6 +213,13 @@ function doctor() {
       pluginBundle.spec.extended ? 'spec/AGENTS-extended.md' : 'missing spec/AGENTS-extended.md'
     );
     add(
+      'plugin SessionStart activation',
+      true,
+      pluginActivation.observed
+        ? `observed at ${pluginActivation.receipt.observedAt}; session=${pluginActivation.receipt.sessionId}; profile=${pluginActivation.receipt.profile}; reason=${pluginActivation.receipt.profileReason}; extended=${pluginActivation.receipt.extendedPath}; this proves the SessionStart handler reached profile preparation only, not that Codex accepted the response or that every plugin hook was trusted or executed`
+        : `unverified (${pluginActivation.reason}) — no SessionStart receipt was observed; review the agentsmd hooks, then start a new session`
+    );
+    add(
       'dual surface absent',
       !dualSurface,
       dualSurface
@@ -246,6 +254,7 @@ function doctor() {
       surface: 'plugin',
       selectedSurface: arbitration.selection.selected,
       dualSurface,
+      pluginActivation,
       surfaceArbitration: arbitration,
       checks,
     };

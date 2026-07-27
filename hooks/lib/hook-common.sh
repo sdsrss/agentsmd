@@ -7,10 +7,11 @@
 # {hookEventName, additionalContext}}. This DIFFERS from Claude Code, which uses
 # hookSpecificOutput.permissionDecision:"deny" — the one porting delta.
 
-# Codex exposes the active plugin bundle through CLAUDE_PLUGIN_ROOT. Keep the
-# shorter name internal so standalone hooks remain root-agnostic and existing
-# fixture injection stays compatible.
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+# Codex exposes the active plugin bundle through PLUGIN_ROOT. Older runtimes
+# provide the compatibility alias CLAUDE_PLUGIN_ROOT. Keep one internal name so
+# standalone hooks remain root-agnostic without allowing the compatibility
+# alias to override the official runtime value when both are present.
+PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 # platform.sh provides the portable stat/timeout helpers the cache-gated surface
 # check (and SessionStart's bounded inspector run) rely on. Fail open if it is

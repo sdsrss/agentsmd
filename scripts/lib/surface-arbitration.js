@@ -22,6 +22,7 @@ const CONFIG_PARSE_CACHE = new Map();
 // lockstep with the AGENTSMD_ARBITRATION_CACHE_SCHEMA constant in
 // hooks/lib/hook-common.sh whenever the payload shape changes.
 const ARBITRATION_CACHE_SCHEMA = 1;
+const ACTIVATION_RECEIPT_SCHEMA = 1;
 
 const PLUGIN_HOOK_SUPPORT = [
   'hooks/banned-vocab.patterns',
@@ -240,18 +241,103 @@ function expectedPluginHookRows() {
 }
 
 function pluginRootFromEnv(env = process.env) {
-  const runtime = typeof env.CLAUDE_PLUGIN_ROOT === 'string' ? env.CLAUDE_PLUGIN_ROOT.trim() : '';
-  const compatibility = typeof env.AGENTSMD_PLUGIN_ROOT === 'string' ? env.AGENTSMD_PLUGIN_ROOT.trim() : '';
-  if (runtime && compatibility && path.resolve(runtime) !== path.resolve(compatibility)) {
+  const official = typeof env.PLUGIN_ROOT === 'string' ? env.PLUGIN_ROOT.trim() : '';
+  const runtimeCompatibility = typeof env.CLAUDE_PLUGIN_ROOT === 'string'
+    ? env.CLAUDE_PLUGIN_ROOT.trim()
+    : '';
+  const skillCompatibility = typeof env.AGENTSMD_PLUGIN_ROOT === 'string'
+    ? env.AGENTSMD_PLUGIN_ROOT.trim()
+    : '';
+  const candidates = [
+    ['PLUGIN_ROOT', official],
+    ['CLAUDE_PLUGIN_ROOT', runtimeCompatibility],
+    ['AGENTSMD_PLUGIN_ROOT', skillCompatibility],
+  ].filter(([, value]) => value);
+  if (candidates.length === 0) return { root: null, source: null, error: null };
+
+  const [selectedName, selectedValue] = candidates[0];
+  const selectedRoot = path.resolve(selectedValue);
+  const conflict = candidates.slice(1).find(([, value]) => path.resolve(value) !== selectedRoot);
+  if (conflict) {
     return {
-      root: path.resolve(runtime),
+      root: selectedRoot,
       source: 'conflict',
-      error: 'CLAUDE_PLUGIN_ROOT and AGENTSMD_PLUGIN_ROOT resolve to different roots',
+      error: `${selectedName} and ${conflict[0]} resolve to different roots`,
     };
   }
-  if (runtime) return { root: path.resolve(runtime), source: 'CLAUDE_PLUGIN_ROOT', error: null };
-  if (compatibility) return { root: path.resolve(compatibility), source: 'AGENTSMD_PLUGIN_ROOT', error: null };
-  return { root: null, source: null, error: null };
+  return { root: selectedRoot, source: selectedName, error: null };
+}
+
+function pluginDataFromEnv(env = process.env) {
+  const primary = typeof env.PLUGIN_DATA === 'string' ? env.PLUGIN_DATA.trim() : '';
+  const compatibility = typeof env.CLAUDE_PLUGIN_DATA === 'string' ? env.CLAUDE_PLUGIN_DATA.trim() : '';
+  if (primary) return { root: path.resolve(primary), source: 'PLUGIN_DATA' };
+  if (compatibility) return { root: path.resolve(compatibility), source: 'CLAUDE_PLUGIN_DATA' };
+  return { root: null, source: null };
+}
+
+function activationReceiptPath(env = process.env) {
+  const context = pluginDataFromEnv(env);
+  return context.root ? path.join(context.root, 'runtime', 'activation.json') : null;
+}
+
+function readActivationReceipt(plugin, env = process.env) {
+  const context = pluginDataFromEnv(env);
+  const file = activationReceiptPath(env);
+  const unverified = (reason) => ({
+    state: 'unverified',
+    observed: false,
+    dataRoot: context.root,
+    dataSource: context.source,
+    path: file,
+    reason,
+    receipt: null,
+  });
+  if (!file) return unverified('plugin-data-unavailable');
+
+  let stat;
+  let parsed;
+  try {
+    stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) return unverified('receipt-not-regular-file');
+    if ((stat.mode & 0o077) !== 0) return unverified('receipt-permissions-not-private');
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    return unverified(error && error.code === 'ENOENT' ? 'receipt-missing' : 'receipt-invalid');
+  }
+
+  const requiredStrings = ['pluginVersion', 'sessionId', 'observedAt', 'profile', 'profileReason', 'extendedPath'];
+  if (!isObject(parsed)
+      || parsed.schemaVersion !== ACTIVATION_RECEIPT_SCHEMA
+      || requiredStrings.some((key) => typeof parsed[key] !== 'string' || parsed[key].length === 0)
+      || !parseSemver(parsed.pluginVersion)
+      || !['full', 'omx-compatible'].includes(parsed.profile)
+      || !path.isAbsolute(parsed.extendedPath)
+      || !Number.isFinite(Date.parse(parsed.observedAt))) {
+    return unverified('receipt-schema-invalid');
+  }
+  if (plugin && plugin.version && parsed.pluginVersion !== plugin.version) {
+    return unverified('receipt-version-mismatch');
+  }
+  if (plugin && plugin.root) {
+    try {
+      const expected = fs.realpathSync(path.join(plugin.root, 'spec', 'AGENTS-extended.md'));
+      const observed = fs.realpathSync(parsed.extendedPath);
+      if (observed !== expected) return unverified('receipt-extended-path-mismatch');
+    } catch {
+      return unverified('receipt-extended-path-invalid');
+    }
+  }
+
+  return {
+    state: 'observed',
+    observed: true,
+    dataRoot: context.root,
+    dataSource: context.source,
+    path: file,
+    reason: null,
+    receipt: parsed,
+  };
 }
 
 function inspectPluginBundle(env = process.env) {
@@ -734,9 +820,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ACTIVATION_RECEIPT_SCHEMA,
   ARBITRATION_CACHE_SCHEMA,
   PLUGIN_HOOK_SUPPORT,
   SEMVER_RE,
+  activationReceiptPath,
   arbitrateSurfaces,
   arbitrationCachePath,
   compareSemver,
@@ -746,7 +834,9 @@ module.exports = {
   inspectPluginBundle,
   inspectStandaloneSurface,
   parseSemver,
+  pluginDataFromEnv,
   pluginRootFromEnv,
+  readActivationReceipt,
   readInstallManifest,
   specVersion,
   validateCodexConfigSyntax,

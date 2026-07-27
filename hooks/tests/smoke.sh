@@ -504,6 +504,48 @@ CACHE_FILE="$HEALTHY_DUAL_HOME/.agentsmd-state/arbitration-cache.json"
 DUAL_MANIFEST="$HEALTHY_DUAL_HOME/.agentsmd-state/manifest.json"
 cache_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
 
+echo "== plugin SessionStart activation receipt =="
+ACTIVATION_HOME="$SANDBOX/activation-home"
+ACTIVATION_PRIMARY="$SANDBOX/plugin-data-primary"
+ACTIVATION_FALLBACK="$SANDBOX/plugin-data-fallback"
+ACTIVATION_FILE="$ACTIVATION_PRIMARY/runtime/activation.json"
+printf '%s' '{"session_id":"activation-primary","hook_event_name":"SessionStart","source":"startup"}' \
+  | CODEX_HOME="$ACTIVATION_HOME" PLUGIN_DATA="$ACTIVATION_PRIMARY" CLAUDE_PLUGIN_DATA="$ACTIVATION_FALLBACK" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1
+{ [[ -f "$ACTIVATION_FILE" ]] \
+    && [[ ! -e "$ACTIVATION_FALLBACK/runtime/activation.json" ]] \
+    && [[ "$(cache_mode "$ACTIVATION_FILE")" == "600" ]] \
+    && [[ "$(jq -r '.schemaVersion' "$ACTIVATION_FILE" 2>/dev/null)" == "1" ]] \
+    && [[ "$(jq -r '.sessionId' "$ACTIVATION_FILE" 2>/dev/null)" == "activation-primary" ]] \
+    && [[ "$(jq -r '.profile' "$ACTIVATION_FILE" 2>/dev/null)" == "full" ]] \
+    && [[ "$(jq -r '.profileReason' "$ACTIVATION_FILE" 2>/dev/null)" == "no-active-global-marker" ]] \
+    && [[ "$(jq -r '.extendedPath' "$ACTIVATION_FILE" 2>/dev/null)" == "$PLUGIN_EXT_REAL" ]] \
+    && [[ -n "$(jq -r '.pluginVersion' "$ACTIVATION_FILE" 2>/dev/null)" ]] \
+    && [[ -n "$(jq -r '.observedAt' "$ACTIVATION_FILE" 2>/dev/null)" ]] \
+    && ! find "$ACTIVATION_PRIMARY/runtime" -maxdepth 1 -name '.activation.*' -print -quit 2>/dev/null | grep -q .; } \
+  && ok "PLUGIN_DATA SessionStart receipt is atomic, private, and records the selected profile" \
+  || bad "PLUGIN_DATA activation receipt contract" "mode=[$(cache_mode "$ACTIVATION_FILE")] body=[$(cat "$ACTIVATION_FILE" 2>/dev/null)]"
+
+FALLBACK_FILE="$ACTIVATION_FALLBACK/runtime/activation.json"
+printf '%s' '{"session_id":"activation-fallback","hook_event_name":"SessionStart","source":"startup"}' \
+  | env -u PLUGIN_DATA CODEX_HOME="$ACTIVATION_HOME" CLAUDE_PLUGIN_DATA="$ACTIVATION_FALLBACK" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1
+{ [[ -f "$FALLBACK_FILE" ]] \
+    && [[ "$(cache_mode "$FALLBACK_FILE")" == "600" ]] \
+    && [[ "$(jq -r '.sessionId' "$FALLBACK_FILE" 2>/dev/null)" == "activation-fallback" ]]; } \
+  && ok "CLAUDE_PLUGIN_DATA remains a compatible activation-receipt fallback" \
+  || bad "CLAUDE_PLUGIN_DATA activation receipt fallback" "mode=[$(cache_mode "$FALLBACK_FILE")] body=[$(cat "$FALLBACK_FILE" 2>/dev/null)]"
+
+OFFICIAL_DATA="$SANDBOX/plugin-data-official"
+OFFICIAL_FILE="$OFFICIAL_DATA/runtime/activation.json"
+printf '%s' '{"session_id":"activation-official-root","hook_event_name":"SessionStart","source":"startup"}' \
+  | env -u CLAUDE_PLUGIN_ROOT CODEX_HOME="$ACTIVATION_HOME" PLUGIN_ROOT="$PLUGIN_FIXTURE" \
+    PLUGIN_DATA="$OFFICIAL_DATA" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1
+{ [[ -f "$OFFICIAL_FILE" ]] \
+    && [[ "$(jq -r '.sessionId' "$OFFICIAL_FILE" 2>/dev/null)" == "activation-official-root" ]]; } \
+  && ok "official PLUGIN_ROOT alone selects the plugin and records SessionStart" \
+  || bad "official PLUGIN_ROOT SessionStart compatibility" "body=[$(cat "$OFFICIAL_FILE" 2>/dev/null)]"
+
 # A freshly installed dual surface has no cache yet. The SELECTED (standalone)
 # surface is never shadowed, runs, and writes the arbitration cache.
 rm -f "$CACHE_FILE"

@@ -10,6 +10,14 @@
 const fs = require('fs');
 const path = require('path');
 
+if (process.argv[2] === 'plugin' && process.argv[3] === 'list' && process.argv[4] === '--json') {
+  if (process.env.AGENTSMD_TEST_PLUGIN_LIST_STATUS) {
+    process.exit(Number.parseInt(process.env.AGENTSMD_TEST_PLUGIN_LIST_STATUS, 10) || 1);
+  }
+  process.stdout.write(process.env.AGENTSMD_TEST_PLUGIN_LIST_JSON || '{"installed":[],"available":[]}\n');
+  process.exit(0);
+}
+
 if (process.argv[2] !== 'features' || process.argv[3] !== 'list') process.exit(2);
 
 let config;

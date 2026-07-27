@@ -51,6 +51,7 @@ function status() {
   const manifest = manifestState.manifest;
   const arbitration = SA.inspectAndArbitrate();
   const pluginBundle = arbitration.candidates.plugin;
+  const pluginActivation = SA.readActivationReceipt(pluginBundle);
   const standaloneManifestPresent = fs.existsSync(P.manifestPath());
   const hooksContent = read(P.hooksJsonPath());
   const cfg = read(P.configTomlPath()) || '';
@@ -86,6 +87,7 @@ function status() {
     telemetryRows: readRows(P.logPath()).length,
     sessionSummaries: inspectSessionSummaries(),
     pluginBundle,
+    pluginActivation,
     dualSurface: pluginBundle.detected && standaloneManifestPresent,
     selectedSurface: arbitration.selection.selected,
     surfaceArbitration: arbitration,

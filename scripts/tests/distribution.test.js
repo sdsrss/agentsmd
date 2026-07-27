@@ -494,6 +494,32 @@ t('agentsmd install is concise by default and --json emits the full manifest', (
   assert(manifest.ownedArtifacts && manifest.ownedArtifacts.deploy);
 }));
 
+t('agentsmd install skips an accidental dual surface and --allow-dual-surface explicitly overrides it', () => withSandbox((dir) => {
+  const pluginList = JSON.stringify({
+    installed: [{
+      pluginId: 'agentsmd@agentsmd',
+      name: 'agentsmd',
+      marketplaceName: 'agentsmd',
+      version: '4.24.0',
+      installed: true,
+      enabled: true,
+    }],
+    available: [],
+  });
+  const env = {
+    CODEX_HOME: dir,
+    PATH: `${path.join(ROOT, 'scripts', 'tests', 'fixtures')}:${process.env.PATH}`,
+    AGENTSMD_TEST_PLUGIN_LIST_JSON: pluginList,
+  };
+  const skipped = cli(['install'], env);
+  assert.match(skipped, /standalone install skipped.*plugin is already installed/i);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+
+  const installed = cli(['install', '--allow-dual-surface'], env);
+  assert.match(installed, /agentsmd installed:/);
+  assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
+}));
+
 t('default restore after install → update → uninstall does not reactivate agentsmd shared entries', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   fs.writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify({

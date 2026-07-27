@@ -30,9 +30,13 @@ function withEnv(fn) {
     CODEX_HOME: process.env.CODEX_HOME,
     AGENTSMD_PLUGIN_ROOT: process.env.AGENTSMD_PLUGIN_ROOT,
     CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT,
+    PLUGIN_ROOT: process.env.PLUGIN_ROOT,
+    PLUGIN_DATA: process.env.PLUGIN_DATA,
+    CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA,
   };
   process.env.CODEX_HOME = codexHome;
   process.env.AGENTSMD_PLUGIN_ROOT = ROOT;
+  process.env.PLUGIN_DATA = path.join(codexHome, 'plugin-data');
   try { fn(codexHome); } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -70,12 +74,96 @@ withEnv((codexHome) => {
     assert.strictEqual(result.surfaceArbitration.selection.reasonCode, 'plugin-only-healthy');
     assert.strictEqual(result.surfaceArbitration.selection.exclusive, true);
   });
+  t('status keeps structural plugin health separate from unverified runtime activation', () => {
+    assert.strictEqual(result.pluginBundle.healthy, true);
+    assert.strictEqual(result.pluginActivation.state, 'unverified');
+    assert.strictEqual(result.pluginActivation.observed, false);
+    assert.strictEqual(result.pluginActivation.receipt, null);
+  });
   const diagnosis = doctor();
   t('doctor accepts plugin-only without standalone manifest or global hooks', () => {
     assert.strictEqual(diagnosis.surface, 'plugin');
     assert.strictEqual(diagnosis.dualSurface, false);
     assert.strictEqual(diagnosis.ok, true, JSON.stringify(diagnosis.checks, null, 2));
     assert(!diagnosis.checks.some((check) => /not installed|manifest vs live hooks/.test(check.name)));
+  });
+  t('doctor reports missing runtime evidence as unverified instead of active or unhealthy', () => {
+    assert.strictEqual(diagnosis.pluginActivation.state, 'unverified');
+    const activation = diagnosis.checks.find((check) => check.name === 'plugin SessionStart activation');
+    assert(activation, JSON.stringify(diagnosis.checks, null, 2));
+    assert.strictEqual(activation.ok, true);
+    assert.match(activation.detail, /^unverified\b/);
+    assert.doesNotMatch(activation.detail, /\bactive\b/);
+  });
+
+  const extendedPath = path.join(ROOT, 'spec', 'AGENTS-extended.md');
+  const receiptDir = path.join(process.env.PLUGIN_DATA, 'runtime');
+  const receiptFile = path.join(receiptDir, 'activation.json');
+  const activationReceipt = {
+    schemaVersion: 1,
+    pluginVersion: require(path.join(ROOT, 'package.json')).version,
+    sessionId: 'plugin-surface-test',
+    observedAt: '2026-07-27T12:34:56.000Z',
+    profile: 'omx-compatible',
+    profileReason: 'active-global-marker',
+    extendedPath,
+  };
+  fs.mkdirSync(receiptDir, { recursive: true });
+  fs.writeFileSync(receiptFile, `${JSON.stringify(activationReceipt)}\n`, { mode: 0o600 });
+  const observedStatus = status();
+  const observedDiagnosis = doctor();
+  t('status reports a valid SessionStart activation receipt as observed runtime evidence', () => {
+    assert.strictEqual(observedStatus.pluginActivation.state, 'observed');
+    assert.strictEqual(observedStatus.pluginActivation.observed, true);
+    assert.strictEqual(observedStatus.pluginActivation.receipt.sessionId, 'plugin-surface-test');
+    assert.strictEqual(observedStatus.pluginActivation.receipt.profile, 'omx-compatible');
+    assert.strictEqual(observedStatus.pluginActivation.receipt.profileReason, 'active-global-marker');
+    assert.strictEqual(observedStatus.pluginActivation.receipt.extendedPath, extendedPath);
+  });
+  t('doctor exposes the observed profile without conflating it with bundle health', () => {
+    assert.strictEqual(observedDiagnosis.pluginActivation.state, 'observed');
+    const activation = observedDiagnosis.checks.find((check) => check.name === 'plugin SessionStart activation');
+    assert(activation, JSON.stringify(observedDiagnosis.checks, null, 2));
+    assert.strictEqual(activation.ok, true);
+    assert.match(activation.detail, /^observed\b/);
+    assert.match(activation.detail, /profile=omx-compatible/);
+    assert.match(activation.detail, /reason=active-global-marker/);
+    assert.match(activation.detail, /handler reached profile preparation only/);
+    assert.match(activation.detail, /not that Codex accepted the response/);
+    assert.match(activation.detail, /every plugin hook was trusted or executed/);
+  });
+
+  fs.chmodSync(receiptFile, 0o644);
+  t('a group-readable activation receipt is rejected as unverified', () => {
+    const unsafe = status().pluginActivation;
+    assert.strictEqual(unsafe.state, 'unverified');
+    assert.strictEqual(unsafe.reason, 'receipt-permissions-not-private');
+  });
+  fs.chmodSync(receiptFile, 0o600);
+  fs.writeFileSync(receiptFile, `${JSON.stringify({
+    ...activationReceipt,
+    pluginVersion: '0.0.0',
+  })}\n`, { mode: 0o600 });
+  t('an activation receipt from another plugin version is rejected as unverified', () => {
+    const stale = status().pluginActivation;
+    assert.strictEqual(stale.state, 'unverified');
+    assert.strictEqual(stale.reason, 'receipt-version-mismatch');
+  });
+  fs.writeFileSync(receiptFile, `${JSON.stringify(activationReceipt)}\n`, { mode: 0o600 });
+
+  delete process.env.PLUGIN_DATA;
+  process.env.CLAUDE_PLUGIN_DATA = path.join(codexHome, 'fallback-plugin-data');
+  const fallbackReceiptDir = path.join(process.env.CLAUDE_PLUGIN_DATA, 'runtime');
+  fs.mkdirSync(fallbackReceiptDir, { recursive: true });
+  fs.copyFileSync(
+    receiptFile,
+    path.join(fallbackReceiptDir, 'activation.json')
+  );
+  fs.chmodSync(path.join(fallbackReceiptDir, 'activation.json'), 0o600);
+  const fallbackStatus = status();
+  t('status reads activation evidence from CLAUDE_PLUGIN_DATA when PLUGIN_DATA is absent', () => {
+    assert.strictEqual(fallbackStatus.pluginActivation.state, 'observed');
+    assert.strictEqual(fallbackStatus.pluginActivation.dataSource, 'CLAUDE_PLUGIN_DATA');
   });
 
   fs.mkdirSync(path.join(codexHome, '.agentsmd-state'), { recursive: true });
@@ -341,6 +429,28 @@ t('runtime CLAUDE_PLUGIN_ROOT is discovered without the skill compatibility vari
   assert.strictEqual(result.detected, true);
   assert.strictEqual(result.contextSource, 'CLAUDE_PLUGIN_ROOT');
   assert.strictEqual(result.complete, true);
+});
+
+t('official PLUGIN_ROOT is the preferred runtime bundle location', () => {
+  const { inspectPluginBundle } = require('../lib/surface-arbitration');
+  const result = inspectPluginBundle({ PLUGIN_ROOT: ROOT });
+  assert.strictEqual(result.detected, true);
+  assert.strictEqual(result.contextSource, 'PLUGIN_ROOT');
+  assert.strictEqual(result.complete, true);
+});
+
+t('a conflicting official plugin root remains authoritative but fails health closed', () => {
+  const { inspectPluginBundle } = require('../lib/surface-arbitration');
+  const result = inspectPluginBundle({
+    PLUGIN_ROOT: ROOT,
+    CLAUDE_PLUGIN_ROOT: path.dirname(ROOT),
+    AGENTSMD_PLUGIN_ROOT: path.dirname(ROOT),
+  });
+  assert.strictEqual(result.detected, true);
+  assert.strictEqual(result.root, ROOT);
+  assert.strictEqual(result.contextSource, 'conflict');
+  assert.strictEqual(result.healthy, false);
+  assert(result.reasons.some((reason) => /PLUGIN_ROOT and CLAUDE_PLUGIN_ROOT resolve to different roots/.test(reason)));
 });
 
 t('conflicting runtime and compatibility plugin roots fail health closed', () => {
