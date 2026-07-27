@@ -9,6 +9,11 @@ const V = require('../version-sync');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FILES = V.FILES;
+const CURRENT_VERSION = require(path.join(ROOT, 'package.json')).version;
+const CURRENT_PARTS = CURRENT_VERSION.split('.').map(Number);
+const NEXT_PATCH_VERSION = `${CURRENT_PARTS[0]}.${CURRENT_PARTS[1]}.${CURRENT_PARTS[2] + 1}`;
+const NEXT_NEXT_PATCH_VERSION = `${CURRENT_PARTS[0]}.${CURRENT_PARTS[1]}.${CURRENT_PARTS[2] + 2}`;
+const versionRe = (version) => new RegExp(version.replace(/\./g, '\\.'));
 
 let PASS = 0, FAIL = 0;
 const t = (name, fn) => {
@@ -31,27 +36,29 @@ function withFixture(fn) {
 }
 
 t('syncVersion updates package, plugin, marketplace fallback selector, manifest, and all spec headers', () => withFixture((root) => {
-  const result = V.syncVersion({ root, version: '4.24.1' });
+  const result = V.syncVersion({ root, version: NEXT_PATCH_VERSION });
   assert.deepStrictEqual(result.files, FILES);
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).version, '4.24.1');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin/plugin.json'))).version, '4.24.1');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).version, NEXT_PATCH_VERSION);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin/plugin.json'))).version, NEXT_PATCH_VERSION);
   const marketplace = JSON.parse(fs.readFileSync(path.join(root, '.agents/plugins/marketplace.json')));
-  assert.strictEqual(marketplace.plugins[0].source.version, '4.24.0 || 4.24.1');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'))).spec_version, 'v4.24.1');
-  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
-  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-omx.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
-  assert.match(fs.readFileSync(path.join(root, 'spec/source/full/00-pre-auth.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
-  assert.match(fs.readFileSync(path.join(root, 'spec/source/omx/00-pre-auth.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
-  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-extended.md'), 'utf8'), /CODEX-CODING-SPEC v4\.24\.1/);
-  assert.match(fs.readFileSync(path.join(root, 'install.sh'), 'utf8'), /INSTALLER_VERSION="4\.24\.1"/);
+  assert.strictEqual(marketplace.plugins[0].source.version, `${CURRENT_VERSION} || ${NEXT_PATCH_VERSION}`);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'))).spec_version, `v${NEXT_PATCH_VERSION}`);
+  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
+  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-omx.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
+  assert.match(fs.readFileSync(path.join(root, 'spec/source/full/00-pre-auth.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
+  assert.match(fs.readFileSync(path.join(root, 'spec/source/omx/00-pre-auth.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
+  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-extended.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
+  assert.match(fs.readFileSync(path.join(root, 'install.sh'), 'utf8'), versionRe(`INSTALLER_VERSION="${NEXT_PATCH_VERSION}"`));
 }));
 
 t('same-version sync preserves the exact fallback selector byte-for-byte', () => withFixture((root) => {
   const before = new Map(FILES.map((rel) => [rel, fs.readFileSync(path.join(root, rel))]));
-  V.syncVersion({ root, version: '4.24.0' });
+  const originalMarketplace = JSON.parse(fs.readFileSync(path.join(root, '.agents/plugins/marketplace.json')));
+  const originalSelector = originalMarketplace.plugins[0].source.version;
+  V.syncVersion({ root, version: CURRENT_VERSION });
   for (const rel of FILES) assert.deepStrictEqual(fs.readFileSync(path.join(root, rel)), before.get(rel), rel);
   const marketplace = JSON.parse(fs.readFileSync(path.join(root, '.agents/plugins/marketplace.json')));
-  assert.strictEqual(marketplace.plugins[0].source.version, '4.23.0 || 4.24.0');
+  assert.strictEqual(marketplace.plugins[0].source.version, originalSelector);
 }));
 
 t('syncVersion rejects invalid semver before changing any file', () => withFixture((root) => {
@@ -71,7 +78,7 @@ t('syncVersion detects a concurrent edit after snapshot and preserves its bytes'
   let injected = false;
   assert.throws(() => V.syncVersion({
     root,
-    version: '4.24.1',
+    version: NEXT_PATCH_VERSION,
     write(file, content, options) {
       if (!injected) {
         fs.appendFileSync(packageFile, '\nconcurrent-marker\n');
@@ -90,7 +97,7 @@ t('syncVersion rolls back earlier files when a later atomic write fails', () => 
   let writes = 0;
   assert.throws(() => V.syncVersion({
     root,
-    version: '4.24.1',
+    version: NEXT_PATCH_VERSION,
     write(file, content, options) {
       writes++;
       if (writes === 4) throw new Error('simulated version-sync write failure');
@@ -102,7 +109,12 @@ t('syncVersion rolls back earlier files when a later atomic write fails', () => 
 
 t('CLI rejects a missing version with usage exit 2', () => {
   const script = path.join(ROOT, 'scripts/version-sync.js');
-  for (const args of [[], ['--version=4.0'], ['--version=4.0.1-rc.1'], ['--version=4.24.1', '--version=4.24.2']]) {
+  for (const args of [
+    [],
+    ['--version=4.0'],
+    ['--version=4.0.1-rc.1'],
+    [`--version=${NEXT_PATCH_VERSION}`, `--version=${NEXT_NEXT_PATCH_VERSION}`],
+  ]) {
     const result = cp.spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' });
     assert.strictEqual(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
     assert.match(result.stderr, /Usage:/);

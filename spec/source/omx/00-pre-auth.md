@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.24.0 — OMX Compatibility Core
+# CODEX-CODING-SPEC v4.25.0 — OMX Compatibility Core
 
 **Profile**: OMX compatibility overlay. This file is injected only when the active global Codex guidance contains the exact `<!-- omx:generated:agents-md -->` marker. OMX remains the orchestration contract for modes, skills, subagents, routing, progress updates, and ordinary verification. This overlay adds only agentsmd rules that OMX does not guarantee.
 **Fallback**: if OMX activation or this file's integrity cannot be proved, SessionStart MUST inject the complete `spec/AGENTS.md` instead.

@@ -3,6 +3,57 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.25.0 — 2026-07-27 — additive standalone profiles without capability loss (minor)
+
+### Surface Protocol v2 standalone manifests
+
+- Standalone install and update now write manifest schema 2 while retaining the
+  complete schema-1 ownership core, deployed inventory, journal shape, and
+  shared-file transaction. Immediately preceding lifecycle readers can still
+  validate the ownership records, and profile metadata never grants additional
+  deletion authority.
+- Every manifest records the full, OMX-compatible, and extended artifacts plus
+  the canonical source-layout digest. Standalone health validates all declared
+  files, including an unselected fallback profile, so a future environment
+  change cannot discover that its fallback was never shipped.
+- New installs and v1 upgrades default to `legacy-full`, materializing the same
+  complete core as v4.24.0. The schema migration therefore changes metadata,
+  not the user's active guidance or hook set.
+
+### Explicit, transaction-bound standalone profile selection
+
+- `agentsmd install|update --profile=auto|full|omx-compatible` selects the core
+  materialized inside the existing managed `AGENTS.md` block. `full` is always
+  accepted; explicit OMX-compatible mode requires the exact active
+  `<!-- omx:generated:agents-md -->` marker; `auto` chooses OMX-compatible only
+  from that evidence and otherwise falls back to full.
+- `AGENTS.override.md` retains Codex precedence. Detection against the managed
+  `AGENTS.md` path removes agentsmd's own sentinel block before looking for the
+  marker, preventing the OMX-compatible core's documentation text from
+  manufacturing its own activation evidence.
+- Profile changes occur only inside the existing backup, journal, CAS, and
+  manifest-last lifecycle transaction. SessionStart remains read-only with
+  respect to global guidance. Ordinary updates preserve the existing v2
+  selection mode; repair preserves the exact materialized profile even when the
+  surrounding environment changed after the damage.
+- `status` now separates manifest schema, surface protocol, configured profile,
+  desired profile, selection mode, drift, OMX detection, and bundle
+  completeness. `doctor` verifies bundle completeness and reports profile drift
+  as an actionable configuration mismatch without calling it lost enforcement.
+
+### Compatibility boundary and verification
+
+- Plugin runtime profile behavior is unchanged and its manifest continues to
+  advertise surface protocol 1. Reciprocal standalone-to-plugin yield and an
+  `auto` default remain deferred; a plugin winner beside standalone is still
+  reported non-exclusive instead of suppressing a safety hook from an
+  insufficiently proved cache.
+- Added protocol-v1/v2 reader, writer, migration, explicit-profile, repair,
+  status, doctor, CLI, fallback-integrity, and no-mutation fixtures. Existing
+  install, uninstall, repair, restore, crash recovery, plugin, runtime-state,
+  distribution, drift, and 382-case shell-hook smoke suites remain release
+  gates.
+
 ## v4.24.0 — 2026-07-27 — GitHub plugin installation hardening and OMX-aware rehydration (minor)
 
 ### Plugin activation evidence and duplicate-surface prevention
