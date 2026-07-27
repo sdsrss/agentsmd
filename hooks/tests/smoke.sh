@@ -294,6 +294,7 @@ is_context "$OUT" && ok "session start → additionalContext" || bad "session st
 TOOLS_PROJECT="$SANDBOX/project-needing-shellcheck"
 TOOLS_PLAIN_PROJECT="$SANDBOX/project-without-shellcheck"
 mkdir -p "$TOOLS_PROJECT" "$TOOLS_PLAIN_PROJECT"
+TOOLS_PROJECT_REAL="$(cd "$TOOLS_PROJECT" && pwd -P)"
 printf '%s\n' '{"scripts":{"lint:shell":"shellcheck hooks/*.sh"}}' > "$TOOLS_PROJECT/package.json"
 printf '%s\n' '{"scripts":{"test":"node test.js"}}' > "$TOOLS_PLAIN_PROJECT/package.json"
 TOOLS_EVENT="$(jq -cn --arg cwd "$TOOLS_PROJECT" '{session_id:"tools-missing",hook_event_name:"SessionStart",cwd:$cwd}')"
@@ -302,7 +303,7 @@ TOOLS_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext /
 { [[ "$TOOLS_CTX" == *'Development tool missing: ShellCheck'* ]] \
     && [[ "$TOOLS_CTX" == *'not required for plugin runtime'* ]] \
     && [[ "$TOOLS_CTX" == *'Manual install command:'* ]] \
-    && [[ "$TOOLS_CTX" == *"npm --prefix $TOOLS_PROJECT run lint:shell"* ]]; } \
+    && [[ "$TOOLS_CTX" == *"npm --prefix $TOOLS_PROJECT_REAL run lint:shell"* ]]; } \
   && ok "project-declared missing ShellCheck → SessionStart gives a manual install command" \
   || bad "missing ShellCheck → actionable SessionStart guidance" "$TOOLS_CTX"
 
