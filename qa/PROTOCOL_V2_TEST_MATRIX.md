@@ -1,6 +1,6 @@
 # Protocol v2 compatibility and no-regression matrix
 
-Status: **design gate; protocol-v2 cases not yet implemented**
+Status: **characterization gate in progress; v2 writer not implemented**
 
 Design: [`../PROTOCOL-V2.md`](../PROTOCOL-V2.md)
 
@@ -27,6 +27,11 @@ Before this design milestone, the complete `npm test` suite passed on
 
 These are the pre-change comparison results. Protocol-v2 work must reproduce
 the full suite after every runtime checkpoint.
+
+The initial characterization file,
+`scripts/tests/protocol-v2.test.js`, now locks PV2-M01, PV2-M08, PV2-L10,
+PV2-L11, complete profile-bundle presence, and the protocol-v1 directional-yield
+baseline before any v2 writer behavior is introduced.
 
 ## 2. Preservation gates
 
@@ -196,4 +201,3 @@ require:
 - proof that the selected context has one intended core, one extended path, and
   no missing hook capability;
 - an explicit report of host/version combinations that were not exercised.
-
