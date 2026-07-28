@@ -37,6 +37,20 @@ function cleanTarballs(destination, preserved = new Set()) {
   }
 }
 
+function installProbeArgs(packageSpec, probeDirectory) {
+  return [
+    'install',
+    packageSpec,
+    '--prefix',
+    probeDirectory,
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    '--package-lock=false',
+    '--prefer-online',
+  ];
+}
+
 async function packRegistryArtifact({
   packageSpec,
   destination,
@@ -58,9 +72,10 @@ async function packRegistryArtifact({
 
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   let lastStatus = null;
+  let lastStage = 'pack';
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     realDirectoryEntries(destination);
-    const result = spawn(npm, [
+    const packResult = spawn(npm, [
       'pack',
       packageSpec,
       '--pack-destination',
@@ -68,21 +83,47 @@ async function packRegistryArtifact({
       '--json',
       '--prefer-online',
     ], { stdio: 'inherit' });
-    if (result.error) throw result.error;
-    if (result.status === 0) return { attempt, status: 0 };
+    if (packResult.error) {
+      cleanTarballs(destination, preservedTarballs);
+      throw packResult.error;
+    }
 
-    lastStatus = result.status;
+    lastStage = 'pack';
+    lastStatus = packResult.status;
+    if (packResult.status === 0) {
+      const probeDirectory = fs.mkdtempSync(path.join(destination, '.agentsmd-install-probe.'));
+      try {
+        const installResult = spawn(
+          npm,
+          installProbeArgs(packageSpec, probeDirectory),
+          { stdio: 'inherit' }
+        );
+        if (installResult.error) {
+          cleanTarballs(destination, preservedTarballs);
+          throw installResult.error;
+        }
+        lastStage = 'install';
+        lastStatus = installResult.status;
+        if (installResult.status === 0) return { attempt, status: 0 };
+      } finally {
+        fs.rmSync(probeDirectory, { recursive: true, force: true });
+      }
+    }
+
     cleanTarballs(destination, preservedTarballs);
     if (attempt < attempts) {
-      log(`waiting for ${packageSpec} registry bytes (attempt ${attempt}/${attempts}, npm exit ${result.status})`);
+      const readiness = lastStage === 'pack' ? 'registry bytes' : 'registry install readiness';
+      log(`waiting for ${packageSpec} ${readiness} (attempt ${attempt}/${attempts}, npm ${lastStage} exit ${lastStatus})`);
       await wait(delayMs);
     }
   }
-  throw new Error(`${packageSpec} registry bytes were unavailable after ${attempts} attempts (last npm exit ${lastStatus})`);
+  const readiness = lastStage === 'pack' ? 'registry bytes' : 'registry install readiness';
+  throw new Error(`${packageSpec} ${readiness} was unavailable after ${attempts} attempts (last npm ${lastStage} exit ${lastStatus})`);
 }
 
 module.exports = {
   cleanTarballs,
+  installProbeArgs,
   packRegistryArtifact,
   positiveInteger,
   realDirectoryEntries,

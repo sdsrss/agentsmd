@@ -3,6 +3,23 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.0.1 — 2026-07-28 — registry install-readiness retry (patch)
+
+- Extended the tested post-publish registry helper so one retry attempt includes
+  both `npm pack` and an isolated `npm install --ignore-scripts` probe. A
+  successful tarball fetch no longer ends the retry loop while the install
+  packument can still return transient `ETARGET`.
+- Failed install-readiness attempts remove only that attempt's new top-level
+  tarball and exact temporary install prefix before waiting. Pre-existing
+  tarballs, nested files, and unrelated destination contents remain untouched.
+- Added direct and real CLI regressions for pack-success/install-lag recovery,
+  install-readiness exhaustion, probe disposal, and operation beneath
+  `bash -euo pipefail`.
+- The immutable v5.0.0 package and GitHub release were published successfully;
+  their first release-workflow attempt exposed the multi-endpoint propagation
+  race after publication, and the idempotent failed-job rerun completed every
+  release gate. This successor patch closes that race in the reusable helper.
+
 ## v5.0.0 — 2026-07-28 — single full profile and native Codex orchestration contract (major)
 
 ### Breaking profile simplification

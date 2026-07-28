@@ -2,6 +2,13 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.0.1 (2026-07-28) — no spec changes (registry readiness patch)
+
+Core and extended rule text, manifest rules, and every `section_anchor` are
+unchanged. The shared version moves with the package patch that makes the
+post-publish registry retry wait for both tarball bytes and isolated npm install
+readiness. `spec_version` → v5.0.1. Detail: repository `CHANGELOG.md`.
+
 ## v5.0.0 (2026-07-28) — native subagent leadership in the single full core
 
 The full core's §4 now defines the runtime-independent portion of OMX's useful
