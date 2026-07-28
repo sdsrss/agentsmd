@@ -3,6 +3,28 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Added eight single-turn `native-continuity` conformance cases covering
+  explicit goal creation, ordinary/L3 near-negatives, active-goal inspection,
+  unrelated-thread routing, evidence-gated completion, steering, and fork
+  decisions. The runner now grades paired native goal calls from the canonical
+  Codex transcript instead of trusting final-message self-report, then clears
+  and verifies goal state for that exact task-created thread.
+- Kept active-goal policy probes bounded to one `codex exec` turn. A discarded
+  setup/resume design exposed Codex goal-mode automatic continuation and a cwd
+  isolation hazard; the committed library makes no cross-turn or App Server E2E
+  claim.
+- Fixed conformance-runner signal handling so INT/TERM exits before the EXIT
+  trap removes the sandbox, rather than deleting the sandbox and continuing to
+  execute against missing paths.
+- Corrected the operator handbook's stale 15 KiB and frozen-byte guidance to
+  match the canonical 16 KiB source/deployed gates, with a drift regression
+  preventing another static byte snapshot.
+- Two complete `native-continuity` category runs passed 16/16 total on agentsmd
+  5.0.1 with Codex CLI 0.145.0. Full-suite threshold baselines remain unchanged
+  until the entire conformance library is re-run.
+
 ## v5.0.1 — 2026-07-28 — registry install-readiness retry (patch)
 
 - Extended the tested post-publish registry helper so one retry attempt includes

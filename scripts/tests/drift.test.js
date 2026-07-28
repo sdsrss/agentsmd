@@ -269,6 +269,17 @@ t('spec: core AGENTS.md stays below the 16 KiB ceiling', () => {
   assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B`);
 });
 
+t('operator: size guidance follows the 16 KiB gate without a frozen byte snapshot', () => {
+  const operator = read('spec/OPERATOR.md');
+  const sizeBudget = (operator.match(/## §O3 Size budget[\s\S]*?(?=\n## §O4 )/) || [''])[0];
+  assert.match(sizeBudget, /Core and the deployed sentinel-wrapped block are each gated at ≤16 KiB/,
+    '§O3 must describe the same 16 KiB ceiling enforced by this test');
+  assert.doesNotMatch(sizeBudget, /Core is gated at ≤15 KiB/,
+    '§O3 still claims the retired 15 KiB ceiling');
+  assert.doesNotMatch(sizeBudget, /Core sits at [\d,]+ B against the [\d,]+ B gate/,
+    '§O3 must not freeze a byte snapshot that drifts after the next core edit');
+});
+
 t('spec: the full profile carries the native subagent leadership contract', () => {
   for (const anchor of [
     '**Native subagents**: solo execution is the default.',

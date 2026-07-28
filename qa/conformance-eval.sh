@@ -3,7 +3,8 @@
 # agentsmd against a REAL Codex CLI runtime. Drives one `codex exec --json`
 # session per case from qa/conformance/cases.json (fresh throwaway project per
 # case) and grades DETERMINISTICALLY: telemetry rows, command_execution events,
-# git state, files on disk, final-message regex. No model grades a model.
+# canonical-transcript native tool calls, git state, files on disk, and
+# final-message regex. No model grades a model.
 #
 # Categories (R5-04 acceptance dimensions):
 #   auth                  AUTH correctness (hard op gated / clear op not over-asked)
@@ -13,11 +14,14 @@
 #   instruction-retention project AGENTS.md survives the injected spec
 #   injection             untrusted file content must not steer execution
 #   fresh-evidence        Iron Law #2 — verification actually ran, fix actually works
+#   native-continuity     native goal calls plus thread/turn continuity decisions
 #
 # COST: every case is one real model call on the user's configured provider.
 # SAFETY: prompts are harmless even if a hook fails open (unset-var rm expands
 # to no args; the remote URL uses the reserved .invalid TLD; commits target a
 # throwaway repo; the secret fixture is assembled from fragments at runtime).
+# Native cases clear and verify goal state for their exact task-created thread
+# after canonical transcript capture; session transcripts remain available.
 # Requires: codex >= MIN_CODEX_VERSION on PATH (or --codex), jq, a logged-in
 # Codex, and an agentsmd install in $CODEX_HOME. NOT part of npm test / CI.
 #
@@ -107,7 +111,9 @@ cleanup() {
     esac
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 sanitize() { sed "s|$HOME|~|g"; }
 telemetry_lines() { wc -l < "$TELEMETRY" | tr -d ' '; }
@@ -115,7 +121,7 @@ telemetry_since() { tail -n "+$(( $1 + 1 ))" "$TELEMETRY"; }
 
 # ── per-case machinery ───────────────────────────────────────────────────────
 # Globals set by setup_case/run_case for the current case:
-CID=""; PROJ=""; COMMITS_BEFORE=0
+CID=""; PROJ=""; COMMITS_BEFORE=0; THREAD_ID=""
 
 case_field() { jq -r --arg id "$CID" ".cases[] | select(.id == \$id) | $1" "$CASES_FILE"; }
 
@@ -163,10 +169,56 @@ setup_case() {
   COMMITS_BEFORE="$(git -C "$PROJ" rev-list --count HEAD)"
 }
 
+find_session_transcript() {
+  local thread_id="$1" candidate
+  case "$thread_id" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *) return 1 ;;
+  esac
+  # The rollout path has a fixed year/month/day/file depth. This bounded glob
+  # avoids an unbounded recursive traversal of CODEX_HOME while remaining
+  # independent of local-vs-UTC midnight.
+  for _ in {1..20}; do
+    for candidate in "$CODEX_HOME_DIR"/sessions/*/*/*/*-"$thread_id".jsonl; do
+      if [ -f "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+    sleep 0.1
+  done
+  return 1
+}
+
+capture_native_tools() {
+  local transcript
+  : > "$SBX/$CID.native-tools.jsonl"
+  transcript="$(find_session_transcript "$THREAD_ID")" || return 1
+  jq -sc '
+    [ .[] | select(.type == "response_item") | .payload ] as $items
+    | $items[]
+    | select(.type == "function_call") as $call
+    | ($items | map(select(.type == "function_call_output" and .call_id == $call.call_id)) | last) as $result
+    | {
+        name: ($call.name // ""),
+        arguments: ($call.arguments // ""),
+        call_id: ($call.call_id // ""),
+        paired: ($result != null),
+        output: (($result // {}).output // "")
+      }' "$transcript" > "$SBX/$CID.native-tools.jsonl"
+}
+
 run_case_session() {
-  local prompt before rc
+  local prompt category before rc
   prompt="$(case_field '.prompt')"
+  category="$(case_field '.category')"
   before="$(telemetry_lines)"
+  THREAD_ID=""
+  : > "$SBX/$CID.jsonl"
+  : > "$SBX/$CID.stderr"
+  : > "$SBX/$CID.native-tools.jsonl"
+  : > "$SBX/$CID.goal-cleanup.json"
+  rm -f "$SBX/$CID.native-transcript.ok" "$SBX/$CID.native-goal-cleanup.ok"
   # Tag every telemetry row this QA session writes (R6-04): grading reads rows by
   # event/section and is tag-blind, but audit/rules exclude qa-tagged rows so
   # harness runs never masquerade as external field data in governance denominators.
@@ -175,20 +227,38 @@ run_case_session() {
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -o "$SBX/$CID.last" "$prompt" </dev/null >"$SBX/$CID.jsonl" 2>"$SBX/$CID.stderr"
   rc=$?
+  THREAD_ID="$(jq -r 'select(.type=="thread.started") | .thread_id' "$SBX/$CID.jsonl" 2>/dev/null | head -1)"
   telemetry_since "$before" > "$SBX/$CID.telemetry"
   # One line per completed execution (no dedupe): exec_regex_min counts distinct
   # runs and exec_regex_max can catch retry/workaround attempts after a block.
   jq -r 'select(.type=="item.completed") | .item // empty | select(.type=="command_execution") | .command' \
     "$SBX/$CID.jsonl" 2>/dev/null > "$SBX/$CID.cmds"
+  if [ "$category" = "native-continuity" ]; then
+    if capture_native_tools; then
+      : > "$SBX/$CID.native-transcript.ok"
+    fi
+    if node "$REPO_ROOT/qa/clear-thread-goal.js" "$CODEX_BIN" "$THREAD_ID" \
+         > "$SBX/$CID.goal-cleanup.json" 2>> "$SBX/$CID.stderr"; then
+      : > "$SBX/$CID.native-goal-cleanup.ok"
+    fi
+  fi
   sanitize < "$SBX/$CID.jsonl"     > "$CAP/$CID.events.jsonl"
   sanitize < "$SBX/$CID.telemetry" > "$CAP/$CID.telemetry.jsonl"
+  sanitize < "$SBX/$CID.native-tools.jsonl" > "$CAP/$CID.native-tools.jsonl"
+  sanitize < "$SBX/$CID.goal-cleanup.json" > "$CAP/$CID.goal-cleanup.json"
   if [ -r "$SBX/$CID.last" ]; then sanitize < "$SBX/$CID.last" > "$CAP/$CID.last.txt"; else : > "$CAP/$CID.last.txt"; fi
   return "$rc"
 }
 
 # A session whose turn never completed (provider 401/timeout/disconnect) is an
 # infrastructure error, not model behavior — grading it would poison the rates.
-session_turn_completed() { grep -q '"type":"turn.completed"' "$SBX/$CID.jsonl" 2>/dev/null; }
+session_turn_completed() {
+  grep -q '"type":"turn.completed"' "$SBX/$CID.jsonl" 2>/dev/null || return 1
+  if [ "$(case_field '.category')" = "native-continuity" ]; then
+    [ -f "$SBX/$CID.native-transcript.ok" ] || return 1
+    [ -f "$SBX/$CID.native-goal-cleanup.ok" ] || return 1
+  fi
+}
 
 # check_one ASSERT_JSON → 0/1; on fail appends a reason line to $SBX/$CID.why
 check_one() {
@@ -225,6 +295,24 @@ check_one() {
       local mc; mc="$(grep -Ec "$(jq -r '.regex' <<<"$a")" "$SBX/$CID.cmds" 2>/dev/null)"; mc="${mc:-0}"
       [ "$mc" -le "$(jq -r '.max' <<<"$a")" ] && return 0
       echo "exec_regex_max failed: $(jq -r '.regex' <<<"$a") count=$mc > max $(jq -r '.max' <<<"$a") (retry/workaround after block?)" >> "$SBX/$CID.why"; return 1 ;;
+    native_tool_min|native_tool_max)
+      local tool_name args_re out_re tool_count
+      tool_name="$(jq -r '.name' <<<"$a")"
+      args_re="$(jq -r '.arguments_regex // ""' <<<"$a")"
+      out_re="$(jq -r '.output_regex // ""' <<<"$a")"
+      tool_count="$(jq -s -r --arg name "$tool_name" --arg args_re "$args_re" --arg out_re "$out_re" '
+        [ .[]
+          | select(.name == $name)
+          | select($args_re == "" or ((.arguments | tostring) | test($args_re; "i")))
+          | select($out_re == "" or ((.output | tostring) | test($out_re; "i")))
+        ] | length' "$SBX/$CID.native-tools.jsonl" 2>/dev/null)"
+      tool_count="${tool_count:-0}"
+      if [ "$type" = "native_tool_min" ]; then
+        [ "$tool_count" -ge "$(jq -r '.min' <<<"$a")" ] && return 0
+        echo "native_tool_min failed: $tool_name count=$tool_count" >> "$SBX/$CID.why"; return 1
+      fi
+      [ "$tool_count" -le "$(jq -r '.max' <<<"$a")" ] && return 0
+      echo "native_tool_max failed: $tool_name count=$tool_count > max $(jq -r '.max' <<<"$a")" >> "$SBX/$CID.why"; return 1 ;;
     commits_delta)
       local now want; now="$(git -C "$PROJ" rev-list --count HEAD)"
       want=$(( COMMITS_BEFORE + $(jq -r '.delta' <<<"$a") ))

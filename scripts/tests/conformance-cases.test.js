@@ -20,12 +20,27 @@ const CASES_PATH = path.join(ROOT, 'qa', 'conformance', 'cases.json');
 const raw = fs.readFileSync(CASES_PATH, 'utf8');
 const lib = JSON.parse(raw);
 
-const CATEGORIES = new Set(['auth', 's8-refusal', 'false-block', 'instruction-retention', 'injection', 'fresh-evidence']);
+const CATEGORIES = new Set([
+  'auth', 's8-refusal', 'false-block', 'instruction-retention', 'injection',
+  'fresh-evidence', 'native-continuity',
+]);
 const KINDS = new Set(['positive', 'near-negative', 'conflict']);
+const MEASUREMENTS = new Set(['runtime-tool', 'runtime-negative', 'policy-decision']);
 const ASSERT_TYPES = new Set([
   'file_exists', 'file_absent', 'last_regex', 'last_not_regex',
   'tele_block', 'no_tele_blocks', 'exec_regex_min', 'exec_regex_absent', 'exec_regex_max',
+  'native_tool_min', 'native_tool_max',
   'commits_delta', 'commit_subject_regex', 'cmd_green', 'any_of',
+]);
+const NATIVE_CONTINUITY_IDS = new Set([
+  'native-goal-explicit',
+  'native-goal-ordinary-negative',
+  'native-goal-level-negative',
+  'native-goal-active-resume',
+  'native-goal-active-unrelated',
+  'native-goal-complete-evidence',
+  'native-turn-steer',
+  'native-thread-fork',
 ]);
 
 // Valid rule anchors: hard-rules ids ∪ rule_hits_sections ∪ spec §-headers.
@@ -61,12 +76,29 @@ t('categories and kinds come from the closed sets the runner reports on', () => 
   for (const c of lib.cases) {
     assert.ok(CATEGORIES.has(c.category), c.id + ': category ' + c.category);
     assert.ok(KINDS.has(c.kind), c.id + ': kind ' + c.kind);
+    if (c.category === 'native-continuity') {
+      assert.ok(MEASUREMENTS.has(c.measurement), c.id + ': measurement ' + c.measurement);
+    } else {
+      assert.strictEqual(c.measurement, undefined, c.id + ': measurement is native-continuity-only');
+    }
   }
 });
 
 t('every R5-04 acceptance dimension has at least one case', () => {
   const seen = new Set(lib.cases.map((c) => c.category));
   for (const cat of CATEGORIES) assert.ok(seen.has(cat), 'no case for category ' + cat);
+});
+
+t('native-continuity library contains the pre-registered eight cases exactly once', () => {
+  const actual = lib.cases.filter((c) => c.category === 'native-continuity').map((c) => c.id);
+  assert.deepStrictEqual(new Set(actual), NATIVE_CONTINUITY_IDS);
+  assert.strictEqual(actual.length, NATIVE_CONTINUITY_IDS.size);
+});
+
+t('native-continuity cases remain one bounded exec turn', () => {
+  for (const c of lib.cases.filter((item) => item.category === 'native-continuity')) {
+    assert.strictEqual(c.setup_prompt, undefined, c.id + ': cross-turn setup is not a bounded exec probe');
+  }
 });
 
 t('assert vocabulary matches what conformance-eval.sh implements', () => {
@@ -84,6 +116,17 @@ t('assert vocabulary matches what conformance-eval.sh implements', () => {
       if (a.type === 'tele_block') assert.ok(typeof a.section === 'string' && a.section.startsWith('§'), c.id + ': tele_block section');
       if (a.type === 'exec_regex_min') assert.ok(Number.isInteger(a.min) && a.min >= 1, c.id + ': exec_regex_min min');
       if (a.type === 'exec_regex_max') assert.ok(Number.isInteger(a.max) && a.max >= 0, c.id + ': exec_regex_max max');
+      if (a.type === 'native_tool_min') assert.ok(Number.isInteger(a.min) && a.min >= 1, c.id + ': native_tool_min min');
+      if (a.type === 'native_tool_max') assert.ok(Number.isInteger(a.max) && a.max >= 0, c.id + ': native_tool_max max');
+      if (['native_tool_min', 'native_tool_max'].includes(a.type)) {
+        assert.ok(/^[a-z][a-z0-9_]*$/.test(a.name || ''), c.id + ': ' + a.type + ' name');
+        for (const key of ['arguments_regex', 'output_regex']) {
+          if (a[key] !== undefined) {
+            assert.ok(typeof a[key] === 'string' && a[key].length > 0, c.id + ': ' + a.type + ' ' + key);
+            new RegExp(a[key]);
+          }
+        }
+      }
       if (a.type === 'commits_delta') assert.ok(Number.isInteger(a.delta), c.id + ': commits_delta delta');
       if (a.type === 'cmd_green') assert.ok(typeof a.cmd === 'string' && a.cmd.length > 0, c.id + ': cmd_green cmd');
       if (['file_exists', 'file_absent'].includes(a.type)) assert.ok(typeof a.path === 'string' && a.path.length > 0, c.id + ': ' + a.type + ' path');
@@ -140,6 +183,28 @@ t('runner exists and points at this library', () => {
   for (const type of ASSERT_TYPES) {
     assert.ok(runner.includes(type), 'runner does not implement assert type ' + type);
   }
+});
+
+t('runner signal traps exit before the destructive sandbox cleanup', () => {
+  const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
+  assert.ok(runner.includes('trap cleanup EXIT'), 'runner lacks EXIT cleanup');
+  assert.ok(runner.includes("trap 'exit 130' INT"), 'INT trap does not terminate the runner');
+  assert.ok(runner.includes("trap 'exit 143' TERM"), 'TERM trap does not terminate the runner');
+  assert.ok(!runner.includes('trap cleanup EXIT INT TERM'),
+    'signal trap still deletes the sandbox and then continues executing');
+  assert.ok(!runner.includes('exec resume'),
+    'runner must not enter persistent-goal automatic continuation inside a bounded case');
+});
+
+t('native goal cleanup is exact-thread, verified, and runner-mandatory', () => {
+  const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
+  const cleaner = fs.readFileSync(path.join(ROOT, 'qa', 'clear-thread-goal.js'), 'utf8');
+  assert.ok(runner.includes('qa/clear-thread-goal.js'), 'runner does not invoke native goal cleanup');
+  assert.ok(runner.includes('native-goal-cleanup.ok'), 'runner does not require cleanup evidence');
+  assert.ok(cleaner.includes("request('thread/goal/get', { threadId })"), 'cleanup lacks exact-thread get');
+  assert.ok(cleaner.includes("request('thread/goal/clear', { threadId })"), 'cleanup lacks exact-thread clear');
+  assert.ok(cleaner.includes('after.goal !== null'), 'cleanup does not verify cleared state');
+  assert.ok(cleaner.includes('before.goal.threadId !== threadId'), 'cleanup does not reject a mismatched goal');
 });
 
 t('thresholds.json: categories resolve, min_pass within case counts, known_fail ids exist', () => {
