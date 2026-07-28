@@ -3,16 +3,33 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v4.25.4 — 2026-07-28 — runner-independent registry retry (patch)
+
+- Moved the just-published `npm pack` propagation probe and retry loop into a
+  tested Node helper. Transient npm child-process failures are captured inside
+  Node, so the GitHub Actions shell sees only the helper's final result.
+- After a failed attempt, the helper removes only newly created top-level
+  `.tgz` paths inside its real, bounded destination. Cleanup does not unlink
+  tarball names present before the first attempt and does not touch nested or
+  non-tarball files. Coverage locks transient recovery and exhaustion across
+  the real `bash -euo pipefail` → Node CLI → `npm` process boundary, plus
+  spawn-error, cleanup, symlink rejection, and CLI usage behavior.
+- Runtime behavior remains unchanged from v4.25.3. The already-published
+  v4.25.2 and v4.25.3 packages remain immutable; this successor patch restores
+  complete registry-byte, provenance, and marketplace release gates for
+  v4.25.4 after those jobs did not finish for the two preceding patches.
+
 ## v4.25.3 — 2026-07-27 — registry propagation retry correction (patch)
 
 - Changed the post-publish `npm pack` probe to run directly as an `if`
   condition, which is exempt from shell `errexit` handling even when GitHub
   Actions launches the step with `bash -e`.
-- This lets the existing bounded registry-propagation loop survive an initial
-  transient `ETARGET` and continue into byte-for-byte release-asset,
-  signature, provenance, and marketplace verification.
+- Although this passed under local `bash -euo pipefail`, the hosted release
+  runner still terminated at the first transient `ETARGET`; v4.25.4 moves the
+  retry boundary out of shell control flow.
 - Runtime behavior is unchanged from v4.25.2. The already-published v4.25.2
-  tag and package remain immutable; v4.25.3 carries the corrected release gate.
+  tag and package remain immutable; v4.25.3 records the attempted shell-level
+  correction that v4.25.4 supersedes.
 
 ## v4.25.2 — 2026-07-27 — marketplace lifecycle release-gate correction (patch)
 

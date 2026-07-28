@@ -124,26 +124,11 @@ jobs:
             sha256sum -c "agentsmd-$VER.tgz.sha256"
           )
 
-          REGISTRY_READY=0
-          for attempt in {1..12}; do
-            if npm pack "$NAME@$VER" \
-              --pack-destination "$VERIFY_DIR/registry" \
-              --json \
-              --prefer-online \
-              >"$VERIFY_DIR/registry-pack.json"; then
-              REGISTRY_READY=1
-              break
-            fi
-            rm -f "$VERIFY_DIR/registry/"*.tgz "$VERIFY_DIR/registry-pack.json"
-            if test "$attempt" -lt 12; then
-              echo "waiting for $NAME@$VER registry bytes (attempt $attempt/12)"
-              sleep 10
-            fi
-          done
-          test "$REGISTRY_READY" -eq 1 || {
-            echo "$NAME@$VER registry bytes were unavailable after 12 attempts" >&2
-            exit 1
-          }
+          node scripts/release-registry-pack.js \
+            "--package=$NAME@$VER" \
+            "--destination=$VERIFY_DIR/registry" \
+            --attempts=12 \
+            --delay-ms=10000
           mapfile -t REGISTRY_TARBALLS < <(find "$VERIFY_DIR/registry" -maxdepth 1 -type f -name '*.tgz' -print)
           test "${#REGISTRY_TARBALLS[@]}" -eq 1 || {
             echo "expected one registry tarball, found ${#REGISTRY_TARBALLS[@]}" >&2
