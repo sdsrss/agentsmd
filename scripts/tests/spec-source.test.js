@@ -16,18 +16,17 @@ const t = (name, fn) => {
   catch (error) { FAIL++; console.log('  FAIL ' + name + '\n     ' + error.message); }
 };
 
-t('canonical layouts render both committed artifacts byte-for-byte', () => {
+t('canonical layout renders the committed full artifact byte-for-byte', () => {
   const rendered = G.renderAll({ root: ROOT });
-  assert.deepStrictEqual([...rendered.keys()], ['spec/AGENTS.md', 'spec/AGENTS-omx.md']);
+  assert.deepStrictEqual([...rendered.keys()], ['spec/AGENTS.md']);
   for (const [relative, content] of rendered) {
     assert.deepStrictEqual(content, fs.readFileSync(path.join(ROOT, relative)), relative);
   }
-  assert.strictEqual(sha256(rendered.get('spec/AGENTS.md')), '9a406ae7e743fea646a4a9d419e12636585ea0b4cedfb5522d3af0b307cffa66');
-  assert.strictEqual(sha256(rendered.get('spec/AGENTS-omx.md')), '09017c1504cfc6cae0ac8575a4330bbc13de4477d185592365e4f1da345445f6');
+  assert.strictEqual(sha256(rendered.get('spec/AGENTS.md')), '1d24fdec823596962933da6004e1fc957a74efdbc2653f33e4ac5b021ae4dc30');
 });
 
-t('spec:check is read-only and reports both outputs in sync', () => {
-  const outputs = ['spec/AGENTS.md', 'spec/AGENTS-omx.md'];
+t('spec:check is read-only and reports the full output in sync', () => {
+  const outputs = ['spec/AGENTS.md'];
   const before = new Map(outputs.map((relative) => [
     relative,
     {
@@ -47,7 +46,7 @@ t('generate repairs artifact drift from canonical fragments', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-spec-source.'));
   try {
     fs.cpSync(path.join(ROOT, 'spec', 'source'), path.join(fixture, 'spec', 'source'), { recursive: true });
-    for (const relative of ['spec/AGENTS.md', 'spec/AGENTS-omx.md']) {
+    for (const relative of ['spec/AGENTS.md']) {
       const target = path.join(fixture, relative);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.copyFileSync(path.join(ROOT, relative), target);
@@ -55,7 +54,7 @@ t('generate repairs artifact drift from canonical fragments', () => {
     fs.appendFileSync(path.join(fixture, 'spec', 'AGENTS.md'), '\ndrift\n');
     assert.throws(() => G.check({ root: fixture }), /generated spec drift: spec\/AGENTS\.md/);
     const generated = G.generate({ root: fixture });
-    assert.deepStrictEqual(generated.generated, ['spec/AGENTS.md', 'spec/AGENTS-omx.md']);
+    assert.deepStrictEqual(generated.generated, ['spec/AGENTS.md']);
     assert.doesNotThrow(() => G.check({ root: fixture }));
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
@@ -66,12 +65,16 @@ t('generate rolls back the first artifact when the second write fails', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-spec-source-rollback.'));
   try {
     fs.cpSync(path.join(ROOT, 'spec', 'source'), path.join(fixture, 'spec', 'source'), { recursive: true });
-    for (const relative of ['spec/AGENTS.md', 'spec/AGENTS-omx.md']) {
+    const layoutFile = path.join(fixture, 'spec', 'source', 'layout.json');
+    const layout = JSON.parse(fs.readFileSync(layoutFile, 'utf8'));
+    layout.outputs['spec/AGENTS-secondary.md'] = [...layout.outputs['spec/AGENTS.md']];
+    fs.writeFileSync(layoutFile, `${JSON.stringify(layout, null, 2)}\n`);
+    for (const relative of ['spec/AGENTS.md', 'spec/AGENTS-secondary.md']) {
       const target = path.join(fixture, relative);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, `old ${relative}\n`);
     }
-    const before = new Map(['spec/AGENTS.md', 'spec/AGENTS-omx.md'].map((relative) => [
+    const before = new Map(['spec/AGENTS.md', 'spec/AGENTS-secondary.md'].map((relative) => [
       relative,
       fs.readFileSync(path.join(fixture, relative)),
     ]));
@@ -97,7 +100,11 @@ t('generate preserves a concurrent edit instead of blessing it as rollback state
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-spec-source-cas.'));
   try {
     fs.cpSync(path.join(ROOT, 'spec', 'source'), path.join(fixture, 'spec', 'source'), { recursive: true });
-    for (const relative of ['spec/AGENTS.md', 'spec/AGENTS-omx.md']) {
+    const layoutFile = path.join(fixture, 'spec', 'source', 'layout.json');
+    const layout = JSON.parse(fs.readFileSync(layoutFile, 'utf8'));
+    layout.outputs['spec/AGENTS-secondary.md'] = [...layout.outputs['spec/AGENTS.md']];
+    fs.writeFileSync(layoutFile, `${JSON.stringify(layout, null, 2)}\n`);
+    for (const relative of ['spec/AGENTS.md', 'spec/AGENTS-secondary.md']) {
       const target = path.join(fixture, relative);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, `old ${relative}\n`);
@@ -123,8 +130,8 @@ t('generate preserves a concurrent edit instead of blessing it as rollback state
     assert.match(error.message, /rollback incomplete: spec\/AGENTS\.md: concurrent bytes prevent rollback/);
     assert(fs.readFileSync(path.join(fixture, 'spec/AGENTS.md'), 'utf8').endsWith(concurrent));
     assert.strictEqual(
-      fs.readFileSync(path.join(fixture, 'spec/AGENTS-omx.md'), 'utf8'),
-      'old spec/AGENTS-omx.md\n'
+      fs.readFileSync(path.join(fixture, 'spec/AGENTS-secondary.md'), 'utf8'),
+      'old spec/AGENTS-secondary.md\n'
     );
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });

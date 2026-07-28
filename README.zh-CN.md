@@ -44,7 +44,7 @@ Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plug
 
 偏好图形界面？在 Codex app 中打开 **插件**；或运行 `codex`，输入 `/plugins`，打开 `agentsmd` marketplace 条目并选择安装。
 
-> 插件通过 Codex plugin cache 提供 hooks、skills 和规范。每次可信的 `SessionStart`（`startup`、`resume`、`clear`、`compact`）都会读取当前生效的全局规范（`AGENTS.override.md` 优先，否则 `AGENTS.md`）：精确命中 OMX 生成标记时加载较小的 `spec/AGENTS-omx.md` 兼容 overlay，否则加载完整 `spec/AGENTS.md`；兼容文件缺失、不可读或版本不一致时回退完整版。Hook 同时给出 extended spec 的实际路径；它不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true` 或迁移旧 `codexmd` 安装。需要全局文件与完整生命周期时，改用 standalone/npm。
+> 插件通过 Codex plugin cache 提供 hooks、skills 和完整规范。每次可信的 `SessionStart`（`startup`、`resume`、`clear`、`compact`）都注入唯一的完整 `spec/AGENTS.md` profile，并给出 packaged extended spec 的实际路径。旧 OMX marker 或其他 tenant 内容不会改变 profile。插件不会改写 `~/.codex/AGENTS.md`、设置 `[features] hooks = true`，也没有可逆的全局文件卸载生命周期。需要完整安装时使用 standalone/npm，它会事务式合并受管理的全局 `AGENTS.md` 块。
 
 插件自己的 SessionStart 成功后，会在
 `PLUGIN_DATA/runtime/activation.json` 写入私有激活凭据，并兼容回退到
@@ -119,28 +119,25 @@ npx --package @sdsrs/agentsmd agentsmd install
 
 首次通过 npm CLI 安装 standalone 前，会先只读检查
 `codex plugin list --json`。若精确发现已安装且启用的
-`agentsmd@agentsmd` plugin，命令成功退出且不修改 `$CODEX_HOME`，从源头避免
-重复 policy/hook surface；既有 standalone 仍可正常 update。仅高级恢复场景可
-用 `--allow-dual-surface` 显式保留两套 surface。若存在丢失 manifest 的 partial
-standalone，guard 不会掩盖它，而是保留原有 fail-closed 恢复诊断；`doctor` 仍会把双面报告为待清理
-状态。已经审查并直接运行专用 `install.sh` 本身就是明确选择 standalone，因此
-会继续安装。
+`agentsmd@agentsmd` plugin，安装以 exit 1 拒绝并保持 `$CODEX_HOME` 零改动。
+先移除 plugin，再重跑安装，让一套可逆生命周期独占全局 guidance 与 hooks。
+既有 standalone 仍可正常 update。若存在丢失 manifest 的 partial standalone，
+guard 不会掩盖它，而会保留原有 fail-closed 恢复诊断。
 
 standalone manifest 现在使用可加性的 schema v2，同时保留 update、repair、
 restore、uninstall 所依赖的完整 v1 ownership 字段。每个 standalone bundle
-始终携带 full、OMX-compatible、extended 三份规范。新安装和 v1 升级默认仍
-物化完整 core（`legacy-full`），升级不会静默缩减全局指令。profile 变化只通过
-显式、带 journal 的 lifecycle transaction 完成：
+只携带 full 与 extended 两份规范；新安装和 v1 升级都物化唯一的完整 profile。
+旧 `auto`、`omx-compatible`、`legacy-full` 公共模式会在任何写入前被拒绝；
+reader 只为把已拥有的旧双 profile manifest 迁移到新版而暂时识别旧结构。
 
 ```bash
 agentsmd update --profile=full
-agentsmd update --profile=auto
-agentsmd update --profile=omx-compatible  # 必须能证明 active OMX 精确 marker
 ```
 
-`auto` 只检查当前生效的全局 guidance（`AGENTS.override.md` 优先）；证据缺失或
-无法读取时回退完整 core。SessionStart 不会改写全局文件。`status` 分开报告
-configured/desired profile、drift 与 bundle 完整性。
+standalone install/update 会把完整 core 事务式合并到
+`$CODEX_HOME/AGENTS.md` 的 agentsmd sentinel 之间，块外字节原样保留。
+SessionStart 不会改写全局文件。`status` 报告 configured/desired full profile
+和 bundle 完整性。
 
 直接运行 `agentsmd` 只打印帮助，不写入文件。退出码统一为：`0` 表示成功/帮助，`1` 表示负面结果或运行时失败，`2` 表示 argv/usage 错误。
 
@@ -201,7 +198,7 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 
 | 层 | 作用 | 主要内容 |
 |---|---|---|
-| 规范 | 定义流程、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-omx.md`、`spec/AGENTS-extended.md` |
+| 规范 | 定义流程、原生子代理领导契约、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-extended.md` |
 | 原生 hooks | 在四类 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
 | 管理层 | 安装、诊断、恢复、审计和治理 | `scripts/*.js`、`agentsmd` CLI |
 | 项目工具 | 生成项目事实、编码约定和设计令牌引用 | `agentsmd init`、`analyze`、`design` |
@@ -219,7 +216,7 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`UserPromptSubmit` 和 `Stop` 上�
 | `ship-baseline-check` | PreToolUse:Bash | 已知 CI 基线为红色时阻断推送共享分支 |
 | `memory-read-check` | PreToolUse:Bash | ship 前要求读取项目 memory index 与同仓库、经 canonical 校验的关联 memory |
 | `secrets-scan` | PreToolUse:Bash | 阻断检测到 secrets 或高置信 secret 文件名的 commit |
-| `session-start-check` | SessionStart | 在 startup、resume、clear、compact 时重新注入完整或 OMX 兼容规范；只有全新 startup 清理旧会话状态 |
+| `session-start-check` | SessionStart | 在 startup、resume、clear、compact 时重新注入唯一的完整规范；只有全新 startup 清理旧会话状态 |
 | `surface-advisories` | UserPromptSubmit | 呈现上一轮排队的提示 |
 | `memory-prompt-hint` | UserPromptSubmit | 呈现与 prompt 匹配的 `MEMORY.md` 条目 |
 | `residue-audit` | Stop | 标记 Codex 临时存储中的任务残留增长 |
@@ -368,7 +365,10 @@ manifest。
 
 卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
 
-agentsmd 不依赖 oh-my-codex，并原样保留 OMX 管理的文件和 hooks。Marketplace 插件只有在当前生效的全局规范中精确看到 OMX 生成标记时，才改用较小的 OMX 兼容 overlay；仅存在 `omx` 命令或被 override 遮蔽的文件不会触发精简 profile。
+agentsmd 会保留其他 tenant 的 hook 条目和 sentinel 块外的全局 guidance，但不再有
+任何 OMX 专用 profile 选择或运行时依赖。完整规范内建 Codex 原生子代理契约：
+默认单代理；只委派独立、有边界的任务；明确 child ownership；leader 负责集成、
+冲突解决与最终验证；依赖任务串行；禁止递归编排；禁止伪造 role、pointer 或 authority state。
 
 从 `codexmd` v1.4.0–v1.4.3 升级时，standalone 安装器只迁移 legacy provenance 可验证的 artifact。项目在 v2.0.0 更名为 agentsmd。
 
@@ -409,11 +409,11 @@ npm --prefix /path/to/agentsmd run lint:shell
 npm run spec:check
 ```
 
-`spec/AGENTS.md` 与 `spec/AGENTS-omx.md` 是生成产物。修改
+`spec/AGENTS.md` 是生成产物。修改
 `spec/source/` 下按顺序组合的 canonical fragments 后运行
 `npm run spec:generate`；`npm run spec:check` 是只读 drift gate。
-发布版本同步器会先更新 canonical profile header，再从同一 source layout
-重新生成两份产物。
+发布版本同步器会先更新 canonical profile header，再从 source layout
+重新生成该产物。
 
 测试覆盖安装隔离、插件分发、hook wiring、drift、遥测、诊断、项目工作流和 shell smoke fixtures。设计边界见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，版本记录见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
@@ -439,9 +439,10 @@ install.sh    standalone installer 与 lifecycle wrapper
 
 不会。插件把 hooks 和 skills 安装到 Codex plugin cache。若还需要受管理的全局 `AGENTS.md` 块和 standalone 配置生命周期，请运行 `agentsmd install` 或 standalone 安装器。
 
-### agentsmd 依赖 oh-my-codex 吗？
+### agentsmd 依赖编排插件吗？
 
-不依赖。agentsmd 可以独立安装；存在其他 tenant 时也会保留它们。
+不依赖。完整 profile 已包含有边界的 Codex 原生子代理领导契约；存在其他 tenant
+时也会保留无关内容。
 
 ### agentsmd 会取代人工复审吗？
 

@@ -185,11 +185,22 @@ function validateInstallManifestV2(manifest) {
   if (manifest.surfaceProtocolVersion !== 2) return 'manifest surfaceProtocolVersion must be 2 for schema 2';
   if (manifest.deliverySurface !== 'standalone') return 'manifest deliverySurface must be standalone';
   if (!isObject(manifest.profile)) return 'manifest profile must be an object';
-  const selectionModes = ['legacy-full', 'auto', 'full', 'omx-compatible'];
+  if (!isObject(manifest.bundleProfiles)) return 'manifest bundleProfiles must be an object';
+  // Read the previous dual-profile schema long enough for `agentsmd update` to
+  // migrate it to the single full profile. New manifests omit this legacy key;
+  // if the key is present, validate it instead of treating a malformed record
+  // as though the legacy profile were absent.
+  const hasLegacyDualProfile = Object.prototype.hasOwnProperty.call(
+    manifest.bundleProfiles,
+    'omx-compatible'
+  );
+  const selectionModes = hasLegacyDualProfile
+    ? ['legacy-full', 'auto', 'full', 'omx-compatible']
+    : ['full'];
   if (!selectionModes.includes(manifest.profile.selectionMode)) {
     return `manifest profile.selectionMode must be one of: ${selectionModes.join(', ')}`;
   }
-  const materializedProfiles = ['full', 'omx-compatible'];
+  const materializedProfiles = hasLegacyDualProfile ? ['full', 'omx-compatible'] : ['full'];
   if (!materializedProfiles.includes(manifest.profile.materialized)) {
     return `manifest profile.materialized must be one of: ${materializedProfiles.join(', ')}`;
   }
@@ -216,12 +227,14 @@ function validateInstallManifestV2(manifest) {
   if (manifest.profile.capabilityContractVersion !== PROFILE_CONTRACT_VERSION) {
     return `manifest profile.capabilityContractVersion must be ${PROFILE_CONTRACT_VERSION}`;
   }
-  if (!isObject(manifest.bundleProfiles)) return 'manifest bundleProfiles must be an object';
-  for (const [name, relativePath] of [
+  const requiredProfiles = [
     ['full', 'spec/AGENTS.md'],
-    ['omx-compatible', 'spec/AGENTS-omx.md'],
     ['extended', 'spec/AGENTS-extended.md'],
-  ]) {
+  ];
+  if (hasLegacyDualProfile) {
+    requiredProfiles.splice(1, 0, ['omx-compatible', 'spec/AGENTS-omx.md']);
+  }
+  for (const [name, relativePath] of requiredProfiles) {
     const error = validateBundleProfile(
       manifest.bundleProfiles[name],
       `bundleProfiles.${name}`,
@@ -308,6 +321,12 @@ function pluginHookRows(hooksRoot) {
   return rows;
 }
 
+function pluginHookCommand(basename) {
+  return `agentsmd_plugin_root="\${PLUGIN_ROOT:-\${CLAUDE_PLUGIN_ROOT:-}}"; `
+    + '[ -n "$agentsmd_plugin_root" ] || exit 0; '
+    + `bash "$agentsmd_plugin_root/hooks/${basename}"`;
+}
+
 function expectedPluginHookRows() {
   const eventOffsets = new Map();
   return REG.HOOK_REGISTRY.map((hook) => {
@@ -318,7 +337,7 @@ function expectedPluginHookRows() {
       groupIndex: 0,
       hookIndex,
       matcher: hook.matcher == null ? null : hook.matcher,
-      command: `bash "\${CLAUDE_PLUGIN_ROOT}/hooks/${hook.basename}"`,
+      command: pluginHookCommand(hook.basename),
       timeout: hook.timeout,
     };
   });
@@ -395,7 +414,7 @@ function readActivationReceipt(plugin, env = process.env) {
       || parsed.schemaVersion !== ACTIVATION_RECEIPT_SCHEMA
       || requiredStrings.some((key) => typeof parsed[key] !== 'string' || parsed[key].length === 0)
       || !parseSemver(parsed.pluginVersion)
-      || !['full', 'omx-compatible'].includes(parsed.profile)
+      || parsed.profile !== 'full'
       || !path.isAbsolute(parsed.extendedPath)
       || !Number.isFinite(Date.parse(parsed.observedAt))) {
     return unverified('receipt-schema-invalid');
@@ -450,10 +469,8 @@ function inspectPluginBundle(env = process.env) {
     },
     spec: {
       core: false,
-      omxCompatible: false,
       extended: false,
       coreVersion: null,
-      omxCompatibleVersion: null,
       extendedVersion: null,
     },
   };
@@ -489,7 +506,7 @@ function inspectPluginBundle(env = process.env) {
     if (actualRows === null) result.errors.push('plugin hooks.json has an invalid hooks schema');
     const commands = actualRows === null ? [] : actualRows.map((row) => row.command);
     const registered = REG.HOOK_BASENAMES.filter((basename) =>
-      commands.some((command) => command === `bash "\${CLAUDE_PLUGIN_ROOT}/hooks/${basename}"`)
+      commands.some((command) => command === pluginHookCommand(basename))
     );
     result.hooks.registered = registered.length;
     result.hooks.missingRegistrations = REG.HOOK_BASENAMES.filter((name) => !registered.includes(name));
@@ -516,19 +533,14 @@ function inspectPluginBundle(env = process.env) {
   }
 
   const core = readBundleFile(root, 'spec/AGENTS.md', 'spec/AGENTS.md', result.errors);
-  const omxCompatible = readBundleFile(root, 'spec/AGENTS-omx.md', 'spec/AGENTS-omx.md', result.errors);
   const extended = readBundleFile(root, 'spec/AGENTS-extended.md', 'spec/AGENTS-extended.md', result.errors);
   result.spec.core = F.pathExists(path.join(root, 'spec', 'AGENTS.md'));
-  result.spec.omxCompatible = F.pathExists(path.join(root, 'spec', 'AGENTS-omx.md'));
   result.spec.extended = F.pathExists(path.join(root, 'spec', 'AGENTS-extended.md'));
   result.spec.coreVersion = specVersion(core);
-  result.spec.omxCompatibleVersion = specVersion(omxCompatible);
   result.spec.extendedVersion = specVersion(extended);
   if (!result.spec.core) result.errors.push('missing spec/AGENTS.md');
-  if (!result.spec.omxCompatible) result.errors.push('missing spec/AGENTS-omx.md');
   if (!result.spec.extended) result.errors.push('missing spec/AGENTS-extended.md');
   if (plugin && result.spec.coreVersion !== plugin.version) result.errors.push('plugin core spec version differs from manifest version');
-  if (plugin && result.spec.omxCompatibleVersion !== plugin.version) result.errors.push('plugin OMX-compatible spec version differs from manifest version');
   if (plugin && result.spec.extendedVersion !== plugin.version) result.errors.push('plugin extended spec version differs from manifest version');
 
   result.complete = result.manifest.valid
@@ -536,7 +548,6 @@ function inspectPluginBundle(env = process.env) {
     && result.hooks.missingScripts.length === 0
     && result.hooks.missingSupport.length === 0
     && result.spec.core
-    && result.spec.omxCompatible
     && result.spec.extended
     && result.errors.length === 0;
   result.healthy = result.complete;
@@ -708,7 +719,7 @@ function inspectStandaloneSurface() {
         reason: manifestState.manifest.profile.reason,
       }
       : (manifestState.manifest ? {
-        selectionMode: 'legacy-full',
+        selectionMode: 'full',
         materialized: 'full',
         reason: 'implicit-schema-1',
       } : null),
@@ -806,7 +817,11 @@ function inspectStandaloneSurface() {
   if (result.activeSpec.version !== manifest.version) reasons.push('active spec version differs from standalone manifest version');
   if (manifest.manifestSchemaVersion === 2) {
     result.bundleProfilesComplete = true;
-    for (const name of ['full', 'omx-compatible', 'extended']) {
+    const profileNames = ['full', 'extended'];
+    if (isObject(manifest.bundleProfiles['omx-compatible'])) {
+      profileNames.splice(1, 0, 'omx-compatible');
+    }
+    for (const name of profileNames) {
       const record = manifest.bundleProfiles[name];
       const target = path.join(P.installDir(), record.relativePath);
       try {

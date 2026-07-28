@@ -1,6 +1,6 @@
 'use strict';
 
-// Canonical source composer for the two shipped discovery-chain profiles.
+// Canonical source composer for the shipped full discovery-chain profile.
 // Fragments are concatenated as raw Buffers in the explicit layout order:
 // no trimming, newline insertion, template rendering, or encoding round-trip.
 

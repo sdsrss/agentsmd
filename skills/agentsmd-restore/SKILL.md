@@ -13,7 +13,7 @@ CANDIDATE_ROOT="$(cd "$(dirname "$SKILL_MD")/../.." && pwd)"
 if [ -f "$CANDIDATE_ROOT/scripts/restore.js" ]; then AGENTSMD_ROOT="$CANDIDATE_ROOT"; else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"; fi
 ```
 
-`install`/`update` mutate three files shared with oh-my-codex and other tenants. The write is atomic (crash-safe), and now also **reversible**: install snapshots all three into `.agentsmd-state/backups/<id>/` before touching them (rotated — the newest 5 kept). If a merge came out logically wrong, restore the prior bytes:
+`install`/`update` mutate three files shared with Codex and other tenants. The write is atomic (crash-safe), and also **reversible**: install snapshots all three into `.agentsmd-state/backups/<id>/` before touching them (rotated — the newest 5 kept). If a merge came out logically wrong, restore the prior bytes:
 
 ```bash
 node "$AGENTSMD_ROOT/scripts/restore.js" --list          # snapshots + purpose

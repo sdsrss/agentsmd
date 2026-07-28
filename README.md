@@ -48,7 +48,7 @@ Codex asks you to review trust before plugin hooks run for the first time. Inspe
 
 Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugins`, open the `agentsmd` marketplace entry, and select **Install plugin**.
 
-> The plugin bundle provides hooks, skills, and the specification through Codex's plugin cache. On every trusted `SessionStart` (`startup`, `resume`, `clear`, or `compact`), the hook reads the active global guidance (`AGENTS.override.md` else `AGENTS.md`). An exact OMX-generated marker selects the smaller `spec/AGENTS-omx.md` compatibility overlay; otherwise it injects the complete `spec/AGENTS.md`. Missing, unreadable, or version-divergent compatibility metadata falls back to the complete core. The hook also announces the actual extended-spec path. It does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or migrate a previous `codexmd` installation. Use standalone/npm when you need global files and the full lifecycle.
+> The plugin bundle provides hooks, skills, and the complete specification through Codex's plugin cache. Every trusted `SessionStart` (`startup`, `resume`, `clear`, or `compact`) injects the single full `spec/AGENTS.md` profile and announces the packaged extended-spec path. Former OMX markers and other tenant content do not change that selection. The plugin does not rewrite `~/.codex/AGENTS.md`, enable `[features] hooks = true`, or own a reversible global-file lifecycle. Use standalone/npm for the full installation that transactionally merges the managed global `AGENTS.md` block.
 
 After a successful plugin-owned SessionStart, agentsmd writes a private
 activation receipt under `PLUGIN_DATA/runtime/activation.json` (with
@@ -135,32 +135,28 @@ npx --package @sdsrs/agentsmd agentsmd install
 
 A fresh npm-CLI standalone install first checks
 `codex plugin list --json`. If the exact installed and enabled
-`agentsmd@agentsmd` plugin is present, it exits successfully without changing
-`$CODEX_HOME`, avoiding a duplicate policy/hook surface. Existing standalone
-installs remain updateable, while a manifest-less partial standalone footprint
-keeps the existing fail-closed recovery diagnostic instead of being hidden by
-the plugin guard. Advanced recovery setups can opt into both surfaces
-with `--allow-dual-surface`; `doctor` will continue to report the dual surface
-as a cleanup requirement. The dedicated reviewed `install.sh` path is already
-an explicit standalone choice and therefore proceeds.
+`agentsmd@agentsmd` plugin is present, installation refuses with exit 1 and
+changes nothing. Remove the plugin, then rerun the command so one reversible
+lifecycle owns global guidance and hooks. Existing standalone installs remain
+updateable, while a manifest-less partial standalone footprint keeps the
+existing fail-closed recovery diagnostic instead of being hidden by the guard.
 
 Standalone manifests use additive schema v2 while retaining the complete v1
 ownership records used by update, repair, restore, and uninstall. Every
-standalone bundle carries the full, OMX-compatible, and extended specs. New and
-v1-upgraded installs keep the full core by default (`legacy-full`), so upgrading
-does not silently shrink the global guidance. Profile changes are explicit,
-journaled lifecycle transactions:
+standalone bundle carries the full and extended specs. New installs and v1
+upgrades materialize the single full profile. The old `auto`,
+`omx-compatible`, and `legacy-full` public modes are rejected before mutation;
+the reader only recognizes a previous dual-profile manifest long enough for an
+owned `agentsmd update` migration.
 
 ```bash
 agentsmd update --profile=full
-agentsmd update --profile=auto
-agentsmd update --profile=omx-compatible  # requires the exact active OMX marker
 ```
 
-`auto` selects the OMX-compatible core only from the active global guidance
-(`AGENTS.override.md` takes precedence); absent or unreadable evidence falls
-back to the full core. SessionStart never rewrites global files. `status`
-separately reports configured/desired profile, drift, and bundle completeness.
+Standalone install/update directly and transactionally merges the full core into
+`$CODEX_HOME/AGENTS.md` between agentsmd sentinels, preserving every byte
+outside that block. SessionStart never rewrites global files. `status` reports
+the configured/desired full profile and bundle completeness.
 
 A bare `agentsmd` prints help and writes nothing. Exit codes are consistent: `0` = success/help, `1` = negative result or runtime failure, `2` = argv/usage error.
 
@@ -222,7 +218,7 @@ An explicit request to commit and release or publish authorizes the standard shi
 
 | Layer | Role | Main artifacts |
 |---|---|---|
-| Specification | Defines workflow, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-omx.md`, `spec/AGENTS-extended.md` |
+| Specification | Defines workflow, native-subagent leadership, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-extended.md` |
 | Native hooks | Blocks or observes selected detectable patterns across four Codex events | `hooks/*.sh`, `hooks.json` |
 | Management | Installs, diagnoses, restores, audits, and governs | `scripts/*.js`, `agentsmd` CLI |
 | Project tools | Generates project facts, conventions, and design-token references | `agentsmd init`, `analyze`, `design` |
@@ -240,7 +236,7 @@ agentsmd registers 15 hooks across `SessionStart`, `PreToolUse`, `UserPromptSubm
 | `ship-baseline-check` | PreToolUse:Bash | Blocks a shared-branch push when its CI baseline is known red |
 | `memory-read-check` | PreToolUse:Bash | Requires the project index and canonical, same-repository linked-memory reads before shipping |
 | `secrets-scan` | PreToolUse:Bash | Blocks commits with detected secrets or high-confidence secret filenames |
-| `session-start-check` | SessionStart | Rehydrates the active full/OMX-compatible spec on startup, resume, clear, and compact; only a fresh startup resets stale session state |
+| `session-start-check` | SessionStart | Rehydrates the single full spec on startup, resume, clear, and compact; only a fresh startup resets stale session state |
 | `surface-advisories` | UserPromptSubmit | Surfaces advisories queued by the previous turn |
 | `memory-prompt-hint` | UserPromptSubmit | Surfaces prompt-matched `MEMORY.md` entries |
 | `residue-audit` | Stop | Flags growth in task residue under Codex temporary storage |
@@ -398,7 +394,12 @@ the extended spec, or the ownership manifest.
 
 Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, the extended spec, and the status-line preset it added — a status line you have since customized is left untouched. It retains recovery backups, unknown state, telemetry, the enabled hook flag (removing it could break other tenants' hooks), and unregistered no-op shims needed by already-running sessions.
 
-agentsmd does not require oh-my-codex and preserves OMX-owned files and hooks. When the marketplace plugin sees the exact OMX marker in the currently active global guidance, it injects the smaller OMX compatibility overlay instead of duplicating orchestration rules. Merely finding an `omx` binary or inactive file does not activate this profile.
+agentsmd preserves other tenants' hook entries and global guidance outside its
+sentinel block, but has no OMX-specific selection or runtime dependency. Its
+full specification includes a Codex-native subagent contract: solo by default,
+bounded independent delegation, explicit child ownership, leader-owned
+integration and validation, serialized dependencies, no recursive
+orchestration, and no fabricated role/pointer/authority state.
 
 If upgrading from `codexmd` v1.4.0–v1.4.3, the standalone installer migrates only artifacts with verifiable legacy provenance. The project was renamed to agentsmd in v2.0.0.
 
@@ -439,11 +440,11 @@ npm --prefix /path/to/agentsmd run lint:shell
 npm run spec:check
 ```
 
-`spec/AGENTS.md` and `spec/AGENTS-omx.md` are generated artifacts. Edit the
+`spec/AGENTS.md` is a generated artifact. Edit the
 ordered canonical fragments under `spec/source/`, then run
 `npm run spec:generate`; `npm run spec:check` is the read-only drift gate.
-The release version synchronizer updates the canonical profile headers first
-and regenerates both artifacts from the same source layout.
+The release version synchronizer updates the canonical profile header first
+and regenerates the artifact from the source layout.
 
 The test suite covers installation isolation, plugin distribution, hook wiring, drift, telemetry, diagnostics, project workflows, and shell smoke fixtures. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for design boundaries and [`CHANGELOG.md`](./CHANGELOG.md) for releases.
 
@@ -469,9 +470,10 @@ It is more than a template. agentsmd combines a global coding specification, bou
 
 No. The plugin installs hooks and skills into the Codex plugin cache. Run `agentsmd install` or the standalone installer when you also want the managed global `AGENTS.md` block and standalone configuration lifecycle.
 
-### Does agentsmd require oh-my-codex?
+### Does agentsmd require an orchestration plugin?
 
-No. agentsmd installs independently and preserves other tenants when they are present.
+No. The full profile includes a bounded Codex-native subagent leadership
+contract and preserves unrelated tenants when they are present.
 
 ### Does agentsmd replace human review?
 

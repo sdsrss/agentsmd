@@ -368,14 +368,12 @@ PLUGIN_EXT_REAL="$(cd "$PLUGIN_FIXTURE/spec" && pwd -P)/AGENTS-extended.md"
   || bad "plugin-only session injects core spec + extended path" "$PLUGIN_CTX"
 
 # SessionStart is also Codex's context-rehydration boundary after /clear and
-# compaction. On every source, choose the spec profile from the CURRENT active
-# global AGENTS file: an OMX marker selects the compatibility overlay; no marker
-# keeps the complete standalone core. This is deliberately runtime detection,
-# not an install-time decision.
+# compaction. Every source injects the single complete profile. Former OMX
+# markers are ordinary preserved tenant content and cannot shrink the contract.
 PROFILE_FULL_HOME="$SANDBOX/profile-full-home"
-PROFILE_OMX_HOME="$SANDBOX/profile-omx-home"
-mkdir -p "$PROFILE_FULL_HOME" "$PROFILE_OMX_HOME"
-printf '%s\n' '<!-- omx:generated:agents-md -->' '# oh-my-codex fixture' > "$PROFILE_OMX_HOME/AGENTS.md"
+PROFILE_FOREIGN_HOME="$SANDBOX/profile-foreign-home"
+mkdir -p "$PROFILE_FULL_HOME" "$PROFILE_FOREIGN_HOME"
+printf '%s\n' '<!-- omx:generated:agents-md -->' '# former tenant fixture' > "$PROFILE_FOREIGN_HOME/AGENTS.md"
 for SS_PROFILE_SOURCE in startup resume clear compact; do
   OUT="$(jq -cn --arg source "$SS_PROFILE_SOURCE" \
       '{session_id:("profile-full-"+$source),hook_event_name:"SessionStart",source:$source}' \
@@ -384,61 +382,24 @@ for SS_PROFILE_SOURCE in startup resume clear compact; do
   { [[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // empty' 2>/dev/null)" == "SessionStart" ]] \
       && [[ "$PROFILE_CTX" == *'selected=plugin'* ]] \
       && [[ "$PROFILE_CTX" == *'profile=full'* ]] \
-      && [[ "$PROFILE_CTX" == *'omx=absent'* ]] \
+      && [[ "$PROFILE_CTX" == *'reason=single-full-profile'* ]] \
       && [[ "$PROFILE_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]] \
-      && [[ "$PROFILE_CTX" != *'OMX compatibility overlay'* ]]; } \
-    && ok "SessionStart($SS_PROFILE_SOURCE), OMX absent → full core re-injected" \
-    || bad "SessionStart($SS_PROFILE_SOURCE), OMX absent → full profile" "$PROFILE_CTX"
+      && [[ "$PROFILE_CTX" == *'Native subagents'* ]]; } \
+    && ok "SessionStart($SS_PROFILE_SOURCE) → full core re-injected" \
+    || bad "SessionStart($SS_PROFILE_SOURCE) → full profile" "$PROFILE_CTX"
 
   OUT="$(jq -cn --arg source "$SS_PROFILE_SOURCE" \
-      '{session_id:("profile-omx-"+$source),hook_event_name:"SessionStart",source:$source}' \
-    | CODEX_HOME="$PROFILE_OMX_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
+      '{session_id:("profile-foreign-"+$source),hook_event_name:"SessionStart",source:$source}' \
+    | CODEX_HOME="$PROFILE_FOREIGN_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
   PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
   { [[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // empty' 2>/dev/null)" == "SessionStart" ]] \
       && [[ "$PROFILE_CTX" == *'selected=plugin'* ]] \
-      && [[ "$PROFILE_CTX" == *'profile=omx-compatible'* ]] \
-      && [[ "$PROFILE_CTX" == *'omx=present'* ]] \
-      && [[ "$PROFILE_CTX" == *'OMX compatibility overlay'* ]] \
-      && [[ "$PROFILE_CTX" != *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
-    && ok "SessionStart($SS_PROFILE_SOURCE), active OMX → compatibility core re-injected" \
-    || bad "SessionStart($SS_PROFILE_SOURCE), active OMX → compatibility profile" "$PROFILE_CTX"
+      && [[ "$PROFILE_CTX" == *'profile=full'* ]] \
+      && [[ "$PROFILE_CTX" == *'reason=single-full-profile'* ]] \
+      && [[ "$PROFILE_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
+    && ok "SessionStart($SS_PROFILE_SOURCE), former marker → full core remains active" \
+    || bad "SessionStart($SS_PROFILE_SOURCE), former marker must not select another profile" "$PROFILE_CTX"
 done
-
-# Codex gives AGENTS.override.md precedence over AGENTS.md. The detector must use
-# that same active-file rule, otherwise a masked OMX install would lose the full
-# agentsmd contract.
-PROFILE_OVERRIDE_HOME="$SANDBOX/profile-override-home"
-mkdir -p "$PROFILE_OVERRIDE_HOME"
-printf '%s\n' '<!-- omx:generated:agents-md -->' > "$PROFILE_OVERRIDE_HOME/AGENTS.md"
-printf '%s\n' '# user override without OMX' > "$PROFILE_OVERRIDE_HOME/AGENTS.override.md"
-OUT="$(printf '%s' '{"session_id":"profile-override-full","hook_event_name":"SessionStart","source":"startup"}' \
-  | CODEX_HOME="$PROFILE_OVERRIDE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
-PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-[[ "$PROFILE_CTX" == *'profile=full'* && "$PROFILE_CTX" == *'omx=absent'* ]] \
-  && ok "non-OMX AGENTS.override.md masks an OMX AGENTS.md → full core" \
-  || bad "active override without OMX must select full profile" "$PROFILE_CTX"
-printf '%s\n' '<!-- omx:generated:agents-md -->' '# OMX override fixture' > "$PROFILE_OVERRIDE_HOME/AGENTS.override.md"
-OUT="$(printf '%s' '{"session_id":"profile-override-omx","hook_event_name":"SessionStart","source":"startup"}' \
-  | CODEX_HOME="$PROFILE_OVERRIDE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
-PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-[[ "$PROFILE_CTX" == *'profile=omx-compatible'* && "$PROFILE_CTX" == *'omx=present'* ]] \
-  && ok "OMX AGENTS.override.md is the active global guidance → compatibility core" \
-  || bad "active OMX override must select compatibility profile" "$PROFILE_CTX"
-
-# Unknown detection state and a damaged compatibility artifact both fail safe
-# toward the complete core. A self-referential symlink is deterministic even
-# under root, unlike chmod-based unreadability fixtures.
-PROFILE_UNKNOWN_HOME="$SANDBOX/profile-unknown-home"
-mkdir -p "$PROFILE_UNKNOWN_HOME"
-ln -s AGENTS.md "$PROFILE_UNKNOWN_HOME/AGENTS.md"
-OUT="$(printf '%s' '{"session_id":"profile-unknown","hook_event_name":"SessionStart","source":"startup"}' \
-  | CODEX_HOME="$PROFILE_UNKNOWN_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_FIXTURE" bash "$HOOKS_DIR/session-start-check.sh" 2>/dev/null)"
-PROFILE_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-{ [[ "$PROFILE_CTX" == *'profile=full'* ]] && [[ "$PROFILE_CTX" == *'omx=unknown'* ]] \
-    && [[ "$PROFILE_CTX" == *'reason=detection-failed'* ]] \
-    && [[ "$PROFILE_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
-  && ok "unreadable active global guidance → full-core fallback" \
-  || bad "unknown OMX detection must fail safe to full core" "$PROFILE_CTX"
 
 BROKEN_DUAL_HOME="$SANDBOX/broken-dual-home"
 mkdir -p "$BROKEN_DUAL_HOME/.agentsmd-state" "$BROKEN_DUAL_HOME/agentsmd/hooks"
@@ -455,7 +416,6 @@ FALLBACK_PLUGIN="$SANDBOX/plugin-without-inspector"
 mkdir -p "$FALLBACK_PLUGIN/.codex-plugin" "$FALLBACK_PLUGIN/spec" "$FALLBACK_PLUGIN/hooks/lib"
 cp "$PLUGIN_FIXTURE/.codex-plugin/plugin.json" "$FALLBACK_PLUGIN/.codex-plugin/plugin.json"
 cp "$PLUGIN_FIXTURE/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS.md"
-cp "$PLUGIN_FIXTURE/spec/AGENTS-omx.md" "$FALLBACK_PLUGIN/spec/AGENTS-omx.md"
 cp "$PLUGIN_FIXTURE/spec/AGENTS-extended.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"
 cp "$PLUGIN_FIXTURE/hooks/session-start-check.sh" "$FALLBACK_PLUGIN/hooks/session-start-check.sh"
 cp "$PLUGIN_FIXTURE/hooks/lib/"* "$FALLBACK_PLUGIN/hooks/lib/"
@@ -466,21 +426,9 @@ FALLBACK_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContex
   && ok "unavailable arbitration fails open toward the executing plugin spec" \
   || bad "unavailable arbitration → plugin spec remains visible" "$FALLBACK_CTX"
 
-DAMAGED_OMX_PLUGIN="$SANDBOX/plugin-damaged-omx-profile"
-cp -R "$FALLBACK_PLUGIN" "$DAMAGED_OMX_PLUGIN"
-rm -f "$DAMAGED_OMX_PLUGIN/spec/AGENTS-omx.md"
-OUT="$(printf '%s' '{"session_id":"omx-profile-missing","hook_event_name":"SessionStart","source":"startup"}' \
-  | CODEX_HOME="$PROFILE_OMX_HOME" CLAUDE_PLUGIN_ROOT="$DAMAGED_OMX_PLUGIN" bash "$DAMAGED_OMX_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
-DAMAGED_OMX_CTX="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-{ [[ "$DAMAGED_OMX_CTX" == *'profile=full'* ]] && [[ "$DAMAGED_OMX_CTX" == *'omx=present'* ]] \
-    && [[ "$DAMAGED_OMX_CTX" == *'reason=omx-profile-unavailable'* ]] \
-    && [[ "$DAMAGED_OMX_CTX" == *'CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'* ]]; } \
-  && ok "missing OMX compatibility artifact → complete-core fallback" \
-  || bad "damaged OMX profile must fail safe to full core" "$DAMAGED_OMX_CTX"
-
 SEMVER_FIXTURE_VERSION='4.2.3-rc.1+build.7'
 node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],j=JSON.parse(fs.readFileSync(p));j.version=v;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$FALLBACK_PLUGIN/.codex-plugin/plugin.json" "$SEMVER_FIXTURE_VERSION"
-for SPEC_FILE in "$FALLBACK_PLUGIN/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS-omx.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"; do
+for SPEC_FILE in "$FALLBACK_PLUGIN/spec/AGENTS.md" "$FALLBACK_PLUGIN/spec/AGENTS-extended.md"; do
   node -e 'const fs=require("fs"),p=process.argv[1],v=process.argv[2],s=fs.readFileSync(p,"utf8");fs.writeFileSync(p,s.replace(/CODEX-CODING-SPEC v\S+/,`CODEX-CODING-SPEC v${v}`))' "$SPEC_FILE" "$SEMVER_FIXTURE_VERSION"
 done
 OUT="$(printf '%s' '{"session_id":"semver-fallback","hook_event_name":"SessionStart"}' | CODEX_HOME="$BROKEN_DUAL_HOME" CLAUDE_PLUGIN_ROOT="$FALLBACK_PLUGIN" bash "$FALLBACK_PLUGIN/hooks/session-start-check.sh" 2>/dev/null)"
@@ -518,7 +466,7 @@ printf '%s' '{"session_id":"activation-primary","hook_event_name":"SessionStart"
     && [[ "$(jq -r '.schemaVersion' "$ACTIVATION_FILE" 2>/dev/null)" == "1" ]] \
     && [[ "$(jq -r '.sessionId' "$ACTIVATION_FILE" 2>/dev/null)" == "activation-primary" ]] \
     && [[ "$(jq -r '.profile' "$ACTIVATION_FILE" 2>/dev/null)" == "full" ]] \
-    && [[ "$(jq -r '.profileReason' "$ACTIVATION_FILE" 2>/dev/null)" == "no-active-global-marker" ]] \
+    && [[ "$(jq -r '.profileReason' "$ACTIVATION_FILE" 2>/dev/null)" == "single-full-profile" ]] \
     && [[ "$(jq -r '.extendedPath' "$ACTIVATION_FILE" 2>/dev/null)" == "$PLUGIN_EXT_REAL" ]] \
     && [[ -n "$(jq -r '.pluginVersion' "$ACTIVATION_FILE" 2>/dev/null)" ]] \
     && [[ -n "$(jq -r '.observedAt' "$ACTIVATION_FILE" 2>/dev/null)" ]] \

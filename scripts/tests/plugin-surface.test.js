@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
+const cp = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 let PASS = 0, FAIL = 0;
@@ -51,6 +52,38 @@ function copyPluginFixture(target) {
   }
 }
 
+t('plugin hook launcher prefers PLUGIN_ROOT, falls back to CLAUDE_PLUGIN_ROOT, and exits 0 without either', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'hooks.json'), 'utf8'));
+  const command = manifest.hooks.SessionStart[0].hooks[0].command;
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-plugin-launcher.'));
+  try {
+    const hooksDir = path.join(fixture, 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hooksDir, 'session-start-check.sh'),
+      '#!/usr/bin/env bash\nprintf \"%s\" \"$AGENTSMD_LAUNCH_MARKER\"\n'
+    );
+    const run = (env) => cp.spawnSync('bash', ['-c', command], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, AGENTSMD_LAUNCH_MARKER: 'reached', ...env },
+    });
+
+    const official = run({ PLUGIN_ROOT: fixture });
+    assert.strictEqual(official.status, 0, official.stderr);
+    assert.strictEqual(official.stdout, 'reached');
+
+    const compatibility = run({ CLAUDE_PLUGIN_ROOT: fixture });
+    assert.strictEqual(compatibility.status, 0, compatibility.stderr);
+    assert.strictEqual(compatibility.stdout, 'reached');
+
+    const absent = run({});
+    assert.strictEqual(absent.status, 0, absent.stderr);
+    assert.strictEqual(absent.stdout, '');
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 withEnv((codexHome) => {
   const { status, doctor } = loadModules();
   const result = status();
@@ -68,7 +101,6 @@ withEnv((codexHome) => {
     assert.deepStrictEqual(result.pluginBundle.hooks.missingScripts, []);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingSupport, []);
     assert.strictEqual(result.pluginBundle.spec.core, true);
-    assert.strictEqual(result.pluginBundle.spec.omxCompatible, true);
     assert.strictEqual(result.pluginBundle.spec.extended, true);
     assert.strictEqual(result.dualSurface, false);
     assert.strictEqual(result.selectedSurface, 'plugin');
@@ -105,8 +137,8 @@ withEnv((codexHome) => {
     pluginVersion: require(path.join(ROOT, 'package.json')).version,
     sessionId: 'plugin-surface-test',
     observedAt: '2026-07-27T12:34:56.000Z',
-    profile: 'omx-compatible',
-    profileReason: 'active-global-marker',
+    profile: 'full',
+    profileReason: 'single-full-profile',
     extendedPath,
   };
   fs.mkdirSync(receiptDir, { recursive: true });
@@ -117,8 +149,8 @@ withEnv((codexHome) => {
     assert.strictEqual(observedStatus.pluginActivation.state, 'observed');
     assert.strictEqual(observedStatus.pluginActivation.observed, true);
     assert.strictEqual(observedStatus.pluginActivation.receipt.sessionId, 'plugin-surface-test');
-    assert.strictEqual(observedStatus.pluginActivation.receipt.profile, 'omx-compatible');
-    assert.strictEqual(observedStatus.pluginActivation.receipt.profileReason, 'active-global-marker');
+    assert.strictEqual(observedStatus.pluginActivation.receipt.profile, 'full');
+    assert.strictEqual(observedStatus.pluginActivation.receipt.profileReason, 'single-full-profile');
     assert.strictEqual(observedStatus.pluginActivation.receipt.extendedPath, extendedPath);
   });
   t('doctor exposes the observed profile without conflating it with bundle health', () => {
@@ -127,8 +159,8 @@ withEnv((codexHome) => {
     assert(activation, JSON.stringify(observedDiagnosis.checks, null, 2));
     assert.strictEqual(activation.ok, true);
     assert.match(activation.detail, /^observed\b/);
-    assert.match(activation.detail, /profile=omx-compatible/);
-    assert.match(activation.detail, /reason=active-global-marker/);
+    assert.match(activation.detail, /profile=full/);
+    assert.match(activation.detail, /reason=single-full-profile/);
     assert.match(activation.detail, /handler reached profile preparation only/);
     assert.match(activation.detail, /not that Codex accepted the response/);
     assert.match(activation.detail, /every plugin hook was trusted or executed/);
@@ -181,28 +213,6 @@ withEnv((codexHome) => {
     assert.strictEqual(dualStatus.surfaceArbitration.selection.reasonCode, 'standalone-unhealthy');
     assert.strictEqual(dualStatus.surfaceArbitration.selection.exclusive, false);
   });
-});
-
-withEnv(() => {
-  const damagedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-missing-omx-core.'));
-  try {
-    copyPluginFixture(damagedRoot);
-    fs.unlinkSync(path.join(damagedRoot, 'spec', 'AGENTS-omx.md'));
-    process.env.AGENTSMD_PLUGIN_ROOT = damagedRoot;
-    const { status, doctor } = loadModules();
-    const bundle = status().pluginBundle;
-    const diagnosis = doctor();
-    t('missing OMX-compatible core makes the plugin bundle unhealthy', () => {
-      assert.strictEqual(bundle.spec.core, true);
-      assert.strictEqual(bundle.spec.omxCompatible, false);
-      assert.strictEqual(bundle.healthy, false);
-      assert(bundle.reasons.some((reason) => /AGENTS-omx\.md/.test(reason)));
-      assert(diagnosis.checks.some((check) => check.name === 'plugin OMX-compatible spec present' && !check.ok));
-      assert.strictEqual(diagnosis.ok, false);
-    });
-  } finally {
-    fs.rmSync(damagedRoot, { recursive: true, force: true });
-  }
 });
 
 withEnv(() => {
@@ -630,7 +640,6 @@ withEnv(() => {
       assert.strictEqual(bundle.hooks.registered, 0);
       assert.strictEqual(bundle.hooks.missingScripts.length, 15);
       assert.strictEqual(bundle.spec.core, false);
-      assert.strictEqual(bundle.spec.omxCompatible, false);
       assert.strictEqual(bundle.spec.extended, false);
       assert.strictEqual(diagnosis.ok, false);
     });

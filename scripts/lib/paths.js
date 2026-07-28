@@ -2,7 +2,7 @@
 // paths.js — resolve agentsmd's install + Codex config locations. Honors
 // CODEX_HOME (set by tests to a sandbox) before falling back to ~/.codex.
 // Every agentsmd-owned path lives under a `agentsmd` segment or a agentsmd-*
-// filename so nothing can collide with OMX or other tenants (ARCHITECTURE.md §5).
+// filename so nothing can collide with other tenants (ARCHITECTURE.md §5).
 
 const os = require('os');
 const path = require('path');

@@ -140,16 +140,22 @@ t('evaluateSlo + stabilityCheck: pure grading logic (no timing dependence)', () 
 });
 
 t('--slo end-to-end: structural report shape; exit code stays in the contract {0,1,3}', () => {
-  const r = cp.spawnSync(process.execPath, [script, '--slo', '--runs=1', '--rounds=1', '--event=PreToolUse', '--json'],
-    { encoding: 'utf8', env: { ...process.env, PATH: FIXTURES_PATH } });
-  assert.ok([0, 1, 3].includes(r.status), 'slo exit in {0,1,3}, got ' + r.status + '\n' + (r.stderr || ''));
-  const out = JSON.parse(r.stdout);
-  assert.strictEqual(out.mode, 'slo');
-  assert.ok(out.surfaces.single && out.surfaces['dual-warm'], 'both graded surfaces present');
-  assert.ok(Array.isArray(out.slo.criteria) && out.slo.criteria.length === 2, 'two criteria');
-  assert.ok(out.slo.criteria.every((c) => typeof c.pass === 'boolean'), 'each criterion carries a verdict');
-  assert.ok(out.env && typeof out.env.cpu === 'string' && out.env.agentsmd, 'env fingerprint labels the run');
-  assert.strictEqual(typeof out.slo.inconclusive, 'boolean');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-perf-slo-test-'));
+  try {
+    const r = cp.spawnSync(process.execPath, [script, '--slo', '--runs=1', '--rounds=1', '--event=PreToolUse', '--json'],
+      { encoding: 'utf8', env: { ...process.env, PATH: FIXTURES_PATH, TMPDIR: tmp } });
+    assert.ok([0, 1, 3].includes(r.status), 'slo exit in {0,1,3}, got ' + r.status + '\n' + (r.stderr || ''));
+    const out = JSON.parse(r.stdout);
+    assert.strictEqual(out.mode, 'slo');
+    assert.ok(out.surfaces.single && out.surfaces['dual-warm'], 'both graded surfaces present');
+    assert.ok(Array.isArray(out.slo.criteria) && out.slo.criteria.length === 2, 'two criteria');
+    assert.ok(out.slo.criteria.every((c) => typeof c.pass === 'boolean'), 'each criterion carries a verdict');
+    assert.ok(out.env && typeof out.env.cpu === 'string' && out.env.agentsmd, 'env fingerprint labels the run');
+    assert.strictEqual(typeof out.slo.inconclusive, 'boolean');
+    assert.deepStrictEqual(fs.readdirSync(tmp), [], '--slo must remove its internal sandbox before exiting');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);

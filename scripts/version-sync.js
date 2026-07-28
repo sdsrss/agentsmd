@@ -20,9 +20,7 @@ const FILES = [
   '.agents/plugins/marketplace.json',
   'spec/hard-rules.json',
   'spec/source/full/00-pre-auth.md',
-  'spec/source/omx/00-pre-auth.md',
   'spec/AGENTS.md',
-  'spec/AGENTS-omx.md',
   'spec/AGENTS-extended.md',
   'install.sh',
 ];
@@ -32,9 +30,6 @@ const SPEC_FRAGMENT_FILES = [
   'spec/source/full/20-post-auth-pre-safety.md',
   'spec/source/base/30-safety.md',
   'spec/source/full/40-post-safety.md',
-  'spec/source/omx/00-pre-auth.md',
-  'spec/source/omx/20-post-auth-pre-safety.md',
-  'spec/source/omx/40-post-safety.md',
 ];
 const SNAPSHOT_FILES = [...new Set([...FILES, SPEC.LAYOUT, ...SPEC_FRAGMENT_FILES])];
 
@@ -127,12 +122,6 @@ function renderFiles(root, version, sourceContent = null) {
       /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
       `CODEX-CODING-SPEC v${version}`,
       'spec/source/full/00-pre-auth.md'
-    ),
-    'spec/source/omx/00-pre-auth.md': replaceExactlyOne(
-      content['spec/source/omx/00-pre-auth.md'],
-      /CODEX-CODING-SPEC v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
-      `CODEX-CODING-SPEC v${version}`,
-      'spec/source/omx/00-pre-auth.md'
     ),
     'spec/AGENTS-extended.md': replaceExactlyOne(
       content['spec/AGENTS-extended.md'],

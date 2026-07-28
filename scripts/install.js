@@ -288,31 +288,20 @@ function hasManifestlessStandaloneFootprint() {
 
 function install(nowIso, options = {}) {
   PS.validateRequestedProfile(options.profile);
-  // Explicit OMX selection is an evidence-gated request. Refuse before the
-  // prerequisite probe, lock, staging directory, or backup creates any state.
-  if (options.profile === 'omx-compatible') {
-    PS.resolveInstallProfile(options.profile, null);
-  }
-  // Plugin-first UX: a fresh standalone install beside an already-enabled
-  // agentsmd plugin creates duplicate hooks and policy surfaces that no runtime
-  // can prove exactly-once. Existing standalone installs remain updateable, and
-  // callers can explicitly request the recovery/advanced standalone surface.
+  // One delivery surface owns global guidance and hooks. Refuse a fresh
+  // standalone install while the Codex plugin is enabled: silently skipping
+  // would violate the install command's contract to materialize AGENTS.md, while
+  // installing beside it would duplicate policy and hook execution.
   if (options.pluginGuard === true
       && !options.repair
-      && options.allowDualSurface !== true
       && !F.pathExists(P.manifestPath())
       && !hasManifestlessStandaloneFootprint()) {
     const plugin = PF.inspectInstalledAgentsmdPlugin();
     if (plugin.state === 'installed') {
-      let version = null;
-      try { version = require('../package.json').version || null; } catch {}
-      return {
-        name: 'agentsmd',
-        version,
-        skipped: true,
-        reason: 'plugin-installed',
-        plugin: plugin.plugin,
-      };
+      throw new Error(
+        'the agentsmd Codex plugin is enabled; remove it before standalone install '
+        + 'so one reversible lifecycle owns global AGENTS.md and hooks'
+      );
     }
   }
   // R1-03: prerequisites gate BEFORE any mutation — including the staging dir,
@@ -425,18 +414,23 @@ function installCore(nowIso, options, preflight, txid) {
     const hooksBaseline = F.snapshotFile(P.hooksJsonPath());
     const configBaseline = F.snapshotFile(P.configTomlPath());
     const agentsBaseline = F.snapshotFile(P.agentsMdPath());
-    const selectedProfile = PS.resolveInstallProfile(options.profile, priorManifest, {
-      preserveMaterialized: Boolean(options.repair),
-    });
+    const selectedProfile = PS.resolveInstallProfile(options.profile, priorManifest);
     assertRepairSharedFiles(options.repair);
     const hooksDir = P.installHooksDir();
     const managed = H.buildManagedConfig(hooksDir, path.join(stagedDeploy, 'hooks', 'hooks.json'));
     const mergedHooks = H.mergeAgentsmdHooks(snapshotText(hooksBaseline), managed);
     const cfg = CT.ensureCodexHooksFlag(snapshotText(configBaseline));
     const statusLine = CT.ensureTuiStatusLine(cfg.content);
-    const coreRelativePath = selectedProfile.materialized === 'omx-compatible'
-      ? 'spec/AGENTS-omx.md'
-      : 'spec/AGENTS.md';
+    const retainedStatusLineOwnership = Boolean(
+      priorManifest
+      && priorManifest.statusLineAddedByUs === true
+      && statusLine.reason === 'already-agentsmd-preset'
+    );
+    const statusLineAddedByUs = statusLine.changed || retainedStatusLineOwnership;
+    const statusLineReason = retainedStatusLineOwnership
+      ? priorManifest.statusLine
+      : statusLine.reason;
+    const coreRelativePath = 'spec/AGENTS.md';
     const specText = fs.readFileSync(path.join(stagedDeploy, coreRelativePath), 'utf8');
     const am = AM.injectSpecBlock(snapshotText(agentsBaseline), specText);
     const extendedSrc = fs.readFileSync(path.join(stagedDeploy, 'spec', 'AGENTS-extended.md'), 'utf8');
@@ -472,10 +466,6 @@ function installCore(nowIso, options, preflight, txid) {
           relativePath: 'spec/AGENTS.md',
           sha256: deployedSha256('spec/AGENTS.md'),
         },
-        'omx-compatible': {
-          relativePath: 'spec/AGENTS-omx.md',
-          sha256: deployedSha256('spec/AGENTS-omx.md'),
-        },
         extended: {
           relativePath: 'spec/AGENTS-extended.md',
           sha256: deployedSha256('spec/AGENTS-extended.md'),
@@ -503,8 +493,8 @@ function installCore(nowIso, options, preflight, txid) {
       deployedFiles,
       configFlag: cfg.reason,
       configFlagAddedByUs: cfg.changed,
-      statusLine: statusLine.reason,
-      statusLineAddedByUs: statusLine.changed,
+      statusLine: statusLineReason,
+      statusLineAddedByUs,
       agentsBlockUpdated: am.updated === true,
       extendedMd: fs.existsSync(P.agentsExtendedMdPath()) ? 'refreshed' : 'created',
       extendedMdAddedByUs: true,
@@ -638,7 +628,7 @@ function tightenPrivateArtifacts() {
 
 function installUsage(command = 'install') {
   return [
-  `Usage: agentsmd ${command} [--json] [--degraded] [--allow-dual-surface] [--profile=<mode>]`,
+  `Usage: agentsmd ${command} [--json] [--degraded] [--profile=full]`,
   '',
   'Install or update agentsmd in $CODEX_HOME.',
   '',
@@ -651,12 +641,8 @@ function installUsage(command = 'install') {
   '               Hooks FAIL OPEN (no §8 enforcement); the manifest records',
   '               enforcement:false and status/doctor warn until a healthy',
   `               \`agentsmd update\`. Env equivalent: AGENTSMD_ALLOW_DEGRADED=1.`,
-  '  --allow-dual-surface',
-  '               Explicitly create a standalone surface even when the agentsmd',
-  '               Codex plugin is already installed and enabled.',
-  '  --profile=<mode>',
-  '               Materialize auto, full, or omx-compatible. Existing v2 mode',
-  '               is preserved on update; new/v1 installs default to legacy-full.',
+  '  --profile=full',
+  '               Explicitly select the only supported complete profile.',
   '  -h, --help   Show this help without changing any files.',
   ].join('\n');
 }
@@ -672,7 +658,7 @@ if (require.main === module) {
   let parsed;
   try {
     parsed = parseStrict(argv, {
-      bools: ['json', 'degraded', 'allow-dual-surface'],
+      bools: ['json', 'degraded'],
       values: ['profile'],
     });
     PS.validateRequestedProfile(parsed.values.profile);
@@ -685,14 +671,10 @@ if (require.main === module) {
   try {
     const manifest = install(null, {
       degraded: PF.degradedOptIn(parsed.bools),
-      allowDualSurface: parsed.bools.has('allow-dual-surface'),
       profile: parsed.values.profile,
       pluginGuard: dispatchedCommand === 'install' || dispatchedCommand === 'update',
     });
     if (parsed.bools.has('json')) console.log(JSON.stringify(manifest, null, 2));
-    else if (manifest.skipped === true && manifest.reason === 'plugin-installed') {
-      console.log('agentsmd standalone install skipped: the agentsmd Codex plugin is already installed and enabled. Use --allow-dual-surface only when you intentionally need a second delivery surface.');
-    }
     else console.log(`agentsmd installed: v${manifest.version || 'unknown'}, ${manifest.hookCount} hooks, ${manifest.installedSkills.length} skills (backup ${manifest.backup})`);
     if (manifest.skipped !== true && manifest.enforcement === false) {
       console.error(`WARNING: degraded install — missing: ${manifest.missingPrerequisites.join(', ')}. Hooks FAIL OPEN (no §8 enforcement). Install the prerequisites and run \`agentsmd update\` to restore enforcement.`);

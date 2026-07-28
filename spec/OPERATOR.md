@@ -62,7 +62,7 @@ Bytes recovered by all three are an estimate until measured; the point of pre-re
 | Discipline trend over time | `node scripts/audit.js --days=90 --trend[=BUCKETS]` — equal time slices, normalised per 100 sessions (§O7) |
 | Promote/demote + bypass governance | `node scripts/rules.js --days=30` (`--project` = informational lens: per-rule local hits; demote and bypass signals stay cross-project) |
 | Self-enforced-rule calibration | `node scripts/sampling-audit.js --days=30` — retrospective transcript scan; the CALIBRATION block is proxy-only (§O7) |
-| Install state + OMX-coexistence | `node scripts/status.js` |
+| Install state + delivery-surface conflicts | `node scripts/status.js` |
 | Health checks | `node scripts/doctor.js` |
 | Install / uninstall (§5-hard) | `node scripts/install.js` / `node scripts/uninstall.js` |
 | Hook latency baseline / SLO gate | `node scripts/perf-baseline.js` (quick table) / `node scripts/perf-baseline.js --slo` (graded vs `qa/perf/slo.json`, §O9) |

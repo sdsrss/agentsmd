@@ -97,12 +97,11 @@ function status() {
       ? (manifest.profile ? manifest.profile.materialized : 'full')
       : null,
     profileSelectionMode: manifest
-      ? (manifest.profile ? manifest.profile.selectionMode : 'legacy-full')
+      ? (manifest.profile ? manifest.profile.selectionMode : 'full')
       : null,
     desiredProfile: profileState.desiredProfile,
     desiredProfileReason: profileState.desiredProfileReason,
     profileState: profileState.profileState,
-    omxDetection: profileState.omxDetection,
     bundleProfilesComplete: arbitration.candidates.standalone.bundleProfilesComplete,
     // R1-03: false only after an explicit --degraded install with prerequisites
     // missing; pre-R1-03 manifests carry no field and report true (jq presence

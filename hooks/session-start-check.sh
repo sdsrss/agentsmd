@@ -39,32 +39,6 @@ semver_gt() {
   (( 10#$a3 > 10#$b3 ))
 }
 
-# Print one of present|absent|unknown for OMX guidance in the global file Codex
-# actually activates. AGENTS.override.md precedence is resolved by the caller.
-# A binary, npm package, .omx directory, or inactive AGENTS.md is not enough:
-# this optimization is safe only when OMX guidance is already in the instruction
-# chain. Unknown fails safe to the complete agentsmd core.
-detect_active_omx() {
-  local file="$1" rc
-  if [[ ! -e "$file" && ! -L "$file" ]]; then
-    printf 'absent'
-    return 0
-  fi
-  if [[ ! -f "$file" || ! -r "$file" ]]; then
-    printf 'unknown'
-    return 0
-  fi
-  grep -Fq '<!-- omx:generated:agents-md -->' "$file" 2>/dev/null
-  rc=$?
-  if [[ "$rc" -eq 0 ]]; then
-    printf 'present'
-  elif [[ "$rc" -eq 1 ]]; then
-    printf 'absent'
-  else
-    printf 'unknown'
-  fi
-}
-
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
 # R1-03 degraded-mode persistent warning: without jq every enforcement hook
@@ -242,33 +216,16 @@ FORCE_PLUGIN_SPEC=false
 [[ "$FORCE_PLUGIN_SPEC" == "true" ]] && SPEC_ACTIVE=false
 if [[ ( "$SPEC_ACTIVE" != "true" || "$FORCE_PLUGIN_SPEC" == "true" ) && -n "${PLUGIN_ROOT:-}" ]]; then
   PLUGIN_BASE="$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd -P)"
-  PLUGIN_FULL_CORE="$PLUGIN_BASE/spec/AGENTS.md"
-  PLUGIN_OMX_CORE="$PLUGIN_BASE/spec/AGENTS-omx.md"
+  PLUGIN_CORE="$PLUGIN_BASE/spec/AGENTS.md"
   PLUGIN_EXTENDED="$PLUGIN_BASE/spec/AGENTS-extended.md"
-  PLUGIN_CORE="$PLUGIN_FULL_CORE"
   SPEC_PROFILE="full"
-  OMX_STATE="$(detect_active_omx "$ACTIVE_GLOBAL_SPEC")"
-  if [[ "$OMX_STATE" == "present" ]]; then
-    FULL_VERSION="$(extract_spec_version "$PLUGIN_FULL_CORE")"
-    OMX_VERSION="$(extract_spec_version "$PLUGIN_OMX_CORE")"
-    if [[ -r "$PLUGIN_OMX_CORE" && -n "$FULL_VERSION" && "$OMX_VERSION" == "$FULL_VERSION" ]]; then
-      PLUGIN_CORE="$PLUGIN_OMX_CORE"
-      SPEC_PROFILE="omx-compatible"
-      PROFILE_REASON="active-global-marker"
-    else
-      PROFILE_REASON="omx-profile-unavailable"
-    fi
-  elif [[ "$OMX_STATE" == "unknown" ]]; then
-    PROFILE_REASON="detection-failed"
-  else
-    PROFILE_REASON="no-active-global-marker"
-  fi
+  PROFILE_REASON="single-full-profile"
   if [[ -n "$PLUGIN_BASE" && -r "$PLUGIN_CORE" && -r "$PLUGIN_EXTENDED" ]]; then
     v="$(extract_spec_version "$PLUGIN_CORE")"
     if [[ -n "$v" ]]; then
       VER="$v"
       SPEC_ACTIVE=true
-      SPEC_CONTEXT=$'\n'"[agentsmd plugin] profile=${SPEC_PROFILE}; omx=${OMX_STATE}; reason=${PROFILE_REASON}. The packaged core spec follows. Extended spec: ${PLUGIN_EXTENDED} — read it on the core triggers."$'\n'"$(cat "$PLUGIN_CORE" 2>/dev/null)"
+      SPEC_CONTEXT=$'\n'"[agentsmd plugin] profile=${SPEC_PROFILE}; reason=${PROFILE_REASON}. The packaged core spec follows. Extended spec: ${PLUGIN_EXTENDED} — read it on the core triggers."$'\n'"$(cat "$PLUGIN_CORE" 2>/dev/null)"
     fi
   fi
 fi

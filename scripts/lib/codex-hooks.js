@@ -1,11 +1,9 @@
 'use strict';
 // codex-hooks.js — marker-scoped merge/remove of agentsmd's own entries in the
-// shared ~/.codex/hooks.json. Mirrors oh-my-codex's dist/config/codex-hooks.js
-// (production-proven) but identifies OUR entries by the active CODEX_HOME
-// install-dir marker instead of OMX's codex-native-hook.js. Invariant
-// (ARCHITECTURE.md §5): touch ONLY agentsmd's entries — never read, modify,
-// reorder, or depend on OMX or any other tenant; work whether or not the file
-// pre-exists or OMX is installed.
+// shared ~/.codex/hooks.json. It identifies OUR entries by the active CODEX_HOME
+// install-dir marker. Invariant (ARCHITECTURE.md §5): touch ONLY agentsmd's
+// entries—never reorder or depend on another tenant; work whether or not the
+// file pre-exists.
 
 const fs = require('fs');
 const path = require('path');

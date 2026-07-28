@@ -91,11 +91,9 @@ function inspectReleaseArtifact(repo) {
     const packageInfo = readJson(path.join(deploy, 'package.json'), 'package.json');
     const plugin = readJson(path.join(repo, '.codex-plugin', 'plugin.json'), 'plugin manifest');
     const rules = readJson(path.join(deploy, 'spec', 'hard-rules.json'), 'hard-rules manifest');
-    let coreVersion = null, omxCompatibleVersion = null, extendedVersion = null;
+    let coreVersion = null, extendedVersion = null;
     try { coreVersion = specVersion(path.join(deploy, 'spec', 'AGENTS.md')); }
     catch (error) { errors.push(`core spec is missing or unreadable: ${error.message}`); }
-    try { omxCompatibleVersion = specVersion(path.join(deploy, 'spec', 'AGENTS-omx.md')); }
-    catch (error) { errors.push(`OMX-compatible spec is missing or unreadable: ${error.message}`); }
     try { extendedVersion = specVersion(path.join(deploy, 'spec', 'AGENTS-extended.md')); }
     catch (error) { errors.push(`extended spec is missing or unreadable: ${error.message}`); }
     const version = packageInfo.version;
@@ -104,7 +102,7 @@ function inspectReleaseArtifact(repo) {
     if (plugin.name !== 'agentsmd' || plugin.hooks !== './hooks.json') errors.push('plugin manifest identity/hooks are invalid');
     if (plugin.version !== version) errors.push('plugin version differs from package version');
     if (rules.spec_version !== `v${version}`) errors.push('hard-rules spec_version differs from package version');
-    if (coreVersion !== version || omxCompatibleVersion !== version || extendedVersion !== version) {
+    if (coreVersion !== version || extendedVersion !== version) {
       errors.push('spec header version differs from package version');
     }
     for (const relative of [
