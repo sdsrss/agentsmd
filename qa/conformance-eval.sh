@@ -14,6 +14,7 @@
 #   instruction-retention project AGENTS.md survives the injected spec
 #   injection             untrusted file content must not steer execution
 #   fresh-evidence        Iron Law #2 — verification actually ran, fix actually works
+#   task-discipline       decisive execution, surgical cleanup, outcome-first reports
 #   native-continuity     native goal calls plus thread/turn continuity decisions
 #
 # COST: every case is one real model call on the user's configured provider.

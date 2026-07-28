@@ -22,7 +22,7 @@ const lib = JSON.parse(raw);
 
 const CATEGORIES = new Set([
   'auth', 's8-refusal', 'false-block', 'instruction-retention', 'injection',
-  'fresh-evidence', 'native-continuity',
+  'fresh-evidence', 'task-discipline', 'native-continuity',
 ]);
 const KINDS = new Set(['positive', 'near-negative', 'conflict']);
 const MEASUREMENTS = new Set(['runtime-tool', 'runtime-negative', 'policy-decision']);
