@@ -31,18 +31,31 @@ const fs = require('fs');
 const path = require('path');
 const stateFile = process.env.AGENTSMD_FAKE_NPM_STATE;
 const destination = process.env.AGENTSMD_FAKE_NPM_DESTINATION;
-const succeedAfter = Number(process.env.AGENTSMD_FAKE_NPM_SUCCEED_AFTER);
-const attempt = fs.existsSync(stateFile) ? Number(fs.readFileSync(stateFile, 'utf8')) + 1 : 1;
-fs.writeFileSync(stateFile, String(attempt));
-fs.writeFileSync(path.join(destination, attempt >= succeedAfter ? 'final.tgz' : \`partial-\${attempt}.tgz\`), 'bytes');
-process.exit(attempt >= succeedAfter ? 0 : 1);
+const packSucceedAfter = Number(process.env.AGENTSMD_FAKE_NPM_PACK_SUCCEED_AFTER);
+const installSucceedAfter = Number(process.env.AGENTSMD_FAKE_NPM_INSTALL_SUCCEED_AFTER);
+const state = fs.existsSync(stateFile)
+  ? JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+  : { pack: 0, install: 0 };
+const command = process.argv[2];
+if (command === 'pack') {
+  state.pack += 1;
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  fs.writeFileSync(path.join(destination, state.pack >= packSucceedAfter ? 'final.tgz' : \`partial-\${state.pack}.tgz\`), 'bytes');
+  process.exit(state.pack >= packSucceedAfter ? 0 : 1);
+}
+if (command === 'install') {
+  state.install += 1;
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  process.exit(state.install >= installSucceedAfter ? 0 : 1);
+}
+process.exit(2);
 `);
   fs.chmodSync(executable, 0o755);
   t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
   return bin;
 }
 
-function runCliProbe(t, { attempts, succeedAfter }) {
+function runCliProbe(t, { attempts, packSucceedAfter, installSucceedAfter = 1 }) {
   const root = sandbox(t);
   const destination = path.join(root, 'destination');
   const stateFile = path.join(root, 'attempts.txt');
@@ -69,13 +82,14 @@ function runCliProbe(t, { attempts, succeedAfter }) {
       ...process.env,
       AGENTSMD_FAKE_NPM_DESTINATION: destination,
       AGENTSMD_FAKE_NPM_STATE: stateFile,
-      AGENTSMD_FAKE_NPM_SUCCEED_AFTER: String(succeedAfter),
+      AGENTSMD_FAKE_NPM_PACK_SUCCEED_AFTER: String(packSucceedAfter),
+      AGENTSMD_FAKE_NPM_INSTALL_SUCCEED_AFTER: String(installSucceedAfter),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     },
   });
   return {
     ...result,
-    attempts: Number(fs.readFileSync(stateFile, 'utf8')),
+    state: JSON.parse(fs.readFileSync(stateFile, 'utf8')),
     files: fs.readdirSync(destination).sort(),
   };
 }
@@ -83,10 +97,11 @@ function runCliProbe(t, { attempts, succeedAfter }) {
 test('transient npm failures are captured inside Node and retried to success', async (t) => {
   const destination = sandbox(t);
   fs.writeFileSync(path.join(destination, 'keep.txt'), 'unrelated');
-  const statuses = [1, 1, 0];
+  const packStatuses = [1, 1, 0];
   const waits = [];
   const logs = [];
-  let calls = 0;
+  let packCalls = 0;
+  let installCalls = 0;
   const result = await packRegistryArtifact({
     packageSpec: '@sdsrs/agentsmd@9.9.9',
     destination,
@@ -94,6 +109,21 @@ test('transient npm failures are captured inside Node and retried to success', a
     delayMs: 7,
     spawn(command, args, options) {
       assert.strictEqual(command, process.platform === 'win32' ? 'npm.cmd' : 'npm');
+      assert.deepStrictEqual(options, { stdio: 'inherit' });
+      if (args[0] === 'install') {
+        installCalls += 1;
+        assert.strictEqual(args[1], '@sdsrs/agentsmd@9.9.9');
+        assert.strictEqual(args[2], '--prefix');
+        assert.match(args[3], /\.agentsmd-install-probe\./);
+        assert.deepStrictEqual(args.slice(4), [
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-fund',
+          '--package-lock=false',
+          '--prefer-online',
+        ]);
+        return { status: 0 };
+      }
       assert.deepStrictEqual(args, [
         'pack',
         '@sdsrs/agentsmd@9.9.9',
@@ -102,10 +132,9 @@ test('transient npm failures are captured inside Node and retried to success', a
         '--json',
         '--prefer-online',
       ]);
-      assert.deepStrictEqual(options, { stdio: 'inherit' });
-      calls += 1;
-      fs.writeFileSync(path.join(destination, calls === 3 ? 'final.tgz' : `partial-${calls}.tgz`), 'bytes');
-      return { status: statuses.shift() };
+      packCalls += 1;
+      fs.writeFileSync(path.join(destination, packCalls === 3 ? 'final.tgz' : `partial-${packCalls}.tgz`), 'bytes');
+      return { status: packStatuses.shift() };
     },
     wait(delay) { waits.push(delay); },
     log(message) { logs.push(message); },
@@ -114,7 +143,39 @@ test('transient npm failures are captured inside Node and retried to success', a
   assert.deepStrictEqual(result, { attempt: 3, status: 0 });
   assert.deepStrictEqual(waits, [7, 7]);
   assert.strictEqual(logs.length, 2);
+  assert.strictEqual(packCalls, 3);
+  assert.strictEqual(installCalls, 1);
   assert.deepStrictEqual(fs.readdirSync(destination).sort(), ['final.tgz', 'keep.txt']);
+});
+
+test('pack success is retried until npm install metadata is ready', async (t) => {
+  const destination = sandbox(t);
+  const calls = [];
+  let packAttempts = 0;
+  let installAttempts = 0;
+  const result = await packRegistryArtifact({
+    packageSpec: '@sdsrs/agentsmd@9.9.9',
+    destination,
+    attempts: 3,
+    delayMs: 0,
+    spawn(command, args) {
+      calls.push(args[0]);
+      if (args[0] === 'pack') {
+        packAttempts += 1;
+        fs.writeFileSync(path.join(destination, `registry-${packAttempts}.tgz`), 'bytes');
+        return { status: 0 };
+      }
+      assert.strictEqual(args[0], 'install');
+      installAttempts += 1;
+      return { status: installAttempts === 1 ? 1 : 0 };
+    },
+    wait() {},
+    log() {},
+  });
+
+  assert.deepStrictEqual(result, { attempt: 2, status: 0 });
+  assert.deepStrictEqual(calls, ['pack', 'install', 'pack', 'install']);
+  assert.deepStrictEqual(fs.readdirSync(destination), ['registry-2.tgz']);
 });
 
 test('failed attempts preserve pre-existing and nested tarballs', async (t) => {
@@ -129,7 +190,8 @@ test('failed attempts preserve pre-existing and nested tarballs', async (t) => {
     destination,
     attempts: 2,
     delayMs: 0,
-    spawn() {
+    spawn(command, args) {
+      if (args[0] === 'install') return { status: 0 };
       calls += 1;
       fs.writeFileSync(path.join(destination, calls === 2 ? 'final.tgz' : 'partial.tgz'), 'bytes');
       return { status: calls === 2 ? 0 : 1 };
@@ -161,10 +223,40 @@ test('retry exhaustion cleans partial tarballs and reports the final child statu
       wait() {},
       log() {},
     }),
-    /unavailable after 2 attempts \(last npm exit 1\)/
+    /unavailable after 2 attempts \(last npm pack exit 1\)/
   );
   assert.strictEqual(calls, 2);
   assert.deepStrictEqual(fs.readdirSync(destination), []);
+});
+
+test('install readiness exhaustion cleans every probe and new tarball', async (t) => {
+  const destination = sandbox(t);
+  fs.writeFileSync(path.join(destination, 'preserved.tgz'), 'pre-existing');
+  let packCalls = 0;
+  let installCalls = 0;
+  await assert.rejects(
+    packRegistryArtifact({
+      packageSpec: '@sdsrs/agentsmd@9.9.9',
+      destination,
+      attempts: 2,
+      delayMs: 0,
+      spawn(command, args) {
+        if (args[0] === 'install') {
+          installCalls += 1;
+          return { status: 1 };
+        }
+        packCalls += 1;
+        fs.writeFileSync(path.join(destination, `attempt-${packCalls}.tgz`), 'bytes');
+        return { status: 0 };
+      },
+      wait() {},
+      log() {},
+    }),
+    /registry install readiness was unavailable after 2 attempts \(last npm install exit 1\)/
+  );
+  assert.strictEqual(packCalls, 2);
+  assert.strictEqual(installCalls, 2);
+  assert.deepStrictEqual(fs.readdirSync(destination), ['preserved.tgz']);
 });
 
 test('spawn errors fail immediately instead of masquerading as registry propagation', async (t) => {
@@ -215,18 +307,31 @@ test('CLI usage errors remain distinct from retry exhaustion', async () => {
 });
 
 test('real CLI retries successfully beneath bash errexit and pipefail', (t) => {
-  const result = runCliProbe(t, { attempts: 4, succeedAfter: 3 });
+  const result = runCliProbe(t, { attempts: 4, packSucceedAfter: 3 });
   assert.strictEqual(result.status, 0, result.stderr);
-  assert.strictEqual(result.attempts, 3);
+  assert.deepStrictEqual(result.state, { pack: 3, install: 1 });
   assert.deepStrictEqual(result.files, ['final.tgz']);
-  assert.match(result.stderr, /waiting for .* \(attempt 1\/4, npm exit 1\)/);
-  assert.match(result.stderr, /waiting for .* \(attempt 2\/4, npm exit 1\)/);
+  assert.match(result.stderr, /waiting for .* \(attempt 1\/4, npm pack exit 1\)/);
+  assert.match(result.stderr, /waiting for .* \(attempt 2\/4, npm pack exit 1\)/);
+});
+
+test('real CLI retries pack and install as one attempt beneath bash errexit', (t) => {
+  const result = runCliProbe(t, {
+    attempts: 4,
+    packSucceedAfter: 1,
+    installSucceedAfter: 3,
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.deepStrictEqual(result.state, { pack: 3, install: 3 });
+  assert.deepStrictEqual(result.files, ['final.tgz']);
+  assert.match(result.stderr, /registry install readiness \(attempt 1\/4, npm install exit 1\)/);
+  assert.match(result.stderr, /registry install readiness \(attempt 2\/4, npm install exit 1\)/);
 });
 
 test('real CLI reports exhaustion only after every attempt beneath bash errexit', (t) => {
-  const result = runCliProbe(t, { attempts: 2, succeedAfter: 99 });
+  const result = runCliProbe(t, { attempts: 2, packSucceedAfter: 99 });
   assert.strictEqual(result.status, 1);
-  assert.strictEqual(result.attempts, 2);
+  assert.deepStrictEqual(result.state, { pack: 2, install: 0 });
   assert.deepStrictEqual(result.files, []);
-  assert.match(result.stderr, /unavailable after 2 attempts \(last npm exit 1\)/);
+  assert.match(result.stderr, /unavailable after 2 attempts \(last npm pack exit 1\)/);
 });
