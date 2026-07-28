@@ -122,7 +122,6 @@ for required in \
   .codex-plugin/plugin.json \
   hooks.json \
   spec/AGENTS.md \
-  spec/AGENTS-omx.md \
   spec/AGENTS-extended.md \
   scripts/uninstall.js \
   bin/agentsmd.js
@@ -161,10 +160,14 @@ test -f "$SANDBOX/.agentsmd-state/session-start-legacy.ref"
 test -f "$SANDBOX/.agentsmd-state/foreign.txt"
 test -f "$SANDBOX/logs/agentsmd.jsonl"
 
-CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/bin/agentsmd.js" install \
-  >"$SANDBOX/standalone-yield.out"
-grep -Fq 'standalone install skipped: the agentsmd Codex plugin is already installed and enabled' \
-  "$SANDBOX/standalone-yield.out"
+if CODEX_HOME="$SANDBOX" node "$PLUGIN_ROOT/bin/agentsmd.js" install \
+  >"$SANDBOX/standalone-refusal.out" 2>"$SANDBOX/standalone-refusal.err"
+then
+  printf 'FAIL: expected standalone install to refuse an active plugin\n' >&2
+  exit 1
+fi
+grep -Fq 'plugin is enabled; remove it before standalone install' \
+  "$SANDBOX/standalone-refusal.err"
 test ! -e "$SANDBOX/.agentsmd-state/manifest.json"
 test ! -e "$SANDBOX/agentsmd"
 

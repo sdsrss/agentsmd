@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v4.25.4 — Global
+# CODEX-CODING-SPEC v5.0.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -58,8 +58,17 @@ Expose the audit trail, not private reasoning: Plan · ranked Hypotheses · obse
 
 ## §4 TOOL & SKILL ROUTING
 
-Search exact symbols with `rg`; enter unfamiliar modules via exports; verify versioned facts locally or in primary docs; route past decisions through memory. Narrowest skill, reuse existing tooling; MCP/routing metadata per §5/§E6. Detail → §E9.
+**Native subagents**: solo execution is the default. Delegate only an independent,
+bounded slice whose parallel execution materially improves speed, correctness, or
+review quality. The leader gives each child exact ownership, inputs, constraints,
+and a verifiable output; remains responsible for mode choice, integration, conflict
+resolution, and final validation; and never treats a child report as completion
+evidence without checking it. Serialize dependent work. Use only roles exposed by
+the active Codex surface—never invent a role, authority proof, session pointer, or
+runtime state. Child agents report blockers and scope crossings upward instead of
+recursively orchestrating. Keep concurrency to the smallest useful fan-out.
 
+Search exact symbols with `rg`; enter unfamiliar modules via exports; verify versioned facts locally or in primary docs; route past decisions through memory. Narrowest skill, reuse existing tooling; MCP/routing metadata per §5/§E6. Detail → §E9.
 ## §5 AUTH (semantic gates — sandbox/approval config does not replace these)
 
 `sandbox_mode` / `approval_policy` gate *mechanics*; this section gates *semantics*. Even under `approval_policy = "never"` / `--yolo`, these require authorization; emit `[AUTH REQUIRED]` and block only when the current user request has not already granted operation-scoped authorization:

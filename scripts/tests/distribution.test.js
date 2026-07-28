@@ -498,24 +498,24 @@ t('agentsmd install/update expose strict standalone profile selection without si
   const env = { CODEX_HOME: dir };
   const invalid = cliResult(['install', '--profile=other'], env);
   assert.strictEqual(invalid.status, 2, invalid.stdout + invalid.stderr);
-  assert.match(invalid.stderr, /profile must be one of/);
+  assert.match(invalid.stderr, /profile must be full/);
   assert.deepStrictEqual(fs.readdirSync(dir), []);
 
   const bare = cliResult(['install', '--profile'], env);
   assert.strictEqual(bare.status, 2, bare.stdout + bare.stderr);
   assert.deepStrictEqual(fs.readdirSync(dir), []);
 
-  const installed = JSON.parse(cli(['install', '--profile=auto', '--json'], env));
+  const installed = JSON.parse(cli(['install', '--profile=full', '--json'], env));
   assert.strictEqual(installed.manifestSchemaVersion, 2);
-  assert.strictEqual(installed.profile.selectionMode, 'auto');
+  assert.strictEqual(installed.profile.selectionMode, 'full');
   assert.strictEqual(installed.profile.materialized, 'full');
 
   const updated = JSON.parse(cli(['update', '--json'], env));
-  assert.strictEqual(updated.profile.selectionMode, 'auto');
+  assert.strictEqual(updated.profile.selectionMode, 'full');
   assert.strictEqual(updated.profile.materialized, 'full');
 }));
 
-t('agentsmd install skips an accidental dual surface and --allow-dual-surface explicitly overrides it', () => withSandbox((dir) => {
+t('agentsmd install refuses an accidental dual surface without mutating CODEX_HOME', () => withSandbox((dir) => {
   const pluginList = JSON.stringify({
     installed: [{
       pluginId: 'agentsmd@agentsmd',
@@ -532,14 +532,19 @@ t('agentsmd install skips an accidental dual surface and --allow-dual-surface ex
     PATH: `${path.join(ROOT, 'scripts', 'tests', 'fixtures')}:${process.env.PATH}`,
     AGENTSMD_TEST_PLUGIN_LIST_JSON: pluginList,
   };
-  const skipped = cli(['install'], env);
-  assert.match(skipped, /standalone install skipped.*plugin is already installed/i);
+  const refused = cliResult(['install'], env);
+  assert.strictEqual(refused.status, 1, refused.stdout + refused.stderr);
+  assert.match(refused.stderr, /plugin is enabled; remove it before standalone install/i);
   assert.deepStrictEqual(fs.readdirSync(dir), []);
-
-  const installed = cli(['install', '--allow-dual-surface'], env);
-  assert.match(installed, /agentsmd installed:/);
-  assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
 }));
+
+t('marketplace E2E expects the packaged CLI to refuse an accidental dual surface', () => {
+  const script = read('qa/plugin-marketplace-e2e.sh');
+  assert.doesNotMatch(script, /standalone install skipped:/);
+  assert.match(script, /if CODEX_HOME=.*node .*agentsmd\.js" install/);
+  assert.match(script, /expected standalone install to refuse an active plugin/);
+  assert.match(script, /plugin is enabled; remove it before standalone install/);
+});
 
 t('default restore after install → update → uninstall does not reactivate agentsmd shared entries', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
@@ -616,7 +621,7 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const tarball = path.join(packDir, packResult.filename);
   assert(fs.existsSync(tarball), 'npm pack did not produce a tarball');
   const packedPaths = packResult.files.map((entry) => entry.path);
-  assert(packedPaths.includes('spec/AGENTS-omx.md'), 'tarball is missing the OMX-compatible core');
+  assert(!packedPaths.includes('spec/AGENTS-omx.md'), 'tarball still contains the removed OMX compatibility core');
   assert(packedPaths.includes('spec/source/layout.json'), 'tarball is missing the canonical spec layout');
   assert(packedPaths.includes('spec/source/base/10-auth.md'), 'tarball is missing canonical shared fragments');
   assert(packedPaths.includes('scripts/spec-source.js'), 'tarball is missing the spec generator');
@@ -660,8 +665,11 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     (groups || []).flatMap((group) => (group.hooks || []).map((hook) => hook.command))
   );
   assert(selectedCommands.length > 0, 'plugin-selected hook manifest must register commands');
-  assert(selectedCommands.every((command) => command.includes('${CLAUDE_PLUGIN_ROOT}/hooks/')),
-    'plugin-selected commands must resolve from Codex CLAUDE_PLUGIN_ROOT');
+  assert(selectedCommands.every((command) => (
+    command.includes('${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}')
+      && command.includes('[ -n "$agentsmd_plugin_root" ] || exit 0')
+      && command.includes('bash "$agentsmd_plugin_root/hooks/')
+  )), 'plugin-selected commands must implement the guarded PLUGIN_ROOT compatibility contract');
   for (const rel of ['hooks.json', 'hooks/hooks.json']) {
     const manifest = JSON.parse(fs.readFileSync(path.join(installedRoot, rel), 'utf8'));
     assert.deepStrictEqual(

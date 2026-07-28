@@ -36,9 +36,9 @@ const noJqBin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-nojq.'));
 fs.symlinkSync(process.execPath, path.join(noJqBin, 'node'));
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-preflight.'));
-const OMX_CMD = 'node "/omx/dist/scripts/codex-native-hook.js"';
+const TENANT_CMD = 'node "/other-tenant/hooks/runtime.js"';
 fs.writeFileSync(path.join(SANDBOX, 'hooks.json'), JSON.stringify({
-  hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: OMX_CMD }] }] },
+  hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: TENANT_CMD }] }] },
 }, null, 2) + '\n');
 fs.writeFileSync(path.join(SANDBOX, 'config.toml'), '[features]\nsomething_else = true\n');
 fs.writeFileSync(path.join(SANDBOX, 'AGENTS.md'), '# user notes\n');

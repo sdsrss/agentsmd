@@ -1,8 +1,8 @@
 'use strict';
-// install.test.js — proves agentsmd's install/uninstall are independent of OMX
+// install.test.js — proves agentsmd's install/uninstall preserve other tenants
 // (ARCHITECTURE.md §5 + user directive #8886): touch only agentsmd's own entries,
 // preserve every other tenant byte-for-byte, idempotent, and work standalone
-// with no OMX present. Fully sandboxed via CODEX_HOME → a temp dir; nothing
+// with no pre-existing tenant present. Fully sandboxed via CODEX_HOME → a temp dir; nothing
 // touches the real ~/.codex.
 
 const fs = require('fs');
@@ -37,13 +37,13 @@ function loadModules() {
   };
 }
 
-const OMX_CMD = 'node "/omx/dist/scripts/codex-native-hook.js"';
-function omxSeed() {
+const TENANT_CMD = 'node "/other-tenant/hooks/runtime.js"';
+function tenantSeed() {
   return JSON.stringify({
     hooks: {
-      SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: OMX_CMD }] }],
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: OMX_CMD }] }],
-      Stop: [{ hooks: [{ type: 'command', command: OMX_CMD, timeout: 30 }] }],
+      SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: TENANT_CMD }] }],
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: TENANT_CMD }] }],
+      Stop: [{ hooks: [{ type: 'command', command: TENANT_CMD, timeout: 30 }] }],
     },
   }, null, 2) + '\n';
 }
@@ -109,29 +109,18 @@ t('canonical path comparison still rejects arbitrary aliases and non-macOS rewri
   );
 });
 
-// ── 0. plugin-first guard: avoid creating an accidental second surface ─────
+// ── 0. single-surface guard: one lifecycle owns global policy and hooks ─────
 withSandbox((dir) => {
   const { install } = loadModules();
-  const result = withInstalledPlugin(() => install(
-    '2026-07-02T00:00:00.000Z',
-    { pluginGuard: true }
-  ));
-  t('fresh standalone install skips with zero mutation when the agentsmd plugin is active', () => {
-    assert.strictEqual(result.skipped, true);
-    assert.strictEqual(result.reason, 'plugin-installed');
+  t('fresh standalone install refuses with zero mutation when the agentsmd plugin is active', () => {
+    assert.throws(
+      () => withInstalledPlugin(() => install(
+        '2026-07-02T00:00:00.000Z',
+        { pluginGuard: true }
+      )),
+      /plugin is enabled; remove it before standalone install/
+    );
     assert.deepStrictEqual(fs.readdirSync(dir), []);
-  });
-});
-
-withSandbox((dir) => {
-  const { install } = loadModules();
-  const result = withInstalledPlugin(() => install(
-    '2026-07-02T00:00:00.000Z',
-    { allowDualSurface: true, pluginGuard: true }
-  ));
-  t('explicit standalone override creates the standalone surface beside the plugin', () => {
-    assert.strictEqual(result.name, 'agentsmd');
-    assert(fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
   });
 });
 
@@ -226,14 +215,14 @@ withSandbox((dir) => {
   });
 });
 
-// ── 1. install alongside OMX: agentsmd added, OMX preserved ──────────────────
+// ── 1. install alongside another tenant: agentsmd added, tenant preserved ────
 withSandbox((dir) => {
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   const { install, H } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   t('install adds agentsmd hook entries', () => assert.strictEqual(H.countAgentsmdHooks(after), EXPECTED_HOOKS));
-  t('install preserves the OMX entries (3 events)', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 3));
+  t('install preserves the other-tenant entries (3 events)', () => assert.strictEqual(countCmd(after, (c) => c === TENANT_CMD), 3));
   t('agentsmd entries land in SessionStart/PreToolUse/Stop', () => {
     const p = JSON.parse(after);
     for (const ev of ['SessionStart', 'PreToolUse', 'Stop']) assert(p.hooks[ev].some((g) => g.hooks.some((h) => H.isAgentsmdCommand(h.command))), ev + ' missing agentsmd');
@@ -253,7 +242,7 @@ withSandbox((dir) => {
 });
 
 withSandbox((dir) => {
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   fs.mkdirSync(path.join(dir, '.agentsmd-state'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.agentsmd-state', 'backups'), 'not a directory');
   const before = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
@@ -285,7 +274,7 @@ withSandbox((dir) => {
 
 // ── 2. install is idempotent ────────────────────────────────────────────────
 withSandbox((dir) => {
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   const { install, H } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   const once = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
@@ -306,7 +295,7 @@ withSandbox((dir) => {
         { type: 'command', command: retiredAgentsmd },
         { type: 'command', command: unrelatedProjectHook },
         { type: 'command', command: agentsmdPathAsArgument },
-        { type: 'command', command: OMX_CMD },
+        { type: 'command', command: TENANT_CMD },
       ] }],
     },
   }, null, 2) + '\n');
@@ -319,7 +308,7 @@ withSandbox((dir) => {
   });
   t('update preserves unrelated hooks in a project named agentsmd', () => assert.strictEqual(countCmd(after, (c) => c === unrelatedProjectHook), 1));
   t('update preserves another tenant whose argument mentions an agentsmd hook path', () => assert.strictEqual(countCmd(after, (c) => c === agentsmdPathAsArgument), 1));
-  t('update preserves other tenants in retired events', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 1));
+  t('update preserves other tenants in retired events', () => assert.strictEqual(countCmd(after, (c) => c === TENANT_CMD), 1));
   t('hook ownership rejects path traversal outside the hooks root', () => {
     assert.strictEqual(H.isAgentsmdCommand(`bash "${path.join(dir, 'agentsmd', 'hooks', '..', 'foreign.sh')}"`), false);
   });
@@ -333,9 +322,9 @@ withSandbox((dir) => {
   });
 });
 
-// ── 3. round-trip: install → uninstall restores OMX byte-for-byte ───────────
+// ── 3. round-trip: install → uninstall restores tenant bytes ─────────────────
 withSandbox((dir) => {
-  const seed = omxSeed();
+  const seed = tenantSeed();
   fs.writeFileSync(path.join(dir, 'hooks.json'), seed);
   const { install, uninstall, H } = loadModules();
   install('2026-07-02T00:00:00.000Z');
@@ -343,8 +332,8 @@ withSandbox((dir) => {
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   t('uninstall removes all agentsmd entries', () => assert.strictEqual(H.countAgentsmdHooks(after), 0));
   t('uninstall reports the removed count', () => assert.strictEqual(res.hooksRemoved, EXPECTED_HOOKS));
-  t('uninstall preserves OMX entries', () => assert.strictEqual(countCmd(after, (c) => c === OMX_CMD), 3));
-  t('round-trip is byte-identical to the OMX seed', () => assert.strictEqual(after, seed));
+  t('uninstall preserves other-tenant entries', () => assert.strictEqual(countCmd(after, (c) => c === TENANT_CMD), 3));
+  t('round-trip is byte-identical to the tenant seed', () => assert.strictEqual(after, seed));
   t('uninstall leaves config.toml codex_hooks flag (§5)', () => assert.strictEqual(res.flagLeftEnabled, true));
 });
 
@@ -593,7 +582,7 @@ withSandbox((dir) => {
 
 // ── 3c. install writes shared files atomically (temp+rename, no leftover temps) ─
 withSandbox((dir) => {
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   const { install } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   t('install leaves no .agentsmd-tmp-* files (atomic temp+rename cleaned up)', () => {
@@ -602,7 +591,7 @@ withSandbox((dir) => {
   });
 });
 
-// ── 4. standalone: no OMX, no pre-existing files ────────────────────────────
+// ── 4. standalone: no other tenant, no pre-existing files ───────────────────
 withSandbox((dir) => {
   const { install, uninstall, status, doctor, H } = loadModules();
   install('2026-07-02T00:00:00.000Z');
@@ -931,6 +920,11 @@ withSandbox((dir) => {
   install('2026-07-02T00:00:00.000Z');
   const cfgInstalled = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   t('install adds the agentsmd status_line preset when the user had none', () => assert(cfgInstalled.includes('model-with-reasoning')));
+  const updated = install('2026-07-03T00:00:00.000Z');
+  t('update preserves ownership of the unchanged agentsmd status_line preset', () => {
+    assert.strictEqual(updated.statusLineAddedByUs, true);
+    assert.strictEqual(updated.statusLine, 'appended-tui-table');
+  });
   const un = uninstall();
   const cfgAfter = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
   t('uninstall reverts the agentsmd status_line preset', () => {
@@ -942,6 +936,46 @@ withSandbox((dir) => {
     // features.hooks stays enabled (§5); strip it to compare against the pre-install bytes.
     const normalized = cfgAfter.replace(/\n\[features\]\nhooks = true\n/, '\n[features]\n');
     assert.strictEqual(normalized, userCfg, `got:\n${cfgAfter}`);
+  });
+});
+
+withSandbox((dir) => {
+  fs.writeFileSync(path.join(dir, 'config.toml'), '[features]\nhooks = true\n');
+  const { install, uninstall } = loadModules();
+  install('2026-07-02T00:00:00.000Z');
+  const configPath = path.join(dir, 'config.toml');
+  const customized = fs.readFileSync(configPath, 'utf8').replace(
+    /^status_line = .*$/m,
+    'status_line = ["git-branch"]'
+  );
+  fs.writeFileSync(configPath, customized);
+  const updated = install('2026-07-03T00:00:00.000Z');
+  t('update relinquishes status_line ownership after user customization', () => {
+    assert.strictEqual(updated.statusLineAddedByUs, false);
+    assert.strictEqual(updated.statusLine, 'already-custom-status-line');
+  });
+  const un = uninstall();
+  t('uninstall preserves a status_line customized after install', () => {
+    assert(fs.readFileSync(configPath, 'utf8').includes('status_line = ["git-branch"]'));
+    assert.strictEqual(un.statusLineReverted, false);
+  });
+});
+
+withSandbox((dir) => {
+  const CT = require('../lib/config-toml');
+  const preset = CT.AGENTSMD_STATUS_LINE.map((item) => `"${item}"`).join(', ');
+  fs.writeFileSync(path.join(dir, 'config.toml'), `[tui]\nstatus_line = [${preset}]\n`);
+  const { install, uninstall } = loadModules();
+  const installed = install('2026-07-02T00:00:00.000Z');
+  const updated = install('2026-07-03T00:00:00.000Z');
+  t('install and update do not claim a pre-existing exact agentsmd status_line preset', () => {
+    assert.strictEqual(installed.statusLineAddedByUs, false);
+    assert.strictEqual(updated.statusLineAddedByUs, false);
+  });
+  const un = uninstall();
+  t('uninstall preserves a pre-existing exact agentsmd status_line preset', () => {
+    assert(CT.isAgentsmdStatusLineEnabled(fs.readFileSync(path.join(dir, 'config.toml'), 'utf8')));
+    assert.strictEqual(un.statusLineReverted, false);
   });
 });
 
@@ -1163,7 +1197,7 @@ withSandbox((dir) => {
     t('merge treats empty/whitespace as absent (starts fresh)', () => assert.strictEqual(H.countAgentsmdHooks(H.mergeAgentsmdHooks('  \n', managed)), 1));
   });
   withSandbox((dir) => {
-    const malformed = '{"hooks": {,}}  // OMX was here: node /omx/x.js\n';
+    const malformed = '{"hooks": {,}}  // another tenant was here\n';
     fs.writeFileSync(path.join(dir, 'hooks.json'), malformed);
     const { install } = loadModules();
     t('install aborts (throws) on a malformed hooks.json', () => assert.throws(() => install('2026-07-02T00:00:00.000Z')));
@@ -1393,12 +1427,12 @@ function codexmdSeed(dir) {
   return JSON.stringify({
     hooks: {
       SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: legacySessionCmd(dir) }] }],
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: OMX_CMD }, { type: 'command', command: legacyBashCmd(dir) }] }],
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: TENANT_CMD }, { type: 'command', command: legacyBashCmd(dir) }] }],
     },
   }, null, 2) + '\n';
 }
 
-// 9a. install migrates a full prior codexmd footprint; OMX + user content survive.
+// 9a. install migrates a full prior codexmd footprint; tenant + user content survive.
 withSandbox((dir) => {
   fs.writeFileSync(path.join(dir, 'hooks.json'), codexmdSeed(dir));
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# My instructions\nAlways write tests.\n\n# >>> codexmd >>>\nold codexmd spec\n# <<< codexmd <<<\n');
@@ -1425,7 +1459,7 @@ withSandbox((dir) => {
   const hooks = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   t('migrate: legacy /codexmd/ hooks stripped', () => assert.strictEqual(countCmd(hooks, isCodexmd), 0));
-  t('migrate: OMX entry preserved through migration', () => assert.strictEqual(countCmd(hooks, (c) => c === OMX_CMD), 1));
+  t('migrate: other-tenant entry preserved through migration', () => assert.strictEqual(countCmd(hooks, (c) => c === TENANT_CMD), 1));
   t('migrate: agentsmd hooks installed', () => assert.strictEqual(H.countAgentsmdHooks(hooks), EXPECTED_HOOKS));
   t('migrate: legacy AGENTS.md block gone; agentsmd block + user content kept', () => {
     assert(!agents.includes('# >>> codexmd >>>'), 'legacy block still present');
@@ -1546,12 +1580,12 @@ withSandbox((dir) => {
 
 // 9b. removeLegacyCodexmd is a no-op when nothing codexmd is present.
 withSandbox((dir) => {
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   const { M } = loadModules();
   const r = M.removeLegacyCodexmd();
   t('migrate: no-op when no codexmd present (detected=false)', () => {
     assert.strictEqual(r.detected, false);
-    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), omxSeed());
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8'), tenantSeed());
   });
 });
 
@@ -1563,7 +1597,7 @@ withSandbox((dir) => {
       PreToolUse: [{ matcher: 'Bash', hooks: [
         { type: 'command', command: legacyBashCmd(dir) },
         { type: 'command', command: unrelated },
-        { type: 'command', command: OMX_CMD },
+        { type: 'command', command: TENANT_CMD },
       ] }],
     },
   }, null, 2) + '\n');
@@ -1781,10 +1815,10 @@ withSandbox((dir) => {
 //    hooks.json. Simulate the crash by making renameSync throw for hooks.json only.
 withSandbox((dir) => {
   const { install, uninstall } = loadModules();
-  fs.writeFileSync(path.join(dir, 'hooks.json'), omxSeed());
+  fs.writeFileSync(path.join(dir, 'hooks.json'), tenantSeed());
   install('2026-07-02T00:00:00.000Z');
   const hooksPath = path.join(dir, 'hooks.json');
-  const before = fs.readFileSync(hooksPath, 'utf8');   // post-install: OMX + agentsmd
+  const before = fs.readFileSync(hooksPath, 'utf8');   // post-install: tenant + agentsmd
   const realRename = fs.renameSync;
   fs.renameSync = (from, to) => {
     if (path.resolve(String(to)) === path.resolve(hooksPath)) throw new Error('simulated ENOSPC/crash at rename');

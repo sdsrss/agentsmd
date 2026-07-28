@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # hook-common.sh — fail-open library for agentsmd hooks.
-# Codex output protocol verified against oh-my-codex's production codex-native
-# hook (v0.130): PreToolUse block = {decision:"block", reason, systemMessage,
+# Codex output protocol: PreToolUse block = {decision:"block", reason, systemMessage,
 # hookSpecificOutput:{hookEventName}}; advisory = {hookSpecificOutput:{...},
 # systemMessage} (no decision); SessionStart context = {hookSpecificOutput:
 # {hookEventName, additionalContext}}. This DIFFERS from Claude Code, which uses
@@ -413,7 +412,7 @@ hook_find_memory_file() {
 
 # hook_queue_advisory MESSAGE [SID] — queue a Stop-time advisory to be surfaced at
 # the NEXT UserPromptSubmit. additionalContext on the Stop event is not a verified
-# surfacing channel; UserPromptSubmit/SessionStart is (matches OMX's usage), so
+# surfacing channel; UserPromptSubmit/SessionStart is, so
 # Stop advisories are deferred there instead of emitted inline on Stop.
 #
 # Each advisory is its own file under the per-session pending dir, written to a

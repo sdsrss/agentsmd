@@ -68,7 +68,7 @@ external runtime.
   and produces healthy status/doctor output. Status: BASELINE; ROUND9.
 - Boundary 1: custom `status_line`, file modes, spaces, Chinese, and emoji in the
   path survive. Status: partial BASELINE; ROUND9.
-- Boundary 2: repeated installation and an OMX fixture remain byte-stable.
+- Boundary 2: repeated installation and a foreign-tenant fixture remain byte-stable.
   Status: BASELINE; ROUND9.
 - Misuse: malformed shared files, foreign collisions, or changed owned artifacts
   are refused without overwriting foreign bytes. Status: BASELINE; ROUND9.

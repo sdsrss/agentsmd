@@ -3,6 +3,68 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.0.0 — 2026-07-28 — single full profile and native Codex orchestration contract (major)
+
+### Breaking profile simplification
+
+- Removed the public `auto`, `omx-compatible`, and `legacy-full` standalone
+  profile modes, the `--allow-dual-surface` escape hatch, and the shipped
+  `spec/AGENTS-omx.md` artifact. New installs, plugin SessionStart, updates, and
+  repairs now converge on the complete `full` profile.
+- A fresh standalone CLI install now refuses with zero mutation when the exact
+  enabled agentsmd plugin is present. Existing standalone installs remain
+  updateable so legacy dual-surface and dual-profile states can be migrated or
+  removed.
+- The standalone reader retains one-way compatibility for the immediately
+  previous dual-profile manifest and schema-v1 ownership records. A valid
+  materialized OMX-compatible profile updates transactionally to `full`;
+  malformed legacy profile records fail health validation instead of being
+  mistaken for an absent compatibility record.
+
+### OMX capability absorption without an OMX runtime dependency
+
+- The full core now includes a bounded Codex-native subagent leadership
+  contract: solo by default, independent and verifiable delegation only when it
+  materially helps, exact child ownership and constraints, leader-owned
+  integration/final validation, serialized dependencies, upward escalation, and
+  no fabricated role/session/authority state.
+- Existing SPINE planning, hypothesis ranking, phase checkpoints, task records,
+  compaction recovery, memory routing, skill loading, review separation, fresh
+  validation, and telemetry remain the runtime-independent workflow layer.
+  tmux teams, HUD orchestration state, external-agent role catalogs, LSP/AST
+  tools, and rate-limit resume remain OMX runtime capabilities and are not
+  claimed by agentsmd.
+
+### Migration and rollback
+
+- Updating a healthy, immediately previous dual-profile standalone installation
+  migrates its materialized profile transactionally to `full`. Remove the
+  retired `--profile`, `--preset`, and `--allow-dual-surface` arguments from
+  local automation; a fresh install now has one complete profile and refuses an
+  active plugin/standalone dual surface.
+- To restore the former public profile contract, uninstall v5 and reinstall the
+  immutable `@sdsrs/agentsmd@4.25.4` package or the `v4.25.4` repository tag.
+  Take a normal agentsmd pre-install snapshot before changing a live
+  installation so user-owned hooks, config, and guidance remain recoverable.
+
+### Verification and documentation
+
+- Added protocol fixtures for a materialized legacy OMX profile updating to the
+  single full bundle and for malformed legacy bundle metadata failing closed.
+- Standalone updates now retain `status_line` ownership and its original
+  insertion mode while the exact agentsmd preset remains unchanged, so a later
+  uninstall removes both the preset and any table it created. A user-customized
+  or pre-existing status line is never claimed or removed.
+- The post-publish marketplace E2E now expects the packaged CLI to reject an
+  accidental plugin/standalone dual surface with a non-zero, zero-mutation
+  result, matching the new lifecycle contract instead of the removed silent
+  skip behavior.
+- `agentsmd perf-baseline --slo` now reports its exit status through
+  `process.exitCode` so the enclosing `finally` removes the isolated performance
+  sandbox; direct `process.exit()` previously bypassed that cleanup.
+- Updated architecture, protocol, README, QA, and status-line ownership
+  documentation for the single-profile lifecycle.
+
 ## v4.25.4 — 2026-07-28 — runner-independent registry retry (patch)
 
 - Moved the just-published `npm pack` propagation probe and retry loop into a

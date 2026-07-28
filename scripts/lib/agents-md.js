@@ -1,7 +1,7 @@
 'use strict';
 // agents-md.js — inject / remove agentsmd's spec as a sentinel-delimited managed
-// block inside ~/.codex/AGENTS.md. Everything OUTSIDE the sentinels (OMX's
-// orchestration brain, the user's own instructions, other tenants) is preserved
+// block inside ~/.codex/AGENTS.md. Everything OUTSIDE the sentinels (the user's
+// own instructions and other tenants) is preserved
 // byte-for-byte. Absent file → a new file with only our block. Uninstall removes
 // exactly the block (ARCHITECTURE.md §5).
 

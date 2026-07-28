@@ -332,10 +332,11 @@ if (require.main === module) {
     if (slo) {
       const r = runSlo({ runs, rounds, event, sandbox });
       console.log(opts.bools.has('json') ? JSON.stringify(r, null, 2) : formatSloReport(r));
-      process.exit(r.slo.inconclusive ? 3 : (r.slo.pass ? 0 : 1));
+      process.exitCode = r.slo.inconclusive ? 3 : (r.slo.pass ? 0 : 1);
+    } else {
+      const r = perfBaseline({ runs, event, sandbox, surface });
+      console.log(opts.bools.has('json') ? JSON.stringify(r, null, 2) : formatReport(r));
     }
-    const r = perfBaseline({ runs, event, sandbox, surface });
-    console.log(opts.bools.has('json') ? JSON.stringify(r, null, 2) : formatReport(r));
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true }); // §8.V4 sandbox disposal
   }

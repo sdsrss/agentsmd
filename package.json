@@ -1,7 +1,7 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "4.25.4",
-  "description": "A global coding-discipline spec for Codex with native hooks for selected checks and rule-specific opportunity telemetry. Independent of oh-my-codex.",
+  "version": "5.0.0",
+  "description": "A global coding-discipline spec for Codex with native hooks, reversible global AGENTS.md installation, and rule-specific opportunity telemetry.",
   "homepage": "https://github.com/sdsrss/agentsmd#readme",
   "bugs": "https://github.com/sdsrss/agentsmd/issues",
   "repository": {

@@ -44,9 +44,7 @@ t('syncVersion updates package, plugin, marketplace fallback selector, manifest,
   assert.strictEqual(marketplace.plugins[0].source.version, `${CURRENT_VERSION} || ${NEXT_PATCH_VERSION}`);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'spec/hard-rules.json'))).spec_version, `v${NEXT_PATCH_VERSION}`);
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
-  assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-omx.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
   assert.match(fs.readFileSync(path.join(root, 'spec/source/full/00-pre-auth.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
-  assert.match(fs.readFileSync(path.join(root, 'spec/source/omx/00-pre-auth.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
   assert.match(fs.readFileSync(path.join(root, 'spec/AGENTS-extended.md'), 'utf8'), versionRe(`CODEX-CODING-SPEC v${NEXT_PATCH_VERSION}`));
   assert.match(fs.readFileSync(path.join(root, 'install.sh'), 'utf8'), versionRe(`INSTALLER_VERSION="${NEXT_PATCH_VERSION}"`));
 }));

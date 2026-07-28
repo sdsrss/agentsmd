@@ -203,11 +203,6 @@ function doctor() {
       pluginBundle.spec.core ? 'spec/AGENTS.md' : 'missing spec/AGENTS.md'
     );
     add(
-      'plugin OMX-compatible spec present',
-      pluginBundle.spec.omxCompatible,
-      pluginBundle.spec.omxCompatible ? 'spec/AGENTS-omx.md' : 'missing spec/AGENTS-omx.md'
-    );
-    add(
       'plugin extended spec present',
       pluginBundle.spec.extended,
       pluginBundle.spec.extended ? 'spec/AGENTS-extended.md' : 'missing spec/AGENTS-extended.md'
@@ -406,14 +401,14 @@ function doctor() {
       'standalone profile bundle complete',
       surfaceStatus.bundleProfilesComplete === true,
       surfaceStatus.bundleProfilesComplete === true
-        ? 'full + omx-compatible + extended + source layout verified from manifest digests'
+        ? 'full + extended + source layout verified from manifest digests'
         : 'one or more declared profile artifacts are missing, stale, or unreadable — run agentsmd repair --plan'
     );
     add(
       'standalone profile selection observable',
       true,
       surfaceStatus.profileState === 'drift'
-        ? `configured=${surfaceStatus.configuredProfile}; desired=${surfaceStatus.desiredProfile}; mode=${surfaceStatus.profileSelectionMode}; enforcement remains active — run agentsmd update to re-materialize, or choose --profile=full|auto`
+        ? `configured=${surfaceStatus.configuredProfile}; desired=${surfaceStatus.desiredProfile}; mode=${surfaceStatus.profileSelectionMode}; enforcement remains active — run agentsmd update to migrate to the full profile`
         : `configured=${surfaceStatus.configuredProfile}; desired=${surfaceStatus.desiredProfile}; mode=${surfaceStatus.profileSelectionMode}; state=${surfaceStatus.profileState}`
     );
   }

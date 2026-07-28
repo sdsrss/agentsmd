@@ -5,7 +5,7 @@
 // `# >>> codexmd >>>` block in AGENTS.md, `codexmd-*` skills, and
 // ~/.codex/{codexmd, .codexmd-state}. This removes exactly those — by the SAME
 // marker-scoped discipline agentsmd uses for itself (ARCHITECTURE.md §5): never
-// touch OMX or any other tenant. Idempotent + a no-op when no codexmd is present.
+// touch any other tenant. Idempotent + a no-op when no codexmd is present.
 
 const fs = require('fs');
 const path = require('path');
@@ -53,7 +53,7 @@ function removeLegacyCodexmd() {
   }
 
   // 1. hooks.json — strip only old CODEX_HOME/codexmd install-dir entries;
-  //    preserve all others (OMX, the user's own, any tenant) exactly as
+  //    preserve all others (the user's own or any tenant) exactly as
   //    agentsmd's own remove does.
   const hooksPath = P.hooksJsonPath();
   const hooksSnapshot = F.snapshotFile(hooksPath);

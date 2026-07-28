@@ -16,7 +16,6 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 
 const hr = JSON.parse(read('spec/hard-rules.json'));
 const specFiles = { core: read('spec/AGENTS.md'), extended: read('spec/AGENTS-extended.md') };
-const omxCore = read('spec/AGENTS-omx.md');
 
 t('spec source: canonical fragments render committed artifacts byte-for-byte', () => {
   assert.doesNotThrow(() => specSource.check({ root: ROOT }));
@@ -159,15 +158,15 @@ t('plugin: manifest explicitly selects its root hook wiring', () => {
   assert(plugin.hooks.startsWith('./'), 'plugin hook-manifest path must be plugin-root relative');
 });
 
-t('plugin: hook commands resolve scripts from Codex CLAUDE_PLUGIN_ROOT', () => {
+t('plugin: hook commands prefer PLUGIN_ROOT, keep the legacy alias, and fail open without a root', () => {
   const wiring = JSON.parse(read('hooks.json'));
   for (const [event, groups] of Object.entries(wiring.hooks)) {
     for (const group of groups || []) {
       for (const hook of group.hooks || []) {
         assert.match(
           hook.command,
-          /^bash "\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/[a-z0-9-]+\.sh"$/,
-          `${event} command is not anchored to CLAUDE_PLUGIN_ROOT: ${hook.command}`
+          /^agentsmd_plugin_root="\$\{PLUGIN_ROOT:-\$\{CLAUDE_PLUGIN_ROOT:-\}\}"; \[ -n "\$agentsmd_plugin_root" \] \|\| exit 0; bash "\$agentsmd_plugin_root\/hooks\/[a-z0-9-]+\.sh"$/,
+          `${event} command does not implement the guarded plugin-root contract: ${hook.command}`
         );
       }
     }
@@ -175,7 +174,9 @@ t('plugin: hook commands resolve scripts from Codex CLAUDE_PLUGIN_ROOT', () => {
 });
 
 t('plugin: architecture separates runtime entry root from self-derived support paths', () => {
-  assert(read('ARCHITECTURE.md').includes('`${CLAUDE_PLUGIN_ROOT}` 仅用于定位入口脚本'));
+  const architecture = read('ARCHITECTURE.md');
+  assert(architecture.includes('`${PLUGIN_ROOT}`（旧运行时回退'));
+  assert(architecture.includes('`${CLAUDE_PLUGIN_ROOT}`）仅用于定位入口脚本'));
 });
 
 t('runtime state: ephemeral hooks use the physical-surface resolver', () => {
@@ -203,11 +204,11 @@ t('runtime state: ephemeral hooks use the physical-surface resolver', () => {
 });
 
 // 5. version is consistent across package.json / plugin.json / marketplace target /
-//    manifest / BOTH spec headers. Core + extended carry ONE shared version and move together
+//    manifest / both spec headers. Core + extended carry one shared version and move together
 //    (AGENTS-CHANGELOG.md, since v1.4.0) — the extended header must be asserted
 //    too, or it drifts silently (it sat at v2.3.0 through six releases because
 //    this gate only checked the core header).
-t('version: package = plugin = marketplace target = hard-rules = full + OMX + extended headers', () => {
+t('version: package = plugin = marketplace target = hard-rules = full + extended headers', () => {
   const norm = (v) => String(v).replace(/^v/, '');
   const pkg = norm(JSON.parse(read('package.json')).version);
   const plugin = norm(JSON.parse(read('.codex-plugin/plugin.json')).version);
@@ -217,7 +218,6 @@ t('version: package = plugin = marketplace target = hard-rules = full + OMX + ex
   const marketplaceVersion = norm(marketplaceVersions[marketplaceVersions.length - 1]);
   const manifest = norm(hr.spec_version);
   const specHeader = (specFiles.core.match(/CODEX-CODING-SPEC v([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1];
-  const omxHeader = (omxCore.match(/CODEX-CODING-SPEC v([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1];
   const extHeader = (specFiles.extended.match(/CODEX-CODING-SPEC v([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1];
   assert.strictEqual(pkg, plugin, `package(${pkg}) != plugin(${plugin})`);
   assert.strictEqual(pkg, marketplaceVersion, `package(${pkg}) != marketplace(${marketplaceVersion})`);
@@ -226,7 +226,6 @@ t('version: package = plugin = marketplace target = hard-rules = full + OMX + ex
     `marketplace selector must contain exact versions only: ${marketplaceRange}`);
   assert.strictEqual(pkg, manifest, `package(${pkg}) != manifest(${manifest})`);
   assert.strictEqual(pkg, specHeader, `package(${pkg}) != core spec header(${specHeader})`);
-  assert.strictEqual(pkg, omxHeader, `package(${pkg}) != OMX-compatible spec header(${omxHeader})`);
   assert.strictEqual(pkg, extHeader, `package(${pkg}) != extended spec header(${extHeader})`);
   // install.sh pins its own release tag as the default ref (R3-01) — a stale
   // INSTALLER_VERSION would silently install the previous release.
@@ -264,35 +263,22 @@ t('skill: agentsmd-status hook count matches the wiring', () => {
 // 9. Reserve at least half of the default discovery-chain cap for project-level
 //    instructions. The core is global context; closer project rules must not be
 //    silently truncated merely because the universal layer consumed the budget.
-t('spec: core AGENTS.md stays below the 15 KiB ceiling', () => {
-  const CAP = 15 * 1024;
+t('spec: core AGENTS.md stays below the 16 KiB ceiling', () => {
+  const CAP = 16 * 1024;
   const bytes = Buffer.byteLength(specFiles.core, 'utf8');
   assert(bytes <= CAP, `core spec is ${bytes} B; max ${CAP} B`);
 });
 
-t('spec: OMX compatibility core is a bounded, safety-preserving overlay', () => {
-  const fullBytes = Buffer.byteLength(specFiles.core, 'utf8');
-  const omxBytes = Buffer.byteLength(omxCore, 'utf8');
-  assert(omxBytes <= 10 * 1024, `OMX compatibility core is ${omxBytes} B; max ${10 * 1024} B`);
-  assert(omxBytes <= Math.floor(fullBytes * 0.75),
-    `OMX compatibility core (${omxBytes} B) must save at least 25% vs full core (${fullBytes} B)`);
-  assert(omxCore.includes('OMX compatibility overlay'), 'OMX profile marker missing');
-  assert(!omxCore.includes('CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT'),
-    'OMX overlay duplicates the full orchestration spine');
-
-  for (const prefix of ['**Hard (ask, block)**:', '**Never**:']) {
-    const canonical = specFiles.core.split('\n').find((line) => line.startsWith(prefix));
-    assert(canonical, `full core missing canonical ${prefix} line`);
-    assert(omxCore.includes(canonical), `OMX overlay drifted from canonical ${prefix} safety text`);
-  }
+t('spec: the full profile carries the native subagent leadership contract', () => {
   for (const anchor of [
-    '**NO CHANGE WITHOUT PRE-CHANGE EVIDENCE (L2+)**',
-    '**NO DONE WITHOUT FRESH EVIDENCE**',
-    '**NO FIX WITHOUT ROOT CAUSE (L2+)**',
-    'Done → Not done → Failed → Uncertain',
+    '**Native subagents**: solo execution is the default.',
+    'The leader gives each child exact ownership',
+    'never invent a role, authority proof, session pointer, or',
+    'Child agents report blockers and scope crossings upward',
   ]) {
-    assert(omxCore.includes(anchor), `OMX overlay missing invariant: ${anchor}`);
+    assert(specFiles.core.includes(anchor), `full profile missing orchestration invariant: ${anchor}`);
   }
+  assert.strictEqual(fs.existsSync(path.join(ROOT, 'spec', 'AGENTS-omx.md')), false);
 });
 
 // 9b. R5-05: the guarantee behind the ceiling, asserted on the DEPLOYED shape —

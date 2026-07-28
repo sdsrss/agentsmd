@@ -1,8 +1,8 @@
 'use strict';
 // uninstall.js — remove agentsmd from ~/.codex, touching ONLY agentsmd's own
-// footprint. OMX (or any other tenant) entries in hooks.json / AGENTS.md are
+// footprint. Other-tenant entries in hooks.json / AGENTS.md are
 // left byte-for-byte. Per §5 the config.toml hooks flag is LEFT enabled
-// (removing it could break OMX's or the user's own hooks).
+// (removing it could break another tenant's or the user's own hooks).
 
 const fs = require('fs');
 const crypto = require('crypto');

@@ -15,7 +15,7 @@ set -eu
 NAME="agentsmd"
 DEFAULT_REPO="sdsrss/agentsmd"
 # Synchronized by scripts/version-sync.js — must equal package.json version.
-INSTALLER_VERSION="4.25.4"
+INSTALLER_VERSION="5.0.0"
 DEFAULT_REF="v$INSTALLER_VERSION"
 
 ACTION="install"
@@ -458,7 +458,7 @@ case "$ACTION" in
     # the explicit opt-in for a NON-ENFORCING install (manifest enforcement:false).
     # Reaching this dedicated standalone installer is already an explicit
     # surface choice, so bypass the npm-CLI accidental-dual guard.
-    run_node_script "$src" install.js --allow-dual-surface ${DEGRADED_MODE:+--degraded}
+    run_node_script "$src" install.js ${DEGRADED_MODE:+--degraded}
     say ""
     say "Verifying install (doctor):"
     if run_node_script "$src" doctor.js; then

@@ -2,6 +2,21 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.0.0 (2026-07-28) — native subagent leadership in the single full core
+
+The full core's §4 now defines the runtime-independent portion of OMX's useful
+orchestration discipline: solo execution by default; bounded delegation only
+when it materially improves speed, correctness, or review; exact child
+ownership, inputs, constraints, and verifiable output; leader-owned integration
+and final validation; serialized dependencies; use of only roles exposed by the
+active Codex surface; upward blocker/scope escalation; and no recursive child
+orchestration or fabricated runtime state.
+
+The OMX compatibility core and its source fragments are removed. AUTH, all
+three Iron Laws, SAFETY, memory/continuity, validation, and reporting remain in
+the single complete core rather than varying with an external marker or
+orchestration runtime. Extended rule text is unchanged.
+
 ## v4.24.0 (2026-07-27) — no spec changes (plugin runtime compatibility release)
 
 Core, OMX-compatible, and extended rule text, manifest rules, and every
