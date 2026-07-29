@@ -450,6 +450,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   const verifyPlan = JSON.parse(cp.execFileSync(process.execPath, [
     path.join(dir, 'agentsmd', 'scripts', 'verify.js'),
     '--changed',
+    '--full',
     '--explain',
     '--json',
   ], {
