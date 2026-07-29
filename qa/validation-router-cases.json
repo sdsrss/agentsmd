@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "spec source",
+      "files": [
+        "spec/source/sections/08-safety.md"
+      ],
+      "checks_include": [
+        "spec-check",
+        "drift",
+        "hard-rules",
+        "conformance-structure",
+        "full-check"
+      ],
+      "categories_include": [
+        "spec-source",
+        "shared-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
+    },
+    {
+      "name": "native hook",
+      "files": [
+        "hooks/lib/event-journal.js"
+      ],
+      "checks_include": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "full-check"
+      ],
+      "categories_include": [
+        "native-hook",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": false
+    },
+    {
+      "name": "lifecycle exact path",
+      "files": [
+        "scripts/install.js"
+      ],
+      "checks_include": [
+        "install",
+        "preflight",
+        "fault-injection",
+        "repair",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "lifecycle",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "skill metadata",
+      "files": [
+        "skills/agentsmd-status/SKILL.md"
+      ],
+      "checks_include": [
+        "skill-frontmatter",
+        "skill-routing",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "skill-metadata",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
+    },
+    {
+      "name": "workflow release path",
+      "files": [
+        ".github/workflows/agentsmd-canary.yml"
+      ],
+      "checks_include": [
+        "workflow-static",
+        "full-check",
+        "release-dry-run"
+      ],
+      "categories_include": [
+        "ci-config",
+        "release"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
+    },
+    {
+      "name": "Codex review prompt",
+      "files": [
+        ".github/codex/pr-review.md"
+      ],
+      "checks_include": [
+        "workflow-static",
+        "full-check"
+      ],
+      "categories_include": [
+        "ci-config",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true,
+      "uncovered": false
+    },
+    {
+      "name": "schema contract",
+      "files": [
+        "schemas/task-evidence.schema.json"
+      ],
+      "checks_include": [
+        "task-contract",
+        "validation-router",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "automation-contract",
+        "shared-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "runtime canary contract",
+      "files": [
+        "qa/runtime-canary.js"
+      ],
+      "checks_include": [
+        "runtime-canary-unit",
+        "event-runtime-canary-unit",
+        "workflow-static",
+        "runtime-canary",
+        "full-check"
+      ],
+      "categories_include": [
+        "runtime-canary-contract",
+        "external-runtime"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": false
+    },
+    {
+      "name": "scorecard contract",
+      "files": [
+        "scripts/lib/scorecard.js"
+      ],
+      "checks_include": [
+        "scorecard-unit",
+        "argv-lint",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "scorecard-contract",
+        "measurement-semantics"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "distributed automation recipe",
+      "files": [
+        "automation/weekly-runtime-canary.md"
+      ],
+      "checks_include": [
+        "workflow-static",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "automation-recipe",
+        "package-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "CLI surface",
+      "files": [
+        "bin/agentsmd.js"
+      ],
+      "checks_include": [
+        "argv-lint",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "public-cli",
+        "shared-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "combination unions without duplicate checks",
+      "files": [
+        "hooks/pre-mutation-journal.sh",
+        "skills/agentsmd-status/SKILL.md",
+        "schemas/task-contract.schema.json"
+      ],
+      "checks_include": [
+        "hook-smoke",
+        "skill-routing",
+        "task-contract",
+        "full-check"
+      ],
+      "categories_include": [
+        "native-hook",
+        "skill-metadata",
+        "automation-contract"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": true,
+      "deduplicated": true
+    },
+    {
+      "name": "near negative hook prose",
+      "files": [
+        "docs/hooks-guide.md"
+      ],
+      "checks_exclude": [
+        "hook-smoke",
+        "perf-slo",
+        "runtime-canary"
+      ],
+      "categories_include": [
+        "documentation"
+      ],
+      "requires_full": false,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "near negative lifecycle filename",
+      "files": [
+        "scripts/install-helper.js"
+      ],
+      "checks_exclude": [
+        "install",
+        "preflight",
+        "fault-injection",
+        "repair"
+      ],
+      "categories_include": [
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
+      "name": "unknown path requires classification and full",
+      "files": [
+        "experimental/new-format.bin"
+      ],
+      "checks_include": [
+        "full-check"
+      ],
+      "categories_include": [
+        "unknown"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": true
+    },
+    {
+      "name": "package release cannot bypass full",
+      "files": [
+        "package.json"
+      ],
+      "checks_include": [
+        "distribution",
+        "release-dry-run",
+        "full-check"
+      ],
+      "categories_include": [
+        "package-config",
+        "release"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
+    }
+  ]
+}

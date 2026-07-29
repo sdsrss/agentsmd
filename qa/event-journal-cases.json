@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "_doc": "Deterministic native event-journal timing cases. Commands and tool output exist only in this test fixture; persisted rows must contain classifications and bounded metadata, never these raw values.",
+  "cases": [
+    {
+      "id": "validation-before-mutation",
+      "events": [
+        {
+          "mode": "post",
+          "at_ms": 1000,
+          "tool_use_id": "validate-old",
+          "tool_name": "Bash",
+          "command": "npm test",
+          "exit_code": 0
+        },
+        {
+          "mode": "pre",
+          "at_ms": 2000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/a.js\n@@\n-old\n+new\n*** End Patch"
+        },
+        {
+          "mode": "post",
+          "at_ms": 3000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/a.js\n@@\n-old\n+new\n*** End Patch",
+          "exit_code": 0
+        }
+      ],
+      "expected": {
+        "mutations": 1,
+        "fresh_validation": false
+      }
+    },
+    {
+      "id": "mutation-then-validation",
+      "events": [
+        {
+          "mode": "post",
+          "at_ms": 1000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Add File: src/new.js\n+export const value = 1;\n*** End Patch",
+          "exit_code": 0
+        },
+        {
+          "mode": "post",
+          "at_ms": 2000,
+          "tool_use_id": "validate-new",
+          "tool_name": "Bash",
+          "command": "npm run check",
+          "exit_code": 0
+        }
+      ],
+      "expected": {
+        "mutations": 1,
+        "fresh_validation": true
+      }
+    },
+    {
+      "id": "nonzero-validation",
+      "events": [
+        {
+          "mode": "post",
+          "at_ms": 1000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/a.js\n@@\n-old\n+new\n*** End Patch",
+          "exit_code": 0
+        },
+        {
+          "mode": "post",
+          "at_ms": 2000,
+          "tool_use_id": "validate-red",
+          "tool_name": "Bash",
+          "command": "npm test",
+          "exit_code": 1
+        }
+      ],
+      "expected": {
+        "mutations": 1,
+        "fresh_validation": false
+      }
+    },
+    {
+      "id": "edit-test-edit",
+      "events": [
+        {
+          "mode": "post",
+          "at_ms": 1000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/a.js\n@@\n-a\n+b\n*** End Patch",
+          "exit_code": 0
+        },
+        {
+          "mode": "post",
+          "at_ms": 2000,
+          "tool_use_id": "validate-middle",
+          "tool_name": "Bash",
+          "command": "npm test",
+          "exit_code": 0
+        },
+        {
+          "mode": "post",
+          "at_ms": 3000,
+          "tool_use_id": "edit-2",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/b.js\n@@\n-a\n+b\n*** End Patch",
+          "exit_code": 0
+        }
+      ],
+      "expected": {
+        "mutations": 2,
+        "fresh_validation": false
+      }
+    },
+    {
+      "id": "preflight-plan-before-mutation",
+      "events": [
+        {
+          "mode": "post",
+          "at_ms": 1000,
+          "tool_use_id": "preflight",
+          "tool_name": "Bash",
+          "command": "git status --short",
+          "exit_code": 0
+        },
+        {
+          "mode": "post",
+          "at_ms": 2000,
+          "tool_use_id": "plan",
+          "tool_name": "update_plan",
+          "exit_code": 0
+        },
+        {
+          "mode": "pre",
+          "at_ms": 3000,
+          "tool_use_id": "edit-1",
+          "tool_name": "apply_patch",
+          "command": "*** Begin Patch\n*** Update File: src/a.js\n@@\n-a\n+b\n*** End Patch"
+        }
+      ],
+      "expected": {
+        "mutations": 0,
+        "fresh_validation": false,
+        "preflight_before_mutation": true,
+        "plan_before_mutation": true
+      }
+    }
+  ]
+}

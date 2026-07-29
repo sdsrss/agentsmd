@@ -141,6 +141,8 @@ rule_hits_reap_stale() (
 rule_hits_write_locked() (
   local log_file="$1"
   local row="$2"
+  local unique_event="${3:-}"
+  local unique_session_id="${4:-}"
   local lock_dir="${log_file}.lock"
   local attempts="${AGENTSMD_LOG_LOCK_ATTEMPTS:-50}"
   local stale_seconds="${AGENTSMD_LOG_LOCK_STALE_SECONDS:-30}"
@@ -174,6 +176,25 @@ rule_hits_write_locked() (
   }
   trap rule_hits_unlock EXIT
   trap 'exit 0' HUP INT TERM
+
+  # Session dimensions are a once-per-session join row. Deduplicate while
+  # holding the same lock that serializes rotation+append, across every retained
+  # segment, so concurrent SessionStart sources cannot each win. Other telemetry
+  # passes no uniqueness key and keeps ordinary append semantics.
+  if [[ -n "$unique_event" && -n "$unique_session_id" ]]; then
+    local event_needle session_needle
+    event_needle="\"event\":\"$(rule_hits_json_escape "$unique_event")\""
+    session_needle="\"session_id\":\"$(rule_hits_json_escape "$unique_session_id")\""
+    local candidate line
+    for candidate in "$log_file.2" "$log_file.1" "$log_file"; do
+      [[ -r "$candidate" ]] || continue
+      while IFS= read -r line; do
+        if [[ "$line" == *"$event_needle"* && "$line" == *"$session_needle"* ]]; then
+          return 0
+        fi
+      done < "$candidate"
+    done
+  fi
 
   local max_mb="${AGENTSMD_LOG_MAX_MB:-5}"
   [[ "$max_mb" =~ ^[0-9]+$ ]] || max_mb=5
@@ -271,4 +292,78 @@ rule_hits_observe() {
   [[ "$evaluated" == "true" ]] || evaluated=false
   [[ "$evaluated" == "true" ]] && eligible=true
   rule_hits_emit "${1:-unknown}" "observe" "${6:-null}" "${2:-}" "${3:-}" "$eligible" "$evaluated"
+}
+
+rule_hits_dimension_value() {
+  local value="${1:-}"
+  value="${value//$'\n'/ }"
+  value="${value//$'\r'/ }"
+  value="${value//$'\t'/ }"
+  value="${value:0:256}"
+  [[ -n "$value" ]] || value="unknown"
+  printf '%s' "$value"
+}
+
+# rule_hits_session_dimension SESSION_ID SPEC AGENTSMD SURFACE CODEX MODEL PLATFORM
+# One bounded top-level row supplies the version/surface join dimension for all
+# other hot-path telemetry. It carries no prompt, command, path, output, or
+# secret. Exact once is enforced under the shared telemetry lock above.
+rule_hits_session_dimension() {
+  [[ "${DISABLE_RULE_HITS_LOG:-0}" == "1" ]] && return 0
+
+  local session_id
+  session_id="$(rule_hits_dimension_value "${1:-}")"
+  [[ "$session_id" == "t" ]] && return 0
+  if [[ ! "$session_id" =~ ^[A-Za-z0-9._:-]+$ ]]; then session_id="unknown"; fi
+
+  local spec_version agentsmd_version surface codex_version model platform
+  spec_version="$(rule_hits_dimension_value "${2:-}")"
+  agentsmd_version="$(rule_hits_dimension_value "${3:-}")"
+  surface="$(rule_hits_dimension_value "${4:-}")"
+  codex_version="$(rule_hits_dimension_value "${5:-}")"
+  model="$(rule_hits_dimension_value "${6:-}")"
+  platform="$(rule_hits_dimension_value "${7:-}")"
+
+  local project_raw="${CODEX_PROJECT_DIR:-${PWD:-}}"
+  local project=""
+  [[ -n "$project_raw" ]] && project=$(printf '%s' "$project_raw" | tr -c 'a-zA-Z0-9-' '-')
+  local log_dir="${CODEX_HOME:-$HOME/.codex}/logs"
+  local log_file="$log_dir/agentsmd.jsonl"
+  mkdir -p "$log_dir" 2>/dev/null || return 0
+
+  local ts tag row=""
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  tag="${AGENTSMD_TELEMETRY_TAG:-}"
+  if command -v jq >/dev/null 2>&1; then
+    row=$(jq -cn \
+      --arg ts "$ts" --arg project "$project" --arg session_id "$session_id" \
+      --arg spec_version "$spec_version" --arg agentsmd_version "$agentsmd_version" \
+      --arg surface "$surface" --arg codex_version "$codex_version" \
+      --arg model "$model" --arg platform "$platform" --arg tag "$tag" \
+      '{
+        ts:$ts,
+        hook:"session-start",
+        event:"session-dimension",
+        project:$project,
+        session_id:$session_id,
+        spec_version:$spec_version,
+        agentsmd_version:$agentsmd_version,
+        surface:$surface,
+        codex_version:$codex_version,
+        model:$model,
+        platform:$platform
+      } + (if $tag=="" then {} else {tag:$tag} end)' 2>/dev/null) || return 0
+  else
+    local tag_fragment=""
+    [[ -n "$tag" ]] && tag_fragment=",\"tag\":\"$(rule_hits_json_escape "$tag")\""
+    printf -v row \
+      '{"ts":"%s","hook":"session-start","event":"session-dimension","project":"%s","session_id":"%s","spec_version":"%s","agentsmd_version":"%s","surface":"%s","codex_version":"%s","model":"%s","platform":"%s"%s}' \
+      "$(rule_hits_json_escape "$ts")" "$(rule_hits_json_escape "$project")" \
+      "$(rule_hits_json_escape "$session_id")" "$(rule_hits_json_escape "$spec_version")" \
+      "$(rule_hits_json_escape "$agentsmd_version")" "$(rule_hits_json_escape "$surface")" \
+      "$(rule_hits_json_escape "$codex_version")" "$(rule_hits_json_escape "$model")" \
+      "$(rule_hits_json_escape "$platform")" "$tag_fragment"
+  fi
+  [[ -n "$row" ]] || return 0
+  rule_hits_write_locked "$log_file" "$row" "session-dimension" "$session_id"
 }

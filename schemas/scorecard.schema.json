@@ -1,0 +1,406 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/scorecard.schema.json",
+  "title": "agentsmd quality scorecard",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "window",
+    "health",
+    "compatibility",
+    "conformance",
+    "false_blocks",
+    "bypasses",
+    "evidence_discipline",
+    "performance",
+    "memory",
+    "prompt_budget",
+    "automation",
+    "recommended_actions",
+    "measurement_limits"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "$ref": "#/$defs/text" },
+    "window": { "$ref": "#/$defs/window" },
+    "health": { "$ref": "#/$defs/health" },
+    "compatibility": { "$ref": "#/$defs/compatibility" },
+    "conformance": { "$ref": "#/$defs/conformance" },
+    "false_blocks": { "$ref": "#/$defs/falseBlocks" },
+    "bypasses": { "$ref": "#/$defs/bypasses" },
+    "evidence_discipline": { "$ref": "#/$defs/evidence" },
+    "performance": { "$ref": "#/$defs/performance" },
+    "memory": { "$ref": "#/$defs/memory" },
+    "prompt_budget": { "$ref": "#/$defs/promptBudget" },
+    "automation": { "$ref": "#/$defs/automation" },
+    "recommended_actions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "measurement_limits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/longText" }
+    },
+    "comparison": { "$ref": "#/$defs/comparison" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "longText": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "nonnegative": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+    "nullableNumber": {
+      "oneOf": [
+        { "type": "number", "minimum": -100000000, "maximum": 100000000 },
+        { "type": "null" }
+      ]
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["days", "start", "end"],
+      "properties": {
+        "days": { "type": "integer", "minimum": 1, "maximum": 3650 },
+        "start": { "$ref": "#/$defs/text" },
+        "end": { "$ref": "#/$defs/text" }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "installed",
+        "installed_version",
+        "selected_surface",
+        "enforcement",
+        "doctor_ok",
+        "total_checks",
+        "failed_checks",
+        "kill_switches"
+      ],
+      "properties": {
+        "state": { "enum": ["healthy", "degraded", "unavailable"] },
+        "installed": { "type": "boolean" },
+        "installed_version": { "$ref": "#/$defs/text" },
+        "selected_surface": { "$ref": "#/$defs/text" },
+        "enforcement": { "type": "boolean" },
+        "doctor_ok": { "type": "boolean" },
+        "total_checks": { "$ref": "#/$defs/nonnegative" },
+        "failed_checks": { "$ref": "#/$defs/nonnegative" },
+        "kill_switches": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "dataClasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external", "self", "test", "qa", "unknown"],
+      "properties": {
+        "external": { "$ref": "#/$defs/nonnegative" },
+        "self": { "$ref": "#/$defs/nonnegative" },
+        "test": { "$ref": "#/$defs/nonnegative" },
+        "qa": { "$ref": "#/$defs/nonnegative" },
+        "unknown": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "runtimeSplit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec_version",
+        "agentsmd_version",
+        "surface",
+        "codex_version",
+        "model",
+        "platform",
+        "sessions"
+      ],
+      "properties": {
+        "spec_version": { "$ref": "#/$defs/text" },
+        "agentsmd_version": { "$ref": "#/$defs/text" },
+        "surface": { "$ref": "#/$defs/text" },
+        "codex_version": { "$ref": "#/$defs/text" },
+        "model": { "$ref": "#/$defs/text" },
+        "platform": { "$ref": "#/$defs/text" },
+        "sessions": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension_sessions",
+        "missing_dimension_sessions",
+        "runtime_splits",
+        "data_classes",
+        "excluded_test_qa_from_field_metrics"
+      ],
+      "properties": {
+        "dimension_sessions": { "$ref": "#/$defs/nonnegative" },
+        "missing_dimension_sessions": { "$ref": "#/$defs/nonnegative" },
+        "runtime_splits": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/runtimeSplit" }
+        },
+        "data_classes": { "$ref": "#/$defs/dataClasses" },
+        "excluded_test_qa_from_field_metrics": { "const": true }
+      }
+    },
+    "conformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "capture",
+        "recorded_at",
+        "age_days",
+        "passed",
+        "total",
+        "errors",
+        "codex_version",
+        "model",
+        "agentsmd_version",
+        "false_block_near_negatives"
+      ],
+      "properties": {
+        "state": { "enum": ["fresh", "stale", "unavailable", "invalid"] },
+        "capture": { "$ref": "#/$defs/text" },
+        "recorded_at": { "$ref": "#/$defs/text" },
+        "age_days": { "$ref": "#/$defs/nullableNumber" },
+        "passed": { "$ref": "#/$defs/nonnegative" },
+        "total": { "$ref": "#/$defs/nonnegative" },
+        "errors": { "$ref": "#/$defs/nonnegative" },
+        "codex_version": { "$ref": "#/$defs/text" },
+        "model": { "$ref": "#/$defs/text" },
+        "agentsmd_version": { "$ref": "#/$defs/text" },
+        "false_block_near_negatives": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "falseBlocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "blocking_events", "reviewed_outcomes", "confirmed_false_blocks", "limit"],
+      "properties": {
+        "state": { "enum": ["measured", "unmeasured"] },
+        "blocking_events": { "$ref": "#/$defs/nonnegative" },
+        "reviewed_outcomes": { "$ref": "#/$defs/nonnegative" },
+        "confirmed_false_blocks": { "$ref": "#/$defs/nonnegative" },
+        "limit": { "$ref": "#/$defs/longText" }
+      }
+    },
+    "bypasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocking_decisions",
+        "bypass_decisions",
+        "bypass_rate",
+        "review_rules",
+        "review_due",
+        "no_opportunity",
+        "insufficient_opportunity",
+        "went_silent",
+        "no_opportunity_is_success"
+      ],
+      "properties": {
+        "blocking_decisions": { "$ref": "#/$defs/nonnegative" },
+        "bypass_decisions": { "$ref": "#/$defs/nonnegative" },
+        "bypass_rate": { "$ref": "#/$defs/nullableNumber" },
+        "review_rules": { "$ref": "#/$defs/nonnegative" },
+        "review_due": { "$ref": "#/$defs/nonnegative" },
+        "no_opportunity": { "$ref": "#/$defs/nonnegative" },
+        "insufficient_opportunity": { "$ref": "#/$defs/nonnegative" },
+        "went_silent": { "$ref": "#/$defs/nonnegative" },
+        "no_opportunity_is_success": { "const": false }
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "eligible", "violations", "external_eligible", "external_violations"],
+      "properties": {
+        "rule": { "$ref": "#/$defs/text" },
+        "eligible": { "$ref": "#/$defs/nonnegative" },
+        "violations": { "$ref": "#/$defs/nonnegative" },
+        "external_eligible": { "$ref": "#/$defs/nonnegative" },
+        "external_violations": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transcripts",
+        "assistant_turns",
+        "vocabulary_violations",
+        "report_order_violations",
+        "truncated_transcripts",
+        "calibration",
+        "calibration_is_governance_signal"
+      ],
+      "properties": {
+        "transcripts": { "$ref": "#/$defs/nonnegative" },
+        "assistant_turns": { "$ref": "#/$defs/nonnegative" },
+        "vocabulary_violations": { "$ref": "#/$defs/nonnegative" },
+        "report_order_violations": { "$ref": "#/$defs/nonnegative" },
+        "truncated_transcripts": { "$ref": "#/$defs/nonnegative" },
+        "calibration": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/calibration" }
+        },
+        "calibration_is_governance_signal": { "const": false }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "recorded_at",
+        "age_days",
+        "slo_verdict",
+        "aggregate_process_ratio",
+        "concurrent_wall_ratio",
+        "worst_timeout_fraction",
+        "agentsmd_version",
+        "codex_version"
+      ],
+      "properties": {
+        "state": { "enum": ["fresh", "stale", "unavailable", "invalid"] },
+        "recorded_at": { "$ref": "#/$defs/text" },
+        "age_days": { "$ref": "#/$defs/nullableNumber" },
+        "slo_verdict": { "$ref": "#/$defs/text" },
+        "aggregate_process_ratio": { "$ref": "#/$defs/nullableNumber" },
+        "concurrent_wall_ratio": { "$ref": "#/$defs/nullableNumber" },
+        "worst_timeout_fraction": { "$ref": "#/$defs/nullableNumber" },
+        "agentsmd_version": { "$ref": "#/$defs/text" },
+        "codex_version": { "$ref": "#/$defs/text" }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "suggest_events",
+        "measurable",
+        "applied",
+        "bypassed",
+        "unmeasurable",
+        "cite_recall",
+        "citation_is_adherence"
+      ],
+      "properties": {
+        "state": { "enum": ["measured", "unavailable"] },
+        "suggest_events": { "$ref": "#/$defs/nonnegative" },
+        "measurable": { "$ref": "#/$defs/nonnegative" },
+        "applied": { "$ref": "#/$defs/nonnegative" },
+        "bypassed": { "$ref": "#/$defs/nonnegative" },
+        "unmeasurable": { "$ref": "#/$defs/nonnegative" },
+        "cite_recall": { "$ref": "#/$defs/nullableNumber" },
+        "citation_is_adherence": { "const": false }
+      }
+    },
+    "promptBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cap",
+        "global_bytes",
+        "project_bytes",
+        "total_bytes",
+        "headroom_bytes",
+        "over_bytes",
+        "state"
+      ],
+      "properties": {
+        "cap": { "$ref": "#/$defs/nonnegative" },
+        "global_bytes": { "$ref": "#/$defs/nonnegative" },
+        "project_bytes": { "$ref": "#/$defs/nonnegative" },
+        "total_bytes": { "$ref": "#/$defs/nonnegative" },
+        "headroom_bytes": { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
+        "over_bytes": { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
+        "state": { "enum": ["within-budget", "over-budget"] }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipes_present",
+        "recipes_expected",
+        "scheduled_workflows",
+        "runtime_canary_workflow",
+        "governance_workflow",
+        "fallback_events",
+        "fail_open_events",
+        "worktrees",
+        "protected_worktrees",
+        "worktree_residue"
+      ],
+      "properties": {
+        "recipes_present": { "$ref": "#/$defs/nonnegative" },
+        "recipes_expected": { "$ref": "#/$defs/nonnegative" },
+        "scheduled_workflows": { "$ref": "#/$defs/nonnegative" },
+        "runtime_canary_workflow": { "type": "boolean" },
+        "governance_workflow": { "type": "boolean" },
+        "fallback_events": { "$ref": "#/$defs/nonnegative" },
+        "fail_open_events": { "$ref": "#/$defs/nonnegative" },
+        "worktrees": { "$ref": "#/$defs/nonnegative" },
+        "protected_worktrees": { "$ref": "#/$defs/nonnegative" },
+        "worktree_residue": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "code", "action", "evidence"],
+      "properties": {
+        "priority": { "enum": ["high", "medium", "low"] },
+        "code": { "$ref": "#/$defs/text" },
+        "action": { "$ref": "#/$defs/longText" },
+        "evidence": { "$ref": "#/$defs/longText" }
+      }
+    },
+    "deltas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failed_health_checks",
+        "missing_dimension_sessions",
+        "conformance_failures",
+        "blocking_events",
+        "bypass_decisions",
+        "evidence_violations",
+        "fallback_events",
+        "worktree_residue"
+      ],
+      "properties": {
+        "failed_health_checks": { "$ref": "#/$defs/nullableNumber" },
+        "missing_dimension_sessions": { "$ref": "#/$defs/nullableNumber" },
+        "conformance_failures": { "$ref": "#/$defs/nullableNumber" },
+        "blocking_events": { "$ref": "#/$defs/nullableNumber" },
+        "bypass_decisions": { "$ref": "#/$defs/nullableNumber" },
+        "evidence_violations": { "$ref": "#/$defs/nullableNumber" },
+        "fallback_events": { "$ref": "#/$defs/nullableNumber" },
+        "worktree_residue": { "$ref": "#/$defs/nullableNumber" }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capture", "generated_at", "deltas"],
+      "properties": {
+        "capture": { "$ref": "#/$defs/text" },
+        "generated_at": { "$ref": "#/$defs/text" },
+        "deltas": { "$ref": "#/$defs/deltas" }
+      }
+    }
+  }
+}

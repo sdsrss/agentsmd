@@ -16,8 +16,8 @@ if [ -f "$CANDIDATE_ROOT/scripts/perf-baseline.js" ]; then AGENTSMD_ROOT="$CANDI
 Turns "the hooks add ~200–400 ms" (a guess) into a measured per-hook table. For each hook it times, over N runs, the median of **OFF** (`DISABLE_AGENTSMD_HOOKS=1` → the hook exits at its kill-switch line: bash-spawn + startup floor) vs **ON** (the hook does its real work); `delta = ON − OFF` is the hook's own logic cost.
 
 ```bash
-node "$AGENTSMD_ROOT/scripts/perf-baseline.js"                    # all 15 hooks, 10 runs
-node "$AGENTSMD_ROOT/scripts/perf-baseline.js" --event=PreToolUse # just the per-Bash-call hooks
+node "$AGENTSMD_ROOT/scripts/perf-baseline.js"                    # all 17 hooks, 10 runs
+node "$AGENTSMD_ROOT/scripts/perf-baseline.js" --event=PreToolUse # all registered PreToolUse hooks
 node "$AGENTSMD_ROOT/scripts/perf-baseline.js" --runs=3 --json
 ```
 

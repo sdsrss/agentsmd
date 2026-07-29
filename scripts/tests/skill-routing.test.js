@@ -54,11 +54,13 @@ const SCRIPT_BY_SKILL = {
   'agentsmd-perf-baseline': 'perf-baseline.js',
   'agentsmd-restore': 'restore.js',
   'agentsmd-rules': 'rules.js',
+  'agentsmd-scorecard': 'scorecard.js',
   'agentsmd-safety-coverage-audit': 'safety-coverage-audit.js',
   'agentsmd-sampling-audit': 'sampling-audit.js',
   'agentsmd-sparkline': 'sparkline.js',
   'agentsmd-status': 'status.js',
   'agentsmd-version-cascade': 'version-cascade-check.js',
+  'agentsmd-verify': 'verify.js',
 };
 
 assert.deepStrictEqual(Object.keys(SCRIPT_BY_SKILL).sort(), names, 'script routing inventory must cover every agentsmd skill');
@@ -141,6 +143,8 @@ const CASES = [
   ['scan README stale version tokens', 'agentsmd-version-cascade'],
   ['detect silent-fallback argv parser', 'agentsmd-lint-argv'],
   ['check static hook claims bypass tokens emitters', 'agentsmd-safety-coverage-audit'],
+  ['select change-aware validation checks with deterministic reasons', 'agentsmd-verify'],
+  ['aggregate unified quality scorecard measurement limits', 'agentsmd-scorecard'],
   // Neighbor pairs: the prompt names the excluded neighbor but must still rank
   // the intended positive scope first.
   ['aggregate rule-hit telemetry raw counts, not govern the spec', 'agentsmd-audit'],
@@ -157,6 +161,8 @@ const CASES = [
   ['查看安装状态清单', 'agentsmd-status'],
   ['生成项目指令', 'agentsmd-init'],
   ['提炼代码约定', 'agentsmd-analyze'],
+  ['选择变更感知验证检查', 'agentsmd-verify'],
+  ['汇总统一质量记分卡', 'agentsmd-scorecard'],
 ];
 
 for (const [prompt, expected] of CASES) {

@@ -5,7 +5,7 @@
       {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
-          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-start-check.sh\"", "timeout": 5 }
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-start-check.sh\"", "timeout": 5, "additionalContextLimit": 6000 }
         ]
       }
     ],
@@ -19,13 +19,27 @@
           { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/memory-read-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/secrets-scan.sh\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/pre-mutation-journal.sh\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|update_plan",
+        "hooks": [
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/post-tool-journal.sh\"", "timeout": 3 }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/surface-advisories.sh\"", "timeout": 3 },
-          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/memory-prompt-hint.sh\"", "timeout": 3 }
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/surface-advisories.sh\"", "timeout": 3, "additionalContextLimit": 1000 },
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/memory-prompt-hint.sh\"", "timeout": 3, "additionalContextLimit": 1000 }
         ]
       }
     ],

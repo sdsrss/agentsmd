@@ -221,7 +221,7 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
 
   const status = JSON.parse(run(['--source', ROOT, '--status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 15);
+  assert.strictEqual(status.agentsmdHooksRegistered, 17);
   assert.strictEqual(status.agentsmdStatusLinePreset, true);
 
   const uninstallOut = run(['--source', ROOT, '--uninstall'], env);
@@ -305,6 +305,11 @@ t('package files include curl installer and repo marketplace metadata', () => {
   assert(files.includes('.agents'));
   assert(files.includes('!hooks/tests'));
   assert(files.includes('!scripts/tests'));
+  assert(files.includes('schemas'));
+  assert(files.includes('automation'));
+  assert(files.includes('qa/validation-map.json'));
+  assert(files.includes('qa/perf/baseline.json'));
+  assert(files.includes('qa/conformance/cases.json'));
 });
 
 // ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
@@ -324,7 +329,7 @@ t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => wi
     'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore', 'repair',
     'status', 'doctor', 'audit', 'sampling-audit', 'lesson-bypass-audit',
     'sparkline', 'safety-coverage-audit', 'version-cascade', 'perf-baseline',
-    'lint-argv', 'rules',
+    'lint-argv', 'verify', 'scorecard', 'rules',
   ]) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
@@ -356,6 +361,8 @@ t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
     ['lesson-bypass-audit', '--days=tomorrow'],
     ['sparkline', '--windows=1'],
     ['perf-baseline', '--runs=0'],
+    ['verify', '--since'],
+    ['scorecard', '--days=0'],
     ['repair'],
     ['repair', '--confirm=not-a-digest'],
   ];
@@ -431,10 +438,46 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   const installOut = cli(['install'], env);
   assert(installOut.includes('agentsmd installed:'));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'install.js')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'task-contract.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'task-evidence.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'scorecard.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'runtime-canary.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'validation-map.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'perf', 'baseline.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'conformance', 'cases.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'automation', 'weekly-runtime-canary.md')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'skills', 'agentsmd-scorecard', 'SKILL.md')));
+  const verifyPlan = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(dir, 'agentsmd', 'scripts', 'verify.js'),
+    '--changed',
+    '--explain',
+    '--json',
+  ], {
+    cwd: ROOT,
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  assert.strictEqual(verifyPlan.schema_version, 1);
+  assert.strictEqual(verifyPlan.explain_only, true);
+  assert(verifyPlan.checks.some((check) => check.id === 'full-check'));
+  const scorecard = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(dir, 'agentsmd', 'scripts', 'scorecard.js'),
+    '--days=30',
+    '--json',
+  ], {
+    cwd: ROOT,
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  assert.strictEqual(scorecard.schema_version, 1);
+  assert.strictEqual(scorecard.performance.state, 'fresh');
+  assert.strictEqual(scorecard.automation.recipes_present, 4);
 
   const status = JSON.parse(cli(['status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 15);
+  assert.strictEqual(status.agentsmdHooksRegistered, 17);
 
   const uninstallOut = cli(['uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));
@@ -445,7 +488,7 @@ t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) 
   const env = { CODEX_HOME: dir };
   cli(['install'], env);
   assert(cli(['update'], env).includes('agentsmd installed:'));
-  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 15);
+  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 17);
 }));
 
 for (const command of ['install', 'update']) {
@@ -490,7 +533,7 @@ t('agentsmd install is concise by default and --json emits the full manifest', (
   assert(concise.trim().split('\n').length <= 2, concise);
   const manifest = JSON.parse(cli(['update', '--json'], env));
   assert.strictEqual(manifest.name, 'agentsmd');
-  assert.strictEqual(manifest.hookCount, 15);
+  assert.strictEqual(manifest.hookCount, 17);
   assert(manifest.ownedArtifacts && manifest.ownedArtifacts.deploy);
 }));
 
@@ -707,7 +750,7 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(installedCli(['install']).includes('agentsmd installed:'));
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 15);
+  assert.strictEqual(status.agentsmdHooksRegistered, 17);
   const healthyPlan = JSON.parse(installedCli(['repair', '--plan']));
   assert.strictEqual(healthyPlan.classification, 'healthy');
   fs.unlinkSync(path.join(codexHome, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));

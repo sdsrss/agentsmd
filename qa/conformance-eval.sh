@@ -95,6 +95,21 @@ CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 TELEMETRY="$CODEX_HOME_DIR/logs/agentsmd.jsonl"
 [ -r "$TELEMETRY" ] || { echo "FAIL: no agentsmd telemetry at $TELEMETRY — is agentsmd installed?" >&2; exit 1; }
 AGENTSMD_VERSION="$(jq -r '.version // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
+AGENTSMD_SURFACE="$(jq -r '.deliverySurface // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
+AGENTSMD_PROFILE="$(jq -r '.profile.materialized // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
+RESOLVED_MODEL="$MODEL"
+if [ -z "$RESOLVED_MODEL" ] && [ -r "$CODEX_HOME_DIR/config.toml" ]; then
+  # Capture only the first top-level model value. Never copy the config file or
+  # unrelated settings into a QA artifact.
+  RESOLVED_MODEL="$(sed -nE 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+    "$CODEX_HOME_DIR/config.toml" | head -1)"
+fi
+[ -n "$RESOLVED_MODEL" ] || RESOLVED_MODEL="config-default"
+file_sha256() {
+  node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex"))' "$1"
+}
+CASES_SHA256="$(file_sha256 "$CASES_FILE")"
+THRESHOLDS_SHA256="$([ -r "$THRESHOLDS_FILE" ] && file_sha256 "$THRESHOLDS_FILE" || printf 'absent')"
 
 MODEL_ARGS=()
 [ -n "$MODEL" ] && MODEL_ARGS=(-m "$MODEL")
@@ -223,8 +238,18 @@ run_case_session() {
   # Tag every telemetry row this QA session writes (R6-04): grading reads rows by
   # event/section and is tag-blind, but audit/rules exclude qa-tagged rows so
   # harness runs never masquerade as external field data in governance denominators.
+  # codex exec defaults to read-only. Conformance cases intentionally edit
+  # their throwaway workspace and a few commit inside its throwaway repository,
+  # so pin the least explicit policy that matches the fixture contract instead
+  # of inheriting a user's mutable config. `.git` is added narrowly because the
+  # workspace-write sandbox protects repository metadata by default. Ignore
+  # user/project execpolicy `.rules`: this harness measures agentsmd spec/hooks,
+  # and inheriting an operator's unrelated command policy makes the same fixture
+  # pass or fail by machine. Hook trust and hook execution remain enabled.
   AGENTSMD_TELEMETRY_TAG=qa \
-  timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
+  timeout "$PROBE_TIMEOUT" "$CODEX_BIN" -a never exec \
+    --sandbox workspace-write --add-dir "$PROJ/.git" \
+    --ignore-rules --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -o "$SBX/$CID.last" "$prompt" </dev/null >"$SBX/$CID.jsonl" 2>"$SBX/$CID.stderr"
   rc=$?
@@ -282,6 +307,11 @@ check_one() {
       jq -e --arg s "$(jq -r '.section' <<<"$a")" 'select(.event=="block" and .spec_section==$s)' \
         < "$SBX/$CID.telemetry" >/dev/null 2>&1 && return 0
       echo "tele_block failed: no block row for $(jq -r '.section' <<<"$a")" >> "$SBX/$CID.why"; return 1 ;;
+    tele_observe)
+      jq -e --arg s "$(jq -r '.section' <<<"$a")" \
+        'select(.event=="observe" and .spec_section==$s and .eligible==true and .evaluated==true)' \
+        < "$SBX/$CID.telemetry" >/dev/null 2>&1 && return 0
+      echo "tele_observe failed: no eligible/evaluated observe row for $(jq -r '.section' <<<"$a")" >> "$SBX/$CID.why"; return 1 ;;
     no_tele_blocks)
       jq -e 'select(.event=="block")' < "$SBX/$CID.telemetry" >/dev/null 2>&1 || return 0
       echo "no_tele_blocks failed: $(jq -c 'select(.event=="block")' < "$SBX/$CID.telemetry" | head -1)" >> "$SBX/$CID.why"; return 1 ;;
@@ -360,7 +390,7 @@ fi
 mapfile -t CASE_IDS < <(jq -r "$SELECT_FILTER" "$CASES_FILE")
 [ "${#CASE_IDS[@]}" -gt 0 ] || { echo "FAIL: no cases selected" >&2; exit 1; }
 
-echo "== conformance-eval (codex $CODEX_VERSION, model ${MODEL:-config-default}, agentsmd $AGENTSMD_VERSION) =="
+echo "== conformance-eval (codex $CODEX_VERSION, model $RESOLVED_MODEL, agentsmd $AGENTSMD_VERSION) =="
 echo "   cases: ${#CASE_IDS[@]}  captures: $CAP"
 
 PASS=0; FAIL=0; ERR=0
@@ -400,9 +430,13 @@ for id in "${CASE_IDS[@]}"; do
 done
 
 # ── results.json + thresholds ────────────────────────────────────────────────
-jq -s --arg codex "$CODEX_VERSION" --arg model "${MODEL:-config-default}" \
-      --arg agentsmd "$AGENTSMD_VERSION" --arg stamp "$STAMP" \
-  '{meta: {stamp:$stamp, codex:$codex, model:$model, agentsmd:$agentsmd, cases:(length)},
+jq -s --arg codex "$CODEX_VERSION" --arg model "$RESOLVED_MODEL" \
+      --arg agentsmd "$AGENTSMD_VERSION" --arg surface "$AGENTSMD_SURFACE" \
+      --arg profile "$AGENTSMD_PROFILE" --arg cases_sha256 "$CASES_SHA256" \
+      --arg thresholds_sha256 "$THRESHOLDS_SHA256" --arg stamp "$STAMP" \
+  '{meta: {stamp:$stamp, codex:$codex, model:$model, agentsmd:$agentsmd,
+      surface:$surface, profile:$profile, cases_sha256:$cases_sha256,
+      thresholds_sha256:$thresholds_sha256, cases:(length)},
     categories: (group_by(.category) | map({key: .[0].category,
       value: {pass: (map(select(.verdict=="pass")) | length),
               total: (map(select(.verdict != "error")) | length),
@@ -428,7 +462,9 @@ fi
 
 {
   echo "conformance-eval capture $STAMP"
-  echo "codex: $CODEX_VERSION  model: ${MODEL:-config-default}  agentsmd: $AGENTSMD_VERSION"
+  echo "codex: $CODEX_VERSION  model: $RESOLVED_MODEL  agentsmd: $AGENTSMD_VERSION"
+  echo "surface: $AGENTSMD_SURFACE  profile: $AGENTSMD_PROFILE"
+  echo "cases_sha256: $CASES_SHA256  thresholds_sha256: $THRESHOLDS_SHA256"
   echo "result: $PASS passed, $FAIL failed, $ERR infra-errors (thresholds: $THRESH_MODE)"
 } > "$CAP/SUMMARY.txt"
 echo

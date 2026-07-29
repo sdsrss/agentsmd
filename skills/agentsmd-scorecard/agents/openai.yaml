@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentsmd Scorecard"
+  short_description: "Inspect the unified agentsmd quality scorecard"
+  default_prompt: "Use $agentsmd-scorecard to inspect the current quality scorecard and its measurement limits."

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # convention-cite-scan.sh — Stop. Adoption-telemetry counterpart to
-# transcript-structure-scan.sh: scans the last assistant message for citations
+# transcript-structure-scan.sh: scans the stable Stop last_assistant_message
+# field for citations and retains a measured bounded transcript fallback
 # of `@conv-<dim>` anchors that `analyze.js --write` stamped into this
 # project's AGENTS.md conventions block. The citation convention is a single
 # trailing `<!-- adopted-conventions: … -->` HTML comment (so the signal never
@@ -43,7 +44,7 @@ AGENTS_MD="$CWD/AGENTS.md"
 # fail-open: a Stop hook fires every turn in every project, and "this project
 # has no distilled conventions" is not a masked-enforcement error — matches
 # memory-read-check.sh's absent-MEMORY handling. fail-open is reserved for
-# genuine tool failures (jq/node/transcript) that would hide a cite that
+# genuine tool failures (jq/node/message extraction) that would hide a cite that
 # SHOULD have been recorded, not for "feature not in use here".
 [[ -r "$AGENTS_MD" ]] || exit 0
 
@@ -53,38 +54,10 @@ AGENTS_MD="$CWD/AGENTS.md"
 KNOWN="$(grep -oE '@conv-[a-z-]+' "$AGENTS_MD" 2>/dev/null | sort -u)"
 [[ -n "$KNOWN" ]] || exit 0   # AGENTS.md has no stamped conventions yet — nothing to scan for
 
-TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
-[[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || { hook_record_failopen "$HOOK" "no-transcript"; exit 0; }
-
-# Extract the last assistant message's plain text (same extraction logic as
-# transcript-structure-scan.sh; kept as an independent copy rather than a
-# shared lib function — hooks in this repo are single self-contained files).
-LAST="$(node -e '
-const fs=require("fs");
-const path=process.argv[1];
-const CAP=1<<19; // last 512 KiB only — the last assistant message is at the tail;
-                 // bounds this per-Stop hook to O(1), not O(transcript).
-let lines;
-try{ const fd=fs.openSync(path,"r"),sz=fs.fstatSync(fd).size,st=sz>CAP?sz-CAP:0,b=Buffer.alloc(sz-st);
-  fs.readSync(fd,b,0,sz-st,st); fs.closeSync(fd);
-  lines=b.toString("utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
-const texts=[];
-const pull=(v,out)=>{ if(v==null)return; if(typeof v==="string"){out.push(v);return;}
-  if(Array.isArray(v)){for(const x of v)pull(x,out);return;}
-  if(typeof v==="object"){ if(typeof v.text==="string")out.push(v.text);
-    else if(Array.isArray(v.content))pull(v.content,out); } };
-for(const ln of lines){
-  let o; try{o=JSON.parse(ln);}catch{continue;}
-  const p=o&&o.payload!=null?o.payload:o;
-  const role=p&&(p.role||p.author);
-  const isMsg=(o.type==="message"||o.type==="response_item"||p&&p.type==="message");
-  if(role==="assistant"&&isMsg){ const out=[]; pull(p.content!=null?p.content:p.text,out);
-    const t=out.join("\n").trim(); if(t)texts.push(t); }
+LAST="$(hook_last_assistant_message "$EVENT" "$HOOK")" || {
+  hook_record_failopen "$HOOK" "no-assistant-message"
+  exit 0
 }
-if(!texts.length)process.exit(0);
-process.stdout.write(texts[texts.length-1]);
-' "$TRANSCRIPT" 2>/dev/null)"
-[[ -n "$LAST" ]] || exit 0
 
 # Exact @conv-<slug> tokens actually cited in the last message (token-level, not
 # substring — so @conv-error-handling-async does NOT count as citing

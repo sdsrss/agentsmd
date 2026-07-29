@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/task-contract.schema.json",
+  "title": "agentsmd task contract",
+  "description": "Bounded, machine-readable input contract for unattended and interactive agentsmd tasks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal",
+    "context",
+    "constraints",
+    "done_when",
+    "allowed_mutations",
+    "forbidden_mutations",
+    "validation_required",
+    "ship_intent",
+    "external_actions_authorized",
+    "timeout_or_budget",
+    "expected_artifacts"
+  ],
+  "properties": {
+    "goal": {
+      "$ref": "#/$defs/nonEmptyText"
+    },
+    "context": {
+      "$ref": "#/$defs/textList"
+    },
+    "constraints": {
+      "$ref": "#/$defs/textList"
+    },
+    "done_when": {
+      "$ref": "#/$defs/nonEmptyTextList"
+    },
+    "allowed_mutations": {
+      "$ref": "#/$defs/textList"
+    },
+    "forbidden_mutations": {
+      "$ref": "#/$defs/textList"
+    },
+    "validation_required": {
+      "$ref": "#/$defs/nonEmptyTextList"
+    },
+    "ship_intent": {
+      "type": "boolean"
+    },
+    "external_actions_authorized": {
+      "$ref": "#/$defs/textList"
+    },
+    "timeout_or_budget": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "max_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000000
+            }
+          }
+        }
+      ]
+    },
+    "expected_artifacts": {
+      "$ref": "#/$defs/textList"
+    }
+  },
+  "$defs": {
+    "boundedText": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "textList": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/boundedText"
+      }
+    },
+    "nonEmptyTextList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/nonEmptyText"
+      }
+    }
+  }
+}

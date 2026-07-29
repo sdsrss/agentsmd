@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/task-evidence.schema.json",
+  "title": "agentsmd task evidence",
+  "description": "Bounded, versioned completion evidence. It intentionally has no raw tool-output or secret fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "level",
+    "changed_files",
+    "checks",
+    "done",
+    "not_done",
+    "failed",
+    "uncertain",
+    "auth_required",
+    "cleanup",
+    "resume_command",
+    "runtime"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "enum": [
+        "done",
+        "partial",
+        "blocked",
+        "failed"
+      ]
+    },
+    "level": {
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3"
+      ]
+    },
+    "changed_files": {
+      "type": "array",
+      "maxItems": 1024,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/repositoryPath"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "done": {
+      "$ref": "#/$defs/textList"
+    },
+    "not_done": {
+      "$ref": "#/$defs/textList"
+    },
+    "failed": {
+      "$ref": "#/$defs/textList"
+    },
+    "uncertain": {
+      "$ref": "#/$defs/textList"
+    },
+    "auth_required": {
+      "$ref": "#/$defs/textList"
+    },
+    "cleanup": {
+      "$ref": "#/$defs/textList"
+    },
+    "resume_command": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      ]
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtime"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "done"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "minItems": 1,
+            "contains": {
+              "type": "object",
+              "properties": {
+                "exit_code": {
+                  "const": 0
+                },
+                "after_last_change": {
+                  "const": true
+                }
+              },
+              "required": [
+                "exit_code",
+                "after_last_change"
+              ]
+            },
+            "minContains": 1
+          },
+          "done": {
+            "minItems": 1
+          },
+          "not_done": {
+            "maxItems": 0
+          },
+          "failed": {
+            "maxItems": 0
+          },
+          "uncertain": {
+            "maxItems": 0
+          },
+          "auth_required": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "done": {
+            "maxItems": 0
+          },
+          "not_done": {
+            "minItems": 1
+          },
+          "resume_command": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "done": {
+            "maxItems": 0
+          },
+          "failed": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "auth_required": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "auth_required"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          },
+          "done": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "boundedText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "textList": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/boundedText"
+      }
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "exit_code",
+        "observed",
+        "proves",
+        "after_last_change"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "observed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "proves": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "after_last_change": {
+          "type": "boolean"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec_version",
+        "agentsmd_version",
+        "codex_version",
+        "model",
+        "surface"
+      ],
+      "properties": {
+        "spec_version": {
+          "$ref": "#/$defs/boundedText"
+        },
+        "agentsmd_version": {
+          "$ref": "#/$defs/boundedText"
+        },
+        "codex_version": {
+          "$ref": "#/$defs/boundedText"
+        },
+        "model": {
+          "$ref": "#/$defs/boundedText"
+        },
+        "surface": {
+          "$ref": "#/$defs/boundedText"
+        }
+      }
+    }
+  }
+}

@@ -13,7 +13,9 @@
 # stays the agent's §7 responsibility; this hook only observes + nudges). The flag
 # self-clears the moment a later turn validates. Fail-open throughout.
 #
-# Codex transcript shapes (verified on real ~/.codex/sessions/*.jsonl):
+# The native event journal is canonical when the current Stop event carries a
+# turn_id. Older runtimes and journal failures retain the bounded transcript
+# compatibility path below (verified on real ~/.codex/sessions/*.jsonl):
 #   file edit   → {type:"custom_tool_call", payload:{name:"apply_patch",...}}
 #   shell/exec  → {type:"function_call",    payload:{name:"exec_command", arguments:"…"}}
 #   orchestrator→ {type:"response_item", payload:{type:"custom_tool_call",
@@ -36,20 +38,41 @@ SKEY="$(hook_session_key "$SID")"
 # No session id → cannot key a per-session flag without cross-contaminating
 # concurrent sessions. Skip rather than write a shared, mislabelled flag.
 [[ "$SKEY" == "global" ]] && exit 0
-TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
-[[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || exit 0
 CWD="$(hook_json_field "$EVENT" '.cwd')"; [[ -n "$CWD" ]] || CWD="$PWD"
+TURN_ID="$(hook_json_field "$EVENT" '.turn_id')"
 
 STATE_DIR="$(hook_runtime_state_dir)"
 LEGACY_STATE_DIR="$(hook_shared_state_dir)"
 FLAG="$STATE_DIR/unvalidated-$SKEY.flag"
 LEGACY_FLAG="$LEGACY_STATE_DIR/unvalidated-$SKEY.flag"
 
-# Walk the transcript tail (512 KiB — the current turn lives at the end; caps the
-# per-Stop cost at O(1), not O(transcript)). Since the last user turn: count
-# mutations, and detect any validating shell command. Prints "MUT VAL"
-# (e.g. "3 0" = 3 edits, none validated). Empty/parse failure → stay silent.
-RESULT="$(node -e '
+RESULT=""
+EVIDENCE_SOURCE=""
+if [[ -n "$TURN_ID" && -r "$LIB_DIR/event-journal.js" ]]; then
+  SUMMARY="$(node -e '
+const journal=require(process.argv[1]);
+const summary=journal.summarizeJournal(process.argv[2],process.argv[3],process.argv[4]);
+process.stdout.write(JSON.stringify(summary));
+' "$LIB_DIR/event-journal.js" "$STATE_DIR" "$SID" "$TURN_ID" 2>/dev/null)" || SUMMARY=""
+  if [[ -n "$SUMMARY" ]] && printf '%s' "$SUMMARY" | jq -e \
+      '.source=="native-event-journal" and (.mutations|type)=="number" and (.fresh_validation|type)=="boolean"' \
+      >/dev/null 2>&1; then
+    NATIVE_MUT="$(printf '%s' "$SUMMARY" | jq -r '.mutations')"
+    NATIVE_VAL="$(printf '%s' "$SUMMARY" | jq -r 'if .fresh_validation then 1 else 0 end')"
+    RESULT="$NATIVE_MUT $NATIVE_VAL"
+    EVIDENCE_SOURCE="native-event-journal"
+  else
+    hook_record_failopen "$HOOK" "native-journal-read-failed"
+  fi
+fi
+
+if [[ -z "$RESULT" ]]; then
+  TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
+  [[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || exit 0
+  # Walk the transcript tail (512 KiB — the current turn lives at the end; caps
+  # the compatibility path at O(1), not O(transcript)). Since the last user
+  # turn: count mutations and later validation. Prints "MUT VAL".
+  RESULT="$(node -e '
 const fs=require("fs");
 const {extractOrchestratorActions}=require(process.argv[2]);
 const p=process.argv[1];
@@ -119,12 +142,17 @@ for(let i=start;i<lines.length;i++){
 }
 process.stdout.write(mut+" "+val);
 ' "$TRANSCRIPT" "$LIB_DIR/orchestrator-source.js" 2>/dev/null)" || exit 0
+  EVIDENCE_SOURCE="transcript-fallback"
+  hook_record "$HOOK" "compat-fallback" \
+    '{"from":"native-event-journal","to":"transcript","bounded_bytes":524288}' '' "$SID"
+fi
 
 MUT="${RESULT%% *}"; VAL="${RESULT##* }"
 [[ "$MUT" =~ ^[0-9]+$ ]] || exit 0
 if [[ "$MUT" -gt 0 ]]; then
   hook_observe "$HOOK" '§7-session-exit' "$SID" true true \
-    "$(jq -cn --argjson m "$MUT" --arg v "$VAL" '{mutations:$m,validated:($v=="1")}' 2>/dev/null || echo null)"
+    "$(jq -cn --argjson m "$MUT" --arg v "$VAL" --arg source "$EVIDENCE_SOURCE" \
+      '{mutations:$m,validated:($v=="1"),source:$source}' 2>/dev/null || echo null)"
 fi
 
 if [[ "$MUT" -gt 0 && "$VAL" == "0" ]]; then

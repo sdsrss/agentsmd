@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "_doc": "Repository fixtures for the Codex hook contract validated on 2026-07-29. They describe stable hook stdin fields and transport semantics without claiming that every documented event is registered by agentsmd. Source: https://learn.chatgpt.com/docs/hooks.",
+  "codex_version": "0.145.0",
+  "fixtures": [
+    {
+      "id": "pretool-bash-deny",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-1",
+        "cwd": "/workspace",
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rm -rf $TARGET"
+        }
+      },
+      "expected": "deny"
+    },
+    {
+      "id": "pretool-bash-allow",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-2",
+        "cwd": "/workspace",
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git status --short"
+        }
+      },
+      "expected": "allow-empty"
+    },
+    {
+      "id": "pretool-apply-patch",
+      "event": "PreToolUse",
+      "matcher": "apply_patch|Edit|Write",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-3",
+        "cwd": "/workspace",
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "apply_patch",
+        "tool_input": {
+          "command": "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
+        }
+      },
+      "expected": "observable"
+    },
+    {
+      "id": "posttool-bash-zero",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-4",
+        "cwd": "/workspace",
+        "hook_event_name": "PostToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        },
+        "tool_response": {
+          "exit_code": 0,
+          "output": "12 passed"
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "id": "posttool-bash-nonzero",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-5",
+        "cwd": "/workspace",
+        "hook_event_name": "PostToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        },
+        "tool_response": {
+          "exit_code": 1,
+          "output": "1 failed"
+        }
+      },
+      "expected": "failure"
+    },
+    {
+      "id": "posttool-unified-exec-write-stdin",
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "transport": "write_stdin completes the original exec_command; no second PreToolUse event",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "tool_use_id": "tool-6",
+        "cwd": "/workspace",
+        "hook_event_name": "PostToolUse",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run long-check"
+        },
+        "tool_response": {
+          "exit_code": 0,
+          "output": "completed"
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "id": "stop-last-assistant-message",
+      "event": "Stop",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "cwd": "/workspace",
+        "hook_event_name": "Stop",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done: 12/12 tests passed.\nNot done: none.\nFailed: none.\nUncertain: none."
+      },
+      "expected": "canonical-message"
+    },
+    {
+      "id": "precompact-auto",
+      "event": "PreCompact",
+      "matcher": "auto",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "cwd": "/workspace",
+        "hook_event_name": "PreCompact",
+        "model": "gpt-5.6-sol",
+        "trigger": "auto"
+      },
+      "expected": "observable"
+    },
+    {
+      "id": "subagent-start",
+      "event": "SubagentStart",
+      "matcher": "explorer",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "cwd": "/workspace",
+        "hook_event_name": "SubagentStart",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "agent_id": "agent-1",
+        "agent_type": "explorer"
+      },
+      "expected": "observable"
+    },
+    {
+      "id": "subagent-stop",
+      "event": "SubagentStop",
+      "matcher": "explorer",
+      "input": {
+        "session_id": "contract-session",
+        "turn_id": "turn-1",
+        "cwd": "/workspace",
+        "hook_event_name": "SubagentStop",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "agent_id": "agent-1",
+        "agent_type": "explorer",
+        "agent_transcript_path": null,
+        "stop_hook_active": false,
+        "last_assistant_message": "Done: inspected the requested module."
+      },
+      "expected": "observable"
+    },
+    {
+      "id": "plugin-session-start",
+      "event": "SessionStart",
+      "runtime_env": [
+        "PLUGIN_ROOT",
+        "PLUGIN_DATA"
+      ],
+      "input": {
+        "session_id": "contract-session",
+        "cwd": "/workspace",
+        "hook_event_name": "SessionStart",
+        "model": "gpt-5.6-sol",
+        "permission_mode": "dontAsk",
+        "source": "startup"
+      },
+      "expected": "activation-receipt"
+    }
+  ]
+}

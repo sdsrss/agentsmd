@@ -1,0 +1,494 @@
+{
+  "schema_version": 1,
+  "fragments": {
+    "github_example": [
+      "ghp_",
+      "aaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "valid_tasks": [
+    {
+      "name": "bounded code change",
+      "value": {
+        "goal": "Add deterministic validation routing.",
+        "context": [
+          "The repository already has strict argv parsing."
+        ],
+        "constraints": [
+          "Do not contact external services."
+        ],
+        "done_when": [
+          "Positive and near-negative routing fixtures pass."
+        ],
+        "allowed_mutations": [
+          "scripts/verify.js",
+          "scripts/lib/validation-router.js"
+        ],
+        "forbidden_mutations": [
+          ".env",
+          ".git/**"
+        ],
+        "validation_required": [
+          "node scripts/tests/verify.test.js"
+        ],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": {
+          "max_seconds": 900,
+          "max_tokens": 20000
+        },
+        "expected_artifacts": [
+          "qa/validation-map.json"
+        ]
+      }
+    },
+    {
+      "name": "read-only non-code task",
+      "value": {
+        "goal": "Review the contributor documentation.",
+        "context": [],
+        "constraints": [
+          "Read only."
+        ],
+        "done_when": [
+          "The report names the inspected files."
+        ],
+        "allowed_mutations": [],
+        "forbidden_mutations": [
+          "**"
+        ],
+        "validation_required": [
+          "Document existence and syntax check."
+        ],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": null,
+        "expected_artifacts": []
+      }
+    }
+  ],
+  "invalid_tasks": [
+    {
+      "name": "missing acceptance",
+      "value": {
+        "goal": "Do something.",
+        "context": [],
+        "constraints": [],
+        "done_when": [],
+        "allowed_mutations": [],
+        "forbidden_mutations": [],
+        "validation_required": [],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": null,
+        "expected_artifacts": []
+      }
+    },
+    {
+      "name": "unknown field",
+      "value": {
+        "goal": "Review.",
+        "context": [],
+        "constraints": [],
+        "done_when": [
+          "Reviewed."
+        ],
+        "allowed_mutations": [],
+        "forbidden_mutations": [],
+        "validation_required": [
+          "Read the file."
+        ],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": null,
+        "expected_artifacts": [],
+        "raw_tool_output": "unbounded"
+      }
+    },
+    {
+      "name": "overlapping mutation scopes",
+      "value": {
+        "goal": "Edit one file.",
+        "context": [],
+        "constraints": [],
+        "done_when": [
+          "The edit is validated."
+        ],
+        "allowed_mutations": [
+          "README.md"
+        ],
+        "forbidden_mutations": [
+          "README.md"
+        ],
+        "validation_required": [
+          "Render README.md."
+        ],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": null,
+        "expected_artifacts": []
+      }
+    },
+    {
+      "name": "secret-shaped content",
+      "value": {
+        "goal": "Use token {{SECRET:github_example}}.",
+        "context": [],
+        "constraints": [],
+        "done_when": [
+          "Done."
+        ],
+        "allowed_mutations": [],
+        "forbidden_mutations": [],
+        "validation_required": [
+          "Review."
+        ],
+        "ship_intent": false,
+        "external_actions_authorized": [],
+        "timeout_or_budget": null,
+        "expected_artifacts": []
+      }
+    }
+  ],
+  "valid_evidence": [
+    {
+      "name": "fresh code evidence",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L2",
+        "changed_files": [
+          "scripts/verify.js"
+        ],
+        "checks": [
+          {
+            "command": "node scripts/tests/verify.test.js",
+            "exit_code": 0,
+            "observed": "12 routing cases passed.",
+            "proves": "Selection, widening, and failure ordering meet the contract.",
+            "after_last_change": true
+          }
+        ],
+        "done": [
+          "Validation routing implemented."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [
+          "Temporary fixtures removed."
+        ],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "non-code substitute validation",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L0",
+        "changed_files": [
+          "docs/guide.md"
+        ],
+        "checks": [
+          {
+            "command": "document-render docs/guide.md",
+            "exit_code": 0,
+            "observed": "The Markdown renderer accepted the document.",
+            "proves": "The documentation artifact exists and renders.",
+            "after_last_change": true
+          }
+        ],
+        "done": [
+          "Documentation wording updated."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "blocked authorization boundary",
+      "value": {
+        "schema_version": 1,
+        "status": "blocked",
+        "level": "L3",
+        "changed_files": [],
+        "checks": [],
+        "done": [],
+        "not_done": [
+          "The production deployment was not started."
+        ],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [
+          "deploy production"
+        ],
+        "cleanup": [],
+        "resume_command": "agentsmd deploy --environment=production",
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "partial result",
+      "value": {
+        "schema_version": 1,
+        "status": "partial",
+        "level": "L2",
+        "changed_files": [
+          "scripts/verify.js"
+        ],
+        "checks": [
+          {
+            "command": "node scripts/tests/verify.test.js",
+            "exit_code": 0,
+            "observed": "Targeted routing passed.",
+            "proves": "The local router behavior is covered.",
+            "after_last_change": true
+          }
+        ],
+        "done": [
+          "Local routing implemented."
+        ],
+        "not_done": [
+          "External runtime capture was not available."
+        ],
+        "failed": [],
+        "uncertain": [
+          "Runtime compatibility remains unmeasured."
+        ],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": "node qa/runtime-canary.js --channel=pinned",
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    }
+  ],
+  "invalid_evidence": [
+    {
+      "name": "done without checks",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L1",
+        "changed_files": [
+          "README.md"
+        ],
+        "checks": [],
+        "done": [
+          "README changed."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "done with stale check",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L2",
+        "changed_files": [
+          "scripts/verify.js"
+        ],
+        "checks": [
+          {
+            "command": "node scripts/tests/verify.test.js",
+            "exit_code": 0,
+            "observed": "Passed before the edit.",
+            "proves": "Only the prior state.",
+            "after_last_change": false
+          }
+        ],
+        "done": [
+          "Router changed."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "done with failed check",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L2",
+        "changed_files": [
+          "scripts/verify.js"
+        ],
+        "checks": [
+          {
+            "command": "node scripts/tests/verify.test.js",
+            "exit_code": 1,
+            "observed": "One case failed.",
+            "proves": "The gate is still red.",
+            "after_last_change": true
+          }
+        ],
+        "done": [
+          "Router changed."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "blocked rendered as done",
+      "value": {
+        "schema_version": 1,
+        "status": "blocked",
+        "level": "L3",
+        "changed_files": [],
+        "checks": [],
+        "done": [
+          "Deployment completed."
+        ],
+        "not_done": [
+          "Deployment is blocked."
+        ],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [
+          "deploy production"
+        ],
+        "cleanup": [],
+        "resume_command": "deploy",
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "done with auth required",
+      "value": {
+        "schema_version": 1,
+        "status": "done",
+        "level": "L3",
+        "changed_files": [],
+        "checks": [
+          {
+            "command": "review",
+            "exit_code": 0,
+            "observed": "Reviewed.",
+            "proves": "Review only.",
+            "after_last_change": true
+          }
+        ],
+        "done": [
+          "Deployment completed."
+        ],
+        "not_done": [],
+        "failed": [],
+        "uncertain": [],
+        "auth_required": [
+          "deploy production"
+        ],
+        "cleanup": [],
+        "resume_command": null,
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    },
+    {
+      "name": "traversal changed path",
+      "value": {
+        "schema_version": 1,
+        "status": "failed",
+        "level": "L2",
+        "changed_files": [
+          "../outside"
+        ],
+        "checks": [],
+        "done": [],
+        "not_done": [],
+        "failed": [
+          "Validation failed."
+        ],
+        "uncertain": [],
+        "auth_required": [],
+        "cleanup": [],
+        "resume_command": "node scripts/tests/verify.test.js",
+        "runtime": {
+          "spec_version": "5.0.1",
+          "agentsmd_version": "5.0.1",
+          "codex_version": "0.145.0",
+          "model": "gpt-5.6-sol",
+          "surface": "cli"
+        }
+      }
+    }
+  ]
+}

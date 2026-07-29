@@ -5,7 +5,7 @@
       {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
-          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/session-start-check.sh\"", "timeout": 5 }
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/session-start-check.sh\"", "timeout": 5, "additionalContextLimit": 6000 }
         ]
       }
     ],
@@ -19,13 +19,27 @@
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/memory-read-check.sh\"", "timeout": 3 },
           { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/secrets-scan.sh\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/pre-mutation-journal.sh\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|update_plan",
+        "hooks": [
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/post-tool-journal.sh\"", "timeout": 3 }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/surface-advisories.sh\"", "timeout": 3 },
-          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/memory-prompt-hint.sh\"", "timeout": 3 }
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/surface-advisories.sh\"", "timeout": 3, "additionalContextLimit": 1000 },
+          { "type": "command", "command": "bash \"__AGENTSMD_HOOKS_DIR__/memory-prompt-hint.sh\"", "timeout": 3, "additionalContextLimit": 1000 }
         ]
       }
     ],

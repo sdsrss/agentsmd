@@ -1,13 +1,15 @@
 'use strict';
-// perf-baseline.js — measure the wall-clock latency each native hook adds, so the
-// per-turn cost is a MEASURED number, not a hand-waved estimate. For each hook it
-// times, over N runs, two modes:
+// perf-baseline.js — measure native-hook cost without conflating two different
+// quantities. Per-hook rows are timed sequentially and summed as conservative
+// aggregate process cost. A separate event harness launches every matching hook
+// concurrently, mirroring Codex runtime scheduling, and measures wall latency
+// until the last hook exits. For each mode it records:
 //   OFF — DISABLE_AGENTSMD_HOOKS=1: the hook exits at its kill-switch line, so this
 //         is the bash-spawn + startup floor (what the switch buys back);
 //   ON  — normal env: the hook does its real work.
 //   delta = ON(p50) - OFF(p50) = the hook's own logic cost above the spawn floor.
-// Grouped by Codex event so you can read "latency added per Bash call"
-// (PreToolUse:Bash) or "per Stop". Hooks run against a synthetic snake_case event
+// Grouped by Codex event so you can read aggregate cost and concurrent wall time
+// for a Bash call (PreToolUse:Bash) or Stop. Hooks use a synthetic snake_case event
 // (incl. a small transcript so Stop hooks do representative work) with an ISOLATED
 // CODEX_HOME sandbox, so measuring writes NO telemetry/state to the live ~/.codex
 // (§8.V3) and leaves nothing behind (§8.V4). Numbers are a LOWER bound: they
@@ -22,8 +24,8 @@
 //     firing). dual-warm has a fresh arbitration cache (the losing plugin copy
 //     yields — N-01's steady state); dual-cold deletes it (both copies do full
 //     work — the documented degraded window).
-//   p95_ms per row + byEventP95 totals (p95 sums are conservative: a sum of p95s,
-//     not the p95 of sums).
+//   p95_ms per row + byEventP95 aggregate totals (p95 sums are conservative: a
+//     sum of p95s, not the p95 of sums) + byEventWall concurrent p50/p95.
 //   --slo [--rounds=N] — run single + dual-warm and grade against qa/perf/slo.json.
 //     Multi-round runs keep each row's best (lowest-p95) round, so one noisy run
 //     never fails the gate by itself; cross-round instability beyond the configured
@@ -39,9 +41,11 @@ const { ArgvError, printHelpAndExit, parseStrict, parsePositiveInt } = require('
 
 const REPO_ROOT = path.join(__dirname, '..');
 const HOOKS_DIR = path.join(REPO_ROOT, 'hooks');
-const EVENTS = ['SessionStart', 'PreToolUse', 'UserPromptSubmit', 'Stop'];
+const EVENTS = [...new Set(REG.HOOK_REGISTRY.map((hook) => hook.hookEvent))];
 const SURFACES = ['single', 'dual-warm', 'dual-cold'];
 const SLO_CONFIG_PATH = path.join(REPO_ROOT, 'qa', 'perf', 'slo.json');
+const EVENT_HARNESS_PATH = path.join(__dirname, 'lib', 'perf-event-harness.js');
+const OUTPUT_SCHEMA_VERSION = 2;
 
 const round1 = (x) => Math.round(x * 10) / 10;
 const median = (nums) => { const s = [...nums].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -49,20 +53,53 @@ const median = (nums) => { const s = [...nums].sort((a, b) => a - b); const m = 
 const percentile = (nums, p) => { const s = [...nums].sort((a, b) => a - b); return s[Math.max(0, Math.ceil((p / 100) * s.length) - 1)]; };
 
 // One spawn of a hook with the event on stdin; returns elapsed ms (hrtime).
-function timeOne(hookPath, eventJson, env) {
+function timeOne(hookPath, eventJson, env, beforeEach) {
+  if (beforeEach) beforeEach();
   const start = process.hrtime.bigint();
   cp.spawnSync('bash', [hookPath], { input: eventJson, env, stdio: ['pipe', 'ignore', 'ignore'] });
   return Number(process.hrtime.bigint() - start) / 1e6;
 }
-function statsMs(hookPath, eventJson, env, runs) {
+function statsMs(hookPath, eventJson, env, runs, beforeEach = null) {
   const times = [];
-  for (let i = 0; i < runs; i++) times.push(timeOne(hookPath, eventJson, env));
+  for (let i = 0; i < runs; i++) times.push(timeOne(hookPath, eventJson, env, beforeEach));
   return { p50: median(times), p95: percentile(times, 95) };
 }
 function eventTotals(results, field) {
   const g = {};
   for (const r of results) g[r.event] = round1((g[r.event] || 0) + r[field]);
   return g;
+}
+
+function eventWallStats(copies, hooks, eventJson, runs, resetPath = null) {
+  const byEventWall = {};
+  const events = new Set(hooks.map((hook) => hook.hookEvent));
+  for (const hookEvent of events) {
+    const hookPaths = [];
+    for (const copy of copies) {
+      for (const hook of hooks) {
+        if (hook.hookEvent === hookEvent) {
+          hookPaths.push(path.join(copy.hooksDir, hook.basename));
+        }
+      }
+    }
+    const measured = cp.spawnSync(process.execPath, [EVENT_HARNESS_PATH], {
+      input: JSON.stringify({ hookPaths, eventJson, runs, resetPath }),
+      env: copies[0].env,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (measured.status !== 0) {
+      throw new Error(`event wall harness failed for ${hookEvent}: ${(measured.stderr || '').trim() || `exit ${measured.status}`}`);
+    }
+    const stats = JSON.parse(measured.stdout);
+    byEventWall[hookEvent] = {
+      off_p50_ms: round1(stats.off.p50),
+      on_p50_ms: round1(stats.on.p50),
+      delta_ms: round1(Math.max(0, stats.on.p50 - stats.off.p50)),
+      p95_ms: round1(stats.on.p95),
+    };
+  }
+  return byEventWall;
 }
 
 // Synthetic transcript so Stop hooks reading transcript_path do representative
@@ -111,10 +148,14 @@ function setupDualHome(sandbox, cold) {
 function perfBaseline({ runs = 10, event = null, sandbox, surface = 'single' } = {}) {
   const eventJson = syntheticEventJson(sandbox);
   let copies;
+  let resetPath = null;
   if (surface === 'single') {
     copies = [{ copy: 'repo', hooksDir: HOOKS_DIR, env: { ...process.env, CODEX_HOME: sandbox } }];
   } else {
     const home = setupDualHome(sandbox, surface === 'dual-cold');
+    if (surface === 'dual-cold') {
+      resetPath = path.join(home, '.agentsmd-state', 'arbitration-cache.json');
+    }
     const dualEnv = { ...process.env, CODEX_HOME: home, CLAUDE_PLUGIN_ROOT: REPO_ROOT };
     copies = [
       { copy: 'standalone', hooksDir: path.join(home, 'agentsmd', 'hooks'), env: dualEnv },
@@ -123,12 +164,15 @@ function perfBaseline({ runs = 10, event = null, sandbox, surface = 'single' } =
   }
   const hooks = REG.HOOK_REGISTRY.filter((h) => !event || h.hookEvent === event);
   const results = [];
+  const beforeEach = resetPath
+    ? () => fs.rmSync(resetPath, { force: true })
+    : null;
   for (const c of copies) {
     const offEnv = { ...c.env, DISABLE_AGENTSMD_HOOKS: '1' };
     for (const h of hooks) {
       const hookPath = path.join(c.hooksDir, h.basename);
-      const off = statsMs(hookPath, eventJson, offEnv, runs);
-      const on = statsMs(hookPath, eventJson, c.env, runs);
+      const off = statsMs(hookPath, eventJson, offEnv, runs, beforeEach);
+      const on = statsMs(hookPath, eventJson, c.env, runs, beforeEach);
       results.push({
         hook: h.displayName, event: h.hookEvent, copy: c.copy,
         off_ms: round1(off.p50), on_ms: round1(on.p50), delta_ms: round1(Math.max(0, on.p50 - off.p50)),
@@ -136,14 +180,23 @@ function perfBaseline({ runs = 10, event = null, sandbox, surface = 'single' } =
       });
     }
   }
-  return { runs, surface, results, byEvent: eventTotals(results, 'on_ms'), byEventP95: eventTotals(results, 'p95_ms') };
+  return {
+    schemaVersion: OUTPUT_SCHEMA_VERSION,
+    runs,
+    surface,
+    results,
+    // Compatibility aliases: these remain aggregate process-cost sums.
+    byEvent: eventTotals(results, 'on_ms'),
+    byEventP95: eventTotals(results, 'p95_ms'),
+    byEventWall: eventWallStats(copies, hooks, eventJson, runs, resetPath),
+  };
 }
 
 // ── SLO mode (R6-02) ─────────────────────────────────────────────────────────
 
 function loadSloConfig(p = SLO_CONFIG_PATH) {
   const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
-  if (cfg.schemaVersion !== 1) throw new Error(`unsupported slo.json schemaVersion: ${cfg.schemaVersion}`);
+  if (cfg.schemaVersion !== 2) throw new Error(`unsupported slo.json schemaVersion: ${cfg.schemaVersion}`);
   return cfg;
 }
 
@@ -170,10 +223,23 @@ function combineRounds(rounds) {
     }
   }
   const results = [...byKey.values()];
+  const byEventWall = {};
+  for (const round of rounds) {
+    for (const [event, wall] of Object.entries(round.byEventWall)) {
+      if (!byEventWall[event] || wall.p95_ms < byEventWall[event].p95_ms) {
+        byEventWall[event] = wall;
+      }
+    }
+  }
   return {
+    schemaVersion: OUTPUT_SCHEMA_VERSION,
     runs: rounds[0].runs, surface: rounds[0].surface, rounds: rounds.length, results,
     byEvent: eventTotals(results, 'on_ms'), byEventP95: eventTotals(results, 'p95_ms'),
+    byEventWall,
     roundEventP95: rounds.map((r) => r.byEventP95),
+    roundEventWallP95: rounds.map((r) => Object.fromEntries(
+      Object.entries(r.byEventWall).map(([event, wall]) => [event, wall.p95_ms]),
+    )),
   };
 }
 
@@ -212,17 +278,44 @@ function evaluateSlo(single, dualWarm, slo) {
     violations,
   });
 
-  // C2 — the long-term N-01 regression guard: with a warm arbitration cache the
-  // dual-surface PreToolUse total (both copies) may exceed single-surface only by
-  // the cheap jq-based yield cost. A node spawn creeping back into the hot path
-  // shows up here first.
-  const singleTotal = single.byEventP95.PreToolUse || 0;
-  const dualTotal = dualWarm.byEventP95.PreToolUse || 0;
-  const overhead = round1(dualTotal - singleTotal);
+  // C2 — aggregate process cost. Two registered surfaces create two physical
+  // hook copies, so compare a dimensionless dual/single ratio instead of treating
+  // a machine-dependent sum of sequential p95s as user-visible wall latency.
+  const singleAggregate = single.byEventP95.PreToolUse || 0;
+  const dualAggregate = dualWarm.byEventP95.PreToolUse || 0;
+  const aggregateRatio = singleAggregate > 0 && dualAggregate > 0
+    ? Math.round((dualAggregate / singleAggregate) * 100) / 100
+    : null;
   criteria.push({
-    id: 'dual-warm-pretooluse-overhead', pass: overhead <= slo.dual_warm_pretooluse.max_total_p95_overhead_ms,
-    measured: { single_total_p95_ms: singleTotal, dual_warm_total_p95_ms: dualTotal, overhead_ms: overhead },
-    limit_ms: slo.dual_warm_pretooluse.max_total_p95_overhead_ms,
+    id: 'dual-warm-pretooluse-aggregate-ratio',
+    pass: aggregateRatio === null || aggregateRatio <= slo.aggregate_process.max_dual_warm_to_single_p95_ratio,
+    skipped: aggregateRatio === null,
+    measured: {
+      single_aggregate_p95_ms: singleAggregate,
+      dual_warm_aggregate_p95_ms: dualAggregate,
+      ratio: aggregateRatio,
+    },
+    limit_ratio: slo.aggregate_process.max_dual_warm_to_single_p95_ratio,
+  });
+
+  // C3 — concurrent event wall latency. This local harness excludes Codex IPC,
+  // but preserves the documented concurrent launch shape and therefore measures
+  // the user-waiting dimension that sequential p95 sums cannot represent.
+  const singleWall = single.byEventWall.PreToolUse?.p95_ms || 0;
+  const dualWall = dualWarm.byEventWall.PreToolUse?.p95_ms || 0;
+  const wallRatio = singleWall > 0 && dualWall > 0
+    ? Math.round((dualWall / singleWall) * 100) / 100
+    : null;
+  criteria.push({
+    id: 'dual-warm-pretooluse-wall-ratio',
+    pass: wallRatio === null || wallRatio <= slo.concurrent_wall.max_dual_warm_to_single_p95_ratio,
+    skipped: wallRatio === null,
+    measured: {
+      single_wall_p95_ms: singleWall,
+      dual_warm_wall_p95_ms: dualWall,
+      ratio: wallRatio,
+    },
+    limit_ratio: slo.concurrent_wall.max_dual_warm_to_single_p95_ratio,
   });
 
   return { pass: criteria.every((c) => c.pass), criteria };
@@ -238,12 +331,25 @@ function runSlo({ runs, rounds, event, sandbox }) {
   const single = measure('single');
   const dualWarm = measure('dual-warm');
   const stability = {
-    single: stabilityCheck(single.roundEventP95, slo.stability.max_round_p95_delta_fraction),
-    'dual-warm': stabilityCheck(dualWarm.roundEventP95, slo.stability.max_round_p95_delta_fraction),
+    single: {
+      aggregate: stabilityCheck(single.roundEventP95, slo.stability.max_round_p95_delta_fraction),
+      wall: stabilityCheck(single.roundEventWallP95, slo.stability.max_round_p95_delta_fraction),
+    },
+    'dual-warm': {
+      aggregate: stabilityCheck(dualWarm.roundEventP95, slo.stability.max_round_p95_delta_fraction),
+      wall: stabilityCheck(dualWarm.roundEventWallP95, slo.stability.max_round_p95_delta_fraction),
+    },
   };
+  for (const surface of Object.values(stability)) {
+    // Preserve the schema-v1 aggregate stability fields while adding the wall
+    // lane, so existing machine consumers do not silently lose their keys.
+    Object.assign(surface, surface.aggregate);
+    surface.stable = surface.aggregate.stable && surface.wall.stable;
+  }
   const graded = evaluateSlo(single, dualWarm, slo);
   const inconclusive = rounds > 1 && (!stability.single.stable || !stability['dual-warm'].stable);
   return {
+    schemaVersion: OUTPUT_SCHEMA_VERSION,
     mode: 'slo', runs, rounds, env: envFingerprint(),
     slo: { ...graded, inconclusive }, stability,
     surfaces: { single, 'dual-warm': dualWarm },
@@ -255,15 +361,20 @@ function runSlo({ runs, rounds, event, sandbox }) {
 function formatReport(r) {
   const dual = r.surface && r.surface !== 'single';
   const L = [];
-  L.push(`perf-baseline — ${r.runs} run(s) per hook (ms), surface=${r.surface || 'single'}. OFF = kill-switch floor; ON = full (p50); delta = hook logic cost; p95 = ON p95.`);
+  L.push(`perf-baseline schema v${r.schemaVersion} — ${r.runs} run(s) (ms), surface=${r.surface || 'single'}. Per-hook rows/sums = aggregate process cost; event wall = hooks launched concurrently.`);
   L.push('');
   L.push(`${'hook'.padEnd(28)}${dual ? 'copy'.padEnd(12) : ''}${'event'.padEnd(18)}${'off'.padStart(8)}${'on'.padStart(8)}${'delta'.padStart(8)}${'p95'.padStart(8)}`);
   for (const x of r.results) {
     L.push(`${x.hook.padEnd(28)}${dual ? x.copy.padEnd(12) : ''}${x.event.padEnd(18)}${String(x.off_ms).padStart(8)}${String(x.on_ms).padStart(8)}${String(x.delta_ms).padStart(8)}${String(x.p95_ms).padStart(8)}`);
   }
   L.push('');
-  L.push(`latency added per event firing (${dual ? 'BOTH copies, ' : ''}sum of ON p50 | sum of ON p95):`);
+  L.push(`aggregate process cost per event (${dual ? 'BOTH copies, ' : ''}sum of ON p50 | sum of ON p95):`);
   for (const [ev, ms] of Object.entries(r.byEvent)) L.push(`  ${ev.padEnd(18)} ${ms} ms | ${r.byEventP95[ev]} ms`);
+  L.push('');
+  L.push('concurrent event wall (OFF p50 | ON p50 | delta | ON p95):');
+  for (const [ev, wall] of Object.entries(r.byEventWall)) {
+    L.push(`  ${ev.padEnd(18)} ${wall.off_p50_ms} ms | ${wall.on_p50_ms} ms | ${wall.delta_ms} ms | ${wall.p95_ms} ms`);
+  }
   L.push('');
   L.push('Note: direct `bash hook` spawns, not the Codex harness round-trip -> a LOWER bound.');
   L.push('Measured against a non-triggering `echo` Bash event (the common per-call case).');
@@ -279,14 +390,21 @@ function formatSloReport(r) {
     L.push(`── surface: ${s} ──`);
     L.push(formatReport(r.surfaces[s]));
     const st = r.stability[s];
-    if (r.rounds > 1) L.push(`stability: ${st.stable ? 'stable' : 'UNSTABLE'} (max round p95 delta fraction ${st.maxFraction}; per event: ${JSON.stringify(st.roundDeltaFractionByEvent)})`);
+    if (r.rounds > 1) {
+      L.push(`stability: ${st.stable ? 'stable' : 'UNSTABLE'} (aggregate per event: ${JSON.stringify(st.aggregate.roundDeltaFractionByEvent)}; wall per event: ${JSON.stringify(st.wall.roundDeltaFractionByEvent)}; max fraction ${st.aggregate.maxFraction})`);
+    }
   }
   L.push('');
   L.push('── SLO verdicts ──');
   for (const c of r.slo.criteria) {
-    L.push(`  [${c.pass ? 'PASS' : 'FAIL'}] ${c.id}`);
+    L.push(`  [${c.skipped ? 'SKIP' : (c.pass ? 'PASS' : 'FAIL')}] ${c.id}`);
     if (c.violations && c.violations.length) for (const v of c.violations) L.push(`         ${v.surface}/${v.copy}/${v.hook}: p95 ${v.p95_ms} ms > limit ${v.limit_ms} ms`);
-    if (c.measured) L.push(`         single ${c.measured.single_total_p95_ms} ms -> dual-warm ${c.measured.dual_warm_total_p95_ms} ms (overhead ${c.measured.overhead_ms} ms, limit ${c.limit_ms} ms)`);
+    if (c.measured && c.id.includes('aggregate')) {
+      L.push(`         single ${c.measured.single_aggregate_p95_ms} ms -> dual-warm ${c.measured.dual_warm_aggregate_p95_ms} ms (ratio ${c.measured.ratio}, limit ${c.limit_ratio})`);
+    }
+    if (c.measured && c.id.includes('wall')) {
+      L.push(`         single ${c.measured.single_wall_p95_ms} ms -> dual-warm ${c.measured.dual_warm_wall_p95_ms} ms (ratio ${c.measured.ratio}, limit ${c.limit_ratio})`);
+    }
   }
   L.push('');
   L.push(r.slo.inconclusive
@@ -341,4 +459,8 @@ if (require.main === module) {
     fs.rmSync(sandbox, { recursive: true, force: true }); // §8.V4 sandbox disposal
   }
 }
-module.exports = { perfBaseline, formatReport, formatSloReport, runSlo, evaluateSlo, combineRounds, stabilityCheck, loadSloConfig, EVENTS, SURFACES, median, percentile, SLO_CONFIG_PATH };
+module.exports = {
+  perfBaseline, formatReport, formatSloReport, runSlo, evaluateSlo,
+  combineRounds, stabilityCheck, loadSloConfig, EVENTS, SURFACES,
+  median, percentile, SLO_CONFIG_PATH, OUTPUT_SCHEMA_VERSION,
+};

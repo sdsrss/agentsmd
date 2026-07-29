@@ -1,0 +1,38 @@
+name: Weekly governance review
+
+on:
+  schedule:
+    - cron: '47 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - name: Install pinned diagnostic runtime in isolated state
+        run: npm install --global @openai/codex@0.145.0
+      - name: Generate repository scorecard
+        env:
+          CODEX_HOME: ${{ runner.temp }}/agentsmd-governance-home
+        run: |
+          mkdir -p artifacts
+          node scripts/install.js --json > artifacts/install.json
+          node scripts/scorecard.js --days=30 --json > artifacts/scorecard.json
+      - name: Retain scorecard
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: governance-scorecard
+          path: artifacts
+          if-no-files-found: error
+          retention-days: 30

@@ -17,7 +17,8 @@ const ROOT = path.join(__dirname, '..', '..');
 let PASS = 0, FAIL = 0;
 const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
 
-// Flatten a hooks.json wiring into { basename → { event, matcher, timeout } }.
+// Flatten a hooks.json wiring into
+// { basename → { event, matcher, timeout, additionalContextLimit } }.
 function wiringMap(relPath) {
   const j = JSON.parse(fs.readFileSync(path.join(ROOT, relPath), 'utf8'));
   const map = {};
@@ -27,15 +28,20 @@ function wiringMap(relPath) {
       for (const h of g.hooks || []) {
         const m = (h.command || '').match(/\/([A-Za-z0-9._-]+\.sh)"/);
         assert.ok(m, 'unparseable hook command: ' + h.command);
-        map[m[1]] = { event, matcher, timeout: h.timeout };
+        map[m[1]] = {
+          event,
+          matcher,
+          timeout: h.timeout,
+          additionalContextLimit: h.additionalContextLimit,
+        };
       }
     }
   }
   return map;
 }
 
-t('HOOK_REGISTRY has 15 entries (matches drift #8 hook count)', () => {
-  assert.strictEqual(REG.HOOK_REGISTRY.length, 15);
+t('HOOK_REGISTRY has 17 entries (matches drift hook count)', () => {
+  assert.strictEqual(REG.HOOK_REGISTRY.length, 17);
 });
 
 for (const rel of ['hooks/hooks.json', 'hooks.json']) {
@@ -50,7 +56,7 @@ for (const rel of ['hooks/hooks.json', 'hooks.json']) {
     assert.ok(wiring.description.trim(), `${rel} description must be non-empty`);
   });
 
-  t(`registry <-> ${rel} agree on basename/event/matcher/timeout (both ways)`, () => {
+  t(`registry <-> ${rel} agree on basename/event/matcher/timeout/context limit (both ways)`, () => {
     const w = wiringMap(rel);
     for (const h of REG.HOOK_REGISTRY) {
       const wired = w[h.basename];
@@ -58,6 +64,11 @@ for (const rel of ['hooks/hooks.json', 'hooks.json']) {
       assert.strictEqual(wired.event, h.hookEvent, `${h.basename} event`);
       assert.strictEqual(wired.matcher, h.matcher, `${h.basename} matcher`);
       assert.strictEqual(wired.timeout, h.timeout, `${h.basename} timeout`);
+      assert.strictEqual(
+        wired.additionalContextLimit,
+        h.additionalContextLimit,
+        `${h.basename} additionalContextLimit`
+      );
     }
     assert.strictEqual(Object.keys(w).length, REG.HOOK_REGISTRY.length, `${rel} introduces a hook the registry omits`);
   });
@@ -91,9 +102,9 @@ t('each plugin hook yields to an existing standalone surface', () => {
 });
 
 t('derived exports (BASENAMES / ENV_SUFFIXES / NAME_TO_ENV) are consistent', () => {
-  assert.strictEqual(REG.HOOK_BASENAMES.length, 15);
-  assert.strictEqual(REG.HOOK_ENV_SUFFIXES.length, 15);
-  assert.strictEqual(new Set(REG.HOOK_ENV_SUFFIXES).size, 15, 'suffixes must be unique');
+  assert.strictEqual(REG.HOOK_BASENAMES.length, 17);
+  assert.strictEqual(REG.HOOK_ENV_SUFFIXES.length, 17);
+  assert.strictEqual(new Set(REG.HOOK_ENV_SUFFIXES).size, 17, 'suffixes must be unique');
   assert.strictEqual(REG.HOOK_NAME_TO_ENV['session-summary'], 'SESSION_SUMMARY');
 });
 
@@ -102,7 +113,7 @@ t('killSwitchState mirrors hook_kill_switch (global + per-hook DISABLE_*_HOOK==1
   assert.deepStrictEqual(REG.killSwitchState({ DISABLE_SECRETS_SCAN_HOOK: '1' }), { global: false, disabled: ['secrets-scan'] });
   const all = REG.killSwitchState({ DISABLE_AGENTSMD_HOOKS: '1' });
   assert.strictEqual(all.global, true);
-  assert.strictEqual(all.disabled.length, 15);
+  assert.strictEqual(all.disabled.length, 17);
   assert.deepStrictEqual(REG.killSwitchState({ DISABLE_SECRETS_SCAN_HOOK: '0' }).disabled, []); // only "1" counts
 });
 

@@ -1,10 +1,11 @@
 'use strict';
 // hook-registry.js — the single source of truth for agentsmd's native Codex
 // hooks: one row per hook, in Codex execution order (SessionStart → PreToolUse →
-// UserPromptSubmit → Stop). Ported in spirit from claudemd/scripts/lib/hook-registry.js.
+// PostToolUse → UserPromptSubmit → Stop). Ported in spirit from
+// claudemd/scripts/lib/hook-registry.js.
 //
 // Why this exists: the hook list + kill-switch suffixes were previously implicit,
-// duplicated across the two hooks.json wirings and 15 `hook_kill_switch "<NAME>"`
+// duplicated across the two hooks.json wirings and every `hook_kill_switch "<NAME>"`
 // calls, with status/doctor re-deriving counts by parsing the template. This
 // centralizes them so L2 (status/doctor) reads ONE list and hook-registry.test.js
 // asserts the registry, both wirings, and each hook's own kill-switch call never
@@ -16,16 +17,19 @@
 // matcher is null for events wired without one (UserPromptSubmit / Stop).
 
 const HOOK_REGISTRY = [
-  { basename: 'session-start-check.sh',       displayName: 'session-start-check',       envVarSuffix: 'SESSION_START',           hookEvent: 'SessionStart',     matcher: 'startup|resume|clear|compact', timeout: 5 },
+  { basename: 'session-start-check.sh',       displayName: 'session-start-check',       envVarSuffix: 'SESSION_START',           hookEvent: 'SessionStart',     matcher: 'startup|resume|clear|compact', timeout: 5, additionalContextLimit: 6000 },
 
   { basename: 'pre-bash-safety-check.sh',     displayName: 'pre-bash-safety-check',     envVarSuffix: 'PRE_BASH_SAFETY',         hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 3 },
   { basename: 'banned-vocab-check.sh',        displayName: 'banned-vocab-check',        envVarSuffix: 'BANNED_VOCAB',            hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 3 },
   { basename: 'ship-baseline-check.sh',       displayName: 'ship-baseline-check',       envVarSuffix: 'SHIP_BASELINE',           hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 8 },
   { basename: 'memory-read-check.sh',         displayName: 'memory-read-check',         envVarSuffix: 'MEMORY_READ',             hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 3 },
   { basename: 'secrets-scan.sh',              displayName: 'secrets-scan',              envVarSuffix: 'SECRETS_SCAN',            hookEvent: 'PreToolUse',       matcher: 'Bash',           timeout: 5 },
+  { basename: 'pre-mutation-journal.sh',      displayName: 'pre-mutation-journal',      envVarSuffix: 'PRE_MUTATION_JOURNAL',    hookEvent: 'PreToolUse',       matcher: 'apply_patch|Edit|Write', timeout: 3 },
 
-  { basename: 'surface-advisories.sh',        displayName: 'surface-advisories',        envVarSuffix: 'SURFACE_ADVISORIES',      hookEvent: 'UserPromptSubmit', matcher: null,             timeout: 3 },
-  { basename: 'memory-prompt-hint.sh',        displayName: 'memory-prompt-hint',        envVarSuffix: 'MEMORY_PROMPT_HINT',      hookEvent: 'UserPromptSubmit', matcher: null,             timeout: 3 },
+  { basename: 'post-tool-journal.sh',         displayName: 'post-tool-journal',         envVarSuffix: 'POST_TOOL_JOURNAL',       hookEvent: 'PostToolUse',      matcher: 'Bash|apply_patch|update_plan', timeout: 3 },
+
+  { basename: 'surface-advisories.sh',        displayName: 'surface-advisories',        envVarSuffix: 'SURFACE_ADVISORIES',      hookEvent: 'UserPromptSubmit', matcher: null,             timeout: 3, additionalContextLimit: 1000 },
+  { basename: 'memory-prompt-hint.sh',        displayName: 'memory-prompt-hint',        envVarSuffix: 'MEMORY_PROMPT_HINT',      hookEvent: 'UserPromptSubmit', matcher: null,             timeout: 3, additionalContextLimit: 1000 },
 
   { basename: 'residue-audit.sh',             displayName: 'residue-audit',             envVarSuffix: 'RESIDUE_AUDIT',           hookEvent: 'Stop',             matcher: null,             timeout: 3 },
   { basename: 'sandbox-disposal-check.sh',    displayName: 'sandbox-disposal-check',    envVarSuffix: 'SANDBOX_DISPOSAL',        hookEvent: 'Stop',             matcher: null,             timeout: 3 },

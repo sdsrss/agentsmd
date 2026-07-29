@@ -27,17 +27,33 @@ function chmodShells(dir) {
 function stageSources(repo, stageRoot) {
   const deploy = path.join(stageRoot, 'deploy');
   fs.mkdirSync(deploy, { recursive: true });
-  for (const name of ['hooks', 'spec', 'scripts', 'skills']) {
+  for (const name of ['hooks', 'spec', 'scripts', 'skills', 'schemas', 'automation']) {
     const source = path.join(repo, name);
     if (fs.existsSync(source)) fs.cpSync(source, path.join(deploy, name), {
       recursive: true,
       filter: (entry) => includeStandaloneDeploySource(repo, entry),
     });
   }
+  const qaFiles = [
+    'validation-map.json',
+    path.join('perf', 'baseline.json'),
+    path.join('conformance', 'cases.json'),
+  ];
+  for (const relative of qaFiles) {
+    const source = path.join(repo, 'qa', relative);
+    if (!fs.existsSync(source)) continue;
+    fs.mkdirSync(path.join(deploy, 'qa'), { recursive: true });
+    const destination = path.join(deploy, 'qa', relative);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(source, destination);
+  }
   const packageJson = path.join(repo, 'package.json');
   if (fs.existsSync(packageJson)) fs.copyFileSync(packageJson, path.join(deploy, 'package.json'));
-  for (const required of ['hooks', 'spec', 'scripts', 'skills']) {
+  for (const required of ['hooks', 'spec', 'scripts', 'skills', 'schemas', 'automation']) {
     if (!fs.existsSync(path.join(deploy, required))) throw new Error(`install source is incomplete: missing ${required}/`);
+  }
+  if (!fs.existsSync(path.join(deploy, 'qa', 'validation-map.json'))) {
+    throw new Error('install source is incomplete: missing qa/validation-map.json');
   }
   chmodShells(path.join(deploy, 'hooks'));
   return deploy;
@@ -120,6 +136,19 @@ function inspectReleaseArtifact(repo) {
       'scripts/repair.js',
       'scripts/doctor.js',
       'scripts/status.js',
+      'scripts/verify.js',
+      'scripts/scorecard.js',
+      'schemas/task-contract.schema.json',
+      'schemas/task-evidence.schema.json',
+      'schemas/scorecard.schema.json',
+      'schemas/runtime-canary.schema.json',
+      'qa/validation-map.json',
+      'qa/perf/baseline.json',
+      'qa/conformance/cases.json',
+      'automation/weekly-runtime-canary.md',
+      'automation/weekly-governance-review.md',
+      'automation/release-readiness.md',
+      'automation/pr-review.md',
     ]) {
       if (!fs.existsSync(path.join(deploy, relative))) errors.push(`artifact runtime file is missing: ${relative}`);
     }

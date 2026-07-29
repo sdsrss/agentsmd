@@ -39,6 +39,29 @@ semver_gt() {
   (( 10#$a3 > 10#$b3 ))
 }
 
+detect_codex_version() {
+  local event="$1" version="" binary="" output=""
+  version="$(hook_json_field "$event" '.codex_version')"
+  [[ -n "$version" ]] || version="${AGENTSMD_CODEX_VERSION:-}"
+  if [[ -z "$version" ]]; then
+    binary="${AGENTSMD_CODEX_BIN:-codex}"
+    if [[ "$binary" == */* ]]; then
+      [[ -x "$binary" ]] || binary=""
+    else
+      command -v "$binary" >/dev/null 2>&1 || binary=""
+    fi
+    if [[ -n "$binary" ]]; then
+      if declare -F platform_timeout >/dev/null 2>&1; then
+        output="$(platform_timeout 1 "$binary" --version 2>/dev/null)" || output=""
+      else
+        output="$("$binary" --version 2>/dev/null)" || output=""
+      fi
+      version="$(printf '%s' "$output" | grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' 2>/dev/null)"
+    fi
+  fi
+  printf '%s' "${version:-unknown}"
+}
+
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
 # R1-03 degraded-mode persistent warning: without jq every enforcement hook
@@ -247,6 +270,21 @@ fi
 if [[ "$SELECTED_SURFACE" == "plugin" && "$SPEC_ACTIVE" == "true" ]]; then
   write_plugin_activation_receipt \
     "$PLUGIN_VERSION" "$SID" "$SPEC_PROFILE" "$PROFILE_REASON" "$PLUGIN_EXTENDED"
+fi
+
+# One version/surface join row per session. Every hot-path row keeps only its
+# session_id; scorecard joins the bounded dimensions here instead of repeatedly
+# probing the Codex binary/model/platform on every tool event.
+if [[ -n "$SID" ]]; then
+  DIMENSION_AGENTSMD_VERSION="${SELECTED_VERSION:-${VER#v}}"
+  DIMENSION_CODEX_VERSION="$(detect_codex_version "$EVENT")"
+  DIMENSION_MODEL="$(hook_json_field "$EVENT" '.model')"
+  [[ -n "$DIMENSION_MODEL" ]] || DIMENSION_MODEL="${AGENTSMD_MODEL:-unknown}"
+  DIMENSION_PLATFORM="$(uname -s 2>/dev/null || true)-$(uname -m 2>/dev/null || true)"
+  [[ "$DIMENSION_PLATFORM" != "-" ]] || DIMENSION_PLATFORM="unknown"
+  hook_record_session_dimension \
+    "$SID" "$VER" "$DIMENSION_AGENTSMD_VERSION" "${SELECTED_SURFACE:-none}" \
+    "$DIMENSION_CODEX_VERSION" "$DIMENSION_MODEL" "$DIMENSION_PLATFORM"
 fi
 
 # Cross-session §7 safety net: surface only EXPIRED (>7-day) non-self checkpoint

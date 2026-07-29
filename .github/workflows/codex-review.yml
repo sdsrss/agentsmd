@@ -1,0 +1,83 @@
+name: Codex pull request review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      review_available: ${{ steps.secret.outputs.available }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Detect optional review credential
+        id: secret
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if test -n "$OPENAI_API_KEY"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "OPENAI_API_KEY is absent; optional Codex review is skipped."
+          fi
+      - name: Run read-only Codex review
+        if: steps.secret.outputs.available == 'true'
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/pr-review.md
+          output-file: codex-review.md
+          codex-version: 0.145.0
+          sandbox: read-only
+          safety-strategy: drop-sudo
+      - name: Transfer bounded review to feedback job
+        if: steps.secret.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codex-review
+          path: codex-review.md
+          if-no-files-found: error
+          retention-days: 1
+
+  feedback:
+    needs: review
+    if: needs.review.result == 'success' && needs.review.outputs.review_available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: codex-review
+          path: codex-review
+      - name: Post review feedback
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('codex-review/codex-review.md', 'utf8').slice(0, 60000).trim();
+            if (!body) {
+              core.notice('Codex review output was empty; no feedback posted.');
+              return;
+            }
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              body,
+              event: 'COMMENT',
+            });
