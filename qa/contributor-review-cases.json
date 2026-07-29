@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "generated-artifact-direct-edit",
+      "kind": "violation",
+      "changed_files": [
+        "spec/AGENTS.md"
+      ],
+      "change": "Hand-edit the generated core without changing spec/source/** or running the generator.",
+      "expected_rules": [
+        "generated-artifacts"
+      ]
+    },
+    {
+      "id": "generated-artifact-safe-regeneration",
+      "kind": "safe-counterexample",
+      "changed_files": [
+        "spec/source/base/10-auth.md",
+        "spec/AGENTS.md"
+      ],
+      "change": "Edit the canonical fragment, regenerate spec/AGENTS.md, and pass spec:check.",
+      "expected_rules": []
+    },
+    {
+      "id": "unrelated-readme-clarification",
+      "kind": "unrelated",
+      "changed_files": [
+        "README.md"
+      ],
+      "change": "Clarify prose without changing generated specs, lifecycle ownership, hook contracts, or hot paths.",
+      "expected_rules": []
+    }
+  ]
+}

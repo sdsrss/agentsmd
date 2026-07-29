@@ -2,9 +2,9 @@
 
 **[English](./README.md) · 中文**
 
-agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 插件。它提供证据驱动工作流、15 个有边界的安全与报告检查、项目级指令工具，以及供人工复审的规则遥测。
+agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 插件。它提供证据驱动工作流、17 个有边界的安全、证据与报告检查、项目级指令工具，以及供人工复审的规则遥测。
 
-![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-15-blue)
+![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-17-blue)
 
 - **证据驱动流程：** 对任务进行分级、授权检查、规划、执行、验证，并用新鲜证据报告结果。
 - **有边界的原生检查：** 阻断部分可机械检测的风险并呈现结构化提示，不宣称自动执行所有语义规则。
@@ -40,7 +40,7 @@ codex plugin list --json    # 在 "installed" 中查看 agentsmd
 看 `installed` 数组，不要看 `available`：对 npm 来源的 marketplace 条目，Codex 在安装前后都报
 `"available": []`，空的 `available` 不代表失败。
 
-Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 15 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
+Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 17 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
 
 偏好图形界面？在 Codex app 中打开 **插件**；或运行 `codex`，输入 `/plugins`，打开 `agentsmd` marketplace 条目并选择安装。
 
@@ -190,7 +190,7 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 - 有固定顺序、以证据为锚点的任务报告；
 - 对规范中可机械检测部分执行原生检查；
 - 记录规则机会与结果，供 operator 人工复审；
-- 15 个 Codex skills，用于复用诊断与项目工作流。
+- 17 个 Codex skills，用于复用诊断与项目工作流。
 
 用户明确要求 commit 并 release/publish 时，会授权指定仓库或包的标准发版流程。未命名的生产环境、live 配置和无关 scope 不在授权范围内。
 
@@ -199,7 +199,7 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 | 层 | 作用 | 主要内容 |
 |---|---|---|
 | 规范 | 定义流程、原生子代理领导契约、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-extended.md` |
-| 原生 hooks | 在四类 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
+| 原生 hooks | 在五类已注册 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
 | 管理层 | 安装、诊断、恢复、审计和治理 | `scripts/*.js`、`agentsmd` CLI |
 | 项目工具 | 生成项目事实、编码约定和设计令牌引用 | `agentsmd init`、`analyze`、`design` |
 
@@ -207,7 +207,7 @@ Stop observers 会把提示放入队列，在下一次 `UserPromptSubmit` 呈现
 
 ## 原生 Hook 覆盖
 
-agentsmd 在 `SessionStart`、`PreToolUse`、`UserPromptSubmit` 和 `Stop` 上注册 15 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
+agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit` 和 `Stop` 上注册 17 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
 
 | Hook | Event | 可检测职责 |
 |---|---|---|
@@ -216,13 +216,15 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`UserPromptSubmit` 和 `Stop` 上�
 | `ship-baseline-check` | PreToolUse:Bash | 已知 CI 基线为红色时阻断推送共享分支 |
 | `memory-read-check` | PreToolUse:Bash | ship 前要求读取项目 memory index 与同仓库、经 canonical 校验的关联 memory |
 | `secrets-scan` | PreToolUse:Bash | 阻断检测到 secrets 或高置信 secret 文件名的 commit |
+| `pre-mutation-journal` | PreToolUse:apply_patch\|Edit\|Write | 记录有界 mutation intent、仓库相对目标及先前的 preflight/plan 观察 |
+| `post-tool-journal` | PostToolUse:Bash\|apply_patch\|update_plan | 记录有界 plan、preflight、mutation、validation、review 结果，不保存原始命令或响应 |
 | `session-start-check` | SessionStart | 在 startup、resume、clear、compact 时重新注入唯一的完整规范；只有全新 startup 清理旧会话状态 |
 | `surface-advisories` | UserPromptSubmit | 呈现上一轮排队的提示 |
 | `memory-prompt-hint` | UserPromptSubmit | 呈现与 prompt 匹配的 `MEMORY.md` 条目 |
 | `residue-audit` | Stop | 标记 Codex 临时存储中的任务残留增长 |
 | `sandbox-disposal-check` | Stop | 标记可能属于任务的 scratch，并排除 runtime-owned 路径 |
-| `transcript-structure-scan` | Stop | 检查 §10 报告结构/词汇和 §6 证据锚点 |
-| `convention-cite-scan` | Stop | 记录有效的 `@conv-*` 项目约定引用 |
+| `transcript-structure-scan` | Stop | 从 `last_assistant_message` 检查 §10 报告结构/词汇和 §6 证据锚点；记录 bounded transcript fallback 使用 |
+| `convention-cite-scan` | Stop | 从 canonical Stop message 记录有效的 `@conv-*` 项目约定引用，并使用相同的可观测 fallback |
 | `session-exit-checkpoint` | Stop | 标记修改后没有 test/lint/typecheck/build 证据的字节 |
 | `mem-audit` | Stop | 检查 memory index/file 漂移和 verified header |
 | `session-summary` | Stop | 保存滚动强制统计，供 `status` 显式查看；不会注入其他会话 |
@@ -273,6 +275,53 @@ agentsmd design --write
 
 `design` 预览 CSS `:root` 变量和 Tailwind v4 `@theme` 事实；`design --write` 创建受管理的 `DESIGN.md` 块及 `AGENTS.md` 指针。非前端项目是 no-op。Tailwind v3 配置对象会被识别，但尚不解析。同一 token 跨文件定义值冲突时报告为 ambiguous 并列出每个候选的来源与选择器——生效值取决于静态扫描看不到的 CSS import 顺序，因此从不猜测；按选择器区分的主题变体（如 `:root[data-theme="dark"]`）逐上下文报告。
 
+### 按变更文件选择验证
+
+```bash
+agentsmd verify --changed --explain
+agentsmd verify --since=HEAD~1 --explain --json
+agentsmd verify --changed
+agentsmd verify --full
+```
+
+`verify` 读取版本化的 `qa/validation-map.json`，合并所有变更路径所需的
+检查、去重，并解释每个选择原因。共享、导出、配置、未知和 release
+surface 会自动扩大到 `npm run check`；release 路径不能移除 full gate。
+未知路径即使完成 full gate，仍会保留明确的未覆盖风险。真实外部服务
+canary 和 AUTH boundary 操作只报告，路由器不会执行。本地检查按
+targeted 优先运行，第一个失败会阻止后续更宽的检查。
+
+自动化输入和结果使用 `schemas/task-contract.schema.json` 与
+`schemas/task-evidence.schema.json` 中有界的 JSON Schema。
+`status=done` 的 evidence 若没有“最后一次变更之后成功”的检查记录，
+就无法通过验证。人类输出从验证后的 evidence 按
+`Done → Not done → Failed → Uncertain` 渲染，不会再从文本反向猜 JSON。
+
+### 统一质量 scorecard 与 canary
+
+```bash
+agentsmd scorecard --days=30
+agentsmd scorecard --days=30 --json
+agentsmd scorecard --compare=scorecard-previous.json
+```
+
+版本化 scorecard 通过每个 session 一条有界 `session-dimension` 记录关联现场
+遥测，分开呈现 `self`、`test`、`qa`、`external` 与 `unknown` 来源，并汇总
+health、runtime compatibility、完整 conformance 新鲜度、false-block 测量状态、
+bypass、evidence discipline、performance、memory engagement、prompt budget、
+automation、operator actions 与 measurement limits。它不会自动升降级规则：
+raw hit 不代表规则价值，no-opportunity 不是成功，memory citation 不等于
+adherence，sampling calibration 只是结构 proxy；没有人工审核 outcome 时，
+现场 false-block rate 保持 `unmeasured`。
+
+`--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v1 JSON。
+`automation/` 中分发每周 pinned/latest runtime canary、治理复审、report-only
+release readiness 与只读 PR review 配方。定时 runtime matrix 使用隔离
+`CODEX_HOME`、positive + near-negative 确定性评分、5-run 信息性性能趋势和
+可保留的机器可读失败证据。pinned 失败是 release-blocking 证据；latest 失败
+只生成 compatibility report。仓库 workflow 不会据此自动修改规则或获得
+ship 授权。
+
 ## CLI 参考
 
 | 命令 | 用途 |
@@ -285,8 +334,10 @@ agentsmd design --write
 | `sampling-audit`、`lesson-bypass-audit` | 测量 transcript 合规与 memory hint 后续采用情况 |
 | `safety-coverage-audit`、`lint-argv` | 检查静态安全 wiring 和严格 CLI 参数解析 |
 | `perf-baseline`、`version-cascade` | 测量 hook 成本并检测 README 中过期的版本文本 |
+| `verify` | 解释并运行变更感知的本地验证；只报告真实外部服务与 AUTH boundary |
+| `scorecard` | 汇总有界的 health、compatibility、quality、performance、automation 与 measurement-limit 证据 |
 
-运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
+运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception`、`verify` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
 
 ## 更新、验证与卸载
 
@@ -380,11 +431,17 @@ node scripts/audit.js --project=X
 node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
+agentsmd scorecard --days=30
 ```
 
 只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
 
 `rules` 另有 **bypass governance**：对每条带 escape-hatch token 的规则，报告 token 被用来跳过拦截的比例，以及这些跳过来自多少个不同 session。比例偏高只是复核提示，且有两种相反的解法——规则过度触发，或闸门被习惯性绕过——报告不替你选。`audit --trend` 把窗口切成等长时间桶并按每百 session 归一，让纪律指标的走向可见，而不只有当前快照；桶按时间划分，不按 spec 版本。
+
+scorecard 在不改变上述语义的前提下组合信号。runtime、model、surface、spec
+和 agentsmd 版本由 SessionStart 去重维度记录提供，并通过 `session_id`
+关联；缺少该记录的旧 session 仍明确显示为 missing join。历史绿色 capture
+超过 freshness window 后，不会被当成当前树的新鲜证据。
 
 ## 安全与隐私
 
@@ -422,7 +479,8 @@ bin/          npm CLI dispatcher
 spec/         canonical source、生成后的 cores、extended spec、rule manifest
 hooks/        原生 hooks、共享 shell libraries、smoke tests
 scripts/      生命周期、诊断、治理、项目工具、测试
-skills/       15 个 Codex skill routers
+skills/       17 个 Codex skill routers
+automation/   随包分发的只读/定时工作流配方
 .agents/      Codex marketplace metadata
 .codex-plugin/plugin.json
 hooks.json    plugin-root hook wiring

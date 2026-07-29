@@ -2,9 +2,9 @@
 
 **English · [中文](./README.zh-CN.md)**
 
-agentsmd is an `AGENTS.md` coding specification and native-hooks plugin for OpenAI Codex CLI. It provides an evidence-driven workflow, 15 bounded safety and reporting checks, project-aware instruction tools, and telemetry for human rule review.
+agentsmd is an `AGENTS.md` coding specification and native-hooks plugin for OpenAI Codex CLI. It provides an evidence-driven workflow, 17 bounded safety, evidence, and reporting checks, project-aware instruction tools, and telemetry for human rule review.
 
-![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-15-blue)
+![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-17-blue)
 
 - **Evidence-driven workflow:** classify work, check authorization, plan, execute, validate, and report with fresh evidence.
 - **Bounded native checks:** block selected detectable risks and surface structured advisories without claiming to automate every semantic rule.
@@ -44,7 +44,7 @@ Read the `installed` array, not `available`: for an npm-sourced marketplace entr
 Codex reports `"available": []` both before and after a successful install, so an
 empty `available` is not a failure signal.
 
-Codex asks you to review trust before plugin hooks run for the first time. Inspect the `hooks.json` selected by `.codex-plugin/plugin.json` and its 15 local commands before approving it. Until hooks are trusted, skills may be visible, but the spec banner and runtime checks do not execute.
+Codex asks you to review trust before plugin hooks run for the first time. Inspect the `hooks.json` selected by `.codex-plugin/plugin.json` and its 17 local commands before approving it. Until hooks are trusted, skills may be visible, but the spec banner and runtime checks do not execute.
 
 Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugins`, open the `agentsmd` marketplace entry, and select **Install plugin**.
 
@@ -210,7 +210,7 @@ The system adds:
 - ordered, evidence-backed task reports;
 - native checks for the mechanically detectable subset of the spec;
 - rule-specific opportunity and outcome telemetry for operator review;
-- 15 Codex skills that route reusable diagnostics and project workflows.
+- 17 Codex skills that route reusable diagnostics and project workflows.
 
 An explicit request to commit and release or publish authorizes the standard ship flow for the named repository/package. Unnamed production, live configuration, or unrelated scopes remain outside that authorization.
 
@@ -219,7 +219,7 @@ An explicit request to commit and release or publish authorizes the standard shi
 | Layer | Role | Main artifacts |
 |---|---|---|
 | Specification | Defines workflow, native-subagent leadership, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-extended.md` |
-| Native hooks | Blocks or observes selected detectable patterns across four Codex events | `hooks/*.sh`, `hooks.json` |
+| Native hooks | Blocks or observes selected detectable patterns across five registered Codex events | `hooks/*.sh`, `hooks.json` |
 | Management | Installs, diagnoses, restores, audits, and governs | `scripts/*.js`, `agentsmd` CLI |
 | Project tools | Generates project facts, conventions, and design-token references | `agentsmd init`, `analyze`, `design` |
 
@@ -227,7 +227,7 @@ Stop-time observers queue advisories. Those advisories appear on the next `UserP
 
 ## Native hook coverage
 
-agentsmd registers 15 hooks across `SessionStart`, `PreToolUse`, `UserPromptSubmit`, and `Stop`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
+agentsmd registers 17 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, and `Stop`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
 
 | Hook | Event | Detectable responsibility |
 |---|---|---|
@@ -236,13 +236,15 @@ agentsmd registers 15 hooks across `SessionStart`, `PreToolUse`, `UserPromptSubm
 | `ship-baseline-check` | PreToolUse:Bash | Blocks a shared-branch push when its CI baseline is known red |
 | `memory-read-check` | PreToolUse:Bash | Requires the project index and canonical, same-repository linked-memory reads before shipping |
 | `secrets-scan` | PreToolUse:Bash | Blocks commits with detected secrets or high-confidence secret filenames |
+| `pre-mutation-journal` | PreToolUse:apply_patch\|Edit\|Write | Records bounded mutation intent, repo-relative targets, and prior preflight/plan observations |
+| `post-tool-journal` | PostToolUse:Bash\|apply_patch\|update_plan | Records bounded plan, preflight, mutation, validation, and review outcomes without raw commands or responses |
 | `session-start-check` | SessionStart | Rehydrates the single full spec on startup, resume, clear, and compact; only a fresh startup resets stale session state |
 | `surface-advisories` | UserPromptSubmit | Surfaces advisories queued by the previous turn |
 | `memory-prompt-hint` | UserPromptSubmit | Surfaces prompt-matched `MEMORY.md` entries |
 | `residue-audit` | Stop | Flags growth in task residue under Codex temporary storage |
 | `sandbox-disposal-check` | Stop | Flags likely task scratch while excluding runtime-owned paths |
-| `transcript-structure-scan` | Stop | Checks §10 report structure and vocabulary plus §6 evidence anchors |
-| `convention-cite-scan` | Stop | Records valid `@conv-*` project-convention citations |
+| `transcript-structure-scan` | Stop | Checks §10 report structure and vocabulary plus §6 evidence anchors from `last_assistant_message`; records bounded transcript fallback use |
+| `convention-cite-scan` | Stop | Records valid `@conv-*` project-convention citations from the canonical Stop message, with the same measured fallback |
 | `session-exit-checkpoint` | Stop | Flags changed bytes without later test/lint/typecheck/build evidence |
 | `mem-audit` | Stop | Checks memory index/file drift and verified headers |
 | `session-summary` | Stop | Stores a rolling enforcement tally for explicit `status` inspection; never injects it into another session |
@@ -293,6 +295,58 @@ agentsmd design --write
 
 `design` previews facts from CSS `:root` variables and Tailwind v4 `@theme`; `design --write` creates a managed `DESIGN.md` block and an `AGENTS.md` pointer. Non-frontend projects are a no-op. Tailwind v3 configuration objects are identified but not parsed. Conflicting cross-file definitions of one token are reported as ambiguous with each candidate's source and selector — the effective value depends on CSS import order, which a static scan cannot see, so it is never guessed; per-selector theme variants (e.g. `:root[data-theme="dark"]`) are reported per context.
 
+### Select validation from changed files
+
+```bash
+agentsmd verify --changed --explain
+agentsmd verify --since=HEAD~1 --explain --json
+agentsmd verify --changed
+agentsmd verify --full
+```
+
+`verify` reads the versioned `qa/validation-map.json`, unions checks for every
+changed path, deduplicates them, and explains each selection. Shared, exported,
+configuration, unknown, and release surfaces widen to `npm run check`; a release
+path cannot remove that full gate. Unknown paths remain an explicit uncovered
+risk even after the full gate. External-service canaries and AUTH-boundary
+operations are report-only and never executed by the router. Local checks run
+targeted first and stop at the first failure before wider checks.
+
+Automation inputs and results use the bounded JSON Schemas in
+`schemas/task-contract.schema.json` and
+`schemas/task-evidence.schema.json`. Evidence with `status=done` is invalid
+without a successful check recorded after the last change. Human output is
+rendered from validated evidence in `Done → Not done → Failed → Uncertain`
+order; it is not parsed back into JSON.
+
+### Unified quality scorecard and canaries
+
+```bash
+agentsmd scorecard --days=30
+agentsmd scorecard --days=30 --json
+agentsmd scorecard --compare=scorecard-previous.json
+```
+
+The versioned scorecard joins one bounded `session-dimension` row per session to
+field telemetry, keeps `self`, `test`, `qa`, `external`, and `unknown`
+provenance separate, and reports health, runtime compatibility, full-suite
+conformance freshness, false-block measurement state, bypasses, evidence
+discipline, performance, memory engagement, prompt budget, automation, operator
+actions, and measurement limits. It never promotes/demotes a rule. Raw hits do
+not rank rule value; no-opportunity is not success; memory citation is not
+adherence; sampling calibration is a structural proxy; and field false-block
+rate remains `unmeasured` without a human-reviewed outcome.
+
+`--compare` accepts only a bounded, regular non-symlink scorecard v1 JSON
+capture. Distributed recipes under `automation/` define weekly pinned/latest
+runtime canaries, governance review, report-only release readiness, and
+read-only PR review. The scheduled runtime matrix uses an isolated
+`CODEX_HOME`, positive plus near-negative deterministic grading, a five-run
+informational performance trend, and retained machine-readable failures.
+Pinned failure is release-blocking evidence; latest failure is compatibility
+report-only. Repository workflows never turn those reports into automatic rule
+changes or ship authorization.
+
 ## CLI reference
 
 | Command | Purpose |
@@ -305,8 +359,10 @@ agentsmd design --write
 | `sampling-audit`, `lesson-bypass-audit` | Measure transcript compliance and memory-hint follow-through |
 | `safety-coverage-audit`, `lint-argv` | Check static safety wiring and strict CLI argument parsing |
 | `perf-baseline`, `version-cascade` | Measure hook cost and detect stale README version prose |
+| `verify` | Explain and run change-aware local validation; report external/AUTH boundaries without executing them |
+| `scorecard` | Aggregate bounded health, compatibility, quality, performance, automation, and measurement-limit evidence |
 
-Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, `design`, and `exception`, which operate on the current project.
+Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, `design`, `exception`, and `verify`, which operate on the current project.
 
 ## Update, verify, and uninstall
 
@@ -411,11 +467,18 @@ node scripts/audit.js --project=X
 node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
+agentsmd scorecard --days=30
 ```
 
 A rule becomes a demotion candidate only after enough rule-specific evaluated opportunities with zero enforcement hits. `--project` is an informational lens; demotion remains cross-project. `no-opportunity`, low evaluation counts, and global session counts are not demotion evidence. High hit counts show activity, not correctness. The operator makes the decision using [`spec/OPERATOR.md`](./spec/OPERATOR.md).
 
 `rules` also reports **bypass governance**: for each rule with an escape-hatch token, how often that token was used instead of accepting the block, plus how many distinct sessions the overrides came from. A high rate is a review prompt with two opposite remedies — the rule over-fires, or the gate is being routed around — and the report picks neither. `audit --trend` slices the window into equal time buckets normalised per 100 sessions, so discipline movement is visible instead of only the current snapshot; buckets are time, not spec versions.
+
+The scorecard composes these signals without changing their semantics. Runtime,
+model, surface, spec, and agentsmd versions come from one deduplicated
+SessionStart dimension row and are joined by `session_id`; older sessions with
+no row stay visible as missing joins. A historical green capture is never
+presented as fresh evidence for the current tree after its freshness window.
 
 ## Security and privacy
 
@@ -453,7 +516,8 @@ bin/          npm CLI dispatcher
 spec/         canonical source, generated cores, extended spec, rule manifest
 hooks/        native hooks, shared shell libraries, smoke tests
 scripts/      lifecycle, diagnostics, governance, project tools, tests
-skills/       15 Codex skill routers
+skills/       17 Codex skill routers
+automation/   distributed read-only/scheduled workflow recipes
 .agents/      Codex marketplace metadata
 .codex-plugin/plugin.json
 hooks.json    plugin-root hook wiring

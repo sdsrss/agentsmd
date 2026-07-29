@@ -3,8 +3,34 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## Unreleased
+## v5.1.0 — 2026-07-29 — Codex automation contracts and runtime evidence (minor)
 
+- Added repository and nested contributor `AGENTS.md` instructions, a
+  versioned current Codex hook-contract fixture, canonical
+  `last_assistant_message` handling, and explicit transcript compatibility
+  telemetry.
+- Added a concurrency-safe native PreToolUse/PostToolUse event journal for
+  mutation intent, completed mutation/validation/plan/preflight/review
+  observations. Stop consumes the native summary first; raw prompts, commands,
+  patches, responses, cwd, model, and absolute paths are excluded.
+- Added bounded task/evidence JSON Schemas, schema-derived interactive evidence
+  rendering, `qa/validation-map.json`, and `agentsmd verify` with deterministic
+  targeted/widened/full selection. Unknown and release paths cannot bypass the
+  full gate; external and AUTH-bound operations remain report-only.
+- Reworked performance evidence to separate per-hook timeout headroom,
+  conservative aggregate process cost, and concurrent event wall latency. The
+  current 17-hook formal baseline is green without raising the former absolute
+  threshold.
+- Added one deduplicated SessionStart runtime dimension row and the
+  `agentsmd scorecard` v1 report/compare surface. It separates data provenance,
+  full versus targeted conformance captures, freshness, proxies, missing
+  denominators, fallback use, prompt budget, worktree residue, operator actions,
+  and measurement limits without automatically governing rules.
+- Added isolated pinned/latest runtime-canary orchestration with positive and
+  near-negative turns, machine-readable failures, informational quick
+  performance, four distributed automation recipes, scheduled runtime and
+  governance workflows, and optional trusted same-repository read-only Codex PR
+  review with a separate least-privilege feedback job.
 - Added eight single-turn `native-continuity` conformance cases covering
   explicit goal creation, ordinary/L3 near-negatives, active-goal inspection,
   unrelated-thread routing, evidence-gated completion, steering, and fork

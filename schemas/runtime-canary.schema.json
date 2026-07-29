@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/runtime-canary.schema.json",
+  "title": "agentsmd runtime canary report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "captured_at",
+    "channel",
+    "pass",
+    "release_blocking",
+    "support_policy_effect",
+    "runtime",
+    "health",
+    "hook_contract",
+    "scenarios",
+    "performance",
+    "failures",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "agentsmd-runtime-canary" },
+    "captured_at": { "$ref": "#/$defs/text" },
+    "channel": { "enum": ["pinned", "latest"] },
+    "pass": { "type": "boolean" },
+    "release_blocking": { "type": "boolean" },
+    "support_policy_effect": { "enum": ["observed-pass", "pinned-release-block", "compatibility-report-only"] },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "health": { "$ref": "#/$defs/health" },
+    "hook_contract": { "$ref": "#/$defs/hookContract" },
+    "scenarios": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/scenario" }
+    },
+    "performance": { "$ref": "#/$defs/performance" },
+    "failures": { "$ref": "#/$defs/textList" },
+    "limits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/longText" }
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "longText": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "textList": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/longText" }
+    },
+    "nonnegative": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+    "nullableNumber": {
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 100000000 },
+        { "type": "null" }
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codex_version", "model", "agentsmd_version", "surface"],
+      "properties": {
+        "codex_version": { "$ref": "#/$defs/text" },
+        "model": { "$ref": "#/$defs/text" },
+        "agentsmd_version": { "$ref": "#/$defs/text" },
+        "surface": { "$ref": "#/$defs/text" }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install_pass", "doctor_pass", "enforcement", "doctor_checks", "failed_checks"],
+      "properties": {
+        "install_pass": { "type": "boolean" },
+        "doctor_pass": { "type": "boolean" },
+        "enforcement": { "type": "boolean" },
+        "doctor_checks": { "$ref": "#/$defs/nonnegative" },
+        "failed_checks": { "$ref": "#/$defs/textList" }
+      }
+    },
+    "hookContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exit_code", "passed", "failed"],
+      "properties": {
+        "exit_code": { "type": "integer", "minimum": -1, "maximum": 255 },
+        "passed": { "$ref": "#/$defs/nonnegative" },
+        "failed": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "scenarioEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "changed_files", "validation_completed", "privacy_allowlist"],
+      "properties": {
+        "events": { "$ref": "#/$defs/nonnegative" },
+        "changed_files": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "validation_completed": { "type": "boolean" },
+        "privacy_allowlist": { "type": "boolean" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "pass", "failures", "evidence"],
+      "properties": {
+        "scenario": { "enum": ["positive", "near-negative"] },
+        "pass": { "type": "boolean" },
+        "failures": { "$ref": "#/$defs/textList" },
+        "evidence": { "$ref": "#/$defs/scenarioEvidence" }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "aggregate_pretooluse_p95_ms",
+        "concurrent_pretooluse_p95_ms",
+        "aggregate_baseline_p95_ms",
+        "concurrent_baseline_p95_ms",
+        "aggregate_ratio",
+        "concurrent_ratio",
+        "state"
+      ],
+      "properties": {
+        "runs": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "aggregate_pretooluse_p95_ms": { "$ref": "#/$defs/nullableNumber" },
+        "concurrent_pretooluse_p95_ms": { "$ref": "#/$defs/nullableNumber" },
+        "aggregate_baseline_p95_ms": { "$ref": "#/$defs/nullableNumber" },
+        "concurrent_baseline_p95_ms": { "$ref": "#/$defs/nullableNumber" },
+        "aggregate_ratio": { "$ref": "#/$defs/nullableNumber" },
+        "concurrent_ratio": { "$ref": "#/$defs/nullableNumber" },
+        "state": { "const": "informational" }
+      }
+    }
+  }
+}

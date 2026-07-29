@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm test
+      - run: npm run test:phase4
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -38,6 +39,7 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - run: npm run test:phase4
 
   user-journey:
     runs-on: ubuntu-latest

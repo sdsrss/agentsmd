@@ -223,9 +223,9 @@ withSandbox((dir) => {
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   t('install adds agentsmd hook entries', () => assert.strictEqual(H.countAgentsmdHooks(after), EXPECTED_HOOKS));
   t('install preserves the other-tenant entries (3 events)', () => assert.strictEqual(countCmd(after, (c) => c === TENANT_CMD), 3));
-  t('agentsmd entries land in SessionStart/PreToolUse/Stop', () => {
+  t('agentsmd entries land in SessionStart/PreToolUse/PostToolUse/Stop', () => {
     const p = JSON.parse(after);
-    for (const ev of ['SessionStart', 'PreToolUse', 'Stop']) assert(p.hooks[ev].some((g) => g.hooks.some((h) => H.isAgentsmdCommand(h.command))), ev + ' missing agentsmd');
+    for (const ev of ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop']) assert(p.hooks[ev].some((g) => g.hooks.some((h) => H.isAgentsmdCommand(h.command))), ev + ' missing agentsmd');
   });
 });
 

@@ -148,8 +148,10 @@ t('hooks: install-template and plugin-manifest wirings match', () => {
   const b = basenames(read('hooks.json'));
   assert.deepStrictEqual(a, b, 'install-template vs plugin-manifest wiring differ');
   assert.deepStrictEqual(Object.keys(a).sort(), [...hr.registered_hook_events].sort(), 'manifest registered_hook_events differ from wiring');
-  const supported = new Set(hr.supported_hook_events || []);
-  assert(hr.registered_hook_events.every((event) => supported.has(event)), 'registered hook event missing from supported_hook_events');
+  const validated = new Set(hr.validated_hook_events || []);
+  const documented = new Set(hr.documented_hook_events || []);
+  assert(hr.registered_hook_events.every((event) => documented.has(event)), 'registered hook event missing from documented_hook_events');
+  assert(hr.validated_hook_events.every((event) => documented.has(event)), 'validated hook event missing from documented_hook_events');
 });
 
 t('plugin: manifest explicitly selects its root hook wiring', () => {
@@ -384,10 +386,10 @@ t('README: EN + zh hook-table row counts match the wiring', () => {
       if (name) expected.set(name, event);
     }
   }
-  const rowRe = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(SessionStart|PreToolUse(?::Bash)?|UserPromptSubmit|Stop)\b.*$/gm;
+  const rowRe = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop)(?::[^|]+)?\s*\|.*$/gm;
   for (const f of ['README.md', 'README.zh-CN.md']) {
     const src = read(f);
-    const actual = new Map([...src.matchAll(rowRe)].map((m) => [m[1], m[2].replace(':Bash', '')]));
+    const actual = new Map([...src.matchAll(rowRe)].map((m) => [m[1], m[2]]));
     assert.deepStrictEqual([...actual].sort(), [...expected].sort(), `${f} hook names/events differ from wiring`);
     const transcript = [...src.matchAll(rowRe)].find((m) => m[1] === 'transcript-structure-scan');
     assert(transcript && transcript[0].includes('§10') && transcript[0].includes('§6'), `${f} transcript observer omits §10/§6 scope`);

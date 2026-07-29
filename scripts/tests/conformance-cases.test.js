@@ -28,7 +28,8 @@ const KINDS = new Set(['positive', 'near-negative', 'conflict']);
 const MEASUREMENTS = new Set(['runtime-tool', 'runtime-negative', 'policy-decision']);
 const ASSERT_TYPES = new Set([
   'file_exists', 'file_absent', 'last_regex', 'last_not_regex',
-  'tele_block', 'no_tele_blocks', 'exec_regex_min', 'exec_regex_absent', 'exec_regex_max',
+  'tele_block', 'tele_observe', 'no_tele_blocks',
+  'exec_regex_min', 'exec_regex_absent', 'exec_regex_max',
   'native_tool_min', 'native_tool_max',
   'commits_delta', 'commit_subject_regex', 'cmd_green', 'any_of',
 ]);
@@ -113,7 +114,9 @@ t('assert vocabulary matches what conformance-eval.sh implements', () => {
         assert.ok(typeof a.regex === 'string' && a.regex.length > 0, c.id + ': ' + a.type + ' regex');
         new RegExp(a.regex); // must compile
       }
-      if (a.type === 'tele_block') assert.ok(typeof a.section === 'string' && a.section.startsWith('§'), c.id + ': tele_block section');
+      if (['tele_block', 'tele_observe'].includes(a.type)) {
+        assert.ok(typeof a.section === 'string' && a.section.startsWith('§'), c.id + ': ' + a.type + ' section');
+      }
       if (a.type === 'exec_regex_min') assert.ok(Number.isInteger(a.min) && a.min >= 1, c.id + ': exec_regex_min min');
       if (a.type === 'exec_regex_max') assert.ok(Number.isInteger(a.max) && a.max >= 0, c.id + ': exec_regex_max max');
       if (a.type === 'native_tool_min') assert.ok(Number.isInteger(a.min) && a.min >= 1, c.id + ': native_tool_min min');
@@ -140,11 +143,13 @@ t('rule anchors resolve against hard-rules.json or spec/AGENTS.md headers', () =
   }
 });
 
-t('tele_block sections are live (a registered hook actually emits them)', () => {
+t('telemetry assertion sections are live (a registered hook actually emits them)', () => {
   const live = new Set(hardRules.live_sections);
   for (const c of lib.cases) {
     for (const a of flatAsserts(c.assert)) {
-      if (a.type === 'tele_block') assert.ok(live.has(a.section), c.id + ': ' + a.section + ' not in live_sections');
+      if (['tele_block', 'tele_observe'].includes(a.type)) {
+        assert.ok(live.has(a.section), c.id + ': ' + a.section + ' not in live_sections');
+      }
     }
   }
 });
@@ -180,6 +185,21 @@ t('setup_files paths are project-relative (no absolute, no traversal)', () => {
 t('runner exists and points at this library', () => {
   const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
   assert.ok(runner.includes('qa/conformance/cases.json'), 'runner default --cases path drifted');
+  assert.ok(runner.includes('"$CODEX_BIN" -a never exec'),
+    'runner must pin non-interactive approval instead of inheriting mutable user config');
+  assert.ok(runner.includes('--sandbox workspace-write --add-dir "$PROJ/.git"'),
+    'runner must grant writes only to the throwaway workspace and its git metadata');
+  assert.ok(!runner.includes('--sandbox danger-full-access'),
+    'runner must not grant full host access to model-generated commands');
+  assert.ok(!runner.includes('--add-dir /tmp'),
+    'runner must not make the whole shared temp root writable');
+  assert.ok(runner.includes('--ignore-rules --json'),
+    'runner must isolate spec/hook conformance from operator-local execpolicy rules');
+  assert.ok(!runner.includes('--ignore-user-config'),
+    'runner still needs the configured provider/auth and installed agentsmd surface');
+  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256']) {
+    assert.ok(runner.includes(`${key}:$${key}`), `results metadata missing ${key}`);
+  }
   for (const type of ASSERT_TYPES) {
     assert.ok(runner.includes(type), 'runner does not implement assert type ' + type);
   }

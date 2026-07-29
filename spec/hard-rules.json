@@ -1,11 +1,24 @@
 {
   "_doc": "Machine-readable manifest of every HARD / MUST rule in spec/AGENTS*.md. It drives hook wiring, rule-specific opportunity/outcome review, and CI anchor drift checks. Telemetry never edits the spec automatically: zero or high hits require an eligible/evaluated denominator plus operator review. Update this manifest in the same edit as a HARD rule. enforcement: self | hook | external | both. bypassable: false = immutable — no inline token or exception may skip enforcement in hooks (structured per-repo exceptions for §8-secrets/§8-unknown-script are fingerprint+expiry lookups, not bypasses, and are telemetried as exception events); true requires bypass_token and telemetry on every use.",
-  "spec_version": "v5.0.1",
+  "spec_version": "v5.1.0",
   "spec_files": {
     "core": "spec/AGENTS.md",
     "extended": "spec/AGENTS-extended.md"
   },
-  "supported_hook_events": [
+  "documented_hook_events": [
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "UserPromptSubmit",
+    "SubagentStop",
+    "Stop",
+    "SessionStart",
+    "SubagentStart",
+    "SessionEnd"
+  ],
+  "validated_hook_events": [
     "SessionStart",
     "PreToolUse",
     "PostToolUse",
@@ -15,8 +28,36 @@
   "registered_hook_events": [
     "SessionStart",
     "PreToolUse",
+    "PostToolUse",
     "UserPromptSubmit",
     "Stop"
+  ],
+  "contract_source": "official-codex-hooks",
+  "contract_url": "https://learn.chatgpt.com/docs/hooks",
+  "validated_codex_versions": [
+    "0.145.0"
+  ],
+  "validated_at": "2026-07-29",
+  "preferred_output_shape": {
+    "PreToolUse.deny": "hookSpecificOutput.permissionDecision=deny",
+    "additional_context": "hookSpecificOutput.additionalContext",
+    "Stop.message_input": "last_assistant_message"
+  },
+  "compatibility_fallbacks": [
+    {
+      "event": "PreToolUse",
+      "from": "hookSpecificOutput.permissionDecision=deny",
+      "to": "decision=block",
+      "telemetry": false,
+      "reason": "Keep the older block fields beside the canonical deny fields during the supported runtime transition."
+    },
+    {
+      "event": "Stop",
+      "from": "last_assistant_message",
+      "to": "bounded transcript tail",
+      "telemetry": "compat-fallback",
+      "reason": "Retain older runtime compatibility while making fallback usage measurable."
+    }
   ],
   "telemetry_log": "~/.codex/logs/agentsmd.jsonl",
   "operational_sections": [

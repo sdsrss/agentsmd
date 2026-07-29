@@ -1,0 +1,64 @@
+name: Weekly runtime canary
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentsmd-runtime-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: pinned
+            package: '@openai/codex@0.145.0'
+          - channel: latest
+            package: '@openai/codex@latest'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - name: Install matrix Codex runtime
+        env:
+          CODEX_PACKAGE: ${{ matrix.package }}
+        run: npm install --global "$CODEX_PACKAGE"
+      - name: Run isolated runtime canary
+        id: canary
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CANARY_CHANNEL: ${{ matrix.channel }}
+        run: |
+          mkdir -p "artifacts/$CANARY_CHANNEL"
+          node qa/runtime-canary.js \
+            "--channel=$CANARY_CHANNEL" \
+            "--out=artifacts/$CANARY_CHANNEL"
+      - name: Retain machine-readable result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-canary-${{ matrix.channel }}
+          path: artifacts/${{ matrix.channel }}
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce pinned lane
+        if: always() && matrix.channel == 'pinned' && steps.canary.outcome == 'failure'
+        run: |
+          echo "Pinned runtime canary failed; inspect the retained JSON capture." >&2
+          exit 1
+      - name: Record latest lane without changing support policy
+        if: always() && matrix.channel == 'latest' && steps.canary.outcome == 'failure'
+        run: echo "Latest runtime failure is compatibility-report-only; inspect the retained JSON capture."

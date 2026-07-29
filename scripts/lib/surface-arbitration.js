@@ -35,6 +35,7 @@ const PLUGIN_HOOK_SUPPORT = [
   'hooks/lib/platform-timeout.js',
   'hooks/lib/rule-hits.sh',
   'hooks/lib/command-parse.js',
+  'hooks/lib/event-journal.js',
   'hooks/lib/orchestrator-source.js',
 ];
 
@@ -314,6 +315,7 @@ function pluginHookRows(hooksRoot) {
           matcher: group.matcher == null ? null : group.matcher,
           command: hook.command,
           timeout: hook.timeout == null ? null : hook.timeout,
+          additionalContextLimit: hook.additionalContextLimit == null ? null : hook.additionalContextLimit,
         });
       }
     }
@@ -328,17 +330,25 @@ function pluginHookCommand(basename) {
 }
 
 function expectedPluginHookRows() {
-  const eventOffsets = new Map();
+  const eventGroups = new Map();
   return REG.HOOK_REGISTRY.map((hook) => {
-    const hookIndex = eventOffsets.get(hook.hookEvent) || 0;
-    eventOffsets.set(hook.hookEvent, hookIndex + 1);
+    const groups = eventGroups.get(hook.hookEvent) || [];
+    let groupIndex = groups.findIndex((group) => group.matcher === hook.matcher);
+    if (groupIndex < 0) {
+      groupIndex = groups.length;
+      groups.push({ matcher: hook.matcher, hooks: 0 });
+      eventGroups.set(hook.hookEvent, groups);
+    }
+    const hookIndex = groups[groupIndex].hooks;
+    groups[groupIndex].hooks += 1;
     return {
       event: hook.hookEvent,
-      groupIndex: 0,
+      groupIndex,
       hookIndex,
       matcher: hook.matcher == null ? null : hook.matcher,
       command: pluginHookCommand(hook.basename),
       timeout: hook.timeout,
+      additionalContextLimit: hook.additionalContextLimit == null ? null : hook.additionalContextLimit,
     };
   });
 }
@@ -604,6 +614,7 @@ function managedHookRows(hooksRoot) {
             matcher: group.matcher == null ? null : group.matcher,
             command: hook.command,
             timeout: hook.timeout == null ? null : hook.timeout,
+            additionalContextLimit: hook.additionalContextLimit == null ? null : hook.additionalContextLimit,
           });
         }
       }

@@ -26,11 +26,11 @@ generator 仅做 Buffer 拼接，不 trim、不补换行。`spec/AGENTS.md` 是�
 ```
 bin/        npm CLI 入口  bin/agentsmd.js（Node）：`agentsmd <cmd>` / `npx --package @sdsrs/agentsmd agentsmd <cmd>`
               —— 薄 dispatcher，spawn（而非 import）对应 L2 脚本，透传参数/输出/退出码；不属于三层，不引入 L1↔L2 耦合
-L3  命令层    15 个 Codex skills（dir + SKILL.md）：init / analyze / design / audit / doctor / rules / status / restore / perf 等
+L3  命令层    17 个 Codex skills（dir + SKILL.md）：init / analyze / design / audit / doctor / rules / status / restore / verify / scorecard / perf 等
               —— stub，告诉 agent 去跑对应的 L2 脚本
 L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
               —— 处理安装、scoped merge/remove、遥测聚合与治理信号
-L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 4 个已注册事件调用
+L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 5 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
 ```
 
@@ -50,14 +50,34 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 |---|---|---|---|
 | 启用 | standalone config | `[features] hooks = true`；旧 `codex_hooks` 由 installer 迁移 | doctor 检查 deployed flag |
 | 注册 | repository manifests | standalone 使用 `~/.codex/hooks.json` scoped merge/remove | drift 校验两份 wiring |
-| 事件 | manifest keys | supported 5 个；agentsmd registered 4 个 | fixture 不证明外部事件全集 |
-| 条目形状 | JSON wiring | `{"type":"command","command":"...","timeout":N}` | JSON/drift test |
+| 事件 | official contract + manifest keys | documented 11 个；validated 5 个；agentsmd registered 5 个 | 三组元数据不互相冒充 |
+| 条目形状 | JSON wiring | `type/command/timeout`；产生 context 的 handler 另有 `additionalContextLimit` | JSON/drift test |
 | matcher | JSON wiring | `Bash`、`*`、`startup\|resume\|clear\|compact` | JSON/drift test |
-| stdin | smoke fixture | snake_case `tool_name/tool_input/session_id/...` | synthetic fixture contract |
-| 阻断输出 | smoke assertion | `decision:block` + reason/systemMessage | synthetic fixture contract |
+| stdin | official contract + fixture | common fields + event-specific `turn_id/tool_use_id/last_assistant_message/...` | versioned synthetic fixture |
+| 阻断输出 | smoke assertion | canonical `permissionDecision:deny` + legacy `decision:block` compatibility fields | positive / near-negative |
 | 注入 context | smoke assertion | `hookSpecificOutput.additionalContext` | synthetic fixture contract |
+| Stop message | official contract + parity fixture | `last_assistant_message` canonical；bounded transcript compatibility fallback | fallback telemetry |
 
-证据锚点：`hooks.json`、`hooks/hooks.json`、`scripts/lib/hook-registry.js` 与 `hooks/tests/smoke.sh`。这些证明仓库模型内部一致；外部 Codex harness compatibility 仍需对应版本的官方契约或脱敏实机 capture。
+证据锚点：`spec/hard-rules.json`、`qa/hook-contract-fixtures.json`、
+`hooks.json`、`hooks/hooks.json`、`scripts/lib/hook-registry.js`、
+`scripts/tests/hook-contract.test.js` 与 `hooks/tests/smoke.sh`。这些证明仓库模型
+内部一致；`validated_codex_versions` 只记录真实验证过的 runtime，不能从 fixture
+外推其他版本。官方同时明确 `transcript_path` 指向的格式不是稳定 Hook 接口，所以
+消息扫描优先使用 `last_assistant_message`，fallback 每次写
+`event:"compat-fallback"`。
+
+`PostToolUse` 的 validated 状态来自 Codex 0.145.0 项目级真实 canary：
+`qa/event-journal-runtime-canary.js` 使用临时 repo、一次性 hook-trust bypass 和
+隔离 hook state，确定性核对 mutation intent/completion、其后的成功 validation、
+Stop native consumer、privacy allowlist 与零 unvalidated flag；capture 只证明记录
+的 runtime/model/surface 组合。
+
+Phase 4 的 `qa/runtime-canary.js` 在这条单场景证据之上增加 pinned/latest
+matrix、positive/near-negative 双场景、隔离 install/status/doctor、结构
+contract 与 5-run 信息性性能趋势。每个 Codex 场景使用自己的临时
+`CODEX_HOME`；失败也必须生成 versioned JSON。pinned 失败标记 release
+blocking，latest 失败只改变 compatibility report，不自动改 supported
+baseline。`.github/workflows/runtime-canary.yml` 提供固定周节奏。
 
 **两段式路径解析**：plugin manifest 使用官方 `${PLUGIN_ROOT}`（旧运行时回退
 `${CLAUDE_PLUGIN_ROOT}`）仅用于定位入口脚本；两者都缺失时 launcher 以 0
@@ -75,9 +95,10 @@ manifest 仍写入绝对 hook 路径，不依赖 plugin runtime 变量。
 spec/AGENTS*.md 的 (HARD) 规则
   └─ spec/hard-rules.json           机器可读镜像（每条规则的 section_anchor + enforcement + codex_hook_event）
       └─ hooks/*.sh + hooks/lib/*.sh 强制/支撑  命中/阻断/fail-open 时 hook_record
-          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（ts/hook/event/project/session_id/spec_section/extra）
+          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度）
               └─ scripts/audit.js    bySection 聚合
-                  └─ 治理信号         rule-specific opportunity + outcome → operator review
+                  ├─ 治理信号         rule-specific opportunity + outcome → operator review
+                  └─ scorecard        session_id join + provenance split + freshness/measurement limits
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
@@ -99,7 +120,7 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 - **安装/更新 = stage + preflight + transaction**：先构建完整 release tree 并验证既有 manifest ownership，再更新共享文件和 live tree；注入失败时用快照条件检查回滚，拒绝覆盖在最终文件系统操作前已观察到的事务外写入。
 - **卸载 = preflight + transaction**：先验证全部 manifest-owned artifact，任一冲突都零 mutation；通过后 quarantine owned tree 并更新共享文件，失败时以快照条件检查回滚。可移植 POSIX 不提供原子 compare-and-replace，因此 check 到 rename/unlink 之间的非协作写入仍是明确边界。
 - **修复 = read-only plan + digest-bound confirm**：只对 valid exact-path manifest 下“缺失而未修改”且 source version/deploy digest 与 manifest 完全一致的 owned artifact 开放 apply；确认时重算 source/live/shared descriptor，创建包含 deploy、skills、extended、manifest 和 3 个共享文件的 pre-repair snapshot，再复用 install transaction。修改、额外文件、manifest-less partial、artifact 不匹配或摘要漂移均拒绝写入。
-- **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 15 条 wiring/support/order。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。plugin context 按 `PLUGIN_ROOT` → `CLAUDE_PLUGIN_ROOT` → skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 选择；冲突 fail closed，且不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
+- **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order/context limit、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 17 条 wiring/support/order/context limit。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。plugin context 按 `PLUGIN_ROOT` → `CLAUDE_PLUGIN_ROOT` → skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 选择；冲突 fail closed，且不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
 - **运行激活证据与结构健康分离**：plugin SessionStart 仅在 plugin surface 被仲裁选中且 packaged spec 成功加载后，原子写入 `$PLUGIN_DATA/runtime/activation.json`（兼容 `$CLAUDE_PLUGIN_DATA`），目录/文件权限分别为 `0700`/`0600`。receipt 记录版本、session、时间、profile、选择原因与 extended 路径；status/doctor 的 `observed` 只证明 SessionStart handler 已选择并准备返回该 profile，不证明 Codex host 已接纳响应，也不外推为全部 hooks trusted/enforced。缺失 receipt 是 `unverified` 信息态，不改变既有 doctor 退出语义。
 - **短生命周期状态按物理 surface 隔离**：hook 复用 `${BASH_SOURCE[0]}` 的物理路径判定；plugin 新写入 `$PLUGIN_DATA/runtime`（兼容 `$CLAUDE_PLUGIN_DATA`），standalone 新写入 `$CODEX_HOME/.agentsmd-state/runtime`，未知/source-tree 或缺少 plugin data 的环境保留 legacy shared-root fail-open。reader 按 private→legacy 双读，writer 只写 private，旧文件不批量移动或推断归属。manifest、`arbitration-cache.json` 和 telemetry 继续共享；plugin-state-only cleanup 只对白名单 private regular file/queue 生效，保留 shared、unknown 与 symlink。
 - **阻止新双面，而不破坏旧面更新**：仅在 npm CLI 能证明不存在 standalone manifest、注册 hook、AGENTS sentinel、extended 文件、非 shim deploy、待迁移 `codexmd` surface 或本包同名 global skill 的 fresh install 前，使用 `codex plugin list --json` 精确检查 `installed===true`、`enabled===true` 的 `agentsmd@agentsmd`。命中时以 exit 1、零修改拒绝，明确要求移除 plugin 后重试；CLI 不可用、schema/字段不认识、disabled/近似名称均不伪造命中；已有 standalone 继续 update，manifest-less/legacy/skill partial 则进入既有 migration、ownership fail-closed 或 repair 诊断。没有双面 opt-in。
@@ -159,8 +180,12 @@ agentsmd/
     hooks.json               agentsmd 的 hook 条目（供安装器 append 进 ~/.codex/hooks.json）
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
-  scripts/                   L2 管理脚本（含 install/uninstall/repair 生命周期）
-  skills/                    L3 命令层，15 个 agentsmd-* Codex skills
+  scripts/                   L2 管理脚本（含 install/uninstall/repair/verify）
+  schemas/                   task/evidence、scorecard、runtime-canary 的有界 JSON Schema
+  qa/validation-map.json     路径→风险→检查的机器可读验证映射
+  qa/runtime-canary.js       pinned/latest 隔离 canary 与机器可读证据
+  automation/                weekly canary/governance、readiness、PR review recipes
+  skills/                    L3 命令层，17 个 agentsmd-* Codex skills
   ARCHITECTURE.md            ✅ 本文件
   docs/                      设计笔记（gitignored scratch：agentsmd.txt 等）
   tasks/                     机器本地工作状态（agentsmd-build.md）
@@ -194,9 +219,14 @@ dual-profile metadata 只作为迁移输入读取，不能重新启用旧 profil
 ## 9. 开放问题（阻断对应 Phase）
 
 已解决（Phase 1 fixture + smoke 验证）：
-- ✅ **#1 PreToolUse deny 字段**：`{decision:"block", reason, systemMessage, hookSpecificOutput:{hookEventName}}`——**不是** Claude 的 `permissionDecision:"deny"`。这是阻断类 hook 的唯一移植增量。
-- ✅ **#2 stdin payload 形状**：snake_case，与 Claude Code **逐字段一致**（`tool_name`/`tool_input.command`/`session_id`/`transcript_path`/`cwd`/`hook_event_name`/`prompt`/`stop_hook_active`/`tool_response`）。读字段的 hook 零改动移植。
-- ✅ **#3 注册事件**：manifest 区分 supported 5-event 集合与 agentsmd registered 4-event 集合；session-end 行为折进 Stop observer，不再宣称未经当前文档验证的“恰好”事件总数。
+- ✅ **#1 PreToolUse deny 字段**：当前 canonical
+  `hookSpecificOutput.permissionDecision:"deny"` 与 reason 字段已接入；旧
+  `decision:"block"` 同义字段仅作为兼容层保留。
+- ✅ **#2 stdin payload 形状**：common 与 event-specific 字段按当前 Codex
+  契约分开；`turn_id`、`tool_use_id`、`last_assistant_message` 有 versioned
+  fixture，transcript 只保留 bounded fallback。
+- ✅ **#3 事件语义**：manifest 分开记录 official documented、agentsmd
+  validated 与 registered 集合，不再把项目验证子集写成 Codex 的事件全集。
 
 已解决（实现落地）：
 - ✅ **[Phase 3/5]** 打包/安装机制 = **双路径**：plugin 携带的顶层 `hooks.json`（相对路径）由 Codex plugin 系统自动装配 + `scripts/install.js` 标记式 merge 手动并入 `~/.codex/hooks.json`；两份布线由 `drift.test.js` gate #4 保持一致。

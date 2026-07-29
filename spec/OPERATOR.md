@@ -99,26 +99,32 @@ The convention-adoption layer is advisory and structurally independent of the `�
 
 The N-01 incident defined the failure mode this SLO exists for: a hook whose own work approaches its registered Codex timeout does not degrade gracefully — it gets killed and **fails open**, silently, with no telemetry. The SLO therefore tracks headroom against each hook's timeout, not absolute machine speed.
 
-**What is measured.** `node scripts/perf-baseline.js --slo` runs two surface configurations in an isolated sandbox (never the live `~/.codex`) and grades them against `qa/perf/slo.json`:
+**What is measured.** Codex launches matching command hooks for one event concurrently. `node scripts/perf-baseline.js --slo` therefore keeps two independent latency lanes, runs two surface configurations in an isolated sandbox (never the live `~/.codex`), and grades them against `qa/perf/slo.json`:
+
+- **Aggregate process cost** — per-hook ON p95 values measured separately and summed. This conservative total detects extra processes, repeated parsing, and cache-probe work, but is not user-visible wall latency.
+- **Concurrent event wall** — all matching hooks are launched together and timed until the last exits. This mirrors runtime scheduling and records p50/p95, but excludes Codex IPC and remains a lower bound.
 
 - `single` — one installed surface; the common case.
-- `dual-warm` — standalone + plugin both registered, arbitration cache fresh: the losing copy must yield at jq cost. This is the long-term N-01 regression guard; a node spawn creeping back into the per-hook check fails the `dual-warm-pretooluse-overhead` criterion first.
-- `dual-cold` (informational, `--surface=dual-cold`) — no cache: both copies do full work by design (fail-safe direction). Not graded; it is the documented one-session degradation window after cache invalidation.
+- `dual-warm` — standalone + plugin both registered, arbitration cache fresh: the losing copy must yield at jq cost. Aggregate and wall ratios are graded independently.
+- `dual-cold` (informational, `--surface=dual-cold`) — the isolated cache is removed before every sample, so both copies do full work in the fail-safe direction. Not graded; it represents the bounded degradation window after cache invalidation.
 
-Scope is the per-call hot path (`PreToolUse`) plus the per-turn events (`UserPromptSubmit`, `Stop`). `SessionStart` is out of scope: it fires once per session and legitimately pays the arbitration inspector.
+Scope is the per-tool hot path (`PreToolUse`, `PostToolUse`) plus the per-turn events (`UserPromptSubmit`, `Stop`). `SessionStart` is out of scope: it fires once per session and legitimately pays the arbitration inspector.
 
 **Criteria** (numbers live in `qa/perf/slo.json`; the file is the single source of truth):
 
 1. `per-hook-p95-headroom` — every hook copy's ON p95 ≤ the configured fraction of its registered timeout (`scripts/lib/hook-registry.js`).
-2. `dual-warm-pretooluse-overhead` — dual-warm PreToolUse p95 total (both copies) minus single total ≤ the configured cap.
+2. `dual-warm-pretooluse-aggregate-ratio` — conservative dual-warm aggregate p95 sum divided by the single-surface sum stays below the configured ratio.
+3. `dual-warm-pretooluse-wall-ratio` — dual-warm concurrent wall p95 divided by single-surface concurrent wall p95 stays below its separate ratio.
 
-**Noise discipline.** A single noisy number never fails the gate: the default run is ≥2 rounds × ≥15 runs/hook, each row keeps its best (lowest-p95) round, and if rounds disagree beyond `stability.max_round_p95_delta_fraction` the verdict is INCONCLUSIVE (exit 3) — re-run on a quiet machine instead of trusting either round. CI (`perf-baseline.test.js`) asserts shapes and grading logic only, never wall-clock values.
+**Noise discipline.** A single noisy number never fails the gate: the default run is ≥2 rounds × ≥15 runs/hook, each row and event-wall lane keeps its best (lowest-p95) round, and if aggregate or wall rounds disagree beyond `stability.max_round_p95_delta_fraction` the verdict is INCONCLUSIVE (exit 3) — re-run on a quiet machine instead of trusting either round. CI (`perf-baseline.test.js`) asserts shapes and grading logic only, never wall-clock values.
 
-**Cadence.** Any change touching a hook hot path (a `hooks/*.sh` on PreToolUse, `hook-common.sh`, the arbitration cache read path, `hooks.json` timeouts) must include a `--slo` run in its validation evidence, comparing against `qa/perf/baseline.json`. Re-record the baseline on the reference machine whenever hook count, timeouts, or the yield mechanism change.
+**Cadence.** Any change touching a hook hot path (a `hooks/*.sh` on PreToolUse, `hook-common.sh`, the arbitration cache read path, `hooks.json` timeouts) must include a `--slo` run in its validation evidence, comparing both lanes against `qa/perf/baseline.json`. Re-record the baseline on the reference machine whenever hook count, timeouts, or the yield mechanism change.
+
+**Threshold-change gate.** A threshold may change only with two stable reference-machine rounds, the prior and proposed measured values, and a root-cause note explaining why the workload contract changed (for example, a deliberate hook-count or timeout change). A machine swap, a baseline rewrite, or reclassifying aggregate cost as wall latency is not threshold evidence. Threshold-only changes do not close a reproduced red criterion.
 
 **Regression / waiver / investigation flow.**
 
 1. `--slo` FAIL on a hot-path change → first re-run once (exit 3 discipline applies). A reproduced FAIL blocks the change unless waived.
 2. Waiver = a `known-drop: <reason>` line in the commit body naming the failed criterion and the measured numbers (mirrors the spec's §7 metric-coupled evidence rule). A waiver without numbers is not a waiver.
-3. Investigate with the per-hook table: `delta_ms` isolates hook logic from the spawn floor (`off_ms`); a jump confined to the `plugin` copy in dual-warm means the yield path regressed (check for new spawns in `hook_plugin_shadowed_by_standalone`); a uniform jump across hooks means the floor or the environment changed, not a hook.
-4. Measured numbers are a LOWER bound (direct `bash` spawns, non-triggering `echo` event); the Codex harness round-trip and block-path recognizers add real-world cost on top. Treat headroom fractions accordingly — they are deliberately conservative.
+3. Investigate the lanes separately: `delta_ms` isolates hook logic from the spawn floor (`off_ms`); aggregate-only growth indicates more total process work, while concurrent-wall growth indicates longer user wait. A jump confined to the `plugin` copy in dual-warm means the yield path regressed (check `hook_plugin_shadowed_by_standalone`); a uniform floor jump points to the environment.
+4. Concurrent-wall values are a LOWER bound (direct `bash` spawns, non-triggering `echo` event); Codex IPC and block-path recognizers add real-world cost. Aggregate sums are deliberately conservative and must not be presented as that wall value.

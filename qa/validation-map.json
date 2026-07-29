@@ -1,0 +1,660 @@
+{
+  "schema_version": 1,
+  "checks": {
+    "spec-check": {
+      "command": [
+        "npm",
+        "run",
+        "spec:check"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 10
+    },
+    "drift": {
+      "command": [
+        "node",
+        "scripts/tests/drift.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 20
+    },
+    "hard-rules": {
+      "command": [
+        "node",
+        "scripts/safety-coverage-audit.js",
+        "--json"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 30
+    },
+    "conformance-structure": {
+      "command": [
+        "node",
+        "scripts/tests/conformance-cases.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 40
+    },
+    "hook-smoke": {
+      "command": [
+        "bash",
+        "hooks/tests/smoke.sh"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 50
+    },
+    "shellcheck": {
+      "command": [
+        "npm",
+        "run",
+        "lint:shell"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 60
+    },
+    "safety-coverage": {
+      "command": [
+        "node",
+        "scripts/safety-coverage-audit.js",
+        "--json"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 70
+    },
+    "perf-slo": {
+      "command": [
+        "node",
+        "scripts/perf-baseline.js",
+        "--slo",
+        "--runs=15",
+        "--rounds=2",
+        "--json"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "widened",
+      "order": 80
+    },
+    "runtime-canary": {
+      "command": [
+        "node",
+        "qa/runtime-canary.js",
+        "--channel=pinned"
+      ],
+      "execution": "report-only",
+      "external_service": true,
+      "auth_boundary": false,
+      "width": "widened",
+      "order": 90
+    },
+    "runtime-canary-unit": {
+      "command": [
+        "node",
+        "scripts/tests/runtime-canary.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 91
+    },
+    "event-runtime-canary-unit": {
+      "command": [
+        "node",
+        "scripts/tests/event-journal-runtime-canary.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 92
+    },
+    "install": {
+      "command": [
+        "node",
+        "scripts/tests/install.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 100
+    },
+    "preflight": {
+      "command": [
+        "node",
+        "scripts/tests/preflight.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 110
+    },
+    "fault-injection": {
+      "command": [
+        "node",
+        "scripts/tests/fault-injection.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 120
+    },
+    "repair": {
+      "command": [
+        "node",
+        "scripts/tests/repair.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 130
+    },
+    "distribution": {
+      "command": [
+        "node",
+        "scripts/tests/distribution.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "widened",
+      "order": 140
+    },
+    "skill-frontmatter": {
+      "command": [
+        "node",
+        "scripts/tests/plugin-surface.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 150
+    },
+    "skill-routing": {
+      "command": [
+        "node",
+        "scripts/tests/skill-routing.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 160
+    },
+    "task-contract": {
+      "command": [
+        "node",
+        "scripts/tests/task-contract.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 170
+    },
+    "validation-router": {
+      "command": [
+        "node",
+        "scripts/tests/verify.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 180
+    },
+    "scorecard-unit": {
+      "command": [
+        "node",
+        "scripts/tests/scorecard.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 181
+    },
+    "argv-lint": {
+      "command": [
+        "node",
+        "scripts/lint-argv.js",
+        "--json"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 190
+    },
+    "workflow-static": {
+      "command": [
+        "node",
+        "scripts/tests/workflow-static.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 200
+    },
+    "docs-static": {
+      "command": [
+        "node",
+        "scripts/tests/drift.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 210
+    },
+    "contributor-instructions": {
+      "command": [
+        "node",
+        "scripts/tests/contributor-agents.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 220
+    },
+    "release-dry-run": {
+      "command": [
+        "npm",
+        "pack",
+        "--dry-run",
+        "--json"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "widened",
+      "order": 900
+    },
+    "full-check": {
+      "command": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "full",
+      "order": 1000
+    }
+  },
+  "routes": [
+    {
+      "id": "automation-recipes",
+      "patterns": [
+        "automation/**"
+      ],
+      "risk_categories": [
+        "automation-recipe",
+        "package-contract"
+      ],
+      "checks": [
+        "workflow-static",
+        "distribution"
+      ],
+      "reason": "Distributed automation recipes must preserve worktree, authorization, and package boundaries.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "codex-review-policy",
+      "patterns": [
+        ".github/codex/**"
+      ],
+      "risk_categories": [
+        "ci-config",
+        "llm-routing"
+      ],
+      "checks": [
+        "workflow-static"
+      ],
+      "reason": "Codex review prompts are LLM-visible CI policy and must retain the trusted-actor, read-only, and untrusted-input review contract.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "workflow-release",
+      "patterns": [
+        ".github/workflows/**"
+      ],
+      "risk_categories": [
+        "ci-config",
+        "release"
+      ],
+      "checks": [
+        "workflow-static",
+        "release-dry-run"
+      ],
+      "reason": "CI and release workflow changes require static validation and a non-publishing package dry run.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "spec-source",
+      "patterns": [
+        "spec/source/**"
+      ],
+      "risk_categories": [
+        "spec-source",
+        "shared-contract"
+      ],
+      "checks": [
+        "spec-check",
+        "drift",
+        "hard-rules",
+        "conformance-structure"
+      ],
+      "reason": "Canonical spec source changes fan out to generated and runtime contracts.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "spec-artifact",
+      "patterns": [
+        "spec/**"
+      ],
+      "risk_categories": [
+        "spec-artifact",
+        "shared-contract"
+      ],
+      "checks": [
+        "spec-check",
+        "drift",
+        "hard-rules"
+      ],
+      "reason": "Spec artifacts are shared contracts and must stay synchronized.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "native-hook",
+      "patterns": [
+        "hooks/**",
+        "hooks.json"
+      ],
+      "risk_categories": [
+        "native-hook",
+        "shared-runtime"
+      ],
+      "checks": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary"
+      ],
+      "reason": "Native hook changes affect safety coverage, shell portability, latency, and live runtime compatibility.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "lifecycle",
+      "patterns": [
+        "scripts/install.js",
+        "scripts/preflight.js",
+        "scripts/repair.js",
+        "scripts/uninstall.js",
+        "scripts/lib/lifecycle-journal.js",
+        "scripts/lib/lifecycle-lock.js"
+      ],
+      "risk_categories": [
+        "lifecycle",
+        "shared-runtime"
+      ],
+      "checks": [
+        "install",
+        "preflight",
+        "fault-injection",
+        "repair",
+        "distribution"
+      ],
+      "reason": "Lifecycle mutation paths require transaction, repair, fault, and distribution evidence.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "runtime-canary-contract",
+      "patterns": [
+        "qa/runtime-canary.js",
+        "qa/event-journal-runtime-canary.js",
+        "schemas/runtime-canary.schema.json"
+      ],
+      "risk_categories": [
+        "runtime-canary-contract",
+        "external-runtime"
+      ],
+      "checks": [
+        "runtime-canary-unit",
+        "event-runtime-canary-unit",
+        "workflow-static",
+        "runtime-canary"
+      ],
+      "reason": "Runtime canary changes require deterministic dual-scenario grading, workflow boundaries, and a report-only real-runtime observation.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "scorecard-contract",
+      "patterns": [
+        "scripts/scorecard.js",
+        "scripts/lib/scorecard.js",
+        "schemas/scorecard.schema.json"
+      ],
+      "risk_categories": [
+        "scorecard-contract",
+        "measurement-semantics"
+      ],
+      "checks": [
+        "scorecard-unit",
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Scorecard changes must preserve bounded schema, measurement limits, strict argv, and installed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "skill-metadata",
+      "patterns": [
+        "skills/**"
+      ],
+      "risk_categories": [
+        "skill-metadata",
+        "llm-routing"
+      ],
+      "checks": [
+        "skill-frontmatter",
+        "skill-routing",
+        "distribution"
+      ],
+      "reason": "Skill metadata changes alter LLM-visible routing and the installed package surface.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "automation-schema",
+      "patterns": [
+        "schemas/**"
+      ],
+      "risk_categories": [
+        "automation-contract",
+        "shared-contract"
+      ],
+      "checks": [
+        "task-contract",
+        "validation-router",
+        "distribution"
+      ],
+      "reason": "Versioned automation schemas are exported contracts.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "validation-map",
+      "patterns": [
+        "qa/validation-map.json",
+        "qa/validation-router-cases.json"
+      ],
+      "risk_categories": [
+        "validation-policy",
+        "shared-contract"
+      ],
+      "checks": [
+        "validation-router",
+        "distribution"
+      ],
+      "reason": "Validation policy changes must prove selection, widening, and package availability.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "public-cli",
+      "patterns": [
+        "bin/**"
+      ],
+      "risk_categories": [
+        "public-cli",
+        "shared-contract"
+      ],
+      "checks": [
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Public CLI changes require strict argv and installed-distribution coverage.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "package-release",
+      "patterns": [
+        "package.json",
+        "CHANGELOG.md",
+        ".codex-plugin/**",
+        ".agents/**",
+        "scripts/version-sync.js"
+      ],
+      "risk_categories": [
+        "package-config",
+        "release"
+      ],
+      "checks": [
+        "distribution",
+        "release-dry-run"
+      ],
+      "reason": "Package and release surfaces cannot bypass the full gate or dry-run artifact inspection.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "quality-assurance",
+      "patterns": [
+        "qa/**"
+      ],
+      "risk_categories": [
+        "qa-contract"
+      ],
+      "checks": [
+        "validation-router"
+      ],
+      "reason": "QA contracts require router self-tests and a full regression gate.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "documentation",
+      "patterns": [
+        "docs/**",
+        "README.md",
+        "README.zh-CN.md",
+        "ARCHITECTURE.md",
+        "SECURITY.md"
+      ],
+      "risk_categories": [
+        "documentation"
+      ],
+      "checks": [
+        "docs-static"
+      ],
+      "reason": "Documentation-only changes use the repository drift/document checks.",
+      "requires_full": false,
+      "auth_boundary": false
+    },
+    {
+      "id": "contributor-instructions",
+      "patterns": [
+        "AGENTS.md",
+        "hooks/AGENTS.md",
+        "qa/AGENTS.md",
+        "scripts/AGENTS.md"
+      ],
+      "risk_categories": [
+        "contributor-instructions",
+        "llm-routing"
+      ],
+      "checks": [
+        "contributor-instructions"
+      ],
+      "reason": "Contributor instruction changes alter repository-local agent behavior.",
+      "requires_full": true,
+      "auth_boundary": true
+    },
+    {
+      "id": "script",
+      "patterns": [
+        "scripts/**"
+      ],
+      "risk_categories": [
+        "script"
+      ],
+      "checks": [
+        "argv-lint"
+      ],
+      "reason": "Executable script changes require strict argv review and the full regression gate.",
+      "requires_full": true,
+      "auth_boundary": false
+    }
+  ],
+  "full_gate": {
+    "check": "full-check",
+    "reason": "Shared, exported, config, release, or unknown changes require the repository full gate."
+  },
+  "unknown": {
+    "risk_category": "unknown",
+    "requires_full": true,
+    "reason": "No validation route matched; run the full gate and classify the path before completion."
+  }
+}

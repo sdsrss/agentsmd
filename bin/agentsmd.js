@@ -36,6 +36,8 @@ const COMMANDS = {
   'version-cascade': 'version-cascade-check.js',
   'perf-baseline': 'perf-baseline.js',
   'lint-argv': 'lint-argv.js',
+  verify: 'verify.js',
+  scorecard: 'scorecard.js',
   rules: 'rules.js',
 };
 
@@ -71,6 +73,8 @@ function usage() {
     '  version-cascade [--json]   Free-text version-drift gate: scans the READMEs for a stale same-major version token (complements the structured drift test).',
     '  perf-baseline [--runs=N] [--event=E] [--surface=single|dual-warm|dual-cold] [--slo [--rounds=N]] [--json]   Measure the wall-clock latency each hook adds (p50/p95, OFF kill-switch floor vs ON); --slo grades single + dual-warm against qa/perf/slo.json (OPERATOR.md §O9).',
     '  lint-argv [--json]   Gate against silent-fallback argv parsing (args.includes(--x) / main block without a parser) across bin + scripts/.',
+    '  verify [--changed | --since=<commit>] [--explain] [--full] [--json]   Select and run change-aware validation; external/AUTH operations are report-only.',
+    '  scorecard [--days=N] [--json] [--compare=CAPTURE]   Aggregate versioned health, compatibility, quality, performance, automation, and measurement-limit evidence; read-only.',
     '',
     'Options:',
     '  -v, --version      Print the agentsmd version.',
@@ -78,7 +82,7 @@ function usage() {
     '',
     'Exit status: 0 = success/help, 1 = valid command reported a negative/runtime result, 2 = argv/usage error.',
     '',
-    'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, `analyze`, `design`, and `exception`, which target the current project directory instead.',
+    'Everything above honors $CODEX_HOME (defaults to ~/.codex) — except `init`, `analyze`, `design`, `exception`, and `verify`, which target the current project directory instead.',
     'Docs: https://github.com/sdsrss/agentsmd#readme',
   ].join('\n');
 }

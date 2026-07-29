@@ -288,6 +288,20 @@ OUT="$(printf '%s' '{"session_id":"smoke1","hook_event_name":"SessionStart"}' | 
 is_context "$OUT" && ok "session start → additionalContext" || bad "session start → additionalContext" "$OUT"
 [ -f "$CODEX_HOME/.agentsmd-state/session-start-smoke1.ref" ] && ok "session start refreshes per-session sandbox-disposal ref (I3)" || bad "session start refreshes per-session sandbox-disposal ref (I3)" "(no ref file)"
 
+DIMENSION_ARBITRATION='{"selection":{"selected":"standalone","reasonCode":"fixture","exclusive":true},"candidates":{"standalone":{"version":"5.0.1","healthy":true},"plugin":{"version":null,"healthy":false}}}'
+DIMENSION_EVENT='{"session_id":"dimension-smoke","hook_event_name":"SessionStart","source":"startup","codex_version":"0.145.0","model":"gpt-5.6-sol"}'
+printf '%s' "$DIMENSION_EVENT" | SURFACE_ARBITRATION_JSON="$DIMENSION_ARBITRATION" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1
+printf '%s' "$DIMENSION_EVENT" | SURFACE_ARBITRATION_JSON="$DIMENSION_ARBITRATION" bash "$HOOKS_DIR/session-start-check.sh" >/dev/null 2>&1
+DIMENSION_ROWS="$(jq -sc '[.[] | select(.event=="session-dimension" and .session_id=="dimension-smoke")]' "$TELEMETRY_LOG" 2>/dev/null)"
+{ [[ "$(printf '%s' "$DIMENSION_ROWS" | jq 'length')" == "1" ]] \
+    && [[ "$(printf '%s' "$DIMENSION_ROWS" | jq -r '.[0].spec_version')" == "v5.0.1" ]] \
+    && [[ "$(printf '%s' "$DIMENSION_ROWS" | jq -r '.[0].agentsmd_version')" == "5.0.1" ]] \
+    && [[ "$(printf '%s' "$DIMENSION_ROWS" | jq -r '.[0].surface')" == "standalone" ]] \
+    && [[ "$(printf '%s' "$DIMENSION_ROWS" | jq -r '.[0].codex_version')" == "0.145.0" ]] \
+    && [[ "$(printf '%s' "$DIMENSION_ROWS" | jq -r '.[0].model')" == "gpt-5.6-sol" ]]; } \
+  && ok "SessionStart emits one joinable session-dimension row" \
+  || bad "SessionStart session-dimension row" "$DIMENSION_ROWS"
+
 # Installation cannot execute arbitrary post-install code on the Codex
 # marketplace surface. The first trusted SessionStart is therefore the
 # deterministic prompt point for project-declared developer tools.
@@ -802,24 +816,33 @@ BEFORE="$(clog_count)"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Applied a rule per @conv-imports (not in this project)."}]}}' > "$CONVTR"
 OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
 NEW="$(clog_new "$BEFORE")"
-{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "unknown anchor cited → no cite row" || bad "unknown anchor cited → no cite row" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" \
+  && ! printf '%s\n' "$NEW" | grep -q '"event":"cite"' \
+  && printf '%s\n' "$NEW" | grep -q '"event":"compat-fallback"'; } \
+  && ok "unknown anchor cited → no cite row" || bad "unknown anchor cited → no cite row" "out=[$OUT] new=[$NEW]"
 
 BEFORE="$(clog_count)"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done, no conventions mentioned."}]}}' > "$CONVTR"
 OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
 NEW="$(clog_new "$BEFORE")"
-{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "no citation → no cite row" || bad "no citation → no cite row" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" \
+  && ! printf '%s\n' "$NEW" | grep -q '"event":"cite"' \
+  && printf '%s\n' "$NEW" | grep -q '"event":"compat-fallback"'; } \
+  && ok "no citation → no cite row" || bad "no citation → no cite row" "out=[$OUT] new=[$NEW]"
 
 BEFORE="$(clog_count)"
 OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$SANDBOX/does-not-exist.jsonl" "$CONVPROJ")")"
 NEW="$(clog_new "$BEFORE")"
-{ is_empty "$OUT" && printf '%s\n' "$NEW" | grep -q '"event":"fail-open".*"reason":"no-transcript"'; } && ok "missing transcript → fail-open" || bad "missing transcript → fail-open" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" && printf '%s\n' "$NEW" | grep -q '"event":"fail-open".*"reason":"no-assistant-message"'; } && ok "missing transcript → fail-open" || bad "missing transcript → fail-open" "out=[$OUT] new=[$NEW]"
 
 BEFORE="$(clog_count)"
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Applied fix per @conv-error-handling-async (invented, prefixes a known anchor)."}]}}' > "$CONVTR"
 OUT="$(run_hook convention-cite-scan.sh "$(CCJSON "$CONVTR" "$CONVPROJ")")"
 NEW="$(clog_new "$BEFORE")"
-{ is_empty "$OUT" && [[ -z "$NEW" ]]; } && ok "invented anchor that PREFIXES a known one → no cite row" || bad "invented anchor that PREFIXES a known one → no cite row" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" \
+  && ! printf '%s\n' "$NEW" | grep -q '"event":"cite"' \
+  && printf '%s\n' "$NEW" | grep -q '"event":"compat-fallback"'; } \
+  && ok "invented anchor that PREFIXES a known one → no cite row" || bad "invented anchor that PREFIXES a known one → no cite row" "out=[$OUT] new=[$NEW]"
 
 echo "== session-exit-checkpoint.sh (Stop → §7 unvalidated-edit flag) =="
 SECST_DIR="$CODEX_HOME/.agentsmd-state"; mkdir -p "$SECST_DIR"; rm -f "$SECST_DIR"/unvalidated-*.flag

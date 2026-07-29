@@ -3,9 +3,10 @@
 # message for spec §10 violations: (a) banned vocabulary (§10 Specificity), and
 # (b) four-section REPORT order Done → Not done → Failed → Uncertain (§10 Order),
 # whenever a literal `Done:` label identifies a structured report. Non-blocking: telemetry
-# + a queued advisory surfaced at the next UserPromptSubmit. Parses the Codex session JSONL
-# ({timestamp,type,payload}); if it can't locate an assistant message it stays
-# silent (fail-open — a scan that can't parse must not misfire).
+# + a queued advisory surfaced at the next UserPromptSubmit. Reads the stable
+# Stop last_assistant_message field first; older runtimes use a bounded
+# transcript fallback whose use is recorded. If neither yields an assistant
+# message it stays silent (fail-open — a scan that can't parse must not misfire).
 
 set -uo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
@@ -20,35 +21,7 @@ command -v node >/dev/null 2>&1 || { hook_record_failopen "$HOOK" "node-missing"
 
 EVENT="$(hook_read_event)" || exit 0
 SID="$(hook_json_field "$EVENT" '.session_id')"
-TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
-[[ -n "$TRANSCRIPT" && -r "$TRANSCRIPT" ]] || exit 0
-
-# Extract the last assistant message's plain text from the Codex session JSONL.
-LAST="$(node -e '
-const fs=require("fs");
-const path=process.argv[1];
-const CAP=1<<19; // read only the last 512 KiB — the last assistant message (all we
-                 // need) lives at the tail; caps per-Stop cost to O(1), not O(transcript).
-let lines;
-try{ const fd=fs.openSync(path,"r"),sz=fs.fstatSync(fd).size,st=sz>CAP?sz-CAP:0,b=Buffer.alloc(sz-st);
-  fs.readSync(fd,b,0,sz-st,st); fs.closeSync(fd);
-  lines=b.toString("utf8").split(/\r?\n/).filter(Boolean); }catch{ process.exit(0); }
-const texts=[];
-const pull=(v,out)=>{ if(v==null)return; if(typeof v==="string"){out.push(v);return;}
-  if(Array.isArray(v)){for(const x of v)pull(x,out);return;}
-  if(typeof v==="object"){ if(typeof v.text==="string")out.push(v.text);
-    else if(Array.isArray(v.content))pull(v.content,out); } };
-for(const ln of lines){
-  let o; try{o=JSON.parse(ln);}catch{continue;}
-  const p=o&&o.payload!=null?o.payload:o;
-  const role=p&&(p.role||p.author);
-  const isMsg=(o.type==="message"||o.type==="response_item"||p&&p.type==="message");
-  if(role==="assistant"&&isMsg){ const out=[]; pull(p.content!=null?p.content:p.text,out);
-    const t=out.join("\n").trim(); if(t)texts.push(t); }
-}
-if(!texts.length)process.exit(0);
-process.stdout.write(texts[texts.length-1]);
-' "$TRANSCRIPT" 2>/dev/null)" || exit 0
+LAST="$(hook_last_assistant_message "$EVENT" "$HOOK")" || exit 0
 [[ -n "$LAST" ]] || exit 0
 
 ISSUES=""

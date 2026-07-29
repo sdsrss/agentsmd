@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # hook-common.sh — fail-open library for agentsmd hooks.
-# Codex output protocol: PreToolUse block = {decision:"block", reason, systemMessage,
-# hookSpecificOutput:{hookEventName}}; advisory = {hookSpecificOutput:{...},
-# systemMessage} (no decision); SessionStart context = {hookSpecificOutput:
-# {hookEventName, additionalContext}}. This DIFFERS from Claude Code, which uses
-# hookSpecificOutput.permissionDecision:"deny" — the one porting delta.
+# Codex output protocol: PreToolUse deny uses
+# hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
+# permissionDecisionReason}; the older decision:"block" + reason fields remain
+# alongside it as a compatibility fallback. Advisory = {hookSpecificOutput:{...},
+# systemMessage} (no decision); SessionStart/UserPromptSubmit context =
+# {hookSpecificOutput:{hookEventName, additionalContext}}.
 
 # Codex exposes the active plugin bundle through PLUGIN_ROOT. Older runtimes
 # provide the compatibility alias CLAUDE_PLUGIN_ROOT. Keep one internal name so
@@ -240,6 +241,62 @@ hook_json_field() {
   printf '%s' "$ev" | jq -r "${path} // empty" 2>/dev/null
 }
 
+# hook_last_assistant_message EVENT_JSON HOOK — prefer Stop's stable
+# last_assistant_message field. Older runtimes may omit it; only then read a
+# bounded transcript tail and emit a compat-fallback row. The transcript wire
+# format is explicitly non-stable in the Codex hook contract, so it is never the
+# canonical path.
+hook_last_assistant_message() {
+  local event="$1" hook="${2:-unknown}" last="" transcript="" sid=""
+  last="$(hook_json_field "$event" '.last_assistant_message')"
+  if [[ -n "$last" ]]; then
+    printf '%s' "$last"
+    return 0
+  fi
+
+  transcript="$(hook_json_field "$event" '.transcript_path')"
+  [[ -n "$transcript" && -r "$transcript" ]] || return 1
+  command -v node >/dev/null 2>&1 || return 1
+  last="$(node -e '
+const fs=require("fs");
+const path=process.argv[1];
+const CAP=1<<19;
+let lines;
+try{
+  const fd=fs.openSync(path,"r"),sz=fs.fstatSync(fd).size,st=sz>CAP?sz-CAP:0,b=Buffer.alloc(sz-st);
+  fs.readSync(fd,b,0,sz-st,st); fs.closeSync(fd);
+  lines=b.toString("utf8").split(/\r?\n/).filter(Boolean);
+}catch{process.exit(1);}
+const texts=[];
+const pull=(v,out)=>{
+  if(v==null)return;
+  if(typeof v==="string"){out.push(v);return;}
+  if(Array.isArray(v)){for(const x of v)pull(x,out);return;}
+  if(typeof v==="object"){
+    if(typeof v.text==="string")out.push(v.text);
+    else if(Array.isArray(v.content))pull(v.content,out);
+  }
+};
+for(const ln of lines){
+  let o; try{o=JSON.parse(ln);}catch{continue;}
+  const p=o&&o.payload!=null?o.payload:o;
+  const role=p&&(p.role||p.author);
+  const isMsg=(o.type==="message"||o.type==="response_item"||p&&p.type==="message");
+  if(role==="assistant"&&isMsg){
+    const out=[]; pull(p.content!=null?p.content:p.text,out);
+    const text=out.join("\n").trim(); if(text)texts.push(text);
+  }
+}
+if(!texts.length)process.exit(1);
+process.stdout.write(texts[texts.length-1]);
+' "$transcript" 2>/dev/null)" || return 1
+  [[ -n "$last" ]] || return 1
+  sid="$(hook_json_field "$event" '.session_id')"
+  hook_record "$hook" "compat-fallback" \
+    '{"from":"last_assistant_message","to":"transcript","bounded_bytes":524288}' '' "$sid"
+  printf '%s' "$last"
+}
+
 # hook_clip TEXT MAX — bound a payload that is about to cross an exec boundary.
 # Every emitter below hands its strings to jq as ARGUMENTS, and Linux caps one
 # argv element at MAX_ARG_STRLEN (128 KiB). Hook messages routinely quote the
@@ -257,18 +314,33 @@ hook_clip() {
 }
 
 # hook_block REASON [SYSTEM_MSG] [EVENT] — emit Codex block JSON, exit 0.
-#   Denies a PreToolUse tool call / forces a Stop to continue.
+#   PreToolUse uses the current permissionDecision deny fields and retains the
+#   older decision/reason fields for compatible runtimes. Other events use the
+#   continuation-style decision/reason shape.
 hook_block() {
   local reason msg event
   reason="$(hook_clip "$1" 2000)"
   msg="$(hook_clip "${2:-$1}" 8000)"
   event="${3:-PreToolUse}"
-  jq -cn --arg r "$reason" --arg m "$msg" --arg e "$event" '{
-    decision: "block",
-    reason: $r,
-    systemMessage: $m,
-    hookSpecificOutput: { hookEventName: $e }
-  }' 2>/dev/null
+  if [[ "$event" == "PreToolUse" ]]; then
+    jq -cn --arg r "$reason" --arg m "$msg" '{
+      decision: "block",
+      reason: $r,
+      systemMessage: $m,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $r
+      }
+    }' 2>/dev/null
+  else
+    jq -cn --arg r "$reason" --arg m "$msg" --arg e "$event" '{
+      decision: "block",
+      reason: $r,
+      systemMessage: $m,
+      hookSpecificOutput: { hookEventName: $e }
+    }' 2>/dev/null
+  fi
   exit 0
 }
 
@@ -534,6 +606,17 @@ hook_observe() {
   # shellcheck source=/dev/null
   source "$lib_dir/rule-hits.sh" 2>/dev/null || return 0
   rule_hits_observe "$@"
+}
+
+# hook_record_session_dimension SESSION_ID SPEC AGENTSMD SURFACE CODEX MODEL PLATFORM
+# SessionStart-only, once-per-session dimension row. The telemetry library owns
+# deduplication under its rotation/append lock.
+hook_record_session_dimension() {
+  local lib_dir
+  lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=/dev/null
+  source "$lib_dir/rule-hits.sh" 2>/dev/null || return 0
+  rule_hits_session_dimension "$@"
 }
 
 # hook_record_failopen HOOK REASON — record a fail-open event (jq-missing /

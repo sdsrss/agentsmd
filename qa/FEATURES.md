@@ -215,9 +215,23 @@ external runtime.
   antipattern fixtures return an actionable non-zero result. Status: BASELINE;
   ROUND9.
 
-## F19 — Native hook enforcement and advisory lifecycle
+## F19 — Current Codex hook contract
 
-- Normal: all 15 registry hooks emit the expected block/advisory/context/log
+- Normal: validate documented/validated/registered event separation, current
+  PreToolUse deny fields, event ids, Stop canonical message input, and explicit
+  additional-context limits. Status: BASELINE; Codex 0.145.0.
+- Boundary 1: Bash allow, apply_patch, PostToolUse zero/nonzero, automatic
+  compact, subagent lifecycle, plugin activation, and unified-exec completion
+  have versioned fixtures. Status: BASELINE; structural contract evidence.
+- Boundary 2: a missing `last_assistant_message` uses only the bounded transcript
+  compatibility path and records `compat-fallback`; the canonical path does not
+  touch transcript. Status: BASELINE.
+- Misuse: fixtures cannot promote an unregistered event or claim another Codex
+  version was validated. Status: BASELINE.
+
+## F20 — Native hook enforcement, event evidence, and advisory lifecycle
+
+- Normal: all 17 registry hooks emit the expected block/advisory/context/log
   shape on canonical fixtures. Status: BASELINE; user replay ROUND9.
 - Boundary 1: session isolation, queue lifecycle, fail-open telemetry, kill
   switches, and jq-less JSON escaping behave explicitly. Status: BASELINE;
@@ -228,6 +242,56 @@ external runtime.
 - Misuse: recursive-delete variables, unknown remote scripts, secrets, red shared
   pushes, false memory evidence, and invalid report shapes cannot bypass the
   declared gate through common command variants. Status: BASELINE; ROUND9.
+- Native event journal: mutation intent and completed mutation/validation/plan/
+  preflight/review outcomes are stored as private atomic rows keyed by session,
+  turn, and tool use. Raw command, patch, prompt, response, cwd, model, and
+  absolute paths are excluded; Stop prefers the native summary and retains a
+  bounded transcript compatibility fallback. Status: BASELINE; deterministic
+  timing/privacy/concurrency/parity fixtures.
+
+## F21 — Structured task evidence and change-aware validation
+
+- Normal: bounded task/evidence documents validate against versioned schemas;
+  `agentsmd verify --changed|--since=<commit>` selects, unions, deduplicates, and
+  executes local checks from `qa/validation-map.json`. Status: BASELINE.
+- Boundary 1: `status=done` requires a successful post-change check, while a
+  non-code render/existence check is accepted as substitute evidence. Blocked,
+  partial, failed, and auth-required states retain distinct rendering. Status:
+  BASELINE; valid/invalid schema fixtures.
+- Boundary 2: shared/exported/config and release paths widen to the full gate;
+  combinations do not duplicate checks, and deterministic `--explain --json`
+  output identifies external-service and AUTH boundaries. Status: BASELINE.
+- Misuse: unknown or malformed flags exit 2, unknown paths require a full gate
+  plus manual classification, secret-shaped values and traversal paths are
+  rejected, external/hard operations are never executed, and a failed local
+  check stops wider checks. Status: BASELINE.
+
+## F22 — Runtime matrix, session dimensions, automation, and scorecard
+
+- Normal: SessionStart emits one bounded, concurrency-deduplicated
+  `session-dimension` row; `agentsmd scorecard --days=30 [--json]` joins field
+  sessions to runtime/model/spec/surface versions and renders every roadmap
+  quality section. Status: BASELINE; dimension concurrency and scorecard
+  schema/semantic fixtures.
+- Boundary 1: self/test/qa/external/unknown rows remain separately visible;
+  tagged test/QA rows do not enter field runtime splits or governance
+  denominators. Older sessions without a dimension row remain explicit missing
+  joins. Status: BASELINE.
+- Boundary 2: only a full capture matching the current conformance case-library
+  ID set can populate full-suite freshness; later targeted captures cannot
+  replace it. Performance and conformance staleness, worktree residue, fallback
+  use, prompt headroom, no-opportunity, and unmeasured false blocks remain
+  explicit. Status: BASELINE.
+- Automation: weekly pinned/latest runtime and governance workflows retain
+  machine-readable artifacts; PR review is optional, same-repository and
+  trusted-actor constrained, Codex read-only, SHA-pinned, and posts from a
+  separate least-privilege feedback job. Four distributed recipes define
+  worktree and AUTH boundaries. Status: BASELINE; static workflow fixtures.
+- Misuse: scorecard comparison rejects symlinks, files over 1 MiB, malformed or
+  future-schema JSON; it never promotes/demotes rules, equates citations with
+  adherence, treats no-opportunity as success, or treats a sampling proxy as
+  semantic proof. Runtime near-negative grading rejects any mutation or changed
+  tracked file. Status: BASELINE.
 
 ## Known sandbox blind spots
 
