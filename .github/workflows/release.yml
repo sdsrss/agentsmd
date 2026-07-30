@@ -9,6 +9,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Tags created with GITHUB_TOKEN do not recursively trigger push workflows.
+  # release-tag.yml therefore dispatches this workflow with the annotated tag
+  # as the ref; the existing tag/package assertions still gate publication.
+  workflow_dispatch:
 
 permissions:
   contents: write

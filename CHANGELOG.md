@@ -3,6 +3,22 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Added a least-privilege post-merge release handoff: when a pull request into
+  `main` raises the stable `package.json` version, the trusted default-branch
+  workflow creates or verifies an annotated `v<version>` tag at the exact
+  integrated commit, then dispatches the existing Release workflow with that
+  tag as its ref.
+- The tag workflow reads reviewed repository files only through the GitHub API
+  and never checks out or executes pull-request code while holding
+  `contents:write` and `actions:write`. Unchanged or decreasing versions are
+  non-publishing paths; conflicting existing tags fail without rewriting them.
+- The Release workflow retains direct `v*` tag-push compatibility and now also
+  accepts an explicit `workflow_dispatch`, preserving all package-version,
+  full-CI, artifact, provenance, signature, registry-byte, and marketplace
+  gates.
+
 ## v5.1.1 — 2026-07-30 — marketplace skill-count gate (patch)
 
 - Fixed the post-publish marketplace E2E so its packaged-skill assertion derives
