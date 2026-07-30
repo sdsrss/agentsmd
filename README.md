@@ -2,9 +2,9 @@
 
 **English · [中文](./README.zh-CN.md)**
 
-agentsmd is an `AGENTS.md` coding specification and native-hooks plugin for OpenAI Codex CLI. It provides an evidence-driven workflow, 17 bounded safety, evidence, and reporting checks, project-aware instruction tools, and telemetry for human rule review.
+agentsmd is an `AGENTS.md` coding specification and native-hooks plugin for OpenAI Codex CLI. It provides an evidence-driven workflow, 19 bounded safety, evidence, reporting, and session-continuity checks, project-aware instruction tools, and telemetry for human rule review.
 
-![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-17-blue)
+![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-19-blue)
 
 - **Evidence-driven workflow:** classify work, check authorization, plan, execute, validate, and report with fresh evidence.
 - **Bounded native checks:** block selected detectable risks and surface structured advisories without claiming to automate every semantic rule.
@@ -44,7 +44,7 @@ Read the `installed` array, not `available`: for an npm-sourced marketplace entr
 Codex reports `"available": []` both before and after a successful install, so an
 empty `available` is not a failure signal.
 
-Codex asks you to review trust before plugin hooks run for the first time. Inspect the `hooks.json` selected by `.codex-plugin/plugin.json` and its 17 local commands before approving it. Until hooks are trusted, skills may be visible, but the spec banner and runtime checks do not execute.
+Codex asks you to review trust before plugin hooks run for the first time. Inspect the `hooks.json` selected by `.codex-plugin/plugin.json` and its 19 local commands before approving it. Until hooks are trusted, skills may be visible, but the spec banner and runtime checks do not execute.
 
 Prefer the UI? Open **Plugins** in the Codex app, or run `codex`, enter `/plugins`, open the `agentsmd` marketplace entry, and select **Install plugin**.
 
@@ -219,7 +219,7 @@ An explicit request to commit and release or publish authorizes the standard shi
 | Layer | Role | Main artifacts |
 |---|---|---|
 | Specification | Defines workflow, native-subagent leadership, authorization, evidence, safety, and reporting | `spec/AGENTS.md`, `spec/AGENTS-extended.md` |
-| Native hooks | Blocks or observes selected detectable patterns across five registered Codex events | `hooks/*.sh`, `hooks.json` |
+| Native hooks | Blocks or observes selected detectable patterns across six registered Codex events | `hooks/*.sh`, `hooks.json` |
 | Management | Installs, diagnoses, restores, audits, and governs | `scripts/*.js`, `agentsmd` CLI |
 | Project tools | Generates project facts, conventions, and design-token references | `agentsmd init`, `analyze`, `design` |
 
@@ -227,7 +227,7 @@ Stop-time observers queue advisories. Those advisories appear on the next `UserP
 
 ## Native hook coverage
 
-agentsmd registers 17 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, and `Stop`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
+agentsmd registers 19 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, and `SessionEnd`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
 
 | Hook | Event | Detectable responsibility |
 |---|---|---|
@@ -248,6 +248,54 @@ agentsmd registers 17 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, 
 | `session-exit-checkpoint` | Stop | Flags changed bytes without later test/lint/typecheck/build evidence |
 | `mem-audit` | Stop | Checks memory index/file drift and verified headers |
 | `session-summary` | Stop | Stores a rolling enforcement tally for explicit `status` inspection; never injects it into another session |
+| `session-handoff-capture` | Stop | Stores a private, redacted, byte-bounded completion capsule for a future fresh chat in the same repository |
+| `session-handoff-finalize` | SessionEnd | Marks only the matching session capsule finalized without reading the transcript or invoking a model |
+
+## Automatic and cross-session memory
+
+agentsmd uses three complementary layers rather than treating every kind of
+memory as one file:
+
+1. `AGENTS.md` and the reviewed project `MEMORY.md` + `memory/*.md` files hold
+   shared, version-controlled instructions and durable project lessons.
+2. [Codex native Memories](https://learn.chatgpt.com/docs/customization/memories)
+   provide the model-driven layer: Codex decides which eligible prior-chat facts
+   are useful, redacts generated fields, consolidates them in the background,
+   and injects them into later chats. Native Memories are off by default; enable
+   them with `/memories` or `[features] memories = true`. agentsmd does not
+   silently change that privacy/quota choice.
+3. The agentsmd session handoff is deterministic and enabled with the trusted
+   hooks. Every substantial completed `Stop` stores only the redacted,
+   12-KiB-bounded `last_assistant_message`. `SessionEnd` finalizes that capsule,
+   and a fresh same-repository `SessionStart` injects at most two recent
+   candidates within a 6-KiB total context budget.
+
+This split closes the timing gap in native background memory. `/new` does not
+need the old chat to emit `SessionEnd` first: the latest completed `Stop`
+checkpoint already exists when the fresh chat starts. On a normal `/exit`,
+Codex's `SessionEnd` event marks the matching checkpoint finalized. A process
+killed before a completed `Stop` has no completed assistant message to save.
+
+Repository identity comes from the physical Git common directory, so worktrees
+share handoffs while unrelated repositories do not. Parallel chats have no
+documented parent/predecessor ID; agentsmd therefore labels restored capsules as
+untrusted recency candidates and never claims one is certainly the immediately
+previous chat. A capsule cannot authorize actions, override current
+instructions or repository files, weaken safety, or expand scope.
+
+The handoff layer does not read separate prompt, tool-input, tool-output, patch,
+or transcript fields. Raw session IDs are hashed, and exact raw/physical
+repository paths appearing in the assistant message are replaced with
+`[PROJECT]`. Because the stored payload is the user-visible assistant message,
+commands, relative paths, or code that the assistant quoted there can still be
+retained; restored content must remain untrusted. State is machine-local and
+surface-private (`PLUGIN_DATA/runtime` for the plugin,
+`$CODEX_HOME/.agentsmd-state/runtime` for standalone), with `0700` directories,
+`0600` files, atomic replacement, high-confidence secret redaction, a 30-day
+age limit, and a 20-capsule per-repository limit. It performs no network call
+and no model call. Set `DISABLE_SESSION_HANDOFF_HOOK=1` to disable capture,
+finalization, and restoration together; existing capsules then age out or are
+removed by the owning surface's uninstall lifecycle.
 
 ## Project workflows
 

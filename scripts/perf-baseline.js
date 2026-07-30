@@ -70,6 +70,12 @@ function eventTotals(results, field) {
   return g;
 }
 
+function eventJsonFor(eventJson, hookEvent) {
+  const event = JSON.parse(eventJson);
+  event.hook_event_name = hookEvent;
+  return JSON.stringify(event);
+}
+
 function eventWallStats(copies, hooks, eventJson, runs, resetPath = null) {
   const byEventWall = {};
   const events = new Set(hooks.map((hook) => hook.hookEvent));
@@ -83,7 +89,7 @@ function eventWallStats(copies, hooks, eventJson, runs, resetPath = null) {
       }
     }
     const measured = cp.spawnSync(process.execPath, [EVENT_HARNESS_PATH], {
-      input: JSON.stringify({ hookPaths, eventJson, runs, resetPath }),
+      input: JSON.stringify({ hookPaths, eventJson: eventJsonFor(eventJson, hookEvent), runs, resetPath }),
       env: copies[0].env,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -115,6 +121,8 @@ function syntheticEventJson(sandbox) {
   return JSON.stringify({
     session_id: 'perf-baseline', cwd: process.cwd(), transcript_path: transcript,
     tool_name: 'Bash', tool_input: { command: 'echo hi' }, prompt: 'do the thing',
+    source: 'startup', reason: 'other', stop_hook_active: false,
+    last_assistant_message: 'Done: the bounded performance fixture completed without changing repository state.',
   });
 }
 
@@ -171,8 +179,9 @@ function perfBaseline({ runs = 10, event = null, sandbox, surface = 'single' } =
     const offEnv = { ...c.env, DISABLE_AGENTSMD_HOOKS: '1' };
     for (const h of hooks) {
       const hookPath = path.join(c.hooksDir, h.basename);
-      const off = statsMs(hookPath, eventJson, offEnv, runs, beforeEach);
-      const on = statsMs(hookPath, eventJson, c.env, runs, beforeEach);
+      const hookEventJson = eventJsonFor(eventJson, h.hookEvent);
+      const off = statsMs(hookPath, hookEventJson, offEnv, runs, beforeEach);
+      const on = statsMs(hookPath, hookEventJson, c.env, runs, beforeEach);
       results.push({
         hook: h.displayName, event: h.hookEvent, copy: c.copy,
         off_ms: round1(off.p50), on_ms: round1(on.p50), delta_ms: round1(Math.max(0, on.p50 - off.p50)),
@@ -414,7 +423,7 @@ function formatSloReport(r) {
 }
 
 if (require.main === module) {
-  const usage = 'Usage: agentsmd-perf-baseline [--runs=N] [--event=SessionStart|PreToolUse|UserPromptSubmit|Stop] [--surface=single|dual-warm|dual-cold] [--slo] [--rounds=N] [--json]';
+  const usage = 'Usage: agentsmd-perf-baseline [--runs=N] [--event=SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|SessionEnd] [--surface=single|dual-warm|dual-cold] [--slo] [--rounds=N] [--json]';
   const argv = process.argv.slice(2);
   printHelpAndExit(argv, usage);
   let opts;

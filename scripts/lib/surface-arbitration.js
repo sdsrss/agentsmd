@@ -37,6 +37,7 @@ const PLUGIN_HOOK_SUPPORT = [
   'hooks/lib/command-parse.js',
   'hooks/lib/event-journal.js',
   'hooks/lib/orchestrator-source.js',
+  'hooks/lib/session-handoff.js',
 ];
 
 const STANDALONE_HOOK_SUPPORT = [

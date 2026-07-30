@@ -3,8 +3,25 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## Unreleased
+## v5.2.0 — 2026-07-30 — automatic cross-session memory (minor)
 
+- Added automatic, machine-local cross-session handoffs. A substantial completed
+  `Stop` stores a high-confidence-secret-redacted `last_assistant_message`;
+  `SessionEnd` finalizes only the matching repository/session capsule; a fresh
+  same-repository `SessionStart` restores at most two recency candidates.
+- Handoffs use the physical Git common directory so worktrees share continuity
+  while unrelated repositories and concurrent session IDs stay isolated.
+  Stored messages are capped at 12 KiB, restored context at 6 KiB, retention at
+  30 days and 20 capsules per repository, with `0700`/`0600` modes and atomic
+  replacement. The helper does not read separate prompt, tool-input,
+  tool-output, patch, or transcript fields; it hashes raw session IDs and
+  replaces matching raw/physical repository paths in the assistant message.
+  User-visible commands, relative paths, or code quoted by that message can be
+  retained and remain untrusted.
+- Registered the additive `SessionEnd` contract, taking the hook inventory from
+  17 to 19. `DISABLE_SESSION_HANDOFF_HOOK=1` disables capture, finalization, and
+  restoration together. Native Codex Memories remain the opt-in model-driven
+  long-term layer; agentsmd does not silently enable that privacy/quota setting.
 - Added a least-privilege post-merge release handoff: when a pull request into
   `main` raises the stable `package.json` version, the trusted default-branch
   workflow creates or verifies an annotated `v<version>` tag at the exact

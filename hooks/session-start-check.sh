@@ -165,6 +165,14 @@ mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/session-start-$SKEY.ref" 2>
 # escape the cross-tool §8 correlation gate. A missing source keeps the legacy
 # fresh-start behavior used by older/synthetic harnesses.
 SS_SOURCE="$(hook_json_field "$EVENT" '.source')"
+HANDOFF_CONTEXT=""
+if [[ "${DISABLE_SESSION_HANDOFF_HOOK:-0}" != "1" && "$SS_SOURCE" == "startup" ]] \
+    && command -v node >/dev/null 2>&1 \
+    && [[ -r "$LIB_DIR/session-handoff.js" ]]; then
+  HANDOFF_CONTEXT="$(printf '%s' "$EVENT" \
+    | node "$LIB_DIR/session-handoff.js" restore "$STATE_DIR" 2>/dev/null)" \
+    || HANDOFF_CONTEXT=""
+fi
 if [[ -z "$SS_SOURCE" || "$SS_SOURCE" == "startup" ]]; then
   for cleanup_dir in "${STATE_READ_DIRS[@]}"; do
     [[ -n "$cleanup_dir" ]] || continue
@@ -347,4 +355,4 @@ elif [[ "$SPEC_FOUND" == "true" ]]; then
 else
   BANNER="[agentsmd] Native hooks are active, but no CODEX-CODING-SPEC core was found; SPINE/Iron-Law policy is not loaded. Reinstall the plugin or run the standalone installer."
 fi
-hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}${TOOL_CONTEXT}" "SessionStart"
+hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}${HANDOFF_CONTEXT:+$'\n'$HANDOFF_CONTEXT}${TOOL_CONTEXT}" "SessionStart"

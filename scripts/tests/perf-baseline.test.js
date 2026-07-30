@@ -45,6 +45,9 @@ t('runs, exits 0, covers every registry hook with non-negative numeric stats', (
       assert.strictEqual(x.timeout_budget_ms, reg.timeout * 1000, 'timeout budget mirrors registry: ' + x.hook);
     }
     assert.ok('Stop' in r.byEvent && 'PreToolUse' in r.byEvent, 'byEvent grouping present');
+    assert.ok('SessionEnd' in r.byEvent, 'SessionEnd grouping present');
+    assert.ok(r.results.some((row) => row.hook === 'session-handoff-finalize'
+      && row.event === 'SessionEnd'), 'SessionEnd handoff hook measured');
     assert.ok('PreToolUse' in r.byEventP95, 'byEventP95 grouping present');
     assert.ok(r.byEventWall && r.byEventWall.PreToolUse, 'concurrent event wall grouping present');
     for (const [event, wall] of Object.entries(r.byEventWall)) {
@@ -66,6 +69,7 @@ t('--event filters to that group; all usage errors exit 2', () => {
   assert.ok(r.results.length === expected && r.results.every((x) => x.event === 'PreToolUse'),
     `only the ${expected} registered PreToolUse hooks`);
   assert.ok(require('../perf-baseline').EVENTS.includes('PostToolUse'), 'event filter includes every registered event');
+  assert.ok(require('../perf-baseline').EVENTS.includes('SessionEnd'), 'event filter includes SessionEnd');
   assert.strictEqual(cp.spawnSync(process.execPath, [script, '--nope']).status, 2);
   assert.strictEqual(cp.spawnSync(process.execPath, [script, '--event=Nope']).status, 2);
   assert.strictEqual(cp.spawnSync(process.execPath, [script, '--runs=abc']).status, 2);

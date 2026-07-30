@@ -30,7 +30,7 @@ L3  命令层    17 个 Codex skills（dir + SKILL.md）：init / analyze / desi
               —— stub，告诉 agent 去跑对应的 L2 脚本
 L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
               —— 处理安装、scoped merge/remove、遥测聚合与治理信号
-L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 5 个已注册事件调用
+L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 6 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
 ```
 
@@ -50,13 +50,14 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 |---|---|---|---|
 | 启用 | standalone config | `[features] hooks = true`；旧 `codex_hooks` 由 installer 迁移 | doctor 检查 deployed flag |
 | 注册 | repository manifests | standalone 使用 `~/.codex/hooks.json` scoped merge/remove | drift 校验两份 wiring |
-| 事件 | official contract + manifest keys | documented 11 个；validated 5 个；agentsmd registered 5 个 | 三组元数据不互相冒充 |
+| 事件 | official contract + manifest keys | documented 11 个；validated 5 个；agentsmd registered 6 个 | 三组元数据不互相冒充 |
 | 条目形状 | JSON wiring | `type/command/timeout`；产生 context 的 handler 另有 `additionalContextLimit` | JSON/drift test |
 | matcher | JSON wiring | `Bash`、`*`、`startup\|resume\|clear\|compact` | JSON/drift test |
 | stdin | official contract + fixture | common fields + event-specific `turn_id/tool_use_id/last_assistant_message/...` | versioned synthetic fixture |
 | 阻断输出 | smoke assertion | canonical `permissionDecision:deny` + legacy `decision:block` compatibility fields | positive / near-negative |
 | 注入 context | smoke assertion | `hookSpecificOutput.additionalContext` | synthetic fixture contract |
 | Stop message | official contract + parity fixture | `last_assistant_message` canonical；bounded transcript compatibility fallback | fallback telemetry |
+| SessionEnd | official contract + fixture | `reason:"other"`；advisory only；最长 3 秒；不读取 transcript、不调用模型 | synthetic fixture；尚不冒充真实 runtime validation |
 
 证据锚点：`spec/hard-rules.json`、`qa/hook-contract-fixtures.json`、
 `hooks.json`、`hooks/hooks.json`、`scripts/lib/hook-registry.js`、
@@ -65,6 +66,15 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 外推其他版本。官方同时明确 `transcript_path` 指向的格式不是稳定 Hook 接口，所以
 消息扫描优先使用 `last_assistant_message`，fallback 每次写
 `event:"compat-fallback"`。
+
+**跨会话记忆分层**：Codex native Memories 是 opt-in 的模型智能层，负责在后台从
+eligible chats 选择、脱敏和整合长期事实；agentsmd 不静默开启它。agentsmd 自己的
+deterministic handoff 解决时间窗口：每个有实质完成内容的 Stop 只保存 bounded、
+redacted `last_assistant_message`，SessionEnd 只把匹配胶囊标记 finalized，新的
+same-repository startup 最多恢复两个候选。`/new` 不依赖旧 chat 先触发
+SessionEnd；`/exit` 正常关闭时由 SessionEnd 补最终状态。并行 chat 没有 documented
+predecessor ID，所以恢复内容始终标成 untrusted recency candidates，不能充当 AUTH、
+当前指令、代码事实或安全规则。
 
 `PostToolUse` 的 validated 状态来自 Codex 0.145.0 项目级真实 canary：
 `qa/event-journal-runtime-canary.js` 使用临时 repo、一次性 hook-trust bypass 和
@@ -120,9 +130,9 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 - **安装/更新 = stage + preflight + transaction**：先构建完整 release tree 并验证既有 manifest ownership，再更新共享文件和 live tree；注入失败时用快照条件检查回滚，拒绝覆盖在最终文件系统操作前已观察到的事务外写入。
 - **卸载 = preflight + transaction**：先验证全部 manifest-owned artifact，任一冲突都零 mutation；通过后 quarantine owned tree 并更新共享文件，失败时以快照条件检查回滚。可移植 POSIX 不提供原子 compare-and-replace，因此 check 到 rename/unlink 之间的非协作写入仍是明确边界。
 - **修复 = read-only plan + digest-bound confirm**：只对 valid exact-path manifest 下“缺失而未修改”且 source version/deploy digest 与 manifest 完全一致的 owned artifact 开放 apply；确认时重算 source/live/shared descriptor，创建包含 deploy、skills、extended、manifest 和 3 个共享文件的 pre-repair snapshot，再复用 install transaction。修改、额外文件、manifest-less partial、artifact 不匹配或摘要漂移均拒绝写入。
-- **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order/context limit、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 17 条 wiring/support/order/context limit。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。plugin context 按 `PLUGIN_ROOT` → `CLAUDE_PLUGIN_ROOT` → skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 选择；冲突 fail closed，且不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
+- **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order/context limit、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 19 条 wiring/support/order/context limit。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。plugin context 按 `PLUGIN_ROOT` → `CLAUDE_PLUGIN_ROOT` → skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 选择；冲突 fail closed，且不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
 - **运行激活证据与结构健康分离**：plugin SessionStart 仅在 plugin surface 被仲裁选中且 packaged spec 成功加载后，原子写入 `$PLUGIN_DATA/runtime/activation.json`（兼容 `$CLAUDE_PLUGIN_DATA`），目录/文件权限分别为 `0700`/`0600`。receipt 记录版本、session、时间、profile、选择原因与 extended 路径；status/doctor 的 `observed` 只证明 SessionStart handler 已选择并准备返回该 profile，不证明 Codex host 已接纳响应，也不外推为全部 hooks trusted/enforced。缺失 receipt 是 `unverified` 信息态，不改变既有 doctor 退出语义。
-- **短生命周期状态按物理 surface 隔离**：hook 复用 `${BASH_SOURCE[0]}` 的物理路径判定；plugin 新写入 `$PLUGIN_DATA/runtime`（兼容 `$CLAUDE_PLUGIN_DATA`），standalone 新写入 `$CODEX_HOME/.agentsmd-state/runtime`，未知/source-tree 或缺少 plugin data 的环境保留 legacy shared-root fail-open。reader 按 private→legacy 双读，writer 只写 private，旧文件不批量移动或推断归属。manifest、`arbitration-cache.json` 和 telemetry 继续共享；plugin-state-only cleanup 只对白名单 private regular file/queue 生效，保留 shared、unknown 与 symlink。
+- **短生命周期状态按物理 surface 隔离**：hook 复用 `${BASH_SOURCE[0]}` 的物理路径判定；plugin 新写入 `$PLUGIN_DATA/runtime`（兼容 `$CLAUDE_PLUGIN_DATA`），standalone 新写入 `$CODEX_HOME/.agentsmd-state/runtime`，未知/source-tree 或缺少 plugin data 的环境保留 legacy shared-root fail-open。reader 按 private→legacy 双读，writer 只写 private，旧文件不批量移动或推断归属。handoff 文件由 Git common-dir hash + session hash 精确命名，目录/文件分别为 `0700`/`0600`，atomic replace，30 天及每仓库 20 条上限；不读取独立 prompt/tool-input/tool-output/patch/transcript 字段，raw session ID 被 hash，assistant message 中匹配当前仓库的 raw/physical absolute path 被替换。assistant 自己引用的 command、relative path 或 code 仍可能随用户可见消息保存，因此恢复内容始终 untrusted。manifest、`arbitration-cache.json` 和 telemetry 继续共享；plugin-state-only cleanup 只对白名单 private regular file/queue 生效，保留 shared、unknown 与 symlink。
 - **阻止新双面，而不破坏旧面更新**：仅在 npm CLI 能证明不存在 standalone manifest、注册 hook、AGENTS sentinel、extended 文件、非 shim deploy、待迁移 `codexmd` surface 或本包同名 global skill 的 fresh install 前，使用 `codex plugin list --json` 精确检查 `installed===true`、`enabled===true` 的 `agentsmd@agentsmd`。命中时以 exit 1、零修改拒绝，明确要求移除 plugin 后重试；CLI 不可用、schema/字段不认识、disabled/近似名称均不伪造命中；已有 standalone 继续 update，manifest-less/legacy/skill partial 则进入既有 migration、ownership fail-closed 或 repair 诊断。没有双面 opt-in。
 - 天然处理目标文件不存在与存在其他 tenant 两种边界：从 `{}` 起创建自己的内容；其他条目原样保留。
 - 安装器把 deploy、extended spec、skills 的 exact path + hash，以及共享面变更结果写入 agentsmd **自有** manifest `~/.codex/.agentsmd-state/manifest.json`；共享配置仍由 hook path/sentinel 识别。
@@ -158,6 +168,8 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 | 0 full | `spec/AGENTS.md` → standalone 部署到 discovery；plugin 始终注入同一 profile | 每轮 / SessionStart rehydration | 完整 per-turn gates（SPINE/原生子代理/LEVEL/AUTH/VALIDATE/SAFETY） |
 | 1 triggered | `spec/AGENTS-extended.md`（不在 discovery 链，零预算） | L3/ship/Override/three-strike 时 agent 显式 `cat` | 条件规则（Override 模式/L3 flow/ship 清单/证据阶梯） |
 | 2 keyword | `MEMORY.md` + `memory/*.md` | 关键词/路径命中 | 召回式（feedback_/project_/reference_） |
+| local intelligent | Codex native Memories（opt-in） | runtime 后台生成、后续 chat 注入 | 模型选择的机器本地长期事实；agentsmd 不代替用户开启 |
+| local handoff | surface-private `session-handoff-*.json` | substantial Stop → SessionEnd finalize → fresh SessionStart restore | bounded、redacted、同仓库的近期完成态连续性 |
 | operator | `spec/OPERATOR.md`（Phase 4） | 永不自动加载 | 人类维护者的升降级节奏，不占 agent 注意力 |
 
 Codex discovery 链共享 `project_doc_max_bytes`（默认 32 KiB）且超限静默截断。core

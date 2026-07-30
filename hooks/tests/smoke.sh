@@ -1006,6 +1006,48 @@ AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty
 { ! printf '%s' "$AC" | grep -q 'session summary' && [[ -f "$SUMST_DIR/session-summary-selfsum.json" ]]; } && ok "SessionStart excludes + preserves its own summary" || bad "SessionStart excludes own summary" "ac=[$AC]"
 rm -f "$SUMST_DIR"/session-summary-*.json
 
+echo "== session handoff (Stop → SessionEnd → fresh SessionStart) =="
+HANDOFF_REPO="$SANDBOX/session-handoff-repo"
+HANDOFF_STATE="$CODEX_HOME/.agentsmd-state"
+mkdir -p "$HANDOFF_REPO" "$HANDOFF_STATE"
+git init -q "$HANDOFF_REPO"
+rm -f "$HANDOFF_STATE"/session-handoff-*.json "$HANDOFF_STATE"/.session-handoff-*.tmp
+HANDOFF_MESSAGE='Done: the smoke fixture retained one repository-scoped parser decision. API_KEY=sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+HANDOFF_STOP="$(jq -cn \
+  --arg sid 'handoff-prior' \
+  --arg cwd "$HANDOFF_REPO" \
+  --arg message "$HANDOFF_MESSAGE" \
+  '{session_id:$sid,cwd:$cwd,hook_event_name:"Stop",last_assistant_message:$message}')"
+OUT="$(run_hook session-handoff-capture.sh "$HANDOFF_STOP")"
+HANDOFF_FILE="$(find "$HANDOFF_STATE" -maxdepth 1 -type f -name 'session-handoff-*.json' 2>/dev/null | head -1)"
+{ is_empty "$OUT" && [[ -r "$HANDOFF_FILE" ]] \
+  && ! grep -q 'sk-AAAAAAAA' "$HANDOFF_FILE" 2>/dev/null; } \
+  && ok "Stop writes one redacted handoff capsule" \
+  || bad "Stop writes redacted handoff" "out=[$OUT] file=[$HANDOFF_FILE]"
+OUT="$(run_hook session-start-check.sh "$(jq -cn \
+  --arg cwd "$HANDOFF_REPO" \
+  '{session_id:"handoff-current",cwd:$cwd,hook_event_name:"SessionStart",source:"startup"}')")"
+AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+{ printf '%s' "$AC" | grep -q 'repository-scoped parser decision' \
+  && printf '%s' "$AC" | grep -qi 'untrusted recent same-repository'; } \
+  && ok "fresh SessionStart restores bounded untrusted same-repository context" \
+  || bad "fresh SessionStart restores handoff" "ac=[$AC]"
+OUT="$(run_hook session-handoff-finalize.sh "$(jq -cn \
+  --arg cwd "$HANDOFF_REPO" \
+  '{session_id:"handoff-prior",cwd:$cwd,hook_event_name:"SessionEnd",reason:"other"}')")"
+{ is_empty "$OUT" && [[ "$(jq -r '.finalizedReason // empty' "$HANDOFF_FILE" 2>/dev/null)" == "other" ]]; } \
+  && ok "SessionEnd finalizes only the matching handoff" \
+  || bad "SessionEnd finalizes handoff" "out=[$OUT] file=[$(cat "$HANDOFF_FILE" 2>/dev/null)]"
+HANDOFF_BEFORE="$(find "$HANDOFF_STATE" -maxdepth 1 -type f -name 'session-handoff-*.json' 2>/dev/null | wc -l | tr -d '[:space:]')"
+OUT="$(DISABLE_SESSION_HANDOFF_HOOK=1 run_hook session-handoff-capture.sh "$(jq -cn \
+  --arg cwd "$HANDOFF_REPO" \
+  '{session_id:"handoff-disabled",cwd:$cwd,hook_event_name:"Stop",last_assistant_message:"Done: this disabled capsule must not be written."}')")"
+HANDOFF_AFTER="$(find "$HANDOFF_STATE" -maxdepth 1 -type f -name 'session-handoff-*.json' 2>/dev/null | wc -l | tr -d '[:space:]')"
+{ is_empty "$OUT" && [[ "$HANDOFF_BEFORE" == "$HANDOFF_AFTER" ]]; } \
+  && ok "DISABLE_SESSION_HANDOFF_HOOK=1 disables capture" \
+  || bad "shared handoff kill switch" "before=$HANDOFF_BEFORE after=$HANDOFF_AFTER out=[$OUT]"
+rm -f "$HANDOFF_STATE"/session-handoff-*.json "$HANDOFF_STATE"/.session-handoff-*.tmp
+
 echo "== mem-audit.sh (Stop → §7 memory-hygiene, 24h debounce) =="
 MA_STATE="$CODEX_HOME/.agentsmd-state"; mkdir -p "$MA_STATE"; rm -f "$MA_STATE"/mem-audit-*.stamp
 MAJSON() { jq -cn --arg cwd "$1" '{session_id:"smoke1",cwd:$cwd,hook_event_name:"Stop"}'; }

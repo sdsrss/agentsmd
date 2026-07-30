@@ -1,7 +1,7 @@
 'use strict';
 // hook-registry.js — the single source of truth for agentsmd's native Codex
 // hooks: one row per hook, in Codex execution order (SessionStart → PreToolUse →
-// PostToolUse → UserPromptSubmit → Stop). Ported in spirit from
+// PostToolUse → UserPromptSubmit → Stop → SessionEnd). Ported in spirit from
 // claudemd/scripts/lib/hook-registry.js.
 //
 // Why this exists: the hook list + kill-switch suffixes were previously implicit,
@@ -14,7 +14,8 @@
 //
 // Kill switch for a hook = env var `DISABLE_${envVarSuffix}_HOOK` == "1" (or the
 // global `DISABLE_AGENTSMD_HOOKS` == "1"), matching hook-common.sh hook_kill_switch.
-// matcher is null for events wired without one (UserPromptSubmit / Stop).
+// matcher is null for events wired without one (UserPromptSubmit / Stop /
+// SessionEnd).
 
 const HOOK_REGISTRY = [
   { basename: 'session-start-check.sh',       displayName: 'session-start-check',       envVarSuffix: 'SESSION_START',           hookEvent: 'SessionStart',     matcher: 'startup|resume|clear|compact', timeout: 5, additionalContextLimit: 6000 },
@@ -38,6 +39,9 @@ const HOOK_REGISTRY = [
   { basename: 'session-exit-checkpoint.sh',   displayName: 'session-exit-checkpoint',   envVarSuffix: 'SESSION_EXIT_CHECKPOINT', hookEvent: 'Stop',             matcher: null,             timeout: 5 },
   { basename: 'mem-audit.sh',                 displayName: 'mem-audit',                 envVarSuffix: 'MEM_AUDIT',               hookEvent: 'Stop',             matcher: null,             timeout: 5 },
   { basename: 'session-summary.sh',           displayName: 'session-summary',           envVarSuffix: 'SESSION_SUMMARY',         hookEvent: 'Stop',             matcher: null,             timeout: 5 },
+  { basename: 'session-handoff-capture.sh',   displayName: 'session-handoff-capture',   envVarSuffix: 'SESSION_HANDOFF_CAPTURE', hookEvent: 'Stop',             matcher: null,             timeout: 3 },
+
+  { basename: 'session-handoff-finalize.sh',  displayName: 'session-handoff-finalize',  envVarSuffix: 'SESSION_HANDOFF_FINALIZE', hookEvent: 'SessionEnd',       matcher: null,             timeout: 3 },
 ];
 
 const HOOK_BASENAMES = HOOK_REGISTRY.map((h) => h.basename);

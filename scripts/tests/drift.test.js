@@ -386,7 +386,7 @@ t('README: EN + zh hook-table row counts match the wiring', () => {
       if (name) expected.set(name, event);
     }
   }
-  const rowRe = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop)(?::[^|]+)?\s*\|.*$/gm;
+  const rowRe = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|SessionEnd)(?::[^|]+)?\s*\|.*$/gm;
   for (const f of ['README.md', 'README.zh-CN.md']) {
     const src = read(f);
     const actual = new Map([...src.matchAll(rowRe)].map((m) => [m[1], m[2]]));

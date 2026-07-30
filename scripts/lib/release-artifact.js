@@ -132,6 +132,7 @@ function inspectReleaseArtifact(repo) {
       'hooks/lib/rule-hits.sh',
       'hooks/lib/command-parse.js',
       'hooks/lib/orchestrator-source.js',
+      'hooks/lib/session-handoff.js',
       'scripts/install.js',
       'scripts/repair.js',
       'scripts/doctor.js',

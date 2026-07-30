@@ -221,7 +221,7 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
 
   const status = JSON.parse(run(['--source', ROOT, '--status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 17);
+  assert.strictEqual(status.agentsmdHooksRegistered, 19);
   assert.strictEqual(status.agentsmdStatusLinePreset, true);
 
   const uninstallOut = run(['--source', ROOT, '--uninstall'], env);
@@ -478,7 +478,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
 
   const status = JSON.parse(cli(['status'], env));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 17);
+  assert.strictEqual(status.agentsmdHooksRegistered, 19);
 
   const uninstallOut = cli(['uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));
@@ -489,7 +489,7 @@ t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) 
   const env = { CODEX_HOME: dir };
   cli(['install'], env);
   assert(cli(['update'], env).includes('agentsmd installed:'));
-  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 17);
+  assert.strictEqual(JSON.parse(cli(['status'], env)).agentsmdHooksRegistered, 19);
 }));
 
 for (const command of ['install', 'update']) {
@@ -534,7 +534,7 @@ t('agentsmd install is concise by default and --json emits the full manifest', (
   assert(concise.trim().split('\n').length <= 2, concise);
   const manifest = JSON.parse(cli(['update', '--json'], env));
   assert.strictEqual(manifest.name, 'agentsmd');
-  assert.strictEqual(manifest.hookCount, 17);
+  assert.strictEqual(manifest.hookCount, 19);
   assert(manifest.ownedArtifacts && manifest.ownedArtifacts.deploy);
 }));
 
@@ -754,7 +754,7 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(installedCli(['install']).includes('agentsmd installed:'));
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
-  assert.strictEqual(status.agentsmdHooksRegistered, 17);
+  assert.strictEqual(status.agentsmdHooksRegistered, 19);
   const healthyPlan = JSON.parse(installedCli(['repair', '--plan']));
   assert.strictEqual(healthyPlan.classification, 'healthy');
   fs.unlinkSync(path.join(codexHome, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));

@@ -52,7 +52,15 @@
           { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/convention-cite-scan.sh\"", "timeout": 5 },
           { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-exit-checkpoint.sh\"", "timeout": 5 },
           { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/mem-audit.sh\"", "timeout": 5 },
-          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-summary.sh\"", "timeout": 5 }
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-summary.sh\"", "timeout": 5 },
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-handoff-capture.sh\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "agentsmd_plugin_root=\"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; [ -n \"$agentsmd_plugin_root\" ] || exit 0; bash \"$agentsmd_plugin_root/hooks/session-handoff-finalize.sh\"", "timeout": 3 }
         ]
       }
     ]

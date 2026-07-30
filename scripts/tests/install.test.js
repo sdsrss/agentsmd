@@ -223,9 +223,9 @@ withSandbox((dir) => {
   const after = fs.readFileSync(path.join(dir, 'hooks.json'), 'utf8');
   t('install adds agentsmd hook entries', () => assert.strictEqual(H.countAgentsmdHooks(after), EXPECTED_HOOKS));
   t('install preserves the other-tenant entries (3 events)', () => assert.strictEqual(countCmd(after, (c) => c === TENANT_CMD), 3));
-  t('agentsmd entries land in SessionStart/PreToolUse/PostToolUse/Stop', () => {
+  t('agentsmd entries land in SessionStart/PreToolUse/PostToolUse/Stop/SessionEnd', () => {
     const p = JSON.parse(after);
-    for (const ev of ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop']) assert(p.hooks[ev].some((g) => g.hooks.some((h) => H.isAgentsmdCommand(h.command))), ev + ' missing agentsmd');
+    for (const ev of ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd']) assert(p.hooks[ev].some((g) => g.hooks.some((h) => H.isAgentsmdCommand(h.command))), ev + ' missing agentsmd');
   });
 });
 
@@ -438,15 +438,33 @@ withSandbox((dir) => {
   const runtime = path.join(dir, '.agentsmd-state', 'runtime');
   const runtimeForeign = path.join(runtime, 'foreign-runtime.txt');
   const runtimeOwned = path.join(runtime, 'session-start-owned.ref');
+  const runtimeOwnedHandoff = path.join(
+    runtime,
+    'session-handoff-0123456789abcdef01234567-89abcdef0123456789abcdef.json'
+  );
+  const runtimeOwnedHandoffTemp = path.join(
+    runtime,
+    '.session-handoff-123-0123456789ab.tmp'
+  );
+  const runtimeForeignHandoffLookalike = `${runtimeOwnedHandoff}.user`;
   fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(foreign, 'foreign state\n');
   fs.writeFileSync(runtimeForeign, 'foreign runtime state\n');
   fs.writeFileSync(runtimeOwned, '');
+  fs.writeFileSync(runtimeOwnedHandoff, '{}\n');
+  fs.writeFileSync(runtimeOwnedHandoffTemp, '{}\n');
+  fs.writeFileSync(runtimeForeignHandoffLookalike, 'foreign handoff lookalike\n');
   uninstall();
   t('uninstall removes owned state but preserves unknown state files', () => {
     assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'foreign state\n');
     assert.strictEqual(fs.readFileSync(runtimeForeign, 'utf8'), 'foreign runtime state\n');
+    assert.strictEqual(
+      fs.readFileSync(runtimeForeignHandoffLookalike, 'utf8'),
+      'foreign handoff lookalike\n'
+    );
     assert(!fs.existsSync(runtimeOwned));
+    assert(!fs.existsSync(runtimeOwnedHandoff));
+    assert(!fs.existsSync(runtimeOwnedHandoffTemp));
     assert(!fs.existsSync(path.join(dir, '.agentsmd-state', 'manifest.json')));
   });
 });
