@@ -3,6 +3,20 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.1.1 — 2026-07-30 — marketplace skill-count gate (patch)
+
+- Fixed the post-publish marketplace E2E so its packaged-skill assertion derives
+  the expected count from the release source instead of pinning the former
+  15-skill inventory. The assertion still fails when the npm artifact omits or
+  adds a skill relative to the tagged source.
+- Added a distribution regression that rejects another numeric skill-count
+  literal and requires the source-derived comparison.
+- The immutable v5.1.0 npm package, provenance, GitHub tarball, checksum, and
+  registry-byte comparison were published successfully. Its release workflow
+  failed only after publication when the stale numeric assertion observed the
+  intended 17-skill package; the corrective release re-runs the complete
+  consumer marketplace lifecycle.
+
 ## v5.1.0 — 2026-07-29 — Codex automation contracts and runtime evidence (minor)
 
 - Added repository and nested contributor `AGENTS.md` instructions, a

@@ -582,8 +582,11 @@ t('agentsmd install refuses an accidental dual surface without mutating CODEX_HO
   assert.deepStrictEqual(fs.readdirSync(dir), []);
 }));
 
-t('marketplace E2E expects the packaged CLI to refuse an accidental dual surface', () => {
+t('marketplace E2E derives the packaged skill count and refuses an accidental dual surface', () => {
   const script = read('qa/plugin-marketplace-e2e.sh');
+  assert.match(script, /EXPECTED_SKILL_COUNT=.*find "\$ROOT\/skills"/);
+  assert.match(script, /test "\$SKILL_COUNT" -eq "\$EXPECTED_SKILL_COUNT"/);
+  assert.doesNotMatch(script, /test "\$SKILL_COUNT" -eq [0-9]+/);
   assert.doesNotMatch(script, /standalone install skipped:/);
   assert.match(script, /if CODEX_HOME=.*node .*agentsmd\.js" install/);
   assert.match(script, /expected standalone install to refuse an active plugin/);

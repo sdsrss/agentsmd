@@ -43,6 +43,7 @@ command -v node >/dev/null 2>&1 || {
 
 EXPECTED_VERSION="$(node -p 'require(process.argv[1]).version' "$ROOT/package.json")"
 EXPECTED_SOURCE_VERSION="$(node -p 'require(process.argv[1]).plugins.find((entry) => entry.name === "agentsmd").source.version' "$ROOT/.agents/plugins/marketplace.json")"
+EXPECTED_SKILL_COUNT="$(find "$ROOT/skills" -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l | tr -d ' ')"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-plugin-marketplace.XXXXXX")"
 PLUGIN_DATA_DIR="$SANDBOX/plugin-data/agentsmd"
 STANDALONE_HOME="$SANDBOX/standalone-home"
@@ -130,7 +131,11 @@ do
 done
 
 SKILL_COUNT="$(find "$PLUGIN_ROOT/skills" -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l | tr -d ' ')"
-test "$SKILL_COUNT" -eq 15
+test "$SKILL_COUNT" -eq "$EXPECTED_SKILL_COUNT" || {
+  printf 'FAIL: packaged skill count %s != source skill count %s\n' \
+    "$SKILL_COUNT" "$EXPECTED_SKILL_COUNT" >&2
+  exit 1
+}
 CACHE_VERSION_COUNT="$(find "$SANDBOX/plugins/cache/agentsmd/agentsmd" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
 test "$CACHE_VERSION_COUNT" -eq 1
 
