@@ -1,0 +1,193 @@
+name: Create release tag
+
+# This privileged workflow runs from the trusted default-branch copy. It never
+# checks out or executes pull-request code: package versions are read as data
+# through the GitHub API from the reviewed base and integrated merge commits.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-tag-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  tag-and-dispatch:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create annotated version tag and dispatch Release
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+
+            if (!pr.merged || pr.base.ref !== 'main') {
+              throw new Error('release tagging requires a merged pull request into main');
+            }
+
+            const mergeSha = pr.merge_commit_sha;
+            if (!/^[0-9a-f]{40}$/.test(mergeSha || '')) {
+              throw new Error(`invalid merge commit SHA: ${mergeSha || '<missing>'}`);
+            }
+
+            const changedFiles = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            if (!changedFiles.some((file) => file.filename === 'package.json')) {
+              core.notice('pull request did not change package.json; no release tag required');
+              return;
+            }
+
+            function parseStableVersion(value, ref) {
+              const version = typeof value === 'string' ? value : '';
+              // Release tags are intentionally limited to stable SemVer. A
+              // prerelease/build requires a separately reviewed policy change.
+              const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+              if (!match) {
+                throw new Error(`package.json at ${ref} has invalid stable SemVer: ${version || '<missing>'}`);
+              }
+              return {
+                version,
+                tuple: match.slice(1).map((part) => BigInt(part)),
+              };
+            }
+
+            async function readPackage(ref) {
+              const response = await github.rest.repos.getContent({
+                owner,
+                repo,
+                path: 'package.json',
+                ref,
+              });
+              const file = response.data;
+              if (Array.isArray(file) || file.type !== 'file' || !file.content) {
+                throw new Error(`package.json at ${ref} is not a readable file`);
+              }
+              let parsed;
+              try {
+                parsed = JSON.parse(Buffer.from(file.content, file.encoding || 'base64').toString('utf8'));
+              } catch (error) {
+                throw new Error(`package.json at ${ref} is invalid JSON: ${error.message}`);
+              }
+              return parseStableVersion(parsed.version, ref);
+            }
+
+            function compareTuple(left, right) {
+              for (let index = 0; index < left.length; index += 1) {
+                if (left[index] > right[index]) return 1;
+                if (left[index] < right[index]) return -1;
+              }
+              return 0;
+            }
+
+            const base = await readPackage(pr.base.sha);
+            const merged = await readPackage(mergeSha);
+            if (base.version === merged.version) {
+              core.notice(`package version unchanged at ${merged.version}; no release tag required`);
+              return;
+            }
+            if (compareTuple(merged.tuple, base.tuple) <= 0) {
+              throw new Error(`package version must increase: ${base.version} -> ${merged.version}`);
+            }
+
+            const tag = `v${merged.version}`;
+            const message = `agentsmd ${tag}`;
+
+            async function getExistingRef() {
+              try {
+                const response = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `tags/${tag}`,
+                });
+                return response.data;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            }
+
+            async function verifyExistingTag(existingRef) {
+              if (existingRef.object.type !== 'tag') {
+                throw new Error(`${tag} exists but is not an annotated tag`);
+              }
+              const response = await github.rest.git.getTag({
+                owner,
+                repo,
+                tag_sha: existingRef.object.sha,
+              });
+              const tagObject = response.data;
+              if (tagObject.tag !== tag ||
+                  tagObject.message !== message ||
+                  tagObject.object.type !== 'commit' ||
+                  tagObject.object.sha !== mergeSha) {
+                throw new Error(`${tag} exists but does not match the intended release commit and annotation`);
+              }
+              return tagObject;
+            }
+
+            let existingRef = await getExistingRef();
+            if (existingRef) {
+              await verifyExistingTag(existingRef);
+              core.notice(`${tag} already exists with the intended annotation and commit`);
+            } else {
+              const created = await github.rest.git.createTag({
+                owner,
+                repo,
+                tag,
+                message,
+                object: mergeSha,
+                type: 'commit',
+              });
+              try {
+                await github.rest.git.createRef({
+                  owner,
+                  repo,
+                  ref: `refs/tags/${tag}`,
+                  sha: created.data.sha,
+                });
+              } catch (error) {
+                // A concurrent retry may have won the ref race. Accept it only
+                // after applying the same exact annotation/commit checks.
+                if (error.status !== 422) throw error;
+              }
+              existingRef = await getExistingRef();
+              if (!existingRef) {
+                throw new Error(`${tag} reference was not created`);
+              }
+              await verifyExistingTag(existingRef);
+              core.notice(`created annotated tag ${tag} at ${mergeSha}`);
+            }
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: 'release.yml',
+              per_page: 100,
+            });
+            const prior = runs.data.workflow_runs.find(
+              (run) => run.head_branch === tag && run.head_sha === mergeSha,
+            );
+            if (prior) {
+              core.notice(`Release already has run ${prior.id} for ${tag} at ${mergeSha}`);
+              return;
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: 'release.yml',
+              ref: tag,
+            });
+            core.notice(`dispatched Release for ${tag} at ${mergeSha}`);
