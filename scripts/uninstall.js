@@ -84,7 +84,7 @@ function validateOwnership(manifest) {
 // the plugin cache — the only copy of the tooling that could have cleaned them.
 function ownedStateFiles(manifest) {
   const state = P.stateDir();
-  const ownedName = /^(?:pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|arbitration-cache\.json)$/;
+  const ownedName = /^(?:pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|session-handoff-[a-f0-9]{24}-[a-f0-9]{24}\.json|\.session-handoff-[0-9]+-[a-f0-9]{12}\.tmp|arbitration-cache\.json)$/;
   const files = manifest ? [P.manifestPath()] : [];
   let entries = [];
   try { entries = fs.readdirSync(state, { withFileTypes: true }); }
@@ -233,7 +233,7 @@ function inspectStandaloneRuntime() {
 }
 
 function ownedPluginRuntimeFiles(runtime) {
-  const ownedName = /^(?:activation\.json|pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json)$/;
+  const ownedName = /^(?:activation\.json|pending-advisories(?:-.+)?|remote-downloads-.+\.paths(?:\.tmp)?|failopen-.+\.ts|session-start-.+\.ref|tmp-baseline-.+\.txt|unvalidated-.+\.flag|mem-audit-.+\.stamp|session-summary-.+\.json|session-handoff-[a-f0-9]{24}-[a-f0-9]{24}\.json|\.session-handoff-[0-9]+-[a-f0-9]{12}\.tmp)$/;
   const files = [];
   let entries = [];
   try { entries = fs.readdirSync(runtime, { withFileTypes: true }); }

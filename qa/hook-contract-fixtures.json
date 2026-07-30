@@ -210,6 +210,18 @@
         "source": "startup"
       },
       "expected": "activation-receipt"
+    },
+    {
+      "id": "session-end-other",
+      "event": "SessionEnd",
+      "input": {
+        "session_id": "contract-session",
+        "transcript_path": "/workspace/.codex/rollout.jsonl",
+        "cwd": "/workspace",
+        "hook_event_name": "SessionEnd",
+        "reason": "other"
+      },
+      "expected": "advisory-finalization"
     }
   ]
 }

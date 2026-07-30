@@ -97,7 +97,7 @@ withEnv((codexHome) => {
     assert.strictEqual(result.pluginBundle.complete, true);
     assert.strictEqual(result.pluginBundle.manifest.hooksPath, './hooks.json');
     assert.strictEqual(result.pluginBundle.protocolVersion, 1);
-    assert.strictEqual(result.pluginBundle.hooks.registered, 17);
+    assert.strictEqual(result.pluginBundle.hooks.registered, 19);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingScripts, []);
     assert.deepStrictEqual(result.pluginBundle.hooks.missingSupport, []);
     assert.strictEqual(result.pluginBundle.spec.core, true);
@@ -398,7 +398,7 @@ withEnv((codexHome) => {
   fs.writeFileSync(hooksPath, JSON.stringify(wiring, null, 2) + '\n');
   const malformed = status();
   t('wrong live matcher makes standalone wiring unhealthy even when hook count is unchanged', () => {
-    assert.strictEqual(malformed.agentsmdHooksRegistered, 17);
+    assert.strictEqual(malformed.agentsmdHooksRegistered, 19);
     assert.strictEqual(malformed.surfaceArbitration.candidates.standalone.healthy, false);
     assert(malformed.surfaceArbitration.candidates.standalone.reasons.some((reason) => /wiring/.test(reason)));
   });
@@ -507,7 +507,7 @@ withEnv(() => {
     const { status } = loadModules();
     const result = status();
     t('reordered plugin hooks fail the execution-order contract', () => {
-      assert.strictEqual(result.pluginBundle.hooks.registered, 17);
+      assert.strictEqual(result.pluginBundle.hooks.registered, 19);
       assert.strictEqual(result.pluginBundle.hooks.valid, false);
       assert.strictEqual(result.pluginBundle.healthy, false);
     });
@@ -589,7 +589,7 @@ withEnv(() => {
     const { status } = loadModules();
     const result = status();
     t('plugin event semantics must match matcher and timeout, not only command count', () => {
-      assert.strictEqual(result.pluginBundle.hooks.registered, 17);
+      assert.strictEqual(result.pluginBundle.hooks.registered, 19);
       assert.strictEqual(result.pluginBundle.hooks.valid, false);
       assert.strictEqual(result.pluginBundle.healthy, false);
       assert(result.pluginBundle.reasons.some((reason) => /registry contract/.test(reason)));
@@ -638,7 +638,7 @@ withEnv(() => {
       assert.strictEqual(bundle.complete, false);
       assert(bundle.errors.some((error) => error.includes('./hooks.json')));
       assert.strictEqual(bundle.hooks.registered, 0);
-      assert.strictEqual(bundle.hooks.missingScripts.length, 17);
+      assert.strictEqual(bundle.hooks.missingScripts.length, 19);
       assert.strictEqual(bundle.spec.core, false);
       assert.strictEqual(bundle.spec.extended, false);
       assert.strictEqual(diagnosis.ok, false);
@@ -765,6 +765,8 @@ withEnv(() => {
       ['unvalidated-abc.flag', 'mutations=1'],
       ['mem-audit-abc.stamp', ''],
       ['session-summary-abc.json', '{}'],
+      [`session-handoff-${'a'.repeat(24)}-${'b'.repeat(24)}.json`, '{}'],
+      [`.session-handoff-123-${'c'.repeat(12)}.tmp`, '{}'],
     ]) fs.writeFileSync(path.join(runtimeDir, name), content);
     fs.mkdirSync(path.join(runtimeDir, 'pending-advisories-abc.d'), { recursive: true });
     fs.writeFileSync(path.join(runtimeDir, 'pending-advisories-abc.d', '1'), 'x');
@@ -801,6 +803,8 @@ withEnv(() => {
         'unvalidated-abc.flag',
         'mem-audit-abc.stamp',
         'session-summary-abc.json',
+        `session-handoff-${'a'.repeat(24)}-${'b'.repeat(24)}.json`,
+        `.session-handoff-123-${'c'.repeat(12)}.tmp`,
         'pending-advisories-abc.d',
       ]) assert.ok(!fs.existsSync(path.join(runtimeDir, name)), `${name} survived`);
     });

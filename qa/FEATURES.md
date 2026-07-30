@@ -231,7 +231,7 @@ external runtime.
 
 ## F20 — Native hook enforcement, event evidence, and advisory lifecycle
 
-- Normal: all 17 registry hooks emit the expected block/advisory/context/log
+- Normal: all 19 registry hooks emit the expected block/advisory/context/log
   shape on canonical fixtures. Status: BASELINE; user replay ROUND9.
 - Boundary 1: session isolation, queue lifecycle, fail-open telemetry, kill
   switches, and jq-less JSON escaping behave explicitly. Status: BASELINE;

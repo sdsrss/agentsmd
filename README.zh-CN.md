@@ -2,9 +2,9 @@
 
 **[English](./README.md) · 中文**
 
-agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 插件。它提供证据驱动工作流、17 个有边界的安全、证据与报告检查、项目级指令工具，以及供人工复审的规则遥测。
+agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 插件。它提供证据驱动工作流、19 个有边界的安全、证据、报告与会话连续性检查、项目级指令工具，以及供人工复审的规则遥测。
 
-![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-17-blue)
+![license](https://img.shields.io/badge/license-MIT-green) ![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![hooks](https://img.shields.io/badge/Codex_hooks-19-blue)
 
 - **证据驱动流程：** 对任务进行分级、授权检查、规划、执行、验证，并用新鲜证据报告结果。
 - **有边界的原生检查：** 阻断部分可机械检测的风险并呈现结构化提示，不宣称自动执行所有语义规则。
@@ -40,7 +40,7 @@ codex plugin list --json    # 在 "installed" 中查看 agentsmd
 看 `installed` 数组，不要看 `available`：对 npm 来源的 marketplace 条目，Codex 在安装前后都报
 `"available": []`，空的 `available` 不代表失败。
 
-Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 17 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
+Codex 首次启用插件 hooks 时会要求审查信任。先检查 `.codex-plugin/plugin.json` 指向的 `hooks.json` 及其中 19 条本地命令，再批准；未信任 hooks 时，skills 可见，但规范 banner 与运行时检查不会执行。
 
 偏好图形界面？在 Codex app 中打开 **插件**；或运行 `codex`，输入 `/plugins`，打开 `agentsmd` marketplace 条目并选择安装。
 
@@ -199,7 +199,7 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 | 层 | 作用 | 主要内容 |
 |---|---|---|
 | 规范 | 定义流程、原生子代理领导契约、授权、证据、安全和报告 | `spec/AGENTS.md`、`spec/AGENTS-extended.md` |
-| 原生 hooks | 在五类已注册 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
+| 原生 hooks | 在六类已注册 Codex 事件中阻断或观察部分可检测模式 | `hooks/*.sh`、`hooks.json` |
 | 管理层 | 安装、诊断、恢复、审计和治理 | `scripts/*.js`、`agentsmd` CLI |
 | 项目工具 | 生成项目事实、编码约定和设计令牌引用 | `agentsmd init`、`analyze`、`design` |
 
@@ -207,7 +207,7 @@ Stop observers 会把提示放入队列，在下一次 `UserPromptSubmit` 呈现
 
 ## 原生 Hook 覆盖
 
-agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit` 和 `Stop` 上注册 17 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
+agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop` 和 `SessionEnd` 上注册 19 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
 
 | Hook | Event | 可检测职责 |
 |---|---|---|
@@ -228,6 +228,45 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit` 
 | `session-exit-checkpoint` | Stop | 标记修改后没有 test/lint/typecheck/build 证据的字节 |
 | `mem-audit` | Stop | 检查 memory index/file 漂移和 verified header |
 | `session-summary` | Stop | 保存滚动强制统计，供 `status` 显式查看；不会注入其他会话 |
+| `session-handoff-capture` | Stop | 为同仓库未来的新会话保存私有、脱敏、字节受限的完成态胶囊 |
+| `session-handoff-finalize` | SessionEnd | 只封存匹配会话的胶囊，不读取 transcript，也不调用模型 |
+
+## 自动记忆与跨会话连续性
+
+agentsmd 把记忆分成三个互补层，而不是把不同性质的信息都塞进同一个文件：
+
+1. `AGENTS.md` 与经复审的项目 `MEMORY.md` + `memory/*.md` 保存团队共享、
+   受版本控制的指令和长期项目经验。
+2. [Codex 原生 Memories](https://learn.chatgpt.com/docs/customization/memories)
+   提供模型智能层：Codex 判断哪些合格旧会话事实以后有用，对生成字段做脱敏，
+   在后台整合，并注入后续会话。原生 Memories 默认关闭；可用 `/memories` 或
+   `[features] memories = true` 开启。agentsmd 不会静默替用户改变这项隐私与
+   quota 选择。
+3. agentsmd 会话交接层随受信任 hooks 自动工作。每次有实质内容且已完成的
+   `Stop` 只保存经过脱敏、上限 12 KiB 的 `last_assistant_message`；
+   `SessionEnd` 封存该胶囊；同仓库新的 `SessionStart` 最多注入两个最近候选，
+   总上下文不超过 6 KiB。
+
+这种分层补上了原生后台记忆的时间窗口。执行 `/new` 时不依赖旧会话先触发
+`SessionEnd`：新的 chat 启动前，最后一个已完成 `Stop` 已经留下 checkpoint。
+正常 `/exit` 时，Codex 的 `SessionEnd` 会把匹配 checkpoint 标为已封存。如果
+进程在一个完整 `Stop` 之前被强杀，就没有已完成的 assistant message 可保存。
+
+仓库身份取自物理 Git common directory，所以同仓库 worktrees 共享交接，不同
+仓库互相隔离。并行 chat 没有官方提供的 parent/predecessor ID；因此 agentsmd
+明确把恢复内容标为“不可信、按时间排序的候选”，不会声称其中某条一定就是紧邻的
+上一会话。胶囊不能授权操作、覆盖当前指令或仓库文件、削弱安全规则、扩大 scope。
+
+交接层不会读取独立的 prompt、tool input、tool output、patch 或 transcript 字段。
+原始 session ID 会被哈希；assistant 消息中与当前仓库一致的原始/物理绝对路径会
+替换为 `[PROJECT]`。由于保存载荷就是用户可见的 assistant 消息，如果该消息引用了
+命令、相对路径或代码，它们仍可能被保留，因此恢复内容始终按不可信输入处理。状态
+只保存在本机且按 surface 隔离：plugin 使用
+`PLUGIN_DATA/runtime`，standalone 使用
+`$CODEX_HOME/.agentsmd-state/runtime`。目录权限为 `0700`、文件为 `0600`，
+使用原子替换、高置信 secret 脱敏、30 天过期和每仓库最多 20 条限制；不发起网络
+请求，也不调用模型。设置 `DISABLE_SESSION_HANDOFF_HOOK=1` 可同时关闭捕获、
+封存和恢复；已有胶囊随后自然过期，或由其所属 surface 的 uninstall 生命周期清理。
 
 ## 项目工作流
 

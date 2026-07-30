@@ -40,8 +40,8 @@ function wiringMap(relPath) {
   return map;
 }
 
-t('HOOK_REGISTRY has 17 entries (matches drift hook count)', () => {
-  assert.strictEqual(REG.HOOK_REGISTRY.length, 17);
+t('HOOK_REGISTRY has 19 entries (matches drift hook count)', () => {
+  assert.strictEqual(REG.HOOK_REGISTRY.length, 19);
 });
 
 for (const rel of ['hooks/hooks.json', 'hooks.json']) {
@@ -102,10 +102,11 @@ t('each plugin hook yields to an existing standalone surface', () => {
 });
 
 t('derived exports (BASENAMES / ENV_SUFFIXES / NAME_TO_ENV) are consistent', () => {
-  assert.strictEqual(REG.HOOK_BASENAMES.length, 17);
-  assert.strictEqual(REG.HOOK_ENV_SUFFIXES.length, 17);
-  assert.strictEqual(new Set(REG.HOOK_ENV_SUFFIXES).size, 17, 'suffixes must be unique');
+  assert.strictEqual(REG.HOOK_BASENAMES.length, 19);
+  assert.strictEqual(REG.HOOK_ENV_SUFFIXES.length, 19);
+  assert.strictEqual(new Set(REG.HOOK_ENV_SUFFIXES).size, 19, 'suffixes must be unique');
   assert.strictEqual(REG.HOOK_NAME_TO_ENV['session-summary'], 'SESSION_SUMMARY');
+  assert.strictEqual(REG.HOOK_NAME_TO_ENV['session-handoff-finalize'], 'SESSION_HANDOFF_FINALIZE');
 });
 
 t('killSwitchState mirrors hook_kill_switch (global + per-hook DISABLE_*_HOOK==1)', () => {
@@ -113,7 +114,7 @@ t('killSwitchState mirrors hook_kill_switch (global + per-hook DISABLE_*_HOOK==1
   assert.deepStrictEqual(REG.killSwitchState({ DISABLE_SECRETS_SCAN_HOOK: '1' }), { global: false, disabled: ['secrets-scan'] });
   const all = REG.killSwitchState({ DISABLE_AGENTSMD_HOOKS: '1' });
   assert.strictEqual(all.global, true);
-  assert.strictEqual(all.disabled.length, 17);
+  assert.strictEqual(all.disabled.length, 19);
   assert.deepStrictEqual(REG.killSwitchState({ DISABLE_SECRETS_SCAN_HOOK: '0' }).disabled, []); // only "1" counts
 });
 

@@ -92,6 +92,7 @@ test('contract fixtures cover current stable field shapes and roadmap boundary c
     'subagent-start',
     'subagent-stop',
     'plugin-session-start',
+    'session-end-other',
   ]) assert.ok(ids.has(required), `missing ${required}`);
   for (const fixture of FIXTURES.fixtures.filter((item) => /ToolUse$/.test(item.event))) {
     assert.strictEqual(typeof fixture.input.turn_id, 'string', `${fixture.id} turn_id`);
