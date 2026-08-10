@@ -13,9 +13,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   falling through to `MODULE_NOT_FOUND`; a CLI fallback never impersonates plugin
   context.
 - Changed the quality scorecard contract to schema v2. Health and prompt-budget
-  measurements now carry source provenance; unresolved bytes are `null`, and
-  incomplete inputs render `partial`/`unavailable` rather than fabricated zero
-  bytes and green headroom. Comparisons reject provenance-free v1 captures.
+  measurements now carry source provenance; unresolved bytes and enforcement
+  state are `null`, and incomplete inputs render `partial`/`unavailable` rather
+  than fabricated zero bytes, enabled enforcement, or green headroom. Human
+  output renders unknown enforcement as `n/a`. Comparisons reject
+  provenance-free v1 captures.
 
 ## v5.2.0 — 2026-07-30 — automatic cross-session memory (minor)
 

@@ -274,6 +274,65 @@ try {
     assert.strictEqual(card.automation.worktree_residue, 1);
   });
 
+  test('health preserves unknown enforcement without promoting it to healthy', () => {
+    const unavailable = buildScorecard({
+      ...scorecardOptions,
+      statusResult: {
+        installed: false,
+        installedVersion: null,
+        selectedSurface: null,
+        enforcement: null,
+        killSwitches: { global: false, disabled: [] },
+      },
+      doctorResult: { ok: false, checks: [] },
+    });
+    assert.strictEqual(unavailable.health.state, 'unavailable');
+    assert.strictEqual(unavailable.health.enforcement, null);
+    assert.match(formatScorecard(unavailable), /state: unavailable · enforcement: n\/a · doctor:/);
+    assert(unavailable.recommended_actions.some((item) => item.code === 'health-unavailable'));
+    assert(!unavailable.recommended_actions.some((item) => item.code === 'health-degraded'));
+
+    const missingStatus = buildScorecard({
+      ...scorecardOptions,
+      statusResult: null,
+      doctorResult: null,
+    });
+    assert.strictEqual(missingStatus.health.state, 'unavailable');
+    assert.strictEqual(missingStatus.health.enforcement, null);
+
+    const missingField = buildScorecard({
+      ...scorecardOptions,
+      statusResult: {
+        installed: true,
+        installedVersion: '5.0.1',
+        selectedSurface: 'standalone',
+        killSwitches: { global: false, disabled: [] },
+      },
+    });
+    assert.strictEqual(missingField.health.state, 'unavailable');
+    assert.strictEqual(missingField.health.enforcement, null);
+
+    const installedUnknown = buildScorecard({
+      ...scorecardOptions,
+      statusResult: { ...scorecardOptions.statusResult, enforcement: null },
+    });
+    assert.strictEqual(installedUnknown.health.state, 'unavailable');
+    assert.strictEqual(installedUnknown.health.enforcement, null);
+
+    const disabled = buildScorecard({
+      ...scorecardOptions,
+      statusResult: { ...scorecardOptions.statusResult, enforcement: false },
+    });
+    assert.strictEqual(disabled.health.state, 'degraded');
+    assert.strictEqual(disabled.health.enforcement, false);
+    assert.match(formatScorecard(disabled), /state: degraded · enforcement: false · doctor:/);
+    assert(disabled.recommended_actions.some((item) => item.code === 'health-degraded'));
+
+    assert.strictEqual(card.health.state, 'healthy');
+    assert.strictEqual(card.health.enforcement, true);
+    assert.match(formatScorecard(card), /state: healthy · enforcement: true · doctor:/);
+  });
+
   test('prompt budget distinguishes empty, missing, invalid, and unavailable inputs', () => {
     const empty = path.join(home, 'empty-AGENTS.md');
     write(empty, '');

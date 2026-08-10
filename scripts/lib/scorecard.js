@@ -512,10 +512,12 @@ function healthSummary(statusResult, doctorResult, provenance) {
   const killSwitches = (disabled && disabled.global ? 1 : 0)
     + (disabled && Array.isArray(disabled.disabled) ? disabled.disabled.length : 0);
   const installed = Boolean(statusResult && statusResult.installed);
-  const enforcement = Boolean(statusResult && statusResult.enforcement !== false);
+  const enforcement = statusResult && typeof statusResult.enforcement === 'boolean'
+    ? statusResult.enforcement
+    : null;
   const doctorOk = Boolean(doctorResult && doctorResult.ok);
   let state = 'healthy';
-  if (!installed) state = 'unavailable';
+  if (!installed || enforcement === null) state = 'unavailable';
   else if (!enforcement || !doctorOk || failed || killSwitches) state = 'degraded';
   return {
     state,
@@ -558,7 +560,9 @@ function evidenceSummary(sampling) {
 function actionsFor(card, rules) {
   const actions = [];
   const add = (priority, code, action, evidence) => actions.push({ priority, code, action, evidence });
-  if (card.health.state !== 'healthy') {
+  if (card.health.state === 'unavailable') {
+    add('high', 'health-unavailable', 'Inspect installation status and restore measurable enforcement before relying on hook results.', `Installed is ${card.health.installed}; enforcement is ${card.health.enforcement ?? 'unmeasured'}; status source is ${card.health.provenance.status_source}.`);
+  } else if (card.health.state === 'degraded') {
     add('high', 'health-degraded', 'Review failing doctor checks and disabled enforcement before relying on hook results.', `${card.health.failed_checks} failed check(s); ${card.health.kill_switches} active kill switch(es).`);
   }
   if (card.prompt_budget.state === 'partial' || card.prompt_budget.state === 'unavailable') {
@@ -767,7 +771,7 @@ function formatScorecard(card) {
   const lines = [`agentsmd scorecard — ${card.window.days}d through ${card.generated_at}`];
   const section = (name, values) => lines.push('', name, ...values);
   section('Health', [
-    `state: ${card.health.state} · doctor: ${card.health.total_checks - card.health.failed_checks}/${card.health.total_checks} · kill switches: ${card.health.kill_switches}`,
+    `state: ${card.health.state} · enforcement: ${card.health.enforcement ?? 'n/a'} · doctor: ${card.health.total_checks - card.health.failed_checks}/${card.health.total_checks} · kill switches: ${card.health.kill_switches}`,
     `sources: status ${card.health.provenance.status_source} · doctor ${card.health.provenance.doctor_source} · root ${card.health.provenance.root} · CODEX_HOME ${card.health.provenance.codex_home}`,
   ]);
   section('Compatibility', [

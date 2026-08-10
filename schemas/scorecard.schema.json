@@ -59,6 +59,12 @@
         { "type": "null" }
       ]
     },
+    "nullableBoolean": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
     "nullableInteger": {
       "oneOf": [
         { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
@@ -102,7 +108,7 @@
         "installed": { "type": "boolean" },
         "installed_version": { "$ref": "#/$defs/text" },
         "selected_surface": { "$ref": "#/$defs/text" },
-        "enforcement": { "type": "boolean" },
+        "enforcement": { "$ref": "#/$defs/nullableBoolean" },
         "doctor_ok": { "type": "boolean" },
         "total_checks": { "$ref": "#/$defs/nonnegative" },
         "failed_checks": { "$ref": "#/$defs/nonnegative" },

@@ -396,7 +396,9 @@ not rank rule value; no-opportunity is not success; memory citation is not
 adherence; sampling calibration is a structural proxy; and field false-block
 rate remains `unmeasured` without a human-reviewed outcome. Health records the
 invocation root, Codex home, and whether status/doctor evidence came from the
-runtime filesystem or supplied fixtures. Prompt-budget sources distinguish
+runtime filesystem or supplied fixtures. Unknown enforcement remains `null`
+(`n/a` in the human report) and makes health `unavailable`; only measured
+`false` means disabled enforcement. Prompt-budget sources distinguish
 measured, empty, missing, invalid, and unavailable files; unresolved bytes stay
 `null`, and the aggregate state is `measured`, `partial`, `unavailable`, or
 `over-budget`. A restricted filesystem can therefore never manufacture green
