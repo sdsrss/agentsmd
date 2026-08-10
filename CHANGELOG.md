@@ -3,6 +3,20 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Fixed all 17 skill runner resolvers so selected bundle, standalone deploy, and
+  versioned global-CLI layouts are identity-checked before execution. Package and
+  plugin versions must align, standalone roots must match their ownership-manifest
+  deploy record, and CLI roots must match the package `bin.agentsmd` entry. Missing,
+  hidden, or foreign runners now produce a bounded unblock diagnosis instead of
+  falling through to `MODULE_NOT_FOUND`; a CLI fallback never impersonates plugin
+  context.
+- Changed the quality scorecard contract to schema v2. Health and prompt-budget
+  measurements now carry source provenance; unresolved bytes are `null`, and
+  incomplete inputs render `partial`/`unavailable` rather than fabricated zero
+  bytes and green headroom. Comparisons reject provenance-free v1 captures.
+
 ## v5.2.0 — 2026-07-30 — automatic cross-session memory (minor)
 
 - Added automatic, machine-local cross-session handoffs. A substantial completed

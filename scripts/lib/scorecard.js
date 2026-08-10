@@ -54,6 +54,49 @@ function safeBytes(file, max = MAX_CAPTURE_BYTES) {
   }
 }
 
+function probeRegularFile(file, max = MAX_CAPTURE_BYTES, io = fs) {
+  const target = path.resolve(String(file));
+  let stat;
+  try {
+    stat = io.lstatSync(target);
+  } catch (error) {
+    return {
+      path: target,
+      state: error && error.code === 'ENOENT' ? 'missing' : 'unavailable',
+      bytes: error && error.code === 'ENOENT' ? 0 : null,
+    };
+  }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > max) {
+    return { path: target, state: 'invalid', bytes: null };
+  }
+  let descriptor;
+  try {
+    if (typeof io.openSync === 'function') {
+      descriptor = io.openSync(target, 'r');
+      if (typeof io.fstatSync === 'function') {
+        const opened = io.fstatSync(descriptor);
+        const sameIdentity = stat.dev === undefined || stat.ino === undefined
+          || opened.dev === undefined || opened.ino === undefined
+          || (stat.dev === opened.dev && stat.ino === opened.ino);
+        if (!opened.isFile() || opened.size > max || !sameIdentity) {
+          if (typeof io.closeSync === 'function') io.closeSync(descriptor);
+          descriptor = undefined;
+          return { path: target, state: 'invalid', bytes: null };
+        }
+        stat = opened;
+      }
+      if (typeof io.closeSync === 'function') io.closeSync(descriptor);
+      descriptor = undefined;
+    }
+  } catch {
+    if (descriptor !== undefined && typeof io.closeSync === 'function') {
+      try { io.closeSync(descriptor); } catch {}
+    }
+    return { path: target, state: 'unavailable', bytes: null };
+  }
+  return { path: target, state: stat.size === 0 ? 'empty' : 'measured', bytes: stat.size };
+}
+
 function safeRead(file, max = MAX_CAPTURE_BYTES) {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.isSymbolicLink()) {
@@ -300,38 +343,89 @@ function compatibilitySummary(logPath, days, now) {
   };
 }
 
-function projectInstructionBytes(projectRoot) {
+function projectInstructionMeasurement(projectRoot) {
   let current = path.resolve(projectRoot);
   const files = [];
+  let total = 0;
+  let complete = true;
+  try {
+    if (!fs.statSync(current).isDirectory()) {
+      return { root: current, state: 'unavailable', bytes: null, files };
+    }
+  } catch {
+    return { root: current, state: 'unavailable', bytes: null, files };
+  }
   for (let depth = 0; depth < 64; depth += 1) {
     const override = path.join(current, 'AGENTS.override.md');
     const standard = path.join(current, 'AGENTS.md');
-    if (safeBytes(override, 65536)) files.push(override);
-    else if (safeBytes(standard, 65536)) files.push(standard);
+    const overrideProbe = probeRegularFile(override, 65536);
+    if (overrideProbe.state === 'measured' || overrideProbe.state === 'empty') {
+      files.push(overrideProbe);
+      total += overrideProbe.bytes;
+    } else if (overrideProbe.state === 'missing') {
+      const standardProbe = probeRegularFile(standard, 65536);
+      if (standardProbe.state === 'measured' || standardProbe.state === 'empty') {
+        files.push(standardProbe);
+        total += standardProbe.bytes;
+      } else if (standardProbe.state !== 'missing') {
+        files.push(standardProbe);
+        complete = false;
+      }
+    } else {
+      files.push(overrideProbe);
+      complete = false;
+    }
     if (fs.existsSync(path.join(current, '.git'))) break;
     const parent = path.dirname(current);
     if (parent === current) break;
     current = parent;
   }
-  return files.reduce((total, file) => total + safeBytes(file, 65536), 0);
+  return {
+    root: path.resolve(projectRoot),
+    state: complete ? 'measured' : 'partial',
+    bytes: complete ? total : null,
+    files,
+  };
 }
 
-function promptBudget(configPath, globalAgentsPath, projectRoot) {
-  let config = '';
-  try { config = safeRead(configPath, 262144); } catch {}
-  const budget = CT.chainBudget(
-    config,
-    safeBytes(globalAgentsPath, 262144),
-    projectInstructionBytes(projectRoot),
-  );
+function promptBudget(configPath, globalAgentsPath, projectRoot, context = {}) {
+  let config = probeRegularFile(configPath, 262144);
+  const selectedStandalone = context.selectedSurface === 'standalone';
+  const runtimeVisibilityUnknown = context.statusSource === 'runtime-filesystem'
+    && context.healthState === 'unavailable';
+  const sharedFilesExpected = selectedStandalone || runtimeVisibilityUnknown;
+  if (sharedFilesExpected && config.state === 'missing') config = { ...config, bytes: null };
+  let cap = null;
+  if (config.state === 'missing' && config.bytes === 0) {
+    cap = CT.DEFAULT_DOC_MAX_BYTES;
+  } else if (config.state === 'measured' || config.state === 'empty') {
+    try {
+      cap = CT.projectDocMaxBytes(safeRead(config.path, 262144));
+    } catch {
+      config = { ...config, state: 'unavailable', bytes: null };
+    }
+  }
+  let global = probeRegularFile(globalAgentsPath, 262144);
+  if (sharedFilesExpected && global.state === 'missing') global = { ...global, bytes: null };
+  const project = projectInstructionMeasurement(projectRoot);
+  const globalBytes = global.bytes;
+  const projectBytes = project.bytes;
+  const total = Number.isInteger(globalBytes) && Number.isInteger(projectBytes)
+    ? globalBytes + projectBytes
+    : null;
+  const complete = Number.isInteger(cap) && total !== null;
+  const state = complete
+    ? (total > cap ? 'over-budget' : 'measured')
+    : ([cap, globalBytes, projectBytes].some((value) => Number.isInteger(value)) ? 'partial' : 'unavailable');
   return {
-    cap: budget.cap,
-    global_bytes: budget.globalBytes,
-    project_bytes: budget.projectBytes,
-    total_bytes: budget.total,
-    headroom_bytes: budget.headroom,
-    over_bytes: budget.over,
-    state: budget.over > 0 ? 'over-budget' : 'within-budget',
+    cap,
+    global_bytes: globalBytes,
+    project_bytes: projectBytes,
+    total_bytes: total,
+    headroom_bytes: complete ? cap - total : null,
+    over_bytes: complete ? total - cap : null,
+    state,
+    sources: { config, global, project },
   };
 }
 
@@ -411,7 +505,7 @@ function automationSummary({ automationRoot, workflowsRoot, worktrees, projectRo
   };
 }
 
-function healthSummary(statusResult, doctorResult) {
+function healthSummary(statusResult, doctorResult, provenance) {
   const checks = Array.isArray(doctorResult && doctorResult.checks) ? doctorResult.checks : [];
   const failed = checks.filter((check) => !check.ok).length;
   const disabled = statusResult && statusResult.killSwitches;
@@ -433,6 +527,12 @@ function healthSummary(statusResult, doctorResult) {
     total_checks: checks.length,
     failed_checks: failed,
     kill_switches: killSwitches,
+    provenance: {
+      root: boundedText(provenance.root),
+      codex_home: boundedText(provenance.codexHome),
+      status_source: provenance.statusSource,
+      doctor_source: provenance.doctorSource,
+    },
   };
 }
 
@@ -460,6 +560,11 @@ function actionsFor(card, rules) {
   const add = (priority, code, action, evidence) => actions.push({ priority, code, action, evidence });
   if (card.health.state !== 'healthy') {
     add('high', 'health-degraded', 'Review failing doctor checks and disabled enforcement before relying on hook results.', `${card.health.failed_checks} failed check(s); ${card.health.kill_switches} active kill switch(es).`);
+  }
+  if (card.prompt_budget.state === 'partial' || card.prompt_budget.state === 'unavailable') {
+    add('high', 'prompt-budget-incomplete', 'Restore readable prompt-budget inputs before treating discovery headroom as measured.', `Prompt-budget state is ${card.prompt_budget.state}; unavailable values remain null.`);
+  } else if (card.prompt_budget.state === 'over-budget') {
+    add('high', 'prompt-budget-over', 'Reduce the measured discovery chain or raise the reviewed project_doc_max_bytes cap.', `${card.prompt_budget.total_bytes}/${card.prompt_budget.cap} measured bytes.`);
   }
   if (card.compatibility.missing_dimension_sessions) {
     add('medium', 'dimension-missing', 'Inspect SessionStart coverage for field sessions without a session-dimension row.', `${card.compatibility.missing_dimension_sessions} field session(s) could not be joined to runtime dimensions.`);
@@ -503,22 +608,30 @@ function buildScorecard(options = {}) {
   const sampling = samplingAudit({ days, now, sessionsDir });
   const lessons = lessonBypassAudit({ days, now, logPath, sessionsDir });
   const trend = sparkline({ now, logPath, windows: 6, bucketDays: Math.max(1, Math.ceil(days / 6)) });
-  const statusResult = options.statusResult || status();
-  const doctorResult = options.doctorResult || doctor();
+  const statusSupplied = Object.prototype.hasOwnProperty.call(options, 'statusResult');
+  const doctorSupplied = Object.prototype.hasOwnProperty.call(options, 'doctorResult');
+  const statusResult = statusSupplied ? options.statusResult : status();
+  const doctorResult = doctorSupplied ? options.doctorResult : doctor();
   const blocking = (pointAudit.byEvent.block || 0) + (pointAudit.byEvent.deny || 0);
   const bypasses = pointAudit.byEvent.bypass || 0;
   const decisionTotal = blocking + bypasses;
   const memoryState = lessons.measurable > 0 ? 'measured' : 'unavailable';
 
+  const health = healthSummary(statusResult, doctorResult, {
+    root,
+    codexHome,
+    statusSource: statusSupplied ? 'supplied' : 'runtime-filesystem',
+    doctorSource: doctorSupplied ? 'supplied' : 'runtime-filesystem',
+  });
   const card = {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: new Date(now).toISOString(),
     window: {
       days,
       start: new Date(now - days * 86400000).toISOString(),
       end: new Date(now).toISOString(),
     },
-    health: healthSummary(statusResult, doctorResult),
+    health,
     compatibility: compatibilitySummary(logPath, days, now),
     conformance: conformanceSummary(
       options.conformanceRoot || path.join(root, 'docs', 'qa-captures'),
@@ -562,6 +675,11 @@ function buildScorecard(options = {}) {
       options.configPath || path.join(codexHome, 'config.toml'),
       options.globalAgentsPath || path.join(codexHome, 'AGENTS.md'),
       projectRoot,
+      {
+        healthState: health.state,
+        selectedSurface: health.selected_surface,
+        statusSource: health.provenance.status_source,
+      },
     ),
     automation: null,
     recommended_actions: [],
@@ -574,6 +692,7 @@ function buildScorecard(options = {}) {
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
       'Conformance and performance captures become stale; a green historical capture does not prove the current tree.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
+      'Confirmed absent prompt files may contribute zero; missing files that contradict or cannot resolve the active surface, plus unreadable or invalid inputs, remain null and prevent a measured headroom claim.',
     ],
   };
   card.automation = automationSummary({
@@ -632,8 +751,8 @@ function compareScorecards(current, previous, capture = 'comparison.json') {
 
 function loadComparison(file) {
   const value = safeJson(path.resolve(file), MAX_CAPTURE_BYTES);
-  if (!value || value.schema_version !== 1) {
-    throw new Error(`${file}: unsupported scorecard schema_version (expected 1)`);
+  if (!value || value.schema_version !== 2) {
+    throw new Error(`${file}: unsupported scorecard schema_version (expected 2; v1 lacks measurement provenance)`);
   }
   const validation = validateScorecard(value);
   if (!validation.valid) throw new Error(`${file}: invalid scorecard capture\n${validation.errors.join('\n')}`);
@@ -649,6 +768,7 @@ function formatScorecard(card) {
   const section = (name, values) => lines.push('', name, ...values);
   section('Health', [
     `state: ${card.health.state} · doctor: ${card.health.total_checks - card.health.failed_checks}/${card.health.total_checks} · kill switches: ${card.health.kill_switches}`,
+    `sources: status ${card.health.provenance.status_source} · doctor ${card.health.provenance.doctor_source} · root ${card.health.provenance.root} · CODEX_HOME ${card.health.provenance.codex_home}`,
   ]);
   section('Compatibility', [
     `dimension sessions: ${card.compatibility.dimension_sessions} · missing joins: ${card.compatibility.missing_dimension_sessions} · runtime splits: ${card.compatibility.runtime_splits.length}`,
@@ -677,7 +797,8 @@ function formatScorecard(card) {
     'citation engagement is not adherence',
   ]);
   section('Prompt budget', [
-    `state: ${card.prompt_budget.state} · ${card.prompt_budget.total_bytes}/${card.prompt_budget.cap} bytes · headroom ${card.prompt_budget.headroom_bytes}`,
+    `state: ${card.prompt_budget.state} · ${card.prompt_budget.total_bytes ?? 'n/a'}/${card.prompt_budget.cap ?? 'n/a'} bytes · headroom ${card.prompt_budget.headroom_bytes ?? 'n/a'}`,
+    `sources: config ${card.prompt_budget.sources.config.state} · global ${card.prompt_budget.sources.global.state} · project ${card.prompt_budget.sources.project.state}`,
   ]);
   section('Automation', [
     `recipes ${card.automation.recipes_present}/${card.automation.recipes_expected} · scheduled workflows ${card.automation.scheduled_workflows} · fallback ${card.automation.fallback_events} · fail-open ${card.automation.fail_open_events}`,
@@ -724,5 +845,6 @@ module.exports = {
   formatScorecard,
   loadComparison,
   parseArgs,
+  probeRegularFile,
   validateScorecard,
 };

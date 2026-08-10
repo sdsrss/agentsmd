@@ -11,6 +11,7 @@ const {
   formatScorecard,
   loadComparison,
   parseArgs,
+  probeRegularFile,
   validateScorecard,
 } = require('../lib/scorecard');
 
@@ -55,6 +56,7 @@ try {
   write(configPath, 'project_doc_max_bytes = 1000\n');
   write(globalAgentsPath, 'g'.repeat(100));
   write(path.join(project, 'AGENTS.md'), 'p'.repeat(200));
+  fs.mkdirSync(path.join(project, '.git'), { recursive: true });
   write(logPath, jsonl([
     {
       ts: '2026-07-28T01:00:00.000Z',
@@ -168,7 +170,7 @@ try {
   write(path.join(workflows, 'runtime-canary.yml'), 'on:\n  schedule:\n    - cron: "0 3 * * 1"\n');
   write(path.join(workflows, 'governance-review.yml'), 'on:\n  schedule:\n    - cron: "0 4 * * 1"\n');
 
-  const card = buildScorecard({
+  const scorecardOptions = {
     root: ROOT,
     codexHome: home,
     projectRoot: project,
@@ -201,12 +203,13 @@ try {
       { path: project, current: true, locked: false, prunable: false },
       { path: path.join(temp, 'stale-worktree'), current: false, locked: false, prunable: true },
     ],
-  });
+  };
+  const card = buildScorecard(scorecardOptions);
 
   test('scorecard is versioned, bounded, and schema-valid', () => {
     const result = validateScorecard(card);
     assert.strictEqual(result.valid, true, result.errors.join('\n'));
-    assert.strictEqual(card.schema_version, 1);
+    assert.strictEqual(card.schema_version, 2);
     assert(JSON.stringify(card).length < 262144);
   });
 
@@ -247,12 +250,114 @@ try {
       total_bytes: 300,
       headroom_bytes: 700,
       over_bytes: -700,
-      state: 'within-budget',
+      state: 'measured',
+      sources: {
+        config: { path: configPath, state: 'measured', bytes: 29 },
+        global: { path: globalAgentsPath, state: 'measured', bytes: 100 },
+        project: {
+          root: project,
+          state: 'measured',
+          bytes: 200,
+          files: [{ path: path.join(project, 'AGENTS.md'), state: 'measured', bytes: 200 }],
+        },
+      },
+    });
+    assert.deepStrictEqual(card.health.provenance, {
+      root: ROOT,
+      codex_home: home,
+      status_source: 'supplied',
+      doctor_source: 'supplied',
     });
     assert.strictEqual(card.automation.recipes_present, 4);
     assert.strictEqual(card.automation.scheduled_workflows, 2);
     assert.strictEqual(card.automation.fallback_events, 1);
     assert.strictEqual(card.automation.worktree_residue, 1);
+  });
+
+  test('prompt budget distinguishes empty, missing, invalid, and unavailable inputs', () => {
+    const empty = path.join(home, 'empty-AGENTS.md');
+    write(empty, '');
+    const emptyCard = buildScorecard({ ...scorecardOptions, globalAgentsPath: empty });
+    assert.strictEqual(emptyCard.prompt_budget.state, 'measured');
+    assert.strictEqual(emptyCard.prompt_budget.global_bytes, 0);
+    assert.strictEqual(emptyCard.prompt_budget.sources.global.state, 'empty');
+
+    const missing = path.join(home, 'missing-AGENTS.md');
+    const missingCard = buildScorecard({ ...scorecardOptions, globalAgentsPath: missing });
+    assert.strictEqual(missingCard.prompt_budget.state, 'partial');
+    assert.strictEqual(missingCard.prompt_budget.global_bytes, null);
+    assert.strictEqual(missingCard.prompt_budget.sources.global.state, 'missing');
+
+    const confirmedAbsent = buildScorecard({
+      ...scorecardOptions,
+      configPath: path.join(home, 'missing-config.toml'),
+      globalAgentsPath: missing,
+      statusResult: {
+        installed: false,
+        selectedSurface: null,
+        enforcement: true,
+        killSwitches: { global: false, disabled: [] },
+      },
+      doctorResult: { ok: false, checks: [] },
+    });
+    assert.strictEqual(confirmedAbsent.prompt_budget.state, 'measured');
+    assert.strictEqual(confirmedAbsent.prompt_budget.cap, 32768);
+    assert.strictEqual(confirmedAbsent.prompt_budget.global_bytes, 0);
+    assert.strictEqual(confirmedAbsent.prompt_budget.sources.config.state, 'missing');
+
+    const linked = path.join(home, 'linked-AGENTS.md');
+    fs.symlinkSync(globalAgentsPath, linked);
+    const partial = buildScorecard({ ...scorecardOptions, globalAgentsPath: linked });
+    assert.strictEqual(partial.prompt_budget.state, 'partial');
+    assert.strictEqual(partial.prompt_budget.global_bytes, null);
+    assert.strictEqual(partial.prompt_budget.total_bytes, null);
+    assert.strictEqual(partial.prompt_budget.headroom_bytes, null);
+    assert.strictEqual(partial.prompt_budget.sources.global.state, 'invalid');
+    assert(partial.recommended_actions.some((item) => item.code === 'prompt-budget-incomplete'));
+
+    const linkedConfig = path.join(home, 'linked-config.toml');
+    fs.symlinkSync(configPath, linkedConfig);
+    const unavailable = buildScorecard({
+      ...scorecardOptions,
+      configPath: linkedConfig,
+      globalAgentsPath: linked,
+      projectRoot: path.join(temp, 'missing-project'),
+    });
+    assert.strictEqual(unavailable.prompt_budget.state, 'unavailable');
+    assert.strictEqual(unavailable.prompt_budget.cap, null);
+    assert.strictEqual(unavailable.prompt_budget.global_bytes, null);
+    assert.strictEqual(unavailable.prompt_budget.project_bytes, null);
+    assert.strictEqual(unavailable.prompt_budget.sources.project.state, 'unavailable');
+
+    const denied = new Error('permission denied');
+    denied.code = 'EACCES';
+    assert.deepStrictEqual(
+      probeRegularFile('/denied/AGENTS.md', 262144, { lstatSync() { throw denied; } }),
+      { path: '/denied/AGENTS.md', state: 'unavailable', bytes: null },
+    );
+    let closed = false;
+    const regular = (dev, ino) => ({ dev, ino, size: 10, isFile: () => true, isSymbolicLink: () => false });
+    assert.deepStrictEqual(
+      probeRegularFile('/raced/AGENTS.md', 262144, {
+        lstatSync: () => regular(1, 1),
+        openSync: () => 7,
+        fstatSync: () => regular(1, 2),
+        closeSync: () => { closed = true; },
+      }),
+      { path: '/raced/AGENTS.md', state: 'invalid', bytes: null },
+    );
+    assert.strictEqual(closed, true);
+  });
+
+  test('human prompt-budget output never renders null measurements as zero or green', () => {
+    const linked = path.join(home, 'format-linked-AGENTS.md');
+    fs.symlinkSync(globalAgentsPath, linked);
+    const partial = buildScorecard({ ...scorecardOptions, globalAgentsPath: linked });
+    const text = formatScorecard(partial);
+    assert.match(text, /state: partial/);
+    assert.match(text, /n\/a\/1000 bytes/);
+    assert.match(text, /global invalid/);
+    assert.doesNotMatch(text, /within-budget/);
   });
 
   test('human report preserves the roadmap section order and measurement limits', () => {
@@ -305,8 +410,11 @@ try {
     const malformed = path.join(temp, 'malformed.json');
     write(malformed, '{');
     assert.throws(() => loadComparison(malformed), /valid JSON/);
+    const legacy = path.join(temp, 'legacy-v1.json');
+    write(legacy, JSON.stringify({ ...card, schema_version: 1 }));
+    assert.throws(() => loadComparison(legacy), /schema_version.*expected 2/);
     const future = path.join(temp, 'future.json');
-    write(future, JSON.stringify({ ...card, schema_version: 2 }));
+    write(future, JSON.stringify({ ...card, schema_version: 3 }));
     assert.throws(() => loadComparison(future), /schema_version/);
   });
 

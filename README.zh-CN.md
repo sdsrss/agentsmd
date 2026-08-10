@@ -192,6 +192,14 @@ CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT
 - 记录规则机会与结果，供 operator 人工复审；
 - 17 个 Codex skills，用于复用诊断与项目工作流。
 
+每个选中的 skill 会在同一 shell invocation 内解析并执行 runner，依次验证当前
+plugin/repository bundle、manifest-owned standalone deploy，以及已全局安装的固定版本
+`agentsmd` CLI package。校验要求 `@sdsrs/agentsmd` package 身份和语义版本有效；plugin metadata 必须与该版本
+一致，standalone root 必须匹配 ownership manifest 的 deploy record，CLI root 必须回指
+package `bin.agentsmd`。所有路径均不满足时，resolver 会输出 unblock 路径，不会再把未经
+验证的 fallback 变成 `MODULE_NOT_FOUND` 堆栈。CLI package fallback 也不会冒充当前
+选中的 plugin context。
+
 用户明确要求 commit 并 release/publish 时，会授权指定仓库或包的标准发版流程。未命名的生产环境、live 配置和无关 scope 不在授权范围内。
 
 ## 工作方式
@@ -344,16 +352,21 @@ agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
 ```
 
-版本化 scorecard 通过每个 session 一条有界 `session-dimension` 记录关联现场
+版本化 scorecard v2 通过每个 session 一条有界 `session-dimension` 记录关联现场
 遥测，分开呈现 `self`、`test`、`qa`、`external` 与 `unknown` 来源，并汇总
 health、runtime compatibility、完整 conformance 新鲜度、false-block 测量状态、
 bypass、evidence discipline、performance、memory engagement、prompt budget、
 automation、operator actions 与 measurement limits。它不会自动升降级规则：
 raw hit 不代表规则价值，no-opportunity 不是成功，memory citation 不等于
 adherence，sampling calibration 只是结构 proxy；没有人工审核 outcome 时，
-现场 false-block rate 保持 `unmeasured`。
+现场 false-block rate 保持 `unmeasured`。health 会记录调用根目录、Codex home，
+以及 status/doctor 证据来自 runtime filesystem 还是 supplied fixture。prompt-budget
+source 会区分 measured、empty、missing、invalid 与 unavailable；未解析的字节保持
+`null`，汇总状态只能是 `measured`、`partial`、`unavailable` 或 `over-budget`，
+因此受限 filesystem 不能再用隐藏输入制造绿色 headroom。
 
-`--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v1 JSON。
+`--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v2 JSON。v1 capture
+没有 measurement provenance，无法通过猜测安全升级，因此会被明确拒绝。
 `automation/` 中分发每周 pinned/latest runtime canary、治理复审、report-only
 release readiness 与只读 PR review 配方。定时 runtime matrix 使用隔离
 `CODEX_HOME`、positive + near-negative 确定性评分、5-run 信息性性能趋势和
@@ -426,7 +439,8 @@ npm CLI 或已审查的本地 checkout，才能在修改前识别替换 artifact
 plugin 与 standalone，需要分别卸载两套 surface。
 
 plugin context 只接受 Codex runtime 的 `CLAUDE_PLUGIN_ROOT`，或 status/doctor
-skill 已解析的 `AGENTSMD_PLUGIN_ROOT`。CLI 不扫描 plugin cache，因为 cache 中存在
+skill 从 selected bundle 解析的 `AGENTSMD_PLUGIN_ROOT`；versioned CLI fallback
+会刻意保持该兼容变量未设置。CLI 不扫描 plugin cache，因为 cache 中存在
 artifact 不代表 Codex 已启用它。有 context 时，`surfaceArbitration` 会给出两面
 版本、健康证据、赢家、稳定 reason code，以及静态协作协议是否支持 exclusive
 execution。该字段不是 runtime exact-once 证明，真实 Codex E2E 仍是独立 Gate。

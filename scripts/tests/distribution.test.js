@@ -472,7 +472,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
-  assert.strictEqual(scorecard.schema_version, 1);
+  assert.strictEqual(scorecard.schema_version, 2);
   assert.strictEqual(scorecard.performance.state, 'fresh');
   assert.strictEqual(scorecard.automation.recipes_present, 4);
 

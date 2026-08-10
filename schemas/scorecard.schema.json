@@ -22,7 +22,7 @@
     "measurement_limits"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "generated_at": { "$ref": "#/$defs/text" },
     "window": { "$ref": "#/$defs/window" },
     "health": { "$ref": "#/$defs/health" },
@@ -59,6 +59,19 @@
         { "type": "null" }
       ]
     },
+    "nullableInteger": {
+      "oneOf": [
+        { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
+        { "type": "null" }
+      ]
+    },
+    "nullableNonnegative": {
+      "oneOf": [
+        { "$ref": "#/$defs/nonnegative" },
+        { "type": "null" }
+      ]
+    },
+    "pathText": { "type": "string", "minLength": 1, "maxLength": 512 },
     "window": {
       "type": "object",
       "additionalProperties": false,
@@ -81,7 +94,8 @@
         "doctor_ok",
         "total_checks",
         "failed_checks",
-        "kill_switches"
+        "kill_switches",
+        "provenance"
       ],
       "properties": {
         "state": { "enum": ["healthy", "degraded", "unavailable"] },
@@ -92,7 +106,19 @@
         "doctor_ok": { "type": "boolean" },
         "total_checks": { "$ref": "#/$defs/nonnegative" },
         "failed_checks": { "$ref": "#/$defs/nonnegative" },
-        "kill_switches": { "$ref": "#/$defs/nonnegative" }
+        "kill_switches": { "$ref": "#/$defs/nonnegative" },
+        "provenance": { "$ref": "#/$defs/healthProvenance" }
+      }
+    },
+    "healthProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "codex_home", "status_source", "doctor_source"],
+      "properties": {
+        "root": { "$ref": "#/$defs/pathText" },
+        "codex_home": { "$ref": "#/$defs/pathText" },
+        "status_source": { "enum": ["supplied", "runtime-filesystem"] },
+        "doctor_source": { "enum": ["supplied", "runtime-filesystem"] }
       }
     },
     "dataClasses": {
@@ -317,16 +343,53 @@
         "total_bytes",
         "headroom_bytes",
         "over_bytes",
-        "state"
+        "state",
+        "sources"
       ],
       "properties": {
-        "cap": { "$ref": "#/$defs/nonnegative" },
-        "global_bytes": { "$ref": "#/$defs/nonnegative" },
-        "project_bytes": { "$ref": "#/$defs/nonnegative" },
-        "total_bytes": { "$ref": "#/$defs/nonnegative" },
-        "headroom_bytes": { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
-        "over_bytes": { "type": "integer", "minimum": -100000000, "maximum": 100000000 },
-        "state": { "enum": ["within-budget", "over-budget"] }
+        "cap": { "$ref": "#/$defs/nullableNonnegative" },
+        "global_bytes": { "$ref": "#/$defs/nullableNonnegative" },
+        "project_bytes": { "$ref": "#/$defs/nullableNonnegative" },
+        "total_bytes": { "$ref": "#/$defs/nullableNonnegative" },
+        "headroom_bytes": { "$ref": "#/$defs/nullableInteger" },
+        "over_bytes": { "$ref": "#/$defs/nullableInteger" },
+        "state": { "enum": ["measured", "partial", "unavailable", "over-budget"] },
+        "sources": { "$ref": "#/$defs/promptSources" }
+      }
+    },
+    "fileMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "state", "bytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/pathText" },
+        "state": { "enum": ["measured", "empty", "missing", "unavailable", "invalid"] },
+        "bytes": { "$ref": "#/$defs/nullableNonnegative" }
+      }
+    },
+    "projectMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "state", "bytes", "files"],
+      "properties": {
+        "root": { "$ref": "#/$defs/pathText" },
+        "state": { "enum": ["measured", "partial", "unavailable"] },
+        "bytes": { "$ref": "#/$defs/nullableNonnegative" },
+        "files": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/fileMeasurement" }
+        }
+      }
+    },
+    "promptSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "global", "project"],
+      "properties": {
+        "config": { "$ref": "#/$defs/fileMeasurement" },
+        "global": { "$ref": "#/$defs/fileMeasurement" },
+        "project": { "$ref": "#/$defs/projectMeasurement" }
       }
     },
     "automation": {
