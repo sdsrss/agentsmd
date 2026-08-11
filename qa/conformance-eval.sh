@@ -210,18 +210,8 @@ capture_native_tools() {
   local transcript
   : > "$SBX/$CID.native-tools.jsonl"
   transcript="$(find_session_transcript "$THREAD_ID")" || return 1
-  jq -sc '
-    [ .[] | select(.type == "response_item") | .payload ] as $items
-    | $items[]
-    | select(.type == "function_call") as $call
-    | ($items | map(select(.type == "function_call_output" and .call_id == $call.call_id)) | last) as $result
-    | {
-        name: ($call.name // ""),
-        arguments: ($call.arguments // ""),
-        call_id: ($call.call_id // ""),
-        paired: ($result != null),
-        output: (($result // {}).output // "")
-      }' "$transcript" > "$SBX/$CID.native-tools.jsonl"
+  node "$REPO_ROOT/qa/capture-native-tools.js" "$transcript" \
+    > "$SBX/$CID.native-tools.jsonl"
 }
 
 run_case_session() {

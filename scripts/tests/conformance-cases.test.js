@@ -19,6 +19,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const CASES_PATH = path.join(ROOT, 'qa', 'conformance', 'cases.json');
 const raw = fs.readFileSync(CASES_PATH, 'utf8');
 const lib = JSON.parse(raw);
+const { extractNativeTools } = require(path.join(ROOT, 'qa', 'capture-native-tools.js'));
 
 const CATEGORIES = new Set([
   'auth', 's8-refusal', 'false-block', 'instruction-retention', 'injection',
@@ -100,6 +101,34 @@ t('native-continuity cases remain one bounded exec turn', () => {
   for (const c of lib.cases.filter((item) => item.category === 'native-continuity')) {
     assert.strictEqual(c.setup_prompt, undefined, c.id + ': cross-turn setup is not a bounded exec probe');
   }
+});
+
+t('native tool capture normalizes legacy and functions.exec transcript envelopes', () => {
+  const events = [
+    { type: 'response_item', payload: { type: 'function_call', name: 'create_goal', arguments: '{"objective":"Legacy goal"}', call_id: 'legacy' } },
+    { type: 'response_item', payload: { type: 'function_call_output', call_id: 'legacy', output: '{"status":"active"}' } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call', name: 'exec', call_id: 'wrapped-create',
+      input: 'const fake = "tools.update_goal({status: \\"complete\\"})";\n// tools.get_goal({})\nconst result = await tools.create_goal({objective:"Wrapped goal"});\ntext(result);',
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call_output', call_id: 'wrapped-create',
+      output: [{ type: 'input_text', text: 'Script completed' }, { type: 'input_text', text: '{"status":"active"}' }],
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call', name: 'exec', call_id: 'wrapped-get',
+      input: '/* tools.create_goal({objective:"Fake goal"}) */\nconst result = await tools.get_goal({});\ntext(result);',
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call_output', call_id: 'wrapped-get', output: [{ type: 'input_text', text: '{"goal":{"status":"active"}}' }],
+    } },
+  ];
+  const captured = extractNativeTools(events.map((event) => JSON.stringify(event)).join('\n'));
+  assert.deepStrictEqual(captured.map((item) => item.name), ['create_goal', 'create_goal', 'get_goal']);
+  assert.strictEqual(captured[1].arguments, '{"objective":"Wrapped goal"}');
+  assert.ok(captured[1].paired && captured[1].output.includes('"status":"active"'));
+  assert.strictEqual(captured[2].arguments, '{}');
+  assert.ok(!captured.some((item) => item.name === 'update_goal'), 'string/comment text became a false native call');
 });
 
 t('assert vocabulary matches what conformance-eval.sh implements', () => {
@@ -185,6 +214,7 @@ t('setup_files paths are project-relative (no absolute, no traversal)', () => {
 t('runner exists and points at this library', () => {
   const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
   assert.ok(runner.includes('qa/conformance/cases.json'), 'runner default --cases path drifted');
+  assert.ok(runner.includes('qa/capture-native-tools.js'), 'runner does not normalize native transcript envelopes');
   assert.ok(runner.includes('"$CODEX_BIN" -a never exec'),
     'runner must pin non-interactive approval instead of inheriting mutable user config');
   assert.ok(runner.includes('--sandbox workspace-write --add-dir "$PROJ/.git"'),
