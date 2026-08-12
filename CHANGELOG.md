@@ -5,6 +5,8 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.3.0 — 2026-08-12 — runtime evidence provenance and representative core evaluation (minor)
+
 - Added a pre-registered representative core A/B surface: 24 harmless coding
   tasks across eight workload families, paired seed-derived condition order,
   isolated current-core/no-core/candidate-core homes, deterministic grading,
@@ -47,6 +49,10 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   hidden, or foreign runners now produce a bounded unblock diagnosis instead of
   falling through to `MODULE_NOT_FOUND`; a CLI fallback never impersonates plugin
   context.
+- Fixed release-candidate validation so a root `install.sh` version change selects
+  distribution, package dry-run, and the full gate instead of remaining an
+  uncovered risk. The canonical byte-identity fixture now tracks the generated
+  v5.3.0 core.
 - Changed the quality scorecard contract to schema v2. Health and prompt-budget
   measurements now carry source provenance; unresolved bytes and enforcement
   state are `null`, and incomplete inputs render `partial`/`unavailable` rather
