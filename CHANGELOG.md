@@ -36,7 +36,10 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   Capture creation now rejects direct and ancestor symlink indirection before
   writing outside its repository-bounded evidence subtree. Runner help and the
   operator quick reference also distinguish the explicit Linux ChatGPT
-  subscription home from custom/fake runner modes that may omit it.
+  subscription home from custom/fake runner modes that may omit it. After
+  the representative current/candidate matrix and exact AUTH guard both passed,
+  the canonical core replaced its duplicate L3 authorization sentence with a
+  reference to §2's Level/Auth separation contract.
 - Fixed all 17 skill runner resolvers so selected bundle, standalone deploy, and
   versioned global-CLI layouts are identity-checked before execution. Package and
   plugin versions must align, standalone roots must match their ownership-manifest
