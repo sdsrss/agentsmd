@@ -47,6 +47,17 @@
       "width": "targeted",
       "order": 40
     },
+    "core-ab-structure": {
+      "command": [
+        "node",
+        "scripts/tests/core-ab.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 41
+    },
     "hook-smoke": {
       "command": [
         "bash",
@@ -443,6 +454,28 @@
         "distribution"
       ],
       "reason": "Lifecycle mutation paths require transaction, repair, fault, and distribution evidence.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "core-ab-contract",
+      "patterns": [
+        "qa/core-ab-eval.js",
+        "qa/core-ab/**",
+        "qa/conformance/cases.json",
+        "schemas/core-ab-cases.schema.json",
+        "schemas/core-ab-results.schema.json",
+        "scripts/tests/core-ab.test.js"
+      ],
+      "risk_categories": [
+        "core-ab-contract",
+        "model-measurement"
+      ],
+      "checks": [
+        "core-ab-structure",
+        "argv-lint"
+      ],
+      "reason": "Paired core evaluation changes must preserve the representative matrix and exact auth-guard conformance adapters, paired isolation, deterministic grading, strict argv, measurement provenance, and zero-model structural gates.",
       "requires_full": true,
       "auth_boundary": false
     },

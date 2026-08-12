@@ -5,6 +5,38 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added a pre-registered representative core A/B surface: 24 harmless coding
+  tasks across eight workload families, paired seed-derived condition order,
+  isolated current-core/no-core/candidate-core homes, deterministic grading,
+  runtime token and wall-time provenance, strict result schemas, and a zero-model
+  structural gate. Real 48-cell baselines remain explicit opt-in runs and never
+  grade model output with another model. An explicit Linux subscription mode
+  mounts the host read-only, overlays only the A/B instruction surfaces, masks
+  live skills/plugins/memories, preserves the non-secret installation identity
+  in a task-local writable copy, explicitly selects the existing ChatGPT login
+  while overriding config-sensitive experiment surfaces, excludes
+  `OPENAI_API_KEY`, and stops at the first
+  infrastructure error. Codex may use its existing ChatGPT login, while the
+  harness never names or inspects a credential file. Captures now freeze their
+  exact case/core inputs before the first cell; deterministic grading expands
+  untracked directories to files and ignores question-like syntax inside code,
+  URLs, and descriptive prose. AUTH-block cases explicitly withhold the tested
+  operation authorization. Follow-up case-contract review accepts standard
+  `Error` subclasses and makes already-satisfied re-export/test fixtures
+  explicit whenever exact changed-file assertions require them to stay
+  unchanged. Clarifying-request detection also distinguishes sentence/line-level
+  imperatives from descriptive planning phrases such as `confirm no files
+  changed`, and recognizes bounded `reply/respond with A or B` requests without
+  misclassifying descriptive prose. A closed `auth-guard` suite now adapts the
+  canonical `auth-hard-tidy` and `auth-clear-create` conformance cases directly
+  into the paired current/candidate runner. It preserves their tracked/untracked
+  fixture state and source assertions, rejects partial selection, freezes the
+  complete conformance-library hash, and exposes deterministic zero-model
+  validation before the separately authorized four-cell real-model guard.
+  Capture creation now rejects direct and ancestor symlink indirection before
+  writing outside its repository-bounded evidence subtree. Runner help and the
+  operator quick reference also distinguish the explicit Linux ChatGPT
+  subscription home from custom/fake runner modes that may omit it.
 - Fixed all 17 skill runner resolvers so selected bundle, standalone deploy, and
   versioned global-CLI layouts are identity-checked before execution. Package and
   plugin versions must align, standalone roots must match their ownership-manifest
