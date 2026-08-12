@@ -596,6 +596,7 @@
       "patterns": [
         "package.json",
         "CHANGELOG.md",
+        "install.sh",
         ".codex-plugin/**",
         ".agents/**",
         "scripts/version-sync.js"

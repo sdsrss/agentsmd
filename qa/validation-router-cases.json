@@ -324,6 +324,24 @@
       "requires_full": true,
       "external_service": false,
       "auth_boundary": true
+    },
+    {
+      "name": "release installer cannot bypass full",
+      "files": [
+        "install.sh"
+      ],
+      "checks_include": [
+        "distribution",
+        "release-dry-run",
+        "full-check"
+      ],
+      "categories_include": [
+        "package-config",
+        "release"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
     }
   ]
 }
