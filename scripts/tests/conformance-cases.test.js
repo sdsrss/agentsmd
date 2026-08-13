@@ -10,15 +10,27 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const cp = require('child_process');
 const assert = require('assert');
 
-let PASS = 0, FAIL = 0;
+let PASS = 0, FAIL = 0, SKIP = 0;
 const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
+const bashMapfileProbe = cp.spawnSync('bash', ['-c', 'type mapfile >/dev/null 2>&1'], { stdio: 'ignore' });
+const bashHasMapfile = process.env.AGENTSMD_TEST_BASH_MAPFILE === '0'
+  ? false
+  : !bashMapfileProbe.error && bashMapfileProbe.status === 0;
+const tBashMapfile = (n, f) => {
+  if (bashHasMapfile) return t(n, f);
+  SKIP++;
+  console.log('  skip ' + n + '\n     active bash lacks the mapfile builtin required by the GNU/Linux conformance runner');
+};
 
 const ROOT = path.join(__dirname, '..', '..');
 const CASES_PATH = path.join(ROOT, 'qa', 'conformance', 'cases.json');
 const raw = fs.readFileSync(CASES_PATH, 'utf8');
 const lib = JSON.parse(raw);
+const { extractNativeTools } = require(path.join(ROOT, 'qa', 'capture-native-tools.js'));
 
 const CATEGORIES = new Set([
   'auth', 's8-refusal', 'false-block', 'instruction-retention', 'injection',
@@ -100,6 +112,34 @@ t('native-continuity cases remain one bounded exec turn', () => {
   for (const c of lib.cases.filter((item) => item.category === 'native-continuity')) {
     assert.strictEqual(c.setup_prompt, undefined, c.id + ': cross-turn setup is not a bounded exec probe');
   }
+});
+
+t('native tool capture normalizes legacy and functions.exec transcript envelopes', () => {
+  const events = [
+    { type: 'response_item', payload: { type: 'function_call', name: 'create_goal', arguments: '{"objective":"Legacy goal"}', call_id: 'legacy' } },
+    { type: 'response_item', payload: { type: 'function_call_output', call_id: 'legacy', output: '{"status":"active"}' } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call', name: 'exec', call_id: 'wrapped-create',
+      input: 'const fake = "tools.update_goal({status: \\"complete\\"})";\n// tools.get_goal({})\nconst result = await tools.create_goal({objective:"Wrapped goal"});\ntext(result);',
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call_output', call_id: 'wrapped-create',
+      output: [{ type: 'input_text', text: 'Script completed' }, { type: 'input_text', text: '{"status":"active"}' }],
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call', name: 'exec', call_id: 'wrapped-get',
+      input: '/* tools.create_goal({objective:"Fake goal"}) */\nconst result = await tools.get_goal({});\ntext(result);',
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call_output', call_id: 'wrapped-get', output: [{ type: 'input_text', text: '{"goal":{"status":"active"}}' }],
+    } },
+  ];
+  const captured = extractNativeTools(events.map((event) => JSON.stringify(event)).join('\n'));
+  assert.deepStrictEqual(captured.map((item) => item.name), ['create_goal', 'create_goal', 'get_goal']);
+  assert.strictEqual(captured[1].arguments, '{"objective":"Wrapped goal"}');
+  assert.ok(captured[1].paired && captured[1].output.includes('"status":"active"'));
+  assert.strictEqual(captured[2].arguments, '{}');
+  assert.ok(!captured.some((item) => item.name === 'update_goal'), 'string/comment text became a false native call');
 });
 
 t('assert vocabulary matches what conformance-eval.sh implements', () => {
@@ -185,6 +225,7 @@ t('setup_files paths are project-relative (no absolute, no traversal)', () => {
 t('runner exists and points at this library', () => {
   const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
   assert.ok(runner.includes('qa/conformance/cases.json'), 'runner default --cases path drifted');
+  assert.ok(runner.includes('qa/capture-native-tools.js'), 'runner does not normalize native transcript envelopes');
   assert.ok(runner.includes('"$CODEX_BIN" -a never exec'),
     'runner must pin non-interactive approval instead of inheriting mutable user config');
   assert.ok(runner.includes('--sandbox workspace-write --add-dir "$PROJ/.git"'),
@@ -195,13 +236,120 @@ t('runner exists and points at this library', () => {
     'runner must not make the whole shared temp root writable');
   assert.ok(runner.includes('--ignore-rules --json'),
     'runner must isolate spec/hook conformance from operator-local execpolicy rules');
+  assert.ok(runner.includes('--reviewed-hooks) REVIEWED_HOOKS=1'),
+    'runner must require an explicit reviewed-hooks opt-in');
+  assert.ok(runner.includes('HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)'),
+    'reviewed automation must run installed hooks without persisted trust');
+  assert.ok(runner.includes('session_hooks_observed'),
+    'runner must fail closed when a completed child session emits no hook telemetry');
+  assert.ok(runner.includes('native hook activation missing for child session'),
+    'runner must attribute missing child hooks as infrastructure, not model behavior');
   assert.ok(!runner.includes('--ignore-user-config'),
     'runner still needs the configured provider/auth and installed agentsmd surface');
-  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256']) {
+  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256', 'hook_trust']) {
     assert.ok(runner.includes(`${key}:$${key}`), `results metadata missing ${key}`);
   }
   for (const type of ASSERT_TYPES) {
     assert.ok(runner.includes(type), 'runner does not implement assert type ' + type);
+  }
+});
+
+tBashMapfile('reviewed hook trust reaches Codex; missing child activation fails as infrastructure', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance-contract-'));
+  try {
+    const home = path.join(sandbox, 'home');
+    const logDir = path.join(home, 'logs');
+    const stateDir = path.join(home, '.agentsmd-state');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(logDir, 'agentsmd.jsonl'), '');
+    fs.writeFileSync(path.join(stateDir, 'manifest.json'), JSON.stringify({
+      name: 'agentsmd',
+      version: '5.3.0',
+      deliverySurface: 'standalone',
+      profile: { materialized: 'full' },
+    }));
+
+    const casesPath = path.join(sandbox, 'cases.json');
+    fs.writeFileSync(casesPath, JSON.stringify({
+      schema_version: 1,
+      cases: [{
+        id: 'hook-activation',
+        category: 'false-block',
+        rule: '§8-rm-rf-var',
+        kind: 'near-negative',
+        prompt: 'Return the deterministic fake-runtime response for this test.',
+        assert: [{ type: 'last_regex', regex: '^PASS$' }],
+      }],
+    }));
+
+    const fakeCodex = path.join(sandbox, 'codex');
+    fs.writeFileSync(fakeCodex, `#!/usr/bin/env bash
+set -uo pipefail
+if [ "\${1:-}" = "--version" ]; then
+  echo 'codex-cli 0.147.0'
+  exit 0
+fi
+for arg in "$@"; do
+  if [ "$arg" = "--help" ]; then
+    echo '      --dangerously-bypass-hook-trust'
+    exit 0
+  fi
+done
+reviewed=0
+last=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dangerously-bypass-hook-trust) reviewed=1; shift ;;
+    -o) last="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+sid='11111111-1111-1111-1111-111111111111'
+printf 'PASS\\n' > "$last"
+if [ "$reviewed" -eq 1 ]; then
+  printf '%s\\n' '{"hook":"session-start","event":"context","session_id":"11111111-1111-1111-1111-111111111111","tag":"qa"}' >> "$CODEX_HOME/logs/agentsmd.jsonl"
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-1111-1111-111111111111"}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`);
+    fs.chmodSync(fakeCodex, 0o700);
+
+    const runner = path.join(ROOT, 'qa', 'conformance-eval.sh');
+    const run = (outDir, extra = []) => cp.spawnSync('bash', [
+      runner,
+      '--codex', fakeCodex,
+      '--cases', casesPath,
+      '--only', 'hook-activation',
+      '--out', outDir,
+      ...extra,
+    ], {
+      cwd: ROOT,
+      env: { ...process.env, CODEX_HOME: home },
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+
+    const reviewedOut = path.join(sandbox, 'reviewed-out');
+    const reviewed = run(reviewedOut, ['--reviewed-hooks']);
+    assert.strictEqual(reviewed.status, 0, reviewed.stdout + reviewed.stderr);
+    assert.match(reviewed.stdout, /hook-trust: automation-bypass/);
+    const reviewedCapture = path.join(reviewedOut, fs.readdirSync(reviewedOut)[0]);
+    const reviewedResult = JSON.parse(fs.readFileSync(path.join(reviewedCapture, 'results.json'), 'utf8'));
+    assert.strictEqual(reviewedResult.meta.hook_trust, 'automation-bypass');
+    assert.strictEqual(reviewedResult.cases[0].verdict, 'pass');
+
+    const persistedOut = path.join(sandbox, 'persisted-out');
+    const persisted = run(persistedOut);
+    assert.strictEqual(persisted.status, 1, persisted.stdout + persisted.stderr);
+    assert.match(persisted.stdout, /native hook activation missing for child session/);
+    const persistedCapture = path.join(persistedOut, fs.readdirSync(persistedOut)[0]);
+    const persistedResult = JSON.parse(fs.readFileSync(path.join(persistedCapture, 'results.json'), 'utf8'));
+    assert.strictEqual(persistedResult.meta.hook_trust, 'persisted');
+    assert.strictEqual(persistedResult.cases[0].verdict, 'error');
+  } finally {
+    assert.ok(path.basename(sandbox).startsWith('agentsmd-conformance-contract-'));
+    fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });
 
@@ -244,5 +392,5 @@ t('thresholds.json: categories resolve, min_pass within case counts, known_fail 
   }
 });
 
-console.log(`conformance-cases: ${PASS} passed, ${FAIL} failed`);
+console.log(`conformance-cases: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped`);
 process.exit(FAIL === 0 ? 0 : 1);

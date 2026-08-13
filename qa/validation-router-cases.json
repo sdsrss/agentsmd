@@ -138,6 +138,27 @@
       "auth_boundary": false
     },
     {
+      "name": "paired core A/B contract",
+      "files": [
+        "qa/core-ab-eval.js"
+      ],
+      "checks_include": [
+        "core-ab-structure",
+        "argv-lint",
+        "validation-router",
+        "full-check"
+      ],
+      "categories_include": [
+        "core-ab-contract",
+        "model-measurement",
+        "qa-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "runtime canary contract",
       "files": [
         "qa/runtime-canary.js"
@@ -290,6 +311,24 @@
       "name": "package release cannot bypass full",
       "files": [
         "package.json"
+      ],
+      "checks_include": [
+        "distribution",
+        "release-dry-run",
+        "full-check"
+      ],
+      "categories_include": [
+        "package-config",
+        "release"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true
+    },
+    {
+      "name": "release installer cannot bypass full",
+      "files": [
+        "install.sh"
       ],
       "checks_include": [
         "distribution",

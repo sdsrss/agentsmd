@@ -1,4 +1,4 @@
-**L3 boundary**: L3 controls workflow/evidence, not authorization. Load extended and state blast radius; request AUTH only before a §5-hard operation. Otherwise the user's scoped request authorizes reversible local implementation. Missing extended blocks L3 implementation, not read-only analysis.
+**L3 boundary**: See §2 Level/Auth separation. Load extended and state blast radius; request AUTH only before a §5-hard operation. Otherwise the user's scoped request authorizes reversible local implementation. Missing extended blocks L3 implementation, not read-only analysis.
 
 **Scope-bound**: files outside the grant → re-ASK. Mid-task adjacent-bug discovery → pause, announce, individual re-ASK ("feels obvious" ≠ safe). Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
 

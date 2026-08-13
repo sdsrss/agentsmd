@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v5.2.0 — Global
+# CODEX-CODING-SPEC v5.3.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -83,7 +83,7 @@ Search exact symbols with `rg`; enter unfamiliar modules via exports; verify ver
 
 **None**: reads, analysis, planning, local verification, and scoped reversible local edits requested by the user when no Hard item applies. L3 alone is not an authorization gate.
 
-**L3 boundary**: L3 controls workflow/evidence, not authorization. Load extended and state blast radius; request AUTH only before a §5-hard operation. Otherwise the user's scoped request authorizes reversible local implementation. Missing extended blocks L3 implementation, not read-only analysis.
+**L3 boundary**: See §2 Level/Auth separation. Load extended and state blast radius; request AUTH only before a §5-hard operation. Otherwise the user's scoped request authorizes reversible local implementation. Missing extended blocks L3 implementation, not read-only analysis.
 
 **Scope-bound**: files outside the grant → re-ASK. Mid-task adjacent-bug discovery → pause, announce, individual re-ASK ("feels obvious" ≠ safe). Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
 

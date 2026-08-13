@@ -3,6 +3,80 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+## v5.3.0 — 2026-08-12 — runtime evidence provenance and representative core evaluation (minor)
+
+- Added a pre-registered representative core A/B surface: 24 harmless coding
+  tasks across eight workload families, paired seed-derived condition order,
+  isolated current-core/no-core/candidate-core homes, deterministic grading,
+  runtime token and wall-time provenance, strict result schemas, and a zero-model
+  structural gate. Real 48-cell baselines remain explicit opt-in runs and never
+  grade model output with another model. An explicit Linux subscription mode
+  mounts the host read-only, exposes the selected home through a stable read-only
+  task-sandbox view, overlays only the A/B instruction surfaces, masks live
+  skills/plugins/memories, redirects runtime scratch and SQLite state to
+  task-owned storage without copying the source database, and gives only a
+  task-local copy of a pre-created owner-only `installation_id` write access. It
+  explicitly selects the existing ChatGPT login while overriding
+  config-sensitive experiment surfaces; removes `OPENAI_API_KEY`,
+  `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` from the child environment without
+  reading their values; and stops before scheduling another cell after any
+  non-pass. Infrastructure errors remain resumable, while grading failures are
+  terminal. Codex may use its existing ChatGPT login, while the harness never
+  names or inspects a credential file. Subscription-backed captures require a
+  bounded current-user-owned private `/tmp` parent, enforce 0700 directories and
+  0600 files before and after child execution, and redact the exact subscription
+  home from retained events, stderr, and final messages. A separate
+  network-disabled initialization trace retains only bounded sanitized `EROFS`
+  file-operation metadata and always discards its raw strace and process output.
+  Captures freeze their exact case/core inputs before the first cell;
+  deterministic grading expands
+  untracked directories to files and ignores question-like syntax inside code,
+  URLs, and descriptive prose. AUTH-block cases explicitly withhold the tested
+  operation authorization. Follow-up case-contract review accepts standard
+  `Error` subclasses and makes already-satisfied re-export/test fixtures
+  explicit whenever exact changed-file assertions require them to stay
+  unchanged. Clarifying-request detection also distinguishes sentence/line-level
+  imperatives from descriptive planning phrases such as `confirm no files
+  changed`, and recognizes bounded `reply/respond with A or B` requests without
+  misclassifying descriptive prose. A closed `auth-guard` suite now adapts the
+  canonical `auth-hard-tidy` and `auth-clear-create` conformance cases directly
+  into the paired current/candidate runner. It preserves their tracked/untracked
+  fixture state and source assertions, rejects partial selection, freezes the
+  complete conformance-library hash, and exposes deterministic zero-model
+  validation before the separately authorized four-cell real-model guard.
+  Capture creation now rejects direct and ancestor symlink indirection before
+  writing outside its repository-bounded evidence subtree. Runner help and the
+  operator quick reference also distinguish the explicit Linux ChatGPT
+  subscription home from custom/fake runner modes that may omit it. After
+  the representative current/candidate matrix and exact AUTH guard both passed,
+  the canonical core replaced its duplicate L3 authorization sentence with a
+  reference to §2's Level/Auth separation contract.
+- Fixed all 17 skill runner resolvers so selected bundle, standalone deploy, and
+  versioned global-CLI layouts are identity-checked before execution. Package and
+  plugin versions must align, standalone roots must match their ownership-manifest
+  deploy record, and CLI roots must match the package `bin.agentsmd` entry. Missing,
+  hidden, or foreign runners now produce a bounded unblock diagnosis instead of
+  falling through to `MODULE_NOT_FOUND`; a CLI fallback never impersonates plugin
+  context.
+- Fixed release-candidate validation so a root `install.sh` version change selects
+  distribution, package dry-run, and the full gate instead of remaining an
+  uncovered risk. The canonical byte-identity fixture now tracks the generated
+  v5.3.0 core.
+- Fixed real-model conformance runs against fresh isolated homes so callers can
+  explicitly attest that every active hook source was reviewed and pass Codex's
+  automation-only hook-trust bypass. Captures record the selected trust mode,
+  and a completed child session with no matching hook telemetry now aborts the
+  remaining cases as infrastructure failure instead of grading hook absence as
+  model behavior.
+- Changed the quality scorecard contract to schema v2. Health and prompt-budget
+  measurements now carry source provenance; unresolved bytes and enforcement
+  state are `null`, and incomplete inputs render `partial`/`unavailable` rather
+  than fabricated zero bytes, enabled enforcement, or green headroom. Human
+  output renders unknown enforcement as `n/a`. Comparisons reject
+  provenance-free v1 captures.
+
 ## v5.2.0 — 2026-07-30 — automatic cross-session memory (minor)
 
 - Added automatic, machine-local cross-session handoffs. A substantial completed

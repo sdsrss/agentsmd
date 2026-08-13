@@ -650,8 +650,10 @@ withEnv(() => {
 
 for (const skill of ['agentsmd-status', 'agentsmd-doctor']) {
   const source = fs.readFileSync(path.join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
-  t(`${skill} exports the selected plugin root`, () => {
-    assert.match(source, /export AGENTSMD_PLUGIN_ROOT="\$CANDIDATE_ROOT"/);
+  t(`${skill} exports plugin context only for the selected bundle`, () => {
+    assert.match(source, /AGENTSMD_ROOT_KIND="selected-bundle"/);
+    assert.match(source, /\[ "\$AGENTSMD_ROOT_KIND" = "selected-bundle" \].*export AGENTSMD_PLUGIN_ROOT="\$AGENTSMD_ROOT"/);
+    assert.doesNotMatch(source, /export AGENTSMD_PLUGIN_ROOT="\$CANDIDATE_ROOT"/);
   });
 }
 

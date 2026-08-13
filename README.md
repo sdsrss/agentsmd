@@ -212,6 +212,17 @@ The system adds:
 - rule-specific opportunity and outcome telemetry for operator review;
 - 17 Codex skills that route reusable diagnostics and project workflows.
 
+Each selected skill verifies its runner root in the selected plugin/repository
+bundle, the manifest-owned standalone deploy, or a versioned globally installed
+`agentsmd` CLI package. The resolver and command run in one shell invocation.
+Verification requires the `@sdsrs/agentsmd` package identity and semantic version;
+plugin metadata must match that version, a standalone root must match its ownership
+manifest's deploy record, and a CLI root must map back to package `bin.agentsmd`.
+If none is readable, the skill exits before Node execution with the inspected
+locations and an explicit unblock path; it never turns an unchecked fallback
+into a `MODULE_NOT_FOUND` stack. A CLI-package fallback does not impersonate a
+selected plugin context.
+
 An explicit request to commit and release or publish authorizes the standard ship flow for the named repository/package. Unnamed production, live configuration, or unrelated scopes remain outside that authorization.
 
 ## How it works
@@ -375,7 +386,7 @@ agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
 ```
 
-The versioned scorecard joins one bounded `session-dimension` row per session to
+The versioned scorecard v2 joins one bounded `session-dimension` row per session to
 field telemetry, keeps `self`, `test`, `qa`, `external`, and `unknown`
 provenance separate, and reports health, runtime compatibility, full-suite
 conformance freshness, false-block measurement state, bypasses, evidence
@@ -383,10 +394,19 @@ discipline, performance, memory engagement, prompt budget, automation, operator
 actions, and measurement limits. It never promotes/demotes a rule. Raw hits do
 not rank rule value; no-opportunity is not success; memory citation is not
 adherence; sampling calibration is a structural proxy; and field false-block
-rate remains `unmeasured` without a human-reviewed outcome.
+rate remains `unmeasured` without a human-reviewed outcome. Health records the
+invocation root, Codex home, and whether status/doctor evidence came from the
+runtime filesystem or supplied fixtures. Unknown enforcement remains `null`
+(`n/a` in the human report) and makes health `unavailable`; only measured
+`false` means disabled enforcement. Prompt-budget sources distinguish
+measured, empty, missing, invalid, and unavailable files; unresolved bytes stay
+`null`, and the aggregate state is `measured`, `partial`, `unavailable`, or
+`over-budget`. A restricted filesystem can therefore never manufacture green
+headroom from hidden inputs.
 
-`--compare` accepts only a bounded, regular non-symlink scorecard v1 JSON
-capture. Distributed recipes under `automation/` define weekly pinned/latest
+`--compare` accepts only a bounded, regular non-symlink scorecard v2 JSON
+capture. Version 1 captures are rejected because they do not carry measurement
+provenance and cannot be safely upgraded by guessing. Distributed recipes under `automation/` define weekly pinned/latest
 runtime canaries, governance review, report-only release readiness, and
 read-only PR review. The scheduled runtime matrix uses an isolated
 `CODEX_HOME`, positive plus near-negative deterministic grading, a five-run
@@ -464,8 +484,9 @@ versioned npm CLI or reviewed local checkout so the replacement artifact can be
 identified before mutation. If both plugin and standalone surfaces are installed,
 remove both separately.
 
-Plugin context is accepted only from Codex's runtime `CLAUDE_PLUGIN_ROOT` or the
-root resolved by the status/doctor skill (`AGENTSMD_PLUGIN_ROOT`). The CLI does not
+Plugin context is accepted only from Codex's runtime `CLAUDE_PLUGIN_ROOT` or a
+selected bundle resolved by the status/doctor skill (`AGENTSMD_PLUGIN_ROOT`). A
+versioned CLI fallback deliberately leaves that compatibility variable unset. The CLI does not
 scan plugin caches, because a cached artifact does not prove that Codex enabled it.
 When context is available, `surfaceArbitration` reports both candidates' version,
 health evidence, the selected surface, a stable reason code, and whether exclusive

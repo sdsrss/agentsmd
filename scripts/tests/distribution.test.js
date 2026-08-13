@@ -308,6 +308,8 @@ t('package files include curl installer and repo marketplace metadata', () => {
   assert(files.includes('schemas'));
   assert(files.includes('automation'));
   assert(files.includes('qa/validation-map.json'));
+  assert(files.includes('qa/core-ab-eval.js'));
+  assert(files.includes('qa/core-ab/cases.json'));
   assert(files.includes('qa/perf/baseline.json'));
   assert(files.includes('qa/conformance/cases.json'));
 });
@@ -472,7 +474,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
-  assert.strictEqual(scorecard.schema_version, 1);
+  assert.strictEqual(scorecard.schema_version, 2);
   assert.strictEqual(scorecard.performance.state, 'fresh');
   assert.strictEqual(scorecard.automation.recipes_present, 4);
 
@@ -672,6 +674,8 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('spec/source/layout.json'), 'tarball is missing the canonical spec layout');
   assert(packedPaths.includes('spec/source/base/10-auth.md'), 'tarball is missing canonical shared fragments');
   assert(packedPaths.includes('scripts/spec-source.js'), 'tarball is missing the spec generator');
+  assert(packedPaths.includes('qa/core-ab-eval.js'), 'tarball is missing the documented core A/B runner');
+  assert(packedPaths.includes('qa/core-ab/cases.json'), 'tarball is missing the core A/B case library');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,
