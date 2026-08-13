@@ -51,20 +51,33 @@ Bytes recovered by all three are an estimate until measured; the point of pre-re
 the committed 24-case, eight-family workload with
 `node qa/core-ab-eval.js --validate`. A real baseline is explicitly opt-in and
 costed: `node qa/core-ab-eval.js --run --model=<model> --seed=<seed>
---conditions=current-core,no-core --subscription-home=</absolute/CODEX_HOME>`
+--conditions=current-core,no-core --subscription-home=</absolute/CODEX_HOME>
+--out=</tmp/agentsmd-core-ab-captures.XXXXXX>`
 performs 48 model calls. It uses paired throwaway repositories and clean
 isolated homes; the treatment home discovers canonical `spec/AGENTS.md`, while
 the control home has no agentsmd core, hooks, skills, or telemetry. On Linux,
 `bwrap` mounts the host read-only, overlays the selected
-home's AGENTS surfaces from the task sandbox, masks its skills/plugins/memories,
-maps only existing runtime scratch directories to task-owned tmpfs, and runs
+home at a stable read-only path inside the task sandbox so a home below the
+host `/tmp` remains visible after the namespace replaces `/tmp`, overlays its
+AGENTS surfaces, masks its skills/plugins/memories, maps only existing runtime
+scratch directories to task-owned tmpfs, redirects Codex's SQLite state to a
+fresh per-cell directory in the task sandbox without copying the subscription
+home's state database, and runs
 `--ephemeral --ignore-rules` with the per-invocation
-`forced_login_method="chatgpt"`; `OPENAI_API_KEY` is
-excluded from the child environment. Codex's own auth subsystem may use the
+`forced_login_method="chatgpt"`; `OPENAI_API_KEY`, `CODEX_API_KEY`, and
+`CODEX_ACCESS_TOKEN` are excluded from the child environment without reading
+their values. Codex's own auth subsystem may use the
 existing ChatGPT login at its normal path, but the harness never names, stats,
 opens, copies, or prints a credential file. The explicit home flag is required
-because subscription use remains separately authorized. The first
-infrastructure error stops the matrix before another cell is scheduled.
+because subscription use remains separately authorized. The first non-pass
+cell stops the matrix before another cell is scheduled. Infrastructure errors
+remain resumable from their progress capture; grading failures are terminal and
+cannot be resumed.
+Before login, the operator must create an empty mode-0600 `installation_id` in
+the new isolated home. Bubblewrap cannot create a missing mountpoint below an
+already read-only home, so the runner rejects an absent or non-regular path
+before launching Codex, then gives only its task-owned copy write access. The
+source file and the rest of the subscription-home root stay read-only.
 Both conditions share the current non-credential user config because Codex's
 ChatGPT provider route depends on it; model, approval, sandbox, rules, hooks,
 plugins, apps, memories, and instruction surfaces are explicitly overridden.
@@ -77,7 +90,30 @@ runtime-provided token fields, and wall time. Missing token usage remains
 separate blinded annotation. Candidate runs use `current-core,candidate-core`
 plus a reviewed repository-local regular file; the runner never edits canonical
 core. Real calls require a separately declared processing authorization and are
-not part of `npm test` or release automation.
+not part of `npm test` or release automation. A subscription-backed run requires
+an existing, current-user-owned, mode-0700 direct child of `/tmp` named
+`agentsmd-core-ab-captures.*`; the runner verifies that its filesystem retains
+0700 directories and 0600 files before any child starts. Repository capture
+paths remain available to credential-free custom/fake runs only.
+
+When a subscription-backed cell fails during Codex initialization before it
+emits events, use the separately authorized, default-off diagnostic `node
+qa/core-ab-eval.js --trace-init --model=<model>
+--subscription-home=</absolute/CODEX_HOME>
+--out=</tmp/agentsmd-core-ab-captures.XXXXXX>`. This is not a conformance cell:
+the runner adds Linux `bwrap --unshare-net`, so the child cannot reach the model
+service, and traces only `%file` syscalls. The raw strace file exists only in the
+exact task sandbox and is deleted on every exit. The retained capture is one
+strict `init-trace.json` containing runtime/core hashes, isolation metadata,
+exit status, and at most 64 deduplicated failed `EROFS` file operations. Paths
+outside the isolated subscription/SQLite views, successful calls, credential-
+named relative paths, and raw process output are discarded; retained paths are
+mapped to `<subscription-home>` or `<sqlite-home>` and include only operation,
+path, errno, and bounded flags. The mode requires an explicit bounded output
+parent, accepts no suite/seed/conditions/candidate/only/resume flags, and strips
+`OPENAI_API_KEY`, `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` without reading their
+values. A logged-in diagnostic still requires an authorization naming the exact
+home and inputs; local tests use only a credential-free fake Codex fixture.
 
 For the pre-registered Level/Auth separation candidate, run the exact guard only
 after the representative candidate matrix is accepted. Its zero-model gate is
@@ -85,12 +121,14 @@ after the representative candidate matrix is accepted. Its zero-model gate is
 authorized runtime command is `node qa/core-ab-eval.js --run
 --suite=auth-guard --model=<model> --seed=<seed>
 --conditions=current-core,candidate-core --candidate-core=<repo-file>
---subscription-home=</absolute/CODEX_HOME>` and costs exactly four completed
+--subscription-home=</absolute/CODEX_HOME>
+--out=</tmp/agentsmd-core-ab-captures.XXXXXX>` and costs exactly four completed
 model cells. The suite reads the complete canonical
 `qa/conformance/cases.json`, selects exactly `auth-hard-tidy` and
 `auth-clear-create`, disallows `--only`, preserves source prompt/setup/assertions,
 and freezes the complete library hash in the capture. An infrastructure stop can
-be resumed from its progress capture without repeating completed cells.
+be resumed from its progress capture without repeating completed passing cells;
+a grading failure cannot be resumed.
 
 ## §O4 Release discipline
 
@@ -111,7 +149,8 @@ be resumed from its progress capture without repeating completed cells.
 | Health checks | `node scripts/doctor.js` |
 | Install / uninstall (§5-hard) | `node scripts/install.js` / `node scripts/uninstall.js` |
 | Hook latency baseline / SLO gate | `node scripts/perf-baseline.js` (quick table) / `node scripts/perf-baseline.js --slo` (graded vs `qa/perf/slo.json`, §O9) |
-| Representative core A/B structure / real run | `node qa/core-ab-eval.js --validate` (zero model calls) / `node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,no-core --subscription-home=</absolute/CODEX_HOME>` (48 declared calls using the verified Linux ChatGPT subscription path; custom/fake runners may omit the home flag) |
+| Representative core A/B structure / real run | `node qa/core-ab-eval.js --validate` (zero model calls) / `node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,no-core --subscription-home=</absolute/CODEX_HOME> --out=</tmp/agentsmd-core-ab-captures.XXXXXX>` (48 declared calls using the verified Linux ChatGPT subscription path; custom/fake runners may omit the home flag) |
+| Network-disabled initialization file trace | Separately authorized `node qa/core-ab-eval.js --trace-init --model=<model> --subscription-home=</absolute/CODEX_HOME> --out=</tmp/agentsmd-core-ab-captures.XXXXXX>`; no reachable model service, raw trace not retained |
 | Exact Level/Auth current/candidate guard | `node qa/core-ab-eval.js --validate --suite=auth-guard` (zero model calls) / the documented `--run --suite=auth-guard` command (4 declared calls) |
 
 ## §O6 Two-tier + telemetry rationale

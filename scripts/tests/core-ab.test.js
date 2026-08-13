@@ -70,11 +70,11 @@ test('runner exports the structural and runtime boundary helpers', () => {
   for (const name of [
     'aggregateRows', 'buildCodexInvocation', 'buildReport', 'childEnvironment',
     'changedFiles', 'conditionOrder', 'eventFacts', 'hasClarifyingQuestion', 'parseArgs',
-    'createCaptureRoot', 'parseEvents', 'resolveCandidate', 'resolveResumeCapture', 'resolveSubscriptionHome',
+    'createCaptureRoot', 'parseEvents', 'parseFailedFileOperations', 'resolveCandidate', 'resolveResumeCapture', 'resolveSubscriptionHome',
     'resolveSubscriptionMounts',
-    'loadCaseSuite', 'runCell', 'runExperiment',
+    'loadCaseSuite', 'runCell', 'runExperiment', 'traceSubscriptionInitialization',
     'safeCleanupTemp', 'sha256', 'validateCaseLibrary', 'validateProgress', 'validateResultReport',
-    'validateAuthGuardLibrary',
+    'validateAuthGuardLibrary', 'validateInitTraceReport',
   ]) assert.strictEqual(typeof api[name], 'function', name);
 });
 
@@ -131,11 +131,17 @@ test('auth-guard suite adapts exactly the two canonical conformance cases', () =
   assert(api.validateAuthGuardLibrary(unsafeCommand).some((error) => /unsafe cmd_green/u.test(error)));
 });
 
-test('operator contract declares the zero-model and four-cell auth guard', () => {
+test('operator contract declares the zero-model fixed candidate guards and exact costs', () => {
   const operator = fs.readFileSync(OPERATOR, 'utf8');
   assert.match(operator, /--validate --suite=auth-guard/u);
   assert.match(operator, /--run\s+--suite=auth-guard[\s\S]{0,500}costs exactly four completed\s+model cells/u);
   assert.match(operator, /selects exactly `auth-hard-tidy` and\s+`auth-clear-create`/u);
+  assert.match(operator, /redirects Codex's SQLite state to a\s+fresh per-cell directory in the task sandbox without copying the subscription\s+home's state database/u);
+  assert.match(operator, /Before login[\s\S]{0,220}empty mode-0600 `installation_id`[\s\S]{0,400}before launching Codex/u);
+  assert.match(operator, /subscription-backed run requires[\s\S]{0,250}mode-0700 direct child of `\/tmp`[\s\S]{0,300}0600 files before any child starts/u);
+  assert.match(operator, /--trace-init[\s\S]{0,900}--unshare-net[\s\S]{0,900}raw strace/u);
+  assert.match(operator, /failed `EROFS` file operations[\s\S]{0,500}<subscription-home>[\s\S]{0,500}<sqlite-home>/u);
+  assert.match(operator, /first non-pass[\s\S]{0,180}grading failures are terminal[\s\S]{0,80}cannot be resumed/u);
   const representativeRow = operator.split('\n').find((line) => line.includes('| Representative core A/B structure / real run |'));
   assert(representativeRow);
   assert.match(representativeRow, /--subscription-home=<\/absolute\/CODEX_HOME>/u);
@@ -143,7 +149,10 @@ test('operator contract declares the zero-model and four-cell auth guard', () =>
   const help = cp.spawnSync(process.execPath, [RUNNER, '--help'], { cwd: ROOT, encoding: 'utf8' });
   assert.strictEqual(help.status, 0, help.stderr);
   assert.match(help.stdout, /Linux ChatGPT subscription runs require --subscription-home=\/absolute\/CODEX_HOME/u);
+  assert.match(help.stdout, /Before login, create an empty mode-0600 installation_id/u);
+  assert.match(help.stdout, /--out=\/tmp\/agentsmd-core-ab-captures\.XXXXXX/u);
   assert.match(help.stdout, /Custom\/fake Codex runners may omit --subscription-home/u);
+  assert.match(help.stdout, /first non-pass cell stops[\s\S]{0,160}grading failures are terminal/u);
 });
 
 test('port-validation assertion accepts standard Error subclasses', () => {
@@ -205,6 +214,7 @@ test('case and result JSON schemas are strict bounded contracts', () => {
 });
 
 test('strict argv separates zero-model modes from explicitly costed runtime', () => {
+  const privateOut = path.join(os.tmpdir(), 'agentsmd-core-ab-captures.fixture123');
   assert.strictEqual(api.parseArgs(['--validate']).validate, true);
   assert.strictEqual(api.parseArgs(['--validate', '--suite=auth-guard']).suite, 'auth-guard');
   assert.strictEqual(api.parseArgs(['--list']).list, true);
@@ -212,9 +222,16 @@ test('strict argv separates zero-model modes from explicitly costed runtime', ()
   assert.deepStrictEqual(run.conditions, ['current-core', 'no-core']);
   const subscription = api.parseArgs([
     '--run', '--model=gpt-test', '--seed=baseline-1', '--conditions=current-core,no-core',
-    '--subscription-home=/home/tester/.codex',
+    '--subscription-home=/home/tester/.codex', `--out=${privateOut}`,
   ]);
   assert.strictEqual(subscription.subscriptionHome, '/home/tester/.codex');
+  assert.strictEqual(subscription.out, privateOut);
+  const privateResume = api.parseArgs([
+    '--run', '--model=gpt-test', '--seed=baseline-1', '--conditions=current-core,no-core',
+    '--subscription-home=/home/tester/.codex', `--out=${privateOut}`,
+    `--resume=${path.join(privateOut, 'core-ab-fixture')}`,
+  ]);
+  assert.strictEqual(privateResume.resume, path.join(privateOut, 'core-ab-fixture'));
   const resume = api.parseArgs([
     '--run', '--model=gpt-test', '--seed=baseline-1', '--conditions=current-core,no-core',
     '--resume=docs/qa-captures/core-ab/core-ab-fixture',
@@ -226,6 +243,13 @@ test('strict argv separates zero-model modes from explicitly costed runtime', ()
   ]);
   assert.strictEqual(guard.suite, 'auth-guard');
   assert.strictEqual(guard.only, null);
+  const trace = api.parseArgs([
+    '--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home',
+    `--out=${privateOut}`,
+  ]);
+  assert.strictEqual(trace.traceInit, true);
+  assert.strictEqual(trace.model, 'gpt-test');
+  assert.strictEqual(trace.subscriptionHome, '/tmp/exact-login-home');
   for (const argv of [
     [],
     ['--validate', '--run'],
@@ -237,33 +261,51 @@ test('strict argv separates zero-model modes from explicitly costed runtime', ()
     ['--validate', '--resume=docs/qa-captures/core-ab/core-ab-fixture'],
     ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--subscription-home=relative/home'],
     ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--subscription-home=/'],
+    ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--subscription-home=/tmp/exact-login-home'],
+    ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--subscription-home=/tmp/exact-login-home', '--out=docs/qa-captures/core-ab/private-required'],
     ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--out=/tmp/out'],
     ['--run', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core', '--resume=/tmp/capture'],
     ['--validate', '--suite=unknown'],
     ['--run', '--suite=auth-guard', '--model=gpt-test', '--seed=s', '--conditions=current-core,no-core'],
     ['--run', '--suite=auth-guard', '--model=gpt-test', '--seed=s', '--conditions=current-core,candidate-core', '--candidate-core=docs/qa-candidates/core/level-auth-separation.md', '--only=auth-hard-tidy'],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home'],
+    ['--trace-init', '--subscription-home=/tmp/exact-login-home', `--out=${privateOut}`],
+    ['--trace-init', '--model=gpt-test', `--out=${privateOut}`],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=relative/home', `--out=${privateOut}`],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', '--out=/tmp/out'],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', '--out=docs/qa-captures/core-ab/init-trace-fixture'],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', `--out=${privateOut}`, '--seed=forbidden'],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', `--out=${privateOut}`, '--suite=representative'],
+    ['--trace-init', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', `--out=${privateOut}`, '--conditions=current-core,no-core'],
+    ['--trace-init', '--run', '--model=gpt-test', '--subscription-home=/tmp/exact-login-home', `--out=${privateOut}`],
   ]) assert.throws(() => api.parseArgs(argv));
 });
 
 test('subscription invocation is read-only, masks live context, and excludes API key inheritance', () => {
   const inherited = { PATH: '/usr/bin', SAFE_MARKER: 'kept' };
-  Object.defineProperty(inherited, 'OPENAI_API_KEY', {
-    enumerable: true,
-    get() { throw new Error('OPENAI_API_KEY value was read'); },
-  });
+  for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN']) {
+    Object.defineProperty(inherited, name, {
+      enumerable: true,
+      get() { throw new Error(`${name} value was read`); },
+    });
+  }
   const env = api.childEnvironment(inherited, {
     CODEX_HOME: '/tmp/agentsmd-core-ab-fixture/cell-home',
     AGENTSMD_TELEMETRY_TAG: 'qa',
   });
   assert.strictEqual(env.SAFE_MARKER, 'kept');
   assert.strictEqual(env.CODEX_HOME, '/tmp/agentsmd-core-ab-fixture/cell-home');
-  assert.strictEqual(Object.prototype.hasOwnProperty.call(env, 'OPENAI_API_KEY'), false);
+  for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN']) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(env, name), false);
+  }
 
-  const invocation = api.buildCodexInvocation('/usr/bin/codex', ['exec', '--ephemeral'], {
+  const invocationOptions = {
     bwrap: '/usr/bin/bwrap',
     sandbox: '/tmp/agentsmd-core-ab-fixture',
     home: '/tmp/agentsmd-core-ab-fixture/cell-home',
     subscriptionHome: '/home/tester/.codex',
+    subscriptionView: '/tmp/agentsmd-core-ab-fixture/subscription-home',
+    sqliteHome: '/tmp/agentsmd-core-ab-fixture/sqlite-home',
     subscriptionMounts: {
       coreTarget: '/home/tester/.codex/AGENTS.md',
       extendedTarget: '/home/tester/.codex/AGENTS-extended.md',
@@ -277,21 +319,248 @@ test('subscription invocation is read-only, masks live context, and excludes API
       '/tmp/agentsmd-core-ab-fixture/installation_id',
       '/home/tester/.codex/installation_id',
     ]],
-  });
+  };
+  const invocation = api.buildCodexInvocation('/usr/bin/codex', ['exec', '--ephemeral'], invocationOptions);
   assert.strictEqual(invocation.command, '/usr/bin/bwrap');
+  assert.strictEqual(invocation.codexHome, '/tmp/agentsmd-core-ab-fixture/subscription-home');
+  assert.strictEqual(invocation.sqliteHome, '/tmp/agentsmd-core-ab-fixture/sqlite-home');
   assert.deepStrictEqual(invocation.args.slice(-3), ['--', '/usr/bin/codex', 'exec', '--ephemeral'].slice(-3));
   assert.strictEqual(invocation.args.some((entry) => /auth\.json$/u.test(entry)), false);
-  assert(invocation.args.includes('/home/tester/.codex/AGENTS.md'));
-  assert(invocation.args.includes('/home/tester/.codex/AGENTS-extended.md'));
-  assert(invocation.args.includes('/home/tester/.codex/skills'));
-  assert(invocation.args.includes('/home/tester/.codex/plugins'));
-  assert(invocation.args.includes('/home/tester/.codex/memories'));
-  assert(invocation.args.includes('/home/tester/.codex/tmp'));
-  assert(invocation.args.includes('/home/tester/.codex/log'));
-  assert(invocation.args.includes('/home/tester/.codex/sessions'));
-  assert(invocation.args.includes('/home/tester/.codex/installation_id'));
+  assert(invocation.args.includes('/home/tester/.codex'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/AGENTS.md'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/AGENTS-extended.md'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/skills'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/plugins'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/memories'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/tmp'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/log'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/sessions'));
+  assert(invocation.args.includes('/tmp/agentsmd-core-ab-fixture/subscription-home/installation_id'));
   assert(invocation.args.includes('--die-with-parent'));
   assert(invocation.args.includes('--new-session'));
+  assert.strictEqual(invocation.args.includes('--unshare-net'), false);
+  const disconnected = api.buildCodexInvocation('/usr/bin/codex', ['exec', '--ephemeral'], {
+    ...invocationOptions,
+    unshareNetwork: true,
+  });
+  assert.strictEqual(disconnected.args.filter((entry) => entry === '--unshare-net').length, 1);
+  assert(disconnected.args.indexOf('--unshare-net') < disconnected.args.indexOf('--'));
+  assert.throws(() => api.buildCodexInvocation('/usr/bin/codex', ['exec'], {
+    ...invocationOptions,
+    subscriptionView: invocationOptions.sandbox,
+  }), /strict child of the task sandbox/u);
+  assert.throws(() => api.buildCodexInvocation('/usr/bin/codex', ['exec'], {
+    ...invocationOptions,
+    subscriptionMounts: { ...invocationOptions.subscriptionMounts, coreTarget: '/etc/passwd' },
+  }), /mount target must stay inside the subscription home/u);
+  assert.throws(() => api.buildCodexInvocation('/usr/bin/codex', ['exec'], {
+    ...invocationOptions,
+    sqliteHome: '/tmp/outside-task-sandbox',
+  }), /sqlite home must be a strict child of the task sandbox/u);
+});
+
+test('failed file-operation parser persists only scoped sanitized EROFS rows', () => {
+  const subscriptionView = '/tmp/agentsmd-core-ab-fixture/subscription-view';
+  const sqliteHome = '/tmp/agentsmd-core-ab-fixture/sqlite-home';
+  const raw = [
+    `101 openat(AT_FDCWD, "${subscriptionView}/state_5.sqlite", O_RDWR|O_CREAT|O_CLOEXEC, 0644) = -1 EROFS (Read-only file system)`,
+    `102 mkdir("${subscriptionView}/shell_snapshots", 0700 <unfinished ...>`,
+    '102 <... mkdir resumed>) = -1 EROFS (Read-only file system)',
+    `103 openat(AT_FDCWD, "${sqliteHome}/state_5.sqlite", O_RDONLY|O_CLOEXEC) = -1 EROFS (Read-only file system)`,
+    '104 openat(AT_FDCWD, "/home/tester/.codex/auth.json", O_RDONLY|O_CLOEXEC) = 3',
+    '105 openat(AT_FDCWD, "/outside/private-token", O_RDWR|O_CREAT, 0600) = -1 EROFS (Read-only file system)',
+    `106 openat(AT_FDCWD, "${subscriptionView}/state_5.sqlite", O_RDWR|O_CREAT|O_CLOEXEC, 0644) = -1 EROFS (Read-only file system)`,
+    `107 openat(AT_FDCWD, "${subscriptionView}/auth.json", O_RDWR|O_CREAT|O_CLOEXEC, 0600) = -1 EROFS (Read-only file system)`,
+  ].join('\n');
+  const rows = api.parseFailedFileOperations(raw, { subscriptionView, sqliteHome });
+  assert.deepStrictEqual(rows, [
+    { operation: 'openat', path: '<subscription-home>/state_5.sqlite', errno: 'EROFS', flags: 'O_RDWR|O_CREAT|O_CLOEXEC' },
+    { operation: 'mkdir', path: '<subscription-home>/shell_snapshots', errno: 'EROFS', flags: '0700' },
+    { operation: 'openat', path: '<sqlite-home>/state_5.sqlite', errno: 'EROFS', flags: 'O_RDONLY|O_CLOEXEC' },
+  ]);
+  const serialized = JSON.stringify(rows);
+  assert.strictEqual(serialized.includes('/tmp/agentsmd-core-ab-fixture'), false);
+  assert.strictEqual(serialized.includes('/home/tester'), false);
+  assert.strictEqual(serialized.includes('auth.json'), false);
+  assert.strictEqual(serialized.includes('private-token'), false);
+});
+
+test('missing installation_id stops a subscription trace before any child starts', () => {
+  const subscriptionHome = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-missing-installation-home-'));
+  const captureParent = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-core-ab-captures.'));
+  fs.chmodSync(subscriptionHome, 0o700);
+  fs.chmodSync(captureParent, 0o700);
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS.md'), 'synthetic core\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS-extended.md'), 'synthetic extended\n', { mode: 0o600 });
+  let childStarts = 0;
+  try {
+    const args = api.parseArgs([
+      '--trace-init', '--model=gpt-test', '--codex=/not/invoked/codex',
+      `--subscription-home=${subscriptionHome}`, `--out=${captureParent}`,
+    ]);
+    assert.throws(() => api.traceSubscriptionInitialization(args, {
+      spawnSync() { childStarts += 1; throw new Error('child must not start'); },
+    }), /installation_id.*before.*child/u);
+    assert.strictEqual(childStarts, 0);
+    assert.deepStrictEqual(fs.readdirSync(captureParent), []);
+  } finally {
+    fs.rmSync(subscriptionHome, { recursive: true, force: false });
+    fs.rmSync(captureParent, { recursive: true, force: false });
+  }
+});
+
+test('initialization trace uses a real disconnected namespace and leaves only a sanitized report', () => {
+  const fixture = fs.mkdtempSync(path.join(REPO_TMP, 'core-ab-init-trace-fixture-'));
+  const subscriptionHome = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-init-trace-home-'));
+  const fakeCodex = path.join(fixture, 'fake-codex');
+  const captureParent = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-core-ab-captures.'));
+  fs.chmodSync(captureParent, 0o700);
+  const beforeSandboxes = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('agentsmd-core-ab-')).sort();
+  fs.chmodSync(subscriptionHome, 0o700);
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS.md'), 'synthetic core\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS-extended.md'), 'synthetic extended\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'installation_id'), '', { mode: 0o600 });
+  const coreBefore = fs.readFileSync(path.join(subscriptionHome, 'AGENTS.md'));
+  fs.writeFileSync(fakeCodex, `#!/usr/bin/env node
+'use strict';
+const fs=require('fs'),path=require('path');
+if(process.argv.includes('--version')){console.log('codex-cli 0.147.0');process.exit(0)}
+for(const name of ['OPENAI_API_KEY','CODEX_API_KEY','CODEX_ACCESS_TOKEN'])if(Object.prototype.hasOwnProperty.call(process.env,name))process.exit(91);
+if(fs.readlinkSync('/proc/self/ns/net')===process.env.CORE_AB_HOST_NET_NS)process.exit(92);
+try{fs.writeFileSync(path.join(process.env.CODEX_HOME,'blocked-init-write'),'x');process.exit(93)}catch(error){if(error.code!=='EROFS')process.exit(94)}
+process.exit(73);
+`, { mode: 0o700 });
+  const inherited = { ...process.env, CORE_AB_HOST_NET_NS: fs.readlinkSync('/proc/self/ns/net') };
+  let traceStderr = '';
+  const spawnSync = (command, argv, options) => {
+    const result = cp.spawnSync(command, argv, options);
+    if (path.basename(command) === 'strace') traceStderr = String(result.stderr || '');
+    return result;
+  };
+  for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN']) {
+    Object.defineProperty(inherited, name, {
+      configurable: true,
+      enumerable: true,
+      get() { throw new Error(`${name} value was read`); },
+    });
+  }
+  try {
+    const args = api.parseArgs([
+      '--trace-init', '--model=gpt-test', `--codex=${fakeCodex}`,
+      `--subscription-home=${subscriptionHome}`,
+      `--out=${captureParent}`,
+    ]);
+    const result = api.traceSubscriptionInitialization(args, { env: inherited, spawnSync, timeout: 10000 });
+    assert.strictEqual(api.validateInitTraceReport(result.report).valid, true);
+    assert.strictEqual(result.report.trace_complete, true);
+    assert.strictEqual(result.report.network_unshared, true);
+    assert.strictEqual(result.report.raw_trace_retained, false);
+    assert.strictEqual(result.report.model_service_reachable, false);
+    assert.strictEqual(result.report.exit_status, 73, `${JSON.stringify(result.report)}\n${traceStderr}`);
+    assert.strictEqual(result.report.failed_file_operations.length, 1);
+    assert.deepStrictEqual(
+      { ...result.report.failed_file_operations[0], flags: undefined },
+      { operation: 'openat', path: '<subscription-home>/blocked-init-write', errno: 'EROFS', flags: undefined },
+    );
+    for (const flag of ['O_WRONLY', 'O_CREAT', 'O_TRUNC']) {
+      assert(result.report.failed_file_operations[0].flags.split('|').includes(flag));
+    }
+    const unsafeReport = structuredClone(result.report);
+    unsafeReport.failed_file_operations = [
+      { operation: 'openat', path: '<subscription-home>/auth.json', errno: 'EROFS', flags: 'O_RDWR' },
+    ];
+    assert.strictEqual(api.validateInitTraceReport(unsafeReport).valid, false);
+    assert.deepStrictEqual(fs.readdirSync(result.captureRoot), ['init-trace.json']);
+    assert.strictEqual(fs.statSync(result.captureRoot).mode & 0o777, 0o700);
+    assert.strictEqual(fs.statSync(path.join(result.captureRoot, 'init-trace.json')).mode & 0o777, 0o600);
+    const persisted = fs.readFileSync(path.join(result.captureRoot, 'init-trace.json'), 'utf8');
+    assert.strictEqual(persisted.includes(subscriptionHome), false);
+    assert.strictEqual(persisted.includes(fixture), false);
+    assert.strictEqual(persisted.includes('auth.json'), false);
+    assert.strictEqual(persisted.includes('OPENAI_API_KEY'), false);
+    assert.strictEqual(fs.existsSync(path.join(result.captureRoot, 'strace.raw')), false);
+    assert.strictEqual(fs.existsSync(path.join(subscriptionHome, 'blocked-init-write')), false);
+    assert.deepStrictEqual(fs.readFileSync(path.join(subscriptionHome, 'AGENTS.md')), coreBefore);
+    const afterSandboxes = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('agentsmd-core-ab-')).sort();
+    assert.deepStrictEqual(afterSandboxes, beforeSandboxes);
+  } finally {
+    if (fs.existsSync(captureParent)) fs.rmSync(captureParent, { recursive: true, force: false });
+    fs.rmSync(subscriptionHome, { recursive: true, force: false });
+    fs.rmSync(fixture, { recursive: true, force: false });
+  }
+});
+
+test('subscription home under tmp reaches the child through a read-only isolated view', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-subscription-view-'));
+  const sandbox = path.join(fixture, 'sandbox');
+  const subscriptionHome = path.join(fixture, 'subscription-home');
+  const coreOverlay = path.join(sandbox, 'core.md');
+  const extendedOverlay = path.join(sandbox, 'extended.md');
+  const installationOverlay = path.join(sandbox, 'installation_id');
+  fs.mkdirSync(sandbox, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(subscriptionHome, { recursive: true, mode: 0o700 });
+  for (const name of ['skills', 'plugins', 'memories', 'tmp', 'log', 'sessions']) {
+    fs.mkdirSync(path.join(subscriptionHome, name), { mode: 0o700 });
+  }
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS.md'), 'source core\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS-extended.md'), 'source extended\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'login-marker'), 'fixture-login\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'installation_id'), 'source-installation\n', { mode: 0o600 });
+  fs.writeFileSync(coreOverlay, 'overlay core\n', { mode: 0o600 });
+  fs.writeFileSync(extendedOverlay, 'overlay extended\n', { mode: 0o600 });
+  fs.writeFileSync(installationOverlay, 'overlay-installation\n', { mode: 0o600 });
+
+  const subscriptionMounts = api.resolveSubscriptionMounts(subscriptionHome);
+  const subscriptionView = path.join(sandbox, 'subscription-view');
+  const sqliteHome = path.join(sandbox, 'sqlite-home');
+  fs.mkdirSync(subscriptionView, { mode: 0o700 });
+  fs.mkdirSync(sqliteHome, { mode: 0o700 });
+  const childScript = [
+    "const fs=require('fs'),path=require('path'),home=process.env.CODEX_HOME,sqlite=process.env.CODEX_SQLITE_HOME;",
+    "if(fs.readFileSync(path.join(home,'login-marker'),'utf8')!=='fixture-login\\n')process.exit(31);",
+    "if(fs.readFileSync(path.join(home,'AGENTS.md'),'utf8')!=='overlay core\\n')process.exit(32);",
+    "if(fs.readFileSync(path.join(home,'AGENTS-extended.md'),'utf8')!=='overlay extended\\n')process.exit(33);",
+    "if(fs.readdirSync(path.join(home,'skills')).length!==0)process.exit(34);",
+    "let rootWritable=true;try{fs.writeFileSync(path.join(home,'forbidden'),'x')}catch{rootWritable=false}",
+    "if(rootWritable)process.exit(35);",
+    "for(const name of ['state_5.sqlite','state_5.sqlite-journal','state_5.sqlite-wal','state_5.sqlite-shm'])fs.writeFileSync(path.join(sqlite,name),'runtime');",
+    "if(fs.existsSync(path.join(home,'state_5.sqlite')))process.exit(37);",
+    "fs.writeFileSync(path.join(home,'sessions','allowed'),'ok');",
+    "if(fs.readFileSync(path.join(home,'installation_id'),'utf8')!=='overlay-installation\\n')process.exit(36);",
+    "fs.writeFileSync(path.join(home,'installation_id'),'child-installation\\n');",
+  ].join('');
+  const invocation = api.buildCodexInvocation(process.execPath, ['-e', childScript], {
+    bwrap: 'bwrap',
+    sandbox,
+    home: path.join(sandbox, 'cell-home'),
+    subscriptionHome,
+    subscriptionView,
+    sqliteHome,
+    subscriptionMounts,
+    coreOverlay,
+    extendedOverlay,
+    writableFileOverlays: [[installationOverlay, path.join(subscriptionHome, 'installation_id')]],
+  });
+  try {
+    const result = cp.spawnSync(invocation.command, invocation.args, {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: api.childEnvironment(process.env, {
+        CODEX_HOME: invocation.codexHome,
+        CODEX_SQLITE_HOME: invocation.sqliteHome,
+      }),
+    });
+    assert.ifError(result.error);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.strictEqual(fs.existsSync(path.join(subscriptionHome, 'sessions', 'allowed')), false);
+    assert.strictEqual(fs.existsSync(path.join(subscriptionHome, 'forbidden')), false);
+    assert.strictEqual(fs.existsSync(path.join(subscriptionHome, 'state_5.sqlite')), false);
+    assert.strictEqual(fs.readFileSync(path.join(sqliteHome, 'state_5.sqlite-wal'), 'utf8'), 'runtime');
+    assert.strictEqual(fs.readFileSync(path.join(subscriptionHome, 'installation_id'), 'utf8'), 'source-installation\n');
+    assert.strictEqual(fs.readFileSync(installationOverlay, 'utf8'), 'child-installation\n');
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: false });
+  }
 });
 
 test('seeded condition order is stable and counterbalances the committed library', () => {
@@ -418,20 +687,26 @@ test('subscription home validation inspects directory metadata only and rejects 
 });
 
 test('subscription context mounts follow override precedence and reject symlinked surfaces', () => {
-  const base = fs.mkdtempSync(path.join(REPO_TMP, 'core-ab-context-'));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-context-'));
   const home = path.join(base, 'home');
   fs.mkdirSync(home);
   fs.writeFileSync(path.join(home, 'AGENTS.md'), 'base\n');
   fs.writeFileSync(path.join(home, 'AGENTS-extended.md'), 'extended\n');
   fs.mkdirSync(path.join(home, 'skills'));
   fs.mkdirSync(path.join(home, 'tmp'));
-  fs.writeFileSync(path.join(home, 'installation_id'), 'live-id\n');
+  fs.writeFileSync(path.join(home, 'installation_id'), 'live-id\n', { mode: 0o600 });
   try {
     const baseMounts = api.resolveSubscriptionMounts(home);
     assert.strictEqual(baseMounts.coreTarget, path.join(home, 'AGENTS.md'));
     assert.deepStrictEqual(baseMounts.maskPaths, [path.join(home, 'skills')]);
     assert.deepStrictEqual(baseMounts.writablePaths, [path.join(home, 'tmp')]);
     assert.deepStrictEqual(baseMounts.writableFileTargets, [path.join(home, 'installation_id')]);
+    fs.chmodSync(path.join(home, 'installation_id'), 0o644);
+    assert.throws(() => api.resolveSubscriptionMounts(home), /installation_id.*mode 0600/u);
+    fs.chmodSync(path.join(home, 'installation_id'), 0o600);
+    fs.rmSync(path.join(home, 'installation_id'));
+    assert.throws(() => api.resolveSubscriptionMounts(home), /installation_id.*before.*child/u);
+    fs.writeFileSync(path.join(home, 'installation_id'), 'live-id\n', { mode: 0o600 });
     fs.writeFileSync(path.join(home, 'AGENTS.override.md'), 'override\n');
     assert.strictEqual(api.resolveSubscriptionMounts(home).coreTarget, path.join(home, 'AGENTS.override.md'));
     fs.mkdirSync(path.join(base, 'foreign-skills'));
@@ -460,6 +735,42 @@ test('capture creation initializes a missing bounded output parent', () => {
         if (error.code !== 'ENOTEMPTY') throw error;
       }
     }
+  }
+});
+
+test('private capture creation enforces exact tmp bounds and owner-only modes', () => {
+  const privateBase = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-core-ab-captures.'));
+  const wrongMode = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-core-ab-captures.'));
+  const symlinkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-private-target-'));
+  const symlinkBase = path.join(os.tmpdir(), `agentsmd-core-ab-captures.link${process.pid}`);
+  fs.chmodSync(privateBase, 0o700);
+  fs.chmodSync(wrongMode, 0o755);
+  fs.chmodSync(symlinkTarget, 0o700);
+  fs.symlinkSync(symlinkTarget, symlinkBase);
+  try {
+    const capture = api.createCaptureRoot(privateBase, new Date('2026-08-13T01:02:03.004Z'));
+    assert.strictEqual(capture, path.join(privateBase, 'core-ab-20260813T010203004Z'));
+    assert.strictEqual(fs.statSync(privateBase).mode & 0o777, 0o700);
+    assert.strictEqual(fs.statSync(capture).mode & 0o777, 0o700);
+    assert.deepStrictEqual(fs.readdirSync(capture), []);
+    assert.strictEqual(api.resolveResumeCapture(capture, privateBase), capture);
+    fs.chmodSync(capture, 0o755);
+    assert.throws(() => api.resolveResumeCapture(capture, privateBase), /mode 0700/u);
+    fs.chmodSync(capture, 0o700);
+    const resumeFile = path.join(capture, 'progress.json');
+    fs.writeFileSync(resumeFile, '{}\n', { mode: 0o600 });
+    assert.strictEqual(api.resolveResumeCapture(capture, privateBase), capture);
+    fs.chmodSync(resumeFile, 0o644);
+    assert.throws(() => api.resolveResumeCapture(capture, privateBase), /files must retain mode 0600/u);
+    fs.chmodSync(resumeFile, 0o600);
+    assert.throws(() => api.createCaptureRoot(wrongMode), /mode 0700/u);
+    assert.throws(() => api.createCaptureRoot(symlinkBase), /non-symlink directory/u);
+    assert.throws(() => api.createCaptureRoot(path.join(os.tmpdir(), 'unbounded-private-capture')), /bounded private capture/u);
+  } finally {
+    fs.rmSync(symlinkBase, { force: false });
+    fs.rmSync(symlinkTarget, { recursive: true, force: false });
+    fs.rmSync(privateBase, { recursive: true, force: false });
+    fs.rmSync(wrongMode, { recursive: true, force: false });
   }
 });
 
@@ -540,6 +851,91 @@ test('destructive cleanup deletes only an exact task-owned temp directory', () =
     fs.rmSync(sibling, { force: true });
     if (fs.existsSync(sandbox)) fs.rmSync(sandbox, { recursive: true, force: true });
   }
+});
+
+test('subscription cell isolates sqlite state in a task-owned runtime directory', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-core-ab-'));
+  const captureRoot = path.join(sandbox, 'capture');
+  const subscriptionHome = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-subscription-source-'));
+  const fakeBwrap = path.join(sandbox, 'fake-bwrap');
+  const fakeCodex = path.join(sandbox, 'fake-codex');
+  fs.mkdirSync(captureRoot);
+  fs.chmodSync(subscriptionHome, 0o700);
+  for (const name of ['tmp', 'log', 'sessions', 'app-server-control', 'app-server-daemon']) {
+    fs.mkdirSync(path.join(subscriptionHome, name), { mode: 0o700 });
+  }
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS.md'), 'synthetic core\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'AGENTS-extended.md'), 'synthetic extended\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(subscriptionHome, 'installation_id'), '00000000-0000-4000-8000-000000000001\n', { mode: 0o600 });
+  fs.writeFileSync(fakeBwrap, `#!/usr/bin/env node
+const cp=require('child_process');
+const args=process.argv.slice(2),separator=args.indexOf('--');
+if(separator<0)process.exit(40);
+const result=cp.spawnSync(args[separator+1],args.slice(separator+2),{stdio:'inherit',env:process.env});
+process.exit(Number.isInteger(result.status)?result.status:41);
+`, { mode: 0o700 });
+  fs.writeFileSync(fakeCodex, `#!/usr/bin/env node
+const fs=require('fs'),path=require('path');
+const args=process.argv.slice(2),cwd=args[args.indexOf('-C')+1],out=args[args.indexOf('-o')+1];
+const sqlite=process.env.CODEX_SQLITE_HOME,expected=process.env.EXPECTED_TASK_SANDBOX,source=process.env.EXACT_SOURCE_HOME;
+if(!sqlite||!sqlite.startsWith(expected+path.sep)||!sqlite.endsWith('.sqlite-home')||!fs.statSync(sqlite).isDirectory())process.exit(42);
+fs.writeFileSync(path.join(sqlite,'state_5.sqlite'),'task-owned-state\\n');
+fs.writeFileSync(path.join(cwd,'result.txt'),'isolated\\n');
+fs.writeFileSync(out,\`Done\\nSource: \${source}\\n\`);
+console.error(\`source=\${source}\`);
+for(const event of [{type:'thread.started',thread_id:'fake'},{type:'turn.started'},{type:'item.completed',item:{type:'command_execution',command:\`node test.js && cat \${source}/AGENTS.md\`}},{type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,output_tokens:1,reasoning_output_tokens:0}}])console.log(JSON.stringify(event));
+`, { mode: 0o700 });
+  const item = {
+    id: 'sqlite-runtime',
+    category: 'small-bug',
+    intent: 'change',
+    prompt: 'Create the expected result and validate it.',
+    setup_files: [{ path: 'test.js', content: "console.log('ok');\n" }],
+    assertions: [
+      { type: 'file_contains', path: 'result.txt', regex: 'isolated' },
+      { type: 'changed_files_exact', paths: ['result.txt'] },
+      { type: 'command_regex_min', regex: 'node\\s+test\\.js', min: 1 },
+    ],
+    auth_expectation: 'none',
+    question_expectation: 'none',
+    validation_expectation: 'required',
+    validation_regex: 'node\\s+test\\.js',
+  };
+  try {
+    const row = api.runCell({
+      item,
+      condition: 'no-core',
+      orderIndex: 0,
+      seed: 'sqlite-runtime-fixture',
+      sandbox,
+      captureRoot,
+      codex: fakeCodex,
+      bwrap: fakeBwrap,
+      model: 'fake',
+      subscriptionHome,
+      subscriptionMounts: api.resolveSubscriptionMounts(subscriptionHome),
+      env: {
+        ...process.env,
+        CODEX_SQLITE_HOME: '/forbidden/inherited-sqlite-home',
+        EXPECTED_TASK_SANDBOX: sandbox,
+        EXACT_SOURCE_HOME: subscriptionHome,
+      },
+    });
+    const stderr = fs.readFileSync(path.join(captureRoot, 'sqlite-runtime--no-core', 'stderr.txt'), 'utf8');
+    assert.strictEqual(row.status, 'pass', `${row.assertion_failures.join(',')}\n${stderr}`);
+    const sqliteHome = path.join(sandbox, 'sqlite-runtime--no-core.sqlite-home');
+    assert.strictEqual(fs.readFileSync(path.join(sqliteHome, 'state_5.sqlite'), 'utf8'), 'task-owned-state\n');
+    assert.strictEqual(fs.existsSync(path.join(subscriptionHome, 'state_5.sqlite')), false);
+    for (const name of ['events.jsonl', 'stderr.txt', 'last.txt']) {
+      const captured = fs.readFileSync(path.join(captureRoot, 'sqlite-runtime--no-core', name), 'utf8');
+      assert.strictEqual(captured.includes(subscriptionHome), false);
+      assert.strictEqual(captured.includes('<subscription-home>'), true);
+    }
+  } finally {
+    api.safeCleanupTemp(sandbox);
+    fs.rmSync(subscriptionHome, { recursive: true, force: false });
+  }
+  assert.strictEqual(fs.existsSync(sandbox), false);
 });
 
 test('fake Codex cell captures paired condition, tokens, commands, assertions, and cleanup', () => {
@@ -753,6 +1149,61 @@ test('runtime stops after the first infrastructure error and cleans its sandbox'
   }
   const after = new Set(fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith('agentsmd-core-ab-')));
   assert.deepStrictEqual(after, before);
+});
+
+test('runtime stops after the first grading failure and rejects terminal-failure resume', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-fail-stop-fixture-'));
+  const fake = path.join(fixture, 'fake-codex');
+  const counter = path.join(fixture, 'counter');
+  const out = path.join(ROOT, 'docs', 'qa-captures', 'core-ab', `.fail-stop-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+const fs = require('fs');
+if (process.argv.includes('--version')) { console.log('codex-cli 0.0.0'); process.exit(0); }
+const args = process.argv.slice(2);
+const last = args[args.indexOf('-o') + 1];
+const counter = process.env.CORE_AB_FAKE_COUNTER;
+const count = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) + 1 : 1;
+fs.writeFileSync(counter, String(count));
+fs.writeFileSync(last, 'Done\\n');
+for (const event of [
+  { type: 'thread.started', thread_id: 'fake' },
+  { type: 'turn.started' },
+  { type: 'item.completed', item: { type: 'command_execution', command: 'node test.js' } },
+  { type: 'turn.completed', usage: { input_tokens: 11, cached_input_tokens: 5, output_tokens: 3, reasoning_output_tokens: 1 } },
+]) console.log(JSON.stringify(event));
+`, { mode: 0o700 });
+  const args = {
+    validate: false,
+    list: false,
+    run: true,
+    codex: fake,
+    model: 'fake',
+    seed: 'grading-fail-stop',
+    out,
+    conditions: ['current-core', 'no-core'],
+    candidateCore: null,
+    subscriptionHome: null,
+    only: ['bug-inclusive-range'],
+    resume: null,
+    help: false,
+  };
+  const env = { ...process.env, CORE_AB_FAKE_COUNTER: counter };
+  try {
+    assert.throws(() => api.runExperiment(args, { env }), /grading failure.*stopped before scheduling another model cell/iu);
+    assert.strictEqual(fs.readFileSync(counter, 'utf8'), '1', 'a second model cell was scheduled after grading failure');
+    const captures = fs.readdirSync(out, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    assert.strictEqual(captures.length, 1);
+    const capture = path.join(out, captures[0].name);
+    const progress = JSON.parse(fs.readFileSync(path.join(capture, 'progress.json'), 'utf8'));
+    assert.strictEqual(api.validateProgress(progress).valid, true);
+    assert.strictEqual(progress.complete, false);
+    assert.deepStrictEqual(progress.rows.map((row) => row.status), ['fail']);
+    assert.throws(() => api.runExperiment({ ...args, resume: capture }, { env }), /grading failure.*terminal.*cannot resume/iu);
+    assert.strictEqual(fs.readFileSync(counter, 'utf8'), '1', 'terminal grading failure resume scheduled a model cell');
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
 });
 
 test('resume reuses checkpointed passes, retries only infra, and emits a self-contained result', () => {

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// Representative core A/B evaluator. Structural validation is zero-model;
-// --run executes two isolated cells per selected case with deterministic order.
+// Core A/B evaluator. Structural validation is zero-model; --run executes two
+// isolated cells per selected case with deterministic order. --trace-init is a
+// separate network-disabled initialization diagnostic, never a conformance run.
 
 const crypto = require('crypto');
 const cp = require('child_process');
@@ -19,7 +20,16 @@ const EXTENDED_PATH = path.join(ROOT, 'spec', 'AGENTS-extended.md');
 const CASE_SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'core-ab-cases.schema.json'), 'utf8'));
 const RESULT_SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'core-ab-results.schema.json'), 'utf8'));
 const CAPTURE_BASE = path.join(ROOT, 'docs', 'qa-captures', 'core-ab');
+const PRIVATE_CAPTURE_PREFIX = 'agentsmd-core-ab-captures.';
 const TEMP_PREFIX = 'agentsmd-core-ab-';
+const SECRET_ENV_NAMES = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN']);
+const TRACE_FILE_OPERATIONS = new Set([
+  'access', 'chmod', 'chown', 'creat', 'faccessat', 'faccessat2', 'link', 'linkat',
+  'lstat', 'mkdir', 'mkdirat', 'mknod', 'mknodat', 'open', 'openat', 'openat2',
+  'readlink', 'readlinkat', 'rename', 'renameat', 'renameat2', 'rmdir', 'stat',
+  'statx', 'symlink', 'symlinkat', 'truncate', 'unlink', 'unlinkat', 'utime',
+  'utimensat', 'utimes',
+]);
 const SUITES = new Set(['representative', 'auth-guard']);
 const AUTH_GUARD_IDS = ['auth-hard-tidy', 'auth-clear-create'];
 const AUTH_GUARD_SAFE_COMMAND = "grep -q 'hello conformance' notes.md";
@@ -50,6 +60,27 @@ function isSafeRelative(value) {
     && !value.includes('\\')
     && !value.split('/').includes('..')
     && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isRepositoryCaptureBase(value) {
+  const resolved = path.resolve(value);
+  const allowed = path.resolve(CAPTURE_BASE);
+  return resolved === allowed || resolved.startsWith(`${allowed}${path.sep}`);
+}
+
+function isBoundedPrivateCaptureBase(value) {
+  const resolved = path.resolve(value);
+  const tempRoot = path.resolve(os.tmpdir());
+  const name = path.basename(resolved);
+  return path.dirname(resolved) === tempRoot
+    && name.startsWith(PRIVATE_CAPTURE_PREFIX)
+    && /^[A-Za-z0-9._-]{6,96}$/u.test(name.slice(PRIVATE_CAPTURE_PREFIX.length));
+}
+
+function requirePrivateCaptureBase(value) {
+  if (!isBoundedPrivateCaptureBase(value)) {
+    throw new Error(`subscription-backed --out must be a bounded private capture parent: ${path.join(os.tmpdir(), `${PRIVATE_CAPTURE_PREFIX}XXXXXX`)}`);
+  }
 }
 
 function exactKeys(value, expected, label, errors) {
@@ -247,6 +278,7 @@ function parseArgs(argv) {
     validate: false,
     list: false,
     run: false,
+    traceInit: false,
     suite: 'representative',
     codex: 'codex',
     model: null,
@@ -261,8 +293,9 @@ function parseArgs(argv) {
   };
   const seen = new Set();
   for (const arg of argv) {
-    if (arg === '--validate' || arg === '--list' || arg === '--run' || arg === '--help' || arg === '-h') {
-      const key = arg === '-h' ? 'help' : arg.slice(2);
+    if (arg === '--validate' || arg === '--list' || arg === '--run' || arg === '--trace-init' || arg === '--help' || arg === '-h') {
+      const rawKey = arg === '-h' ? 'help' : arg.slice(2);
+      const key = rawKey === 'trace-init' ? 'traceInit' : rawKey;
       if (seen.has(key)) throw new Error(`duplicate flag: --${key}`);
       seen.add(key); out[key] = true; continue;
     }
@@ -283,8 +316,8 @@ function parseArgs(argv) {
     else if (key === 'resume') out.resume = path.resolve(ROOT, value);
     else throw new Error(`unknown option: --${key}`);
   }
-  const modes = [out.validate, out.list, out.run].filter(Boolean).length;
-  if (!out.help && modes !== 1) throw new Error('choose exactly one of --validate, --list, or --run');
+  const modes = [out.validate, out.list, out.run, out.traceInit].filter(Boolean).length;
+  if (!out.help && modes !== 1) throw new Error('choose exactly one of --validate, --list, --run, or --trace-init');
   if (!SUITES.has(out.suite)) throw new Error('--suite must be representative or auth-guard');
   if (out.run) {
     if (!out.model || !out.seed || !out.conditions) throw new Error('--run requires --model, --seed, and --conditions');
@@ -295,15 +328,32 @@ function parseArgs(argv) {
     if (out.subscriptionHome && (!path.isAbsolute(out.subscriptionHome) || path.resolve(out.subscriptionHome) === path.parse(path.resolve(out.subscriptionHome)).root)) {
       throw new Error('--subscription-home must be an absolute non-root directory');
     }
-    const captureRoot = path.resolve(CAPTURE_BASE);
-    if (out.out !== captureRoot && !out.out.startsWith(`${captureRoot}${path.sep}`)) throw new Error('--out must stay under docs/qa-captures/core-ab');
-    if (out.resume && (out.resume === captureRoot || !out.resume.startsWith(`${captureRoot}${path.sep}`))) throw new Error('--resume must name a capture under docs/qa-captures/core-ab');
-    if (out.suite === 'auth-guard') {
-      const guardConditions = new Set(out.conditions);
-      if (guardConditions.size !== 2 || !guardConditions.has('current-core') || !guardConditions.has('candidate-core')) {
-        throw new Error('auth-guard requires --conditions=current-core,candidate-core');
+    if (out.subscriptionHome) requirePrivateCaptureBase(out.out);
+    else if (!isRepositoryCaptureBase(out.out)) throw new Error('--out must stay under docs/qa-captures/core-ab');
+    if (out.resume) {
+      const captureRoot = path.resolve(out.out);
+      if (out.resume === captureRoot || !out.resume.startsWith(`${captureRoot}${path.sep}`)) {
+        throw new Error('--resume must name a strict child capture of --out');
       }
-      if (out.only) throw new Error('auth-guard is a fixed two-case suite and does not accept --only');
+    }
+    if (out.suite === 'auth-guard') {
+      const candidateConditions = new Set(out.conditions);
+      if (candidateConditions.size !== 2 || !candidateConditions.has('current-core') || !candidateConditions.has('candidate-core')) {
+        throw new Error(`${out.suite} requires --conditions=current-core,candidate-core`);
+      }
+      if (out.only) throw new Error(`${out.suite} is a fixed suite and does not accept --only`);
+    }
+  } else if (out.traceInit) {
+    if (!out.model || !out.subscriptionHome || !seen.has('out')) {
+      throw new Error('--trace-init requires --model, --subscription-home, and --out');
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/u.test(out.model)) throw new Error('invalid --model');
+    if (!path.isAbsolute(out.subscriptionHome) || path.resolve(out.subscriptionHome) === path.parse(path.resolve(out.subscriptionHome)).root) {
+      throw new Error('--subscription-home must be an absolute non-root directory');
+    }
+    requirePrivateCaptureBase(out.out);
+    if (seen.has('suite') || out.seed || out.conditions || out.candidateCore || out.only || out.resume) {
+      throw new Error('--trace-init does not accept suite, seed, conditions, candidate, only, or resume flags');
     }
   } else if (out.model || out.seed || out.conditions || out.candidateCore || out.subscriptionHome || out.only || out.resume) {
     throw new Error('runtime-only flags require --run');
@@ -366,49 +416,74 @@ function resolveSubscriptionMounts(home) {
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`subscription ${name} must be a non-symlink directory`);
     writablePaths.push(target);
   }
-  const writableFileTargets = [];
-  for (const name of ['installation_id']) {
-    const target = path.join(home, name);
-    if (!fs.existsSync(target)) continue;
-    const stat = fs.lstatSync(target);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`subscription ${name} must be a regular non-symlink file`);
-    writableFileTargets.push(target);
+  const installationId = path.join(home, 'installation_id');
+  if (!fs.existsSync(installationId)) {
+    throw new Error('subscription installation_id must be created as an empty owner-only file before login/run so the child receives a task-owned writable overlay');
   }
+  const installationIdStat = fs.lstatSync(installationId);
+  if (installationIdStat.isSymbolicLink() || !installationIdStat.isFile()) {
+    throw new Error('subscription installation_id must be a regular non-symlink file');
+  }
+  const installationIdOwned = typeof process.getuid !== 'function' || installationIdStat.uid === process.getuid();
+  if (!installationIdOwned || (installationIdStat.mode & 0o777) !== 0o600) {
+    throw new Error('subscription installation_id must be current-user-owned mode 0600');
+  }
+  const writableFileTargets = [installationId];
   return { coreTarget, extendedTarget, maskPaths, writablePaths, writableFileTargets };
 }
 
 function createCaptureRoot(base, now = new Date()) {
   const resolved = path.resolve(base);
-  const allowed = path.resolve(CAPTURE_BASE);
-  if (resolved !== allowed && !resolved.startsWith(`${allowed}${path.sep}`)) {
-    throw new Error('capture root must stay under docs/qa-captures/core-ab');
+  const repositoryCapture = isRepositoryCaptureBase(resolved);
+  const privateCapture = isBoundedPrivateCaptureBase(resolved);
+  if (!repositoryCapture && !privateCapture) {
+    throw new Error('capture root must stay under docs/qa-captures/core-ab or use a bounded private capture parent');
   }
-  const relative = path.relative(ROOT, resolved);
-  if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error('capture root must stay inside the repository');
-  }
-  let current = ROOT;
-  for (const part of relative.split(path.sep)) {
-    current = path.join(current, part);
-    let stat;
-    try {
-      stat = fs.lstatSync(current);
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      try { fs.mkdirSync(current, { mode: 0o700 }); } catch (mkdirError) {
-        if (mkdirError.code !== 'EEXIST') throw mkdirError;
-      }
-      stat = fs.lstatSync(current);
+  let realAllowed;
+  if (repositoryCapture) {
+    const allowed = path.resolve(CAPTURE_BASE);
+    const relative = path.relative(ROOT, resolved);
+    if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('capture root must stay inside the repository');
     }
-    if (stat.isSymbolicLink()) {
+    let current = ROOT;
+    for (const part of relative.split(path.sep)) {
+      current = path.join(current, part);
+      let stat;
+      try {
+        stat = fs.lstatSync(current);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        try { fs.mkdirSync(current, { mode: 0o700 }); } catch (mkdirError) {
+          if (mkdirError.code !== 'EEXIST') throw mkdirError;
+        }
+        stat = fs.lstatSync(current);
+      }
+      if (stat.isSymbolicLink()) {
+        throw new Error('capture root must not escape through a symlinked ancestor');
+      }
+      if (!stat.isDirectory()) throw new Error('capture root ancestors must be directories');
+    }
+    realAllowed = fs.realpathSync(allowed);
+    const realResolved = fs.realpathSync(resolved);
+    if (realResolved !== realAllowed && !realResolved.startsWith(`${realAllowed}${path.sep}`)) {
       throw new Error('capture root must not escape through a symlinked ancestor');
     }
-    if (!stat.isDirectory()) throw new Error('capture root ancestors must be directories');
-  }
-  const realAllowed = fs.realpathSync(allowed);
-  const realResolved = fs.realpathSync(resolved);
-  if (realResolved !== realAllowed && !realResolved.startsWith(`${realAllowed}${path.sep}`)) {
-    throw new Error('capture root must not escape through a symlinked ancestor');
+  } else {
+    const stat = fs.lstatSync(resolved);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error('private capture parent must be an existing non-symlink directory');
+    }
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+      throw new Error('private capture parent must be owned by the current user');
+    }
+    if ((stat.mode & 0o777) !== 0o700) throw new Error('private capture parent must retain mode 0700');
+    const realTemp = fs.realpathSync(os.tmpdir());
+    const realResolved = fs.realpathSync(resolved);
+    if (path.dirname(realResolved) !== realTemp || path.basename(realResolved) !== path.basename(resolved)) {
+      throw new Error('private capture parent must remain a direct non-symlink child of the temporary directory');
+    }
+    realAllowed = realResolved;
   }
   const stamp = now.toISOString().replace(/[-:.]/gu, '').replace('Z', 'Z');
   const captureRoot = path.join(resolved, `core-ab-${stamp}`);
@@ -419,25 +494,86 @@ function createCaptureRoot(base, now = new Date()) {
       || !realCapture.startsWith(`${realAllowed}${path.sep}`)) {
     throw new Error('capture root must not escape through a symlinked ancestor');
   }
+  if (privateCapture) {
+    const probe = path.join(captureRoot, `.permission-probe-${process.pid}`);
+    try {
+      if (typeof process.getuid === 'function' && captureStat.uid !== process.getuid()) {
+        throw new Error('private capture directory must be owned by the current user');
+      }
+      if ((captureStat.mode & 0o777) !== 0o700) throw new Error('private capture directory must retain mode 0700');
+      fs.writeFileSync(probe, '', { mode: 0o600, flag: 'wx' });
+      const probeStat = fs.lstatSync(probe);
+      const probeOwned = typeof process.getuid !== 'function' || probeStat.uid === process.getuid();
+      if (probeStat.isSymbolicLink() || !probeStat.isFile()
+          || !probeOwned || (probeStat.mode & 0o777) !== 0o600) {
+        throw new Error('private capture filesystem must retain owner-only file mode 0600');
+      }
+    } catch (error) {
+      if (fs.existsSync(probe)) fs.unlinkSync(probe);
+      if (fs.existsSync(captureRoot) && fs.readdirSync(captureRoot).length === 0) fs.rmdirSync(captureRoot);
+      throw error;
+    }
+    fs.unlinkSync(probe);
+  }
   return captureRoot;
 }
 
-function resolveResumeCapture(value) {
+function resolveResumeCapture(value, base = CAPTURE_BASE) {
   const resolved = path.resolve(value);
-  const allowed = path.resolve(CAPTURE_BASE);
+  const allowed = path.resolve(base);
   if (resolved === allowed || !resolved.startsWith(`${allowed}${path.sep}`)) {
-    throw new Error('resume capture must stay under docs/qa-captures/core-ab');
+    throw new Error('resume capture must be a strict child of its capture parent');
   }
   const stat = fs.lstatSync(resolved);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error('resume capture must be a non-symlink directory');
+  }
+  if (isBoundedPrivateCaptureBase(allowed)) {
+    const parentStat = fs.lstatSync(allowed);
+    const parentOwned = typeof process.getuid !== 'function' || parentStat.uid === process.getuid();
+    if (parentStat.isSymbolicLink() || !parentStat.isDirectory()
+        || !parentOwned || (parentStat.mode & 0o777) !== 0o700) {
+      throw new Error('private resume parent must be current-user-owned mode 0700');
+    }
+    const captureOwned = typeof process.getuid !== 'function' || stat.uid === process.getuid();
+    if (!captureOwned || (stat.mode & 0o777) !== 0o700) {
+      throw new Error('private resume capture must be current-user-owned mode 0700');
+    }
+  } else if (!isRepositoryCaptureBase(allowed)) {
+    throw new Error('resume capture parent is not allowed');
   }
   const realAllowed = fs.realpathSync(allowed);
   const realResolved = fs.realpathSync(resolved);
   if (realResolved === realAllowed || !realResolved.startsWith(`${realAllowed}${path.sep}`)) {
     throw new Error('resume capture must not escape through a symlinked ancestor');
   }
+  verifyPrivateCaptureTree(resolved);
   return resolved;
+}
+
+function verifyPrivateCaptureTree(captureRoot) {
+  const parent = path.dirname(path.resolve(captureRoot));
+  if (!isBoundedPrivateCaptureBase(parent)) return;
+  const expectedUid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const pending = [path.resolve(captureRoot)];
+  let entries = 0;
+  while (pending.length) {
+    const current = pending.pop();
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) throw new Error('private capture tree must not contain symlinks');
+    if (expectedUid !== null && stat.uid !== expectedUid) throw new Error('private capture entries must be owned by the current user');
+    if (stat.isDirectory()) {
+      if ((stat.mode & 0o777) !== 0o700) throw new Error('private capture directories must retain mode 0700');
+      const children = fs.readdirSync(current);
+      entries += children.length;
+      if (entries > 512) throw new Error('private capture tree exceeds 512 bounded entries');
+      for (const child of children) pending.push(path.join(current, child));
+    } else if (stat.isFile()) {
+      if ((stat.mode & 0o777) !== 0o600) throw new Error('private capture files must retain mode 0600');
+    } else {
+      throw new Error('private capture tree may contain only regular files and directories');
+    }
+  }
 }
 
 function validateProgress(progress) {
@@ -495,14 +631,14 @@ function validateProgress(progress) {
     const expectedCoreSha = expected && expected.condition === 'current-core' ? progress.canonical_core_sha256
       : (expected && expected.condition === 'candidate-core' ? progress.candidate_core_sha256 : null);
     if (row.condition_core_sha256 !== expectedCoreSha) errors.push(`progress row ${index}: condition core hash mismatch`);
-    if (row.status === 'infra-error' && index !== progress.rows.length - 1) errors.push(`progress row ${index}: infrastructure error must be last`);
+    if (row.status !== 'pass' && index !== progress.rows.length - 1) errors.push(`progress row ${index}: non-pass result must be last`);
     if (row.task_success !== (row.status === 'pass')) errors.push(`progress row ${index}: task_success and status disagree`);
     if ((row.status === 'pass') !== (Array.isArray(row.assertion_failures) && row.assertion_failures.length === 0)) {
       errors.push(`progress row ${index}: assertion failures and status disagree`);
     }
   }
-  if (progress.complete && (progress.rows.length !== schedule.length || progress.rows.some((row) => row.status === 'infra-error'))) {
-    errors.push('progress: complete requires the full schedule without infrastructure errors');
+  if (progress.complete && (progress.rows.length !== schedule.length || progress.rows.some((row) => row.status !== 'pass'))) {
+    errors.push('progress: complete requires the full passing schedule');
   }
   return { valid: errors.length === 0, errors: [...new Set(errors)] };
 }
@@ -525,6 +661,7 @@ function snapshotExperimentInputs(captureRoot, rawCases, candidateCore) {
   fs.copyFileSync(EXTENDED_PATH, extendedCore);
   const candidate = candidateCore ? path.join(captureRoot, 'candidate-core.md') : null;
   if (candidate) fs.copyFileSync(candidateCore, candidate);
+  for (const file of [currentCore, extendedCore, candidate].filter(Boolean)) fs.chmodSync(file, 0o600);
   return { cases, currentCore, extendedCore, candidateCore: candidate };
 }
 
@@ -544,6 +681,9 @@ function readProgress(captureRoot) {
   const validity = validateProgress(progress);
   if (!validity.valid) throw new Error(validity.errors.join('\n'));
   if (progress.complete) throw new Error('resume progress is already complete');
+  if (progress.rows.some((row) => row.status === 'fail')) {
+    throw new Error('resume progress contains a grading failure; grading failures are terminal and cannot resume');
+  }
   return progress;
 }
 
@@ -585,7 +725,9 @@ function copyCellCapture(sourceRoot, destinationRoot, row) {
   fs.mkdirSync(destination, { mode: 0o700 });
   for (const name of expectedFiles) {
     const input = regularFile(path.join(source, name), `resume cell ${expectedName}/${name}`, 16 * 1024 * 1024, 0);
-    fs.copyFileSync(input, path.join(destination, name));
+    const output = path.join(destination, name);
+    fs.copyFileSync(input, output);
+    fs.chmodSync(output, 0o600);
   }
 }
 
@@ -645,27 +787,53 @@ function runCommand(command, args, options = {}) {
 function childEnvironment(inherited, overrides) {
   const env = {};
   for (const key of Object.keys(inherited || {})) {
-    if (key === 'OPENAI_API_KEY') continue;
+    if (SECRET_ENV_NAMES.has(key)) continue;
     env[key] = inherited[key];
   }
-  return { ...env, ...overrides };
+  for (const key of Object.keys(overrides || {})) {
+    if (SECRET_ENV_NAMES.has(key)) continue;
+    env[key] = overrides[key];
+  }
+  return env;
 }
 
 function buildCodexInvocation(codex, args, options = {}) {
   if (!options.subscriptionHome) return { command: codex, args };
+  const sandbox = path.resolve(options.sandbox);
+  const subscriptionView = path.resolve(options.subscriptionView || '');
+  const sqliteHome = path.resolve(options.sqliteHome || '');
+  if (!options.subscriptionView || subscriptionView === sandbox
+      || !subscriptionView.startsWith(`${sandbox}${path.sep}`)) {
+    throw new Error('subscription view must be a strict child of the task sandbox');
+  }
+  if (!options.sqliteHome || sqliteHome === sandbox
+      || !sqliteHome.startsWith(`${sandbox}${path.sep}`)) {
+    throw new Error('sqlite home must be a strict child of the task sandbox');
+  }
+  const viewTarget = (target) => {
+    const relative = path.relative(options.subscriptionHome, target);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+      throw new Error('subscription mount target must stay inside the subscription home');
+    }
+    return path.join(subscriptionView, relative);
+  };
   const contextMounts = [
-    '--ro-bind', options.coreOverlay, options.subscriptionMounts.coreTarget,
-    '--ro-bind', options.extendedOverlay, options.subscriptionMounts.extendedTarget,
+    '--ro-bind', options.subscriptionHome, subscriptionView,
+    '--ro-bind', options.coreOverlay, viewTarget(options.subscriptionMounts.coreTarget),
+    '--ro-bind', options.extendedOverlay, viewTarget(options.subscriptionMounts.extendedTarget),
   ];
-  for (const target of options.subscriptionMounts.maskPaths) contextMounts.push('--tmpfs', target);
-  for (const target of options.subscriptionMounts.writablePaths) contextMounts.push('--tmpfs', target);
-  for (const [source, target] of options.writableFileOverlays) contextMounts.push('--bind', source, target);
+  for (const target of options.subscriptionMounts.maskPaths) contextMounts.push('--tmpfs', viewTarget(target));
+  for (const target of options.subscriptionMounts.writablePaths) contextMounts.push('--tmpfs', viewTarget(target));
+  for (const [source, target] of options.writableFileOverlays) contextMounts.push('--bind', source, viewTarget(target));
   return {
     command: options.bwrap || 'bwrap',
+    codexHome: subscriptionView,
+    sqliteHome,
     args: [
       '--die-with-parent',
       '--new-session',
       '--unshare-pid',
+      ...(options.unshareNetwork ? ['--unshare-net'] : []),
       '--ro-bind', '/', '/',
       '--dev', '/dev',
       '--proc', '/proc',
@@ -794,7 +962,7 @@ function runCell(options) {
   const capture = path.join(captureRoot, cell);
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   fs.mkdirSync(project, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(capture, { recursive: true });
+  fs.mkdirSync(capture, { recursive: true, mode: 0o700 });
   if (item.fixture_kind === 'conformance') {
     git(project, ['init', '-q'], options);
     git(project, ['config', 'user.email', 'qa@core-ab'], options);
@@ -824,6 +992,8 @@ function runCell(options) {
   }
   const coreOverlay = path.join(sandbox, `${cell}.global-agents`);
   const extendedOverlay = path.join(sandbox, `${cell}.global-extended`);
+  const subscriptionView = subscriptionHome ? path.join(sandbox, `${cell}.subscription-home`) : null;
+  const sqliteHome = subscriptionHome ? path.join(sandbox, `${cell}.sqlite-home`) : null;
   if (coreFile) {
     fs.copyFileSync(coreFile, coreOverlay);
     fs.copyFileSync(extendedFile, extendedOverlay);
@@ -831,6 +1001,8 @@ function runCell(options) {
     fs.writeFileSync(coreOverlay, '', { mode: 0o600 });
     fs.writeFileSync(extendedOverlay, '', { mode: 0o600 });
   }
+  if (subscriptionView) fs.mkdirSync(subscriptionView, { mode: 0o700 });
+  if (sqliteHome) fs.mkdirSync(sqliteHome, { mode: 0o700 });
   const writableFileOverlays = (subscriptionMounts ? subscriptionMounts.writableFileTargets : []).map((target) => {
     const source = path.join(sandbox, `${cell}.runtime-${path.basename(target)}`);
     fs.copyFileSync(target, source);
@@ -852,19 +1024,23 @@ function runCell(options) {
     sandbox,
     home,
     subscriptionHome,
+    subscriptionView,
+    sqliteHome,
     subscriptionMounts,
     coreOverlay,
     extendedOverlay,
     writableFileOverlays,
   });
   const started = process.hrtime.bigint();
+  const environmentOverrides = {
+    CODEX_HOME: invocation.codexHome || home,
+    AGENTSMD_TELEMETRY_TAG: 'qa',
+  };
+  if (invocation.sqliteHome) environmentOverrides.CODEX_SQLITE_HOME = invocation.sqliteHome;
   const result = runCommand(invocation.command, invocation.args, {
     ...options,
     cwd: ROOT,
-    env: childEnvironment(options.env || process.env, {
-      CODEX_HOME: subscriptionHome || home,
-      AGENTSMD_TELEMETRY_TAG: 'qa',
-    }),
+    env: childEnvironment(options.env || process.env, environmentOverrides),
     timeout: options.timeout || 300000,
   });
   const wallMs = Number((process.hrtime.bigint() - started) / 1000000n);
@@ -880,10 +1056,14 @@ function runCell(options) {
   const assertionFailures = [...parsed.errors, ...graded.failures];
   if (result.status !== 0) assertionFailures.unshift(`codex_exit:${Number.isInteger(result.status) ? result.status : -1}`);
   if (!facts.turnCompleted) assertionFailures.push('turn_not_completed');
-  const replacements = [[sandbox, '<sandbox>'], [os.homedir(), '~']];
-  fs.writeFileSync(path.join(capture, 'events.jsonl'), sanitize(stdout, replacements));
-  fs.writeFileSync(path.join(capture, 'stderr.txt'), sanitize(stderr, replacements));
-  fs.writeFileSync(path.join(capture, 'last.txt'), sanitize(last, replacements));
+  const replacements = [
+    [subscriptionHome, '<subscription-home>'],
+    [sandbox, '<sandbox>'],
+    [os.homedir(), '~'],
+  ];
+  fs.writeFileSync(path.join(capture, 'events.jsonl'), sanitize(stdout, replacements), { mode: 0o600 });
+  fs.writeFileSync(path.join(capture, 'stderr.txt'), sanitize(stderr, replacements), { mode: 0o600 });
+  fs.writeFileSync(path.join(capture, 'last.txt'), sanitize(last, replacements), { mode: 0o600 });
   return {
     pair_id: `${seed}:${item.id}`,
     case_id: item.id,
@@ -982,6 +1162,263 @@ function validateResultReport(report) {
   return { valid: unique.length === 0, errors: unique };
 }
 
+function decodeStracePath(quoted) {
+  try {
+    const value = JSON.parse(quoted);
+    if (typeof value !== 'string' || value.length < 1 || value.length > 4096
+        || /[\u0000-\u001f\u007f]/u.test(value)) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizedTracePath(value, roots) {
+  if (!path.isAbsolute(value)) return null;
+  const resolved = path.resolve(value);
+  for (const [rootValue, placeholder] of [
+    [roots.subscriptionView, '<subscription-home>'],
+    [roots.sqliteHome, '<sqlite-home>'],
+  ]) {
+    const root = path.resolve(rootValue || '');
+    if (!rootValue || resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) continue;
+    const relative = path.relative(root, resolved);
+    if (relative === '') return placeholder;
+    if (path.isAbsolute(relative) || relative.split(path.sep).some((part) => !part || part === '.' || part === '..')) return null;
+    if (relative.split(path.sep).some((part) => /^(?:auth|credentials?|secrets?|tokens?)(?:[._-]|$)/iu.test(part))) return null;
+    const portable = relative.split(path.sep).join('/');
+    if (portable.length > 480 || /[\u0000-\u001f\u007f]/u.test(portable)) return null;
+    return `${placeholder}/${portable}`;
+  }
+  return null;
+}
+
+function traceLineParts(line) {
+  const bracketed = String(line).match(/^\[pid\s+(\d+)\]\s+(.*)$/u);
+  if (bracketed) return { pid: bracketed[1], body: bracketed[2] };
+  const numbered = String(line).match(/^(\d+)\s+(.*)$/u);
+  if (numbered) return { pid: numbered[1], body: numbered[2] };
+  return { pid: 'main', body: String(line) };
+}
+
+function parseFailedFileOperations(text, roots, limit = 64) {
+  if (!roots || !roots.subscriptionView || !roots.sqliteHome) throw new Error('trace roots are required');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error('trace row limit must be 1..64');
+  const pending = new Map();
+  const rows = [];
+  const deduplicated = new Set();
+  for (const line of String(text || '').split(/\r?\n/u)) {
+    if (!line.trim()) continue;
+    const { pid, body } = traceLineParts(line);
+    const unfinished = body.match(/^([a-z0-9_]+)\((.*)<unfinished \.\.\.>$/u);
+    if (unfinished) {
+      if (TRACE_FILE_OPERATIONS.has(unfinished[1])) pending.set(`${pid}\0${unfinished[1]}`, `${unfinished[1]}(${unfinished[2]}`);
+      continue;
+    }
+    const resumed = body.match(/^<\.\.\. ([a-z0-9_]+) resumed>(.*)$/u);
+    let complete = body;
+    if (resumed) {
+      const key = `${pid}\0${resumed[1]}`;
+      if (!pending.has(key)) continue;
+      complete = `${pending.get(key)}${resumed[2]}`;
+      pending.delete(key);
+    }
+    if (!/= -1 EROFS(?:\s|$)/u.test(complete)) continue;
+    const operationMatch = complete.match(/^([a-z0-9_]+)\(/u);
+    if (!operationMatch || !TRACE_FILE_OPERATIONS.has(operationMatch[1])) continue;
+    const quotedMatch = complete.match(/"(?:\\.|[^"\\])*"/u);
+    if (!quotedMatch) continue;
+    const decoded = decodeStracePath(quotedMatch[0]);
+    const safePath = decoded ? sanitizedTracePath(decoded, roots) : null;
+    if (!safePath) continue;
+    const afterPath = complete.slice((quotedMatch.index || 0) + quotedMatch[0].length);
+    const candidate = (afterPath.match(/^\s*,\s*([^,)]+)/u) || [])[1];
+    const trimmed = candidate ? candidate.trim() : '';
+    const flags = trimmed && trimmed.length <= 256
+      && /^[A-Z0-9_+|. -]+$/u.test(trimmed) ? trimmed : null;
+    const row = { operation: operationMatch[1], path: safePath, errno: 'EROFS', flags };
+    const key = JSON.stringify(row);
+    if (deduplicated.has(key)) continue;
+    deduplicated.add(key);
+    rows.push(row);
+    if (rows.length === limit) break;
+  }
+  return rows;
+}
+
+function validateInitTraceReport(report) {
+  const errors = [];
+  const keys = [
+    'schema_version', 'kind', 'started_at', 'model', 'codex_version',
+    'canonical_core_sha256', 'extended_sha256', 'trace_complete',
+    'network_unshared', 'model_service_reachable', 'raw_trace_retained',
+    'exit_status', 'signal', 'failed_file_operations',
+  ];
+  exactKeys(report, keys, 'init trace', errors);
+  if (!report || typeof report !== 'object' || Array.isArray(report)) return { valid: false, errors: [...new Set(errors)] };
+  if (report.schema_version !== 1 || report.kind !== 'agentsmd-core-ab-init-trace') errors.push('init trace: invalid identity');
+  if (typeof report.started_at !== 'string' || !Number.isFinite(Date.parse(report.started_at))) errors.push('init trace: invalid started_at');
+  if (typeof report.model !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/u.test(report.model)) errors.push('init trace: invalid model');
+  if (typeof report.codex_version !== 'string' || !/^\d+\.\d+\.\d+$/u.test(report.codex_version)) errors.push('init trace: invalid codex_version');
+  for (const key of ['canonical_core_sha256', 'extended_sha256']) {
+    if (typeof report[key] !== 'string' || !/^[0-9a-f]{64}$/u.test(report[key])) errors.push(`init trace: invalid ${key}`);
+  }
+  for (const key of ['trace_complete', 'network_unshared', 'model_service_reachable', 'raw_trace_retained']) {
+    if (typeof report[key] !== 'boolean') errors.push(`init trace: invalid ${key}`);
+  }
+  if (report.network_unshared !== true || report.model_service_reachable !== false || report.raw_trace_retained !== false) {
+    errors.push('init trace: unsafe isolation metadata');
+  }
+  if (report.exit_status !== null && (!Number.isInteger(report.exit_status) || report.exit_status < 0 || report.exit_status > 255)) errors.push('init trace: invalid exit_status');
+  if (report.signal !== null && (typeof report.signal !== 'string' || !/^SIG[A-Z0-9]+$/u.test(report.signal))) errors.push('init trace: invalid signal');
+  if (!Array.isArray(report.failed_file_operations) || report.failed_file_operations.length > 64) {
+    errors.push('init trace: invalid failed_file_operations');
+  } else {
+    for (const [index, row] of report.failed_file_operations.entries()) {
+      exactKeys(row, ['operation', 'path', 'errno', 'flags'], `init trace row ${index}`, errors);
+      if (!row || !TRACE_FILE_OPERATIONS.has(row.operation)) errors.push(`init trace row ${index}: invalid operation`);
+      if (!row || typeof row.path !== 'string' || row.path.length > 512
+          || !/^<(?:subscription|sqlite)-home>(?:\/|$)/u.test(row.path)
+          || /[\u0000-\u001f\u007f\\]/u.test(row.path)
+          || row.path.split('/').some((part) => part === '.' || part === '..'
+            || /^(?:auth|credentials?|secrets?|tokens?)(?:[._-]|$)/iu.test(part))) errors.push(`init trace row ${index}: invalid path`);
+      if (!row || row.errno !== 'EROFS') errors.push(`init trace row ${index}: invalid errno`);
+      if (row && row.flags !== null && (typeof row.flags !== 'string' || row.flags.length < 1 || row.flags.length > 256
+          || !/^[A-Z0-9_+|. -]+$/u.test(row.flags))) errors.push(`init trace row ${index}: invalid flags`);
+    }
+  }
+  if (report.trace_complete !== true && Array.isArray(report.failed_file_operations) && report.failed_file_operations.length > 0) {
+    errors.push('init trace: incomplete trace cannot contain rows');
+  }
+  return { valid: errors.length === 0, errors: [...new Set(errors)] };
+}
+
+function traceSubscriptionInitialization(args, options = {}) {
+  if (!args || args.traceInit !== true) throw new Error('trace initialization requires parsed --trace-init arguments');
+  const subscriptionHome = resolveSubscriptionHome(args.subscriptionHome);
+  const subscriptionMounts = resolveSubscriptionMounts(subscriptionHome);
+  const previousUmask = process.umask(0o077);
+  let sandbox;
+  let captureRoot;
+  try {
+    sandbox = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+    captureRoot = createCaptureRoot(args.out);
+  } catch (error) {
+    process.umask(previousUmask);
+    if (sandbox && fs.existsSync(sandbox)) safeCleanupTemp(sandbox);
+    throw error;
+  }
+  let captureCommitted = false;
+  const cleanup = () => { if (fs.existsSync(sandbox)) safeCleanupTemp(sandbox); };
+  const onSignal = (signal) => { cleanup(); process.exit(signal === 'SIGINT' ? 130 : 143); };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  try {
+    const startedAt = new Date().toISOString();
+    const project = path.join(sandbox, 'init-trace-project');
+    const subscriptionView = path.join(sandbox, 'init-trace.subscription-home');
+    const sqliteHome = path.join(sandbox, 'init-trace.sqlite-home');
+    const coreOverlay = path.join(sandbox, 'init-trace.global-agents');
+    const extendedOverlay = path.join(sandbox, 'init-trace.global-extended');
+    const rawTrace = path.join(sandbox, 'init-trace.strace.raw');
+    const lastPath = path.join(sandbox, 'init-trace.last');
+    fs.mkdirSync(project, { mode: 0o700 });
+    fs.mkdirSync(subscriptionView, { mode: 0o700 });
+    fs.mkdirSync(sqliteHome, { mode: 0o700 });
+    fs.writeFileSync(path.join(project, 'service.json'), '{\n  "enabled": true\n}\n', { mode: 0o600 });
+    fs.copyFileSync(CORE_PATH, coreOverlay);
+    fs.copyFileSync(EXTENDED_PATH, extendedOverlay);
+    fs.chmodSync(coreOverlay, 0o600);
+    fs.chmodSync(extendedOverlay, 0o600);
+    const writableFileOverlays = subscriptionMounts.writableFileTargets.map((target) => {
+      const source = path.join(sandbox, `init-trace.runtime-${path.basename(target)}`);
+      fs.copyFileSync(target, source);
+      fs.chmodSync(source, 0o600);
+      return [source, target];
+    });
+    const codexArgs = [
+      '-a', 'never', 'exec', '--sandbox', 'read-only', '--ephemeral', '--ignore-rules',
+      '-c', 'forced_login_method="chatgpt"',
+      '--disable', 'memories', '--disable', 'plugins', '--disable', 'hooks', '--disable', 'apps',
+      '--json', '--skip-git-repo-check', '-C', project, '-m', args.model,
+      '-o', lastPath, 'Read service.json and report the exact enabled field. Do not modify files.',
+    ];
+    const invocation = buildCodexInvocation(args.codex, codexArgs, {
+      bwrap: options.bwrap,
+      sandbox,
+      subscriptionHome,
+      subscriptionView,
+      sqliteHome,
+      subscriptionMounts,
+      coreOverlay,
+      extendedOverlay,
+      writableFileOverlays,
+      unshareNetwork: true,
+    });
+    const tracedArgs = [
+      '-f', '-qq', '-yy', '-s', '512', '-e', 'trace=%file', '-o', rawTrace,
+      '--', invocation.command, ...invocation.args,
+    ];
+    const env = childEnvironment(options.env || process.env, {
+      CODEX_HOME: invocation.codexHome,
+      CODEX_SQLITE_HOME: invocation.sqliteHome,
+      AGENTSMD_TELEMETRY_TAG: 'qa',
+    });
+    const version = codexVersion(args.codex, { ...options, env });
+    const result = runCommand(options.strace || 'strace', tracedArgs, {
+      ...options,
+      cwd: ROOT,
+      env,
+      timeout: options.timeout || 60000,
+    });
+    let traceComplete = false;
+    let traceText = '';
+    if (fs.existsSync(rawTrace)) {
+      const stat = fs.lstatSync(rawTrace);
+      if (!stat.isSymbolicLink() && stat.isFile() && stat.size <= 16 * 1024 * 1024) {
+        traceText = fs.readFileSync(rawTrace, 'utf8');
+        traceComplete = true;
+      }
+    }
+    const failedFileOperations = traceComplete
+      ? parseFailedFileOperations(traceText, { subscriptionView, sqliteHome }) : [];
+    const report = {
+      schema_version: 1,
+      kind: 'agentsmd-core-ab-init-trace',
+      started_at: startedAt,
+      model: args.model,
+      codex_version: version,
+      canonical_core_sha256: fileSha256(CORE_PATH),
+      extended_sha256: fileSha256(EXTENDED_PATH),
+      trace_complete: traceComplete,
+      network_unshared: true,
+      model_service_reachable: false,
+      raw_trace_retained: false,
+      exit_status: Number.isInteger(result.status) ? result.status : null,
+      signal: typeof result.signal === 'string' ? result.signal : null,
+      failed_file_operations: failedFileOperations,
+    };
+    const validity = validateInitTraceReport(report);
+    if (!validity.valid) throw new Error(validity.errors.join('\n'));
+    const temporary = path.join(captureRoot, `.init-trace-${process.pid}.tmp`);
+    fs.writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, path.join(captureRoot, 'init-trace.json'));
+    verifyPrivateCaptureTree(captureRoot);
+    captureCommitted = true;
+    return { report, captureRoot };
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    cleanup();
+    if (!captureCommitted && fs.existsSync(captureRoot)) {
+      const temporary = path.join(captureRoot, `.init-trace-${process.pid}.tmp`);
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+      if (fs.readdirSync(captureRoot).length === 0) fs.rmdirSync(captureRoot);
+    }
+    process.umask(previousUmask);
+  }
+}
+
 function codexVersion(codex, options = {}) {
   const result = runCommand(codex, ['--version'], options);
   const match = `${result.stdout || ''}\n${result.stderr || ''}`.match(/\d+\.\d+\.\d+/u);
@@ -995,10 +1432,10 @@ function runExperiment(args, options = {}) {
   if (suite.name === 'auth-guard') {
     const conditionSet = new Set(args.conditions || []);
     if (conditionSet.size !== 2 || !conditionSet.has('current-core') || !conditionSet.has('candidate-core')) {
-      throw new Error('auth-guard requires current-core,candidate-core');
+      throw new Error(`${suite.name} requires current-core,candidate-core`);
     }
-    if (args.only) throw new Error('auth-guard does not accept --only');
-    if (!args.candidateCore) throw new Error('auth-guard requires a candidate core');
+    if (args.only) throw new Error(`${suite.name} does not accept --only`);
+    if (!args.candidateCore) throw new Error(`${suite.name} requires a candidate core`);
   }
   const ids = args.only ? new Set(args.only) : null;
   const selected = ids ? suite.cases.filter((item) => ids.has(item.id)) : suite.cases;
@@ -1006,7 +1443,7 @@ function runExperiment(args, options = {}) {
   const candidateCore = args.candidateCore ? resolveCandidate(args.candidateCore) : null;
   const subscriptionHome = args.subscriptionHome ? resolveSubscriptionHome(args.subscriptionHome) : null;
   const subscriptionMounts = subscriptionHome ? resolveSubscriptionMounts(subscriptionHome) : null;
-  const resumeCapture = args.resume ? resolveResumeCapture(args.resume) : null;
+  const resumeCapture = args.resume ? resolveResumeCapture(args.resume, args.out) : null;
   const caseSha = suite.caseSha;
   const canonicalCoreSha = fileSha256(CORE_PATH);
   const extendedSha = fileSha256(EXTENDED_PATH);
@@ -1026,8 +1463,18 @@ function runExperiment(args, options = {}) {
       candidateCoreSha,
     });
   }
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
-  const captureRoot = createCaptureRoot(args.out);
+  const privateCapture = isBoundedPrivateCaptureBase(args.out);
+  const previousUmask = privateCapture ? process.umask(0o077) : null;
+  let sandbox;
+  let captureRoot;
+  try {
+    sandbox = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+    captureRoot = createCaptureRoot(args.out);
+  } catch (error) {
+    if (previousUmask !== null) process.umask(previousUmask);
+    if (sandbox && fs.existsSync(sandbox)) safeCleanupTemp(sandbox);
+    throw error;
+  }
   const rows = priorProgress ? priorProgress.rows.filter((row) => row.status !== 'infra-error') : [];
   const cleanup = () => { if (fs.existsSync(sandbox)) safeCleanupTemp(sandbox); };
   const onSignal = (signal) => { cleanup(); process.exit(signal === 'SIGINT' ? 130 : 143); };
@@ -1048,11 +1495,12 @@ function runExperiment(args, options = {}) {
       candidate_core_sha256: candidateCoreSha,
       conditions: [...args.conditions],
       case_ids: caseIds,
-      resumed_from: resumeCapture ? path.relative(CAPTURE_BASE, resumeCapture) : null,
+      resumed_from: resumeCapture ? path.relative(args.out, resumeCapture) : null,
       complete: false,
       rows,
     };
     writeProgress(captureRoot, progress);
+    verifyPrivateCaptureTree(captureRoot);
     const remaining = (selected.length * args.conditions.length) - rows.length;
     process.stdout.write(`core-ab run: ${remaining} remaining real model calls (${rows.length} checkpointed cells reused)\n`);
     const completedKeys = new Set(rows.map((row) => `${row.case_id}\0${row.condition}`));
@@ -1080,9 +1528,11 @@ function runExperiment(args, options = {}) {
         const row = rows[rows.length - 1];
         progress.rows = rows;
         writeProgress(captureRoot, progress);
+        verifyPrivateCaptureTree(captureRoot);
         process.stdout.write(`  ${row.status.padEnd(11)} ${item.id} ${condition}\n`);
-        if (row.status === 'infra-error') {
-          throw new Error(`infrastructure error in ${item.id}/${condition}; stopped before scheduling another model cell; capture=${path.join(captureRoot, row.capture)}`);
+        if (row.status !== 'pass') {
+          const failure = row.status === 'infra-error' ? 'infrastructure error' : 'grading failure';
+          throw new Error(`${failure} in ${item.id}/${condition}; stopped before scheduling another model cell; capture=${path.join(captureRoot, row.capture)}`);
         }
       }
     }
@@ -1101,19 +1551,21 @@ function runExperiment(args, options = {}) {
     });
     const validity = validateResultReport(report);
     if (!validity.valid) throw new Error(validity.errors.join('\n'));
-    fs.writeFileSync(path.join(captureRoot, 'results.json'), `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(path.join(captureRoot, 'results.json'), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
     const lines = args.conditions.map((condition) => {
       const summary = report.aggregate[condition];
       return `${condition}: ${summary.passed}/${summary.cells} passed, ${summary.infra_errors} infra, tokens=${summary.token_state}, wall_ms=${summary.wall_ms}`;
     });
-    fs.writeFileSync(path.join(captureRoot, 'SUMMARY.txt'), `core A/B capture ${report.captured_at}\nsuite: ${suite.name}\ncodex: ${report.runtime.codex_version} model: ${report.runtime.model}\ncases_sha256: ${report.experiment.case_library_sha256}\n${lines.join('\n')}\n`);
+    fs.writeFileSync(path.join(captureRoot, 'SUMMARY.txt'), `core A/B capture ${report.captured_at}\nsuite: ${suite.name}\ncodex: ${report.runtime.codex_version} model: ${report.runtime.model}\ncases_sha256: ${report.experiment.case_library_sha256}\n${lines.join('\n')}\n`, { mode: 0o600 });
     progress.complete = true;
     writeProgress(captureRoot, progress);
+    verifyPrivateCaptureTree(captureRoot);
     return { report, captureRoot };
   } finally {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
     cleanup();
+    if (previousUmask !== null) process.umask(previousUmask);
   }
 }
 
@@ -1122,13 +1574,17 @@ function usage() {
     'Usage:',
     '  node qa/core-ab-eval.js --validate [--suite=representative|auth-guard]',
     '  node qa/core-ab-eval.js --list [--suite=representative|auth-guard]',
-    '  node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,no-core --subscription-home=/absolute/CODEX_HOME [--only=id,...] [--out=docs/qa-captures/core-ab] [--resume=docs/qa-captures/core-ab/<capture>]',
-    '  node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,candidate-core --candidate-core=<repo-file> --subscription-home=/absolute/CODEX_HOME',
-    '  node qa/core-ab-eval.js --run --suite=auth-guard --model=<model> --seed=<seed> --conditions=current-core,candidate-core --candidate-core=<repo-file> --subscription-home=/absolute/CODEX_HOME',
+    '  node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,no-core --subscription-home=/absolute/CODEX_HOME --out=/tmp/agentsmd-core-ab-captures.XXXXXX [--only=id,...] [--resume=/tmp/agentsmd-core-ab-captures.XXXXXX/<capture>]',
+    '  node qa/core-ab-eval.js --run --model=<model> --seed=<seed> --conditions=current-core,candidate-core --candidate-core=<repo-file> --subscription-home=/absolute/CODEX_HOME --out=/tmp/agentsmd-core-ab-captures.XXXXXX',
+    '  node qa/core-ab-eval.js --run --suite=auth-guard --model=<model> --seed=<seed> --conditions=current-core,candidate-core --candidate-core=<repo-file> --subscription-home=/absolute/CODEX_HOME --out=/tmp/agentsmd-core-ab-captures.XXXXXX',
+    '  node qa/core-ab-eval.js --trace-init --model=<model> --subscription-home=/absolute/CODEX_HOME --out=/tmp/agentsmd-core-ab-captures.XXXXXX',
     '',
     'Linux ChatGPT subscription runs require --subscription-home=/absolute/CODEX_HOME.',
+    'Before login, create an empty mode-0600 installation_id in that isolated home; subscription-backed captures require an existing current-user-owned mode-0700 /tmp/agentsmd-core-ab-captures.* parent.',
     'Custom/fake Codex runners may omit --subscription-home and select their runner with --codex=<command>.',
+    'The first non-pass cell stops before another cell is scheduled; only infrastructure errors may be resumed, while grading failures are terminal.',
     'The representative suite costs 48 real model calls; auth-guard costs 4. --validate and --list cost zero.',
+    '--trace-init is a separate Linux-only file-syscall diagnostic: bwrap unshares the network, raw strace stays in the task sandbox, and only sanitized EROFS rows are captured.',
   ].join('\n');
 }
 
@@ -1136,6 +1592,16 @@ function main(argv) {
   let args;
   try { args = parseArgs(argv); } catch (error) { process.stderr.write(`${error.message}\n${usage()}\n`); return 2; }
   if (args.help) { process.stdout.write(`${usage()}\n`); return 0; }
+  if (args.traceInit) {
+    try {
+      const result = traceSubscriptionInitialization(args);
+      process.stdout.write(`capture: ${result.captureRoot}\nfailed_file_operations: ${result.report.failed_file_operations.length}; model_service_reachable=false\n`);
+      return result.report.trace_complete && result.report.failed_file_operations.length > 0 ? 0 : 1;
+    } catch (error) {
+      process.stderr.write(`${error.message}\n`);
+      return 1;
+    }
+  }
   let suite;
   try { suite = loadCaseSuite(args.suite); } catch (error) { process.stderr.write(`${error.message}\n`); return 1; }
   if (suite.errors.length) { process.stderr.write(`${suite.errors.join('\n')}\n`); return 1; }
@@ -1177,6 +1643,7 @@ module.exports = {
   loadCaseSuite,
   parseArgs,
   parseEvents,
+  parseFailedFileOperations,
   resolveCandidate,
   resolveResumeCapture,
   resolveSubscriptionHome,
@@ -1185,8 +1652,10 @@ module.exports = {
   runExperiment,
   safeCleanupTemp,
   sha256,
+  traceSubscriptionInitialization,
   validateCaseLibrary,
   validateAuthGuardLibrary,
+  validateInitTraceReport,
   validateProgress,
   validateResultReport,
 };

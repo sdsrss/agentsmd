@@ -13,14 +13,25 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   runtime token and wall-time provenance, strict result schemas, and a zero-model
   structural gate. Real 48-cell baselines remain explicit opt-in runs and never
   grade model output with another model. An explicit Linux subscription mode
-  mounts the host read-only, overlays only the A/B instruction surfaces, masks
-  live skills/plugins/memories, preserves the non-secret installation identity
-  in a task-local writable copy, explicitly selects the existing ChatGPT login
-  while overriding config-sensitive experiment surfaces, excludes
-  `OPENAI_API_KEY`, and stops at the first
-  infrastructure error. Codex may use its existing ChatGPT login, while the
-  harness never names or inspects a credential file. Captures now freeze their
-  exact case/core inputs before the first cell; deterministic grading expands
+  mounts the host read-only, exposes the selected home through a stable read-only
+  task-sandbox view, overlays only the A/B instruction surfaces, masks live
+  skills/plugins/memories, redirects runtime scratch and SQLite state to
+  task-owned storage without copying the source database, and gives only a
+  task-local copy of a pre-created owner-only `installation_id` write access. It
+  explicitly selects the existing ChatGPT login while overriding
+  config-sensitive experiment surfaces; removes `OPENAI_API_KEY`,
+  `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` from the child environment without
+  reading their values; and stops before scheduling another cell after any
+  non-pass. Infrastructure errors remain resumable, while grading failures are
+  terminal. Codex may use its existing ChatGPT login, while the harness never
+  names or inspects a credential file. Subscription-backed captures require a
+  bounded current-user-owned private `/tmp` parent, enforce 0700 directories and
+  0600 files before and after child execution, and redact the exact subscription
+  home from retained events, stderr, and final messages. A separate
+  network-disabled initialization trace retains only bounded sanitized `EROFS`
+  file-operation metadata and always discards its raw strace and process output.
+  Captures freeze their exact case/core inputs before the first cell;
+  deterministic grading expands
   untracked directories to files and ignores question-like syntax inside code,
   URLs, and descriptive prose. AUTH-block cases explicitly withhold the tested
   operation authorization. Follow-up case-contract review accepts standard
