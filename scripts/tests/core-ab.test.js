@@ -24,6 +24,7 @@ const api = require(RUNNER);
 
 let PASS = 0;
 let FAIL = 0;
+let SKIP = 0;
 function test(name, fn) {
   try {
     fn();
@@ -33,6 +34,34 @@ function test(name, fn) {
     FAIL += 1;
     console.log(`  FAIL ${name}\n     ${error.message}`);
   }
+}
+
+function executableOnPath(name) {
+  const hostPath = process.env.AGENTSMD_TEST_HOST_PATH ?? process.env.PATH ?? '';
+  return hostPath.split(path.delimiter).filter(Boolean).some((directory) => {
+    try {
+      fs.accessSync(path.join(directory, name), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function linuxHostIntegration(name, tools, fn) {
+  const hostPlatform = process.env.AGENTSMD_TEST_HOST_PLATFORM || process.platform;
+  if (hostPlatform !== 'linux') {
+    SKIP += 1;
+    console.log(`  skip ${name}\n     requires Linux host namespaces (platform=${hostPlatform})`);
+    return;
+  }
+  const missing = tools.filter((tool) => !executableOnPath(tool));
+  if (missing.length > 0) {
+    SKIP += 1;
+    console.log(`  skip ${name}\n     missing required host tool(s): ${missing.join(', ')}`);
+    return;
+  }
+  test(name, fn);
 }
 
 function metricRow(condition, overrides = {}) {
@@ -409,7 +438,7 @@ test('missing installation_id stops a subscription trace before any child starts
   }
 });
 
-test('initialization trace uses a real disconnected namespace and leaves only a sanitized report', () => {
+linuxHostIntegration('initialization trace uses a real disconnected namespace and leaves only a sanitized report', ['bwrap', 'strace'], () => {
   const fixture = fs.mkdtempSync(path.join(REPO_TMP, 'core-ab-init-trace-fixture-'));
   const subscriptionHome = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-init-trace-home-'));
   const fakeCodex = path.join(fixture, 'fake-codex');
@@ -490,7 +519,7 @@ process.exit(73);
   }
 });
 
-test('subscription home under tmp reaches the child through a read-only isolated view', () => {
+linuxHostIntegration('subscription home under tmp reaches the child through a read-only isolated view', ['bwrap'], () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'core-ab-subscription-view-'));
   const sandbox = path.join(fixture, 'sandbox');
   const subscriptionHome = path.join(fixture, 'subscription-home');
@@ -1315,5 +1344,5 @@ for (const directory of [...TEST_DIRECTORIES].reverse()) {
   }
 }
 
-console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed`);
+console.log(`\nRESULT: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped`);
 process.exit(FAIL === 0 ? 0 : 1);

@@ -14,8 +14,17 @@ const os = require('os');
 const cp = require('child_process');
 const assert = require('assert');
 
-let PASS = 0, FAIL = 0;
+let PASS = 0, FAIL = 0, SKIP = 0;
 const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e) { FAIL++; console.log('  FAIL ' + n + '\n     ' + e.message); } };
+const bashMapfileProbe = cp.spawnSync('bash', ['-c', 'type mapfile >/dev/null 2>&1'], { stdio: 'ignore' });
+const bashHasMapfile = process.env.AGENTSMD_TEST_BASH_MAPFILE === '0'
+  ? false
+  : !bashMapfileProbe.error && bashMapfileProbe.status === 0;
+const tBashMapfile = (n, f) => {
+  if (bashHasMapfile) return t(n, f);
+  SKIP++;
+  console.log('  skip ' + n + '\n     active bash lacks the mapfile builtin required by the GNU/Linux conformance runner');
+};
 
 const ROOT = path.join(__dirname, '..', '..');
 const CASES_PATH = path.join(ROOT, 'qa', 'conformance', 'cases.json');
@@ -245,7 +254,7 @@ t('runner exists and points at this library', () => {
   }
 });
 
-t('reviewed hook trust reaches Codex; missing child activation fails as infrastructure', () => {
+tBashMapfile('reviewed hook trust reaches Codex; missing child activation fails as infrastructure', () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance-contract-'));
   try {
     const home = path.join(sandbox, 'home');
@@ -383,5 +392,5 @@ t('thresholds.json: categories resolve, min_pass within case counts, known_fail 
   }
 });
 
-console.log(`conformance-cases: ${PASS} passed, ${FAIL} failed`);
+console.log(`conformance-cases: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped`);
 process.exit(FAIL === 0 ? 0 : 1);
