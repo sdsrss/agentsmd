@@ -131,7 +131,7 @@ function writePackageIdentity(root, { plugin = false, bin = false } = {}) {
   }
 }
 
-const layoutRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-skill-routing.'));
+const layoutRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-skill-routing.')));
 try {
   for (const layout of ['plugin-cache', 'repo-checkout']) {
     const root = path.join(layoutRoot, layout);
