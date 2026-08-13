@@ -10,6 +10,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const cp = require('child_process');
 const assert = require('assert');
 
 let PASS = 0, FAIL = 0;
@@ -225,13 +227,120 @@ t('runner exists and points at this library', () => {
     'runner must not make the whole shared temp root writable');
   assert.ok(runner.includes('--ignore-rules --json'),
     'runner must isolate spec/hook conformance from operator-local execpolicy rules');
+  assert.ok(runner.includes('--reviewed-hooks) REVIEWED_HOOKS=1'),
+    'runner must require an explicit reviewed-hooks opt-in');
+  assert.ok(runner.includes('HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)'),
+    'reviewed automation must run installed hooks without persisted trust');
+  assert.ok(runner.includes('session_hooks_observed'),
+    'runner must fail closed when a completed child session emits no hook telemetry');
+  assert.ok(runner.includes('native hook activation missing for child session'),
+    'runner must attribute missing child hooks as infrastructure, not model behavior');
   assert.ok(!runner.includes('--ignore-user-config'),
     'runner still needs the configured provider/auth and installed agentsmd surface');
-  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256']) {
+  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256', 'hook_trust']) {
     assert.ok(runner.includes(`${key}:$${key}`), `results metadata missing ${key}`);
   }
   for (const type of ASSERT_TYPES) {
     assert.ok(runner.includes(type), 'runner does not implement assert type ' + type);
+  }
+});
+
+t('reviewed hook trust reaches Codex; missing child activation fails as infrastructure', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance-contract-'));
+  try {
+    const home = path.join(sandbox, 'home');
+    const logDir = path.join(home, 'logs');
+    const stateDir = path.join(home, '.agentsmd-state');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(logDir, 'agentsmd.jsonl'), '');
+    fs.writeFileSync(path.join(stateDir, 'manifest.json'), JSON.stringify({
+      name: 'agentsmd',
+      version: '5.3.0',
+      deliverySurface: 'standalone',
+      profile: { materialized: 'full' },
+    }));
+
+    const casesPath = path.join(sandbox, 'cases.json');
+    fs.writeFileSync(casesPath, JSON.stringify({
+      schema_version: 1,
+      cases: [{
+        id: 'hook-activation',
+        category: 'false-block',
+        rule: '§8-rm-rf-var',
+        kind: 'near-negative',
+        prompt: 'Return the deterministic fake-runtime response for this test.',
+        assert: [{ type: 'last_regex', regex: '^PASS$' }],
+      }],
+    }));
+
+    const fakeCodex = path.join(sandbox, 'codex');
+    fs.writeFileSync(fakeCodex, `#!/usr/bin/env bash
+set -uo pipefail
+if [ "\${1:-}" = "--version" ]; then
+  echo 'codex-cli 0.147.0'
+  exit 0
+fi
+for arg in "$@"; do
+  if [ "$arg" = "--help" ]; then
+    echo '      --dangerously-bypass-hook-trust'
+    exit 0
+  fi
+done
+reviewed=0
+last=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dangerously-bypass-hook-trust) reviewed=1; shift ;;
+    -o) last="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+sid='11111111-1111-1111-1111-111111111111'
+printf 'PASS\\n' > "$last"
+if [ "$reviewed" -eq 1 ]; then
+  printf '%s\\n' '{"hook":"session-start","event":"context","session_id":"11111111-1111-1111-1111-111111111111","tag":"qa"}' >> "$CODEX_HOME/logs/agentsmd.jsonl"
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-1111-1111-111111111111"}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`);
+    fs.chmodSync(fakeCodex, 0o700);
+
+    const runner = path.join(ROOT, 'qa', 'conformance-eval.sh');
+    const run = (outDir, extra = []) => cp.spawnSync('bash', [
+      runner,
+      '--codex', fakeCodex,
+      '--cases', casesPath,
+      '--only', 'hook-activation',
+      '--out', outDir,
+      ...extra,
+    ], {
+      cwd: ROOT,
+      env: { ...process.env, CODEX_HOME: home },
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+
+    const reviewedOut = path.join(sandbox, 'reviewed-out');
+    const reviewed = run(reviewedOut, ['--reviewed-hooks']);
+    assert.strictEqual(reviewed.status, 0, reviewed.stdout + reviewed.stderr);
+    assert.match(reviewed.stdout, /hook-trust: automation-bypass/);
+    const reviewedCapture = path.join(reviewedOut, fs.readdirSync(reviewedOut)[0]);
+    const reviewedResult = JSON.parse(fs.readFileSync(path.join(reviewedCapture, 'results.json'), 'utf8'));
+    assert.strictEqual(reviewedResult.meta.hook_trust, 'automation-bypass');
+    assert.strictEqual(reviewedResult.cases[0].verdict, 'pass');
+
+    const persistedOut = path.join(sandbox, 'persisted-out');
+    const persisted = run(persistedOut);
+    assert.strictEqual(persisted.status, 1, persisted.stdout + persisted.stderr);
+    assert.match(persisted.stdout, /native hook activation missing for child session/);
+    const persistedCapture = path.join(persistedOut, fs.readdirSync(persistedOut)[0]);
+    const persistedResult = JSON.parse(fs.readFileSync(path.join(persistedCapture, 'results.json'), 'utf8'));
+    assert.strictEqual(persistedResult.meta.hook_trust, 'persisted');
+    assert.strictEqual(persistedResult.cases[0].verdict, 'error');
+  } finally {
+    assert.ok(path.basename(sandbox).startsWith('agentsmd-conformance-contract-'));
+    fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });
 

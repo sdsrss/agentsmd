@@ -27,7 +27,8 @@
 # Codex, and an agentsmd install in $CODEX_HOME. NOT part of npm test / CI.
 #
 # Usage: bash qa/conformance-eval.sh [--codex <bin>] [--model <m>] [--out <dir>]
-#          [--only <id[,id…]>] [--category <c>] [--keep] [--validate] [--list]
+#          [--only <id[,id…]>] [--category <c>] [--reviewed-hooks]
+#          [--keep] [--validate] [--list]
 # Structural validation of the case library (no model calls): --validate, and
 # scripts/tests/conformance-cases.test.js in the npm test chain.
 # Captures (sanitized: $HOME → ~) land in --out (default docs/qa-captures/,
@@ -50,6 +51,7 @@ CATEGORY=""
 KEEP=0
 VALIDATE=0
 LIST=0
+REVIEWED_HOOKS=0
 PROBE_TIMEOUT="${AGENTSMD_CONF_TIMEOUT:-300}"
 
 while [ "$#" -gt 0 ]; do
@@ -60,6 +62,7 @@ while [ "$#" -gt 0 ]; do
     --cases) CASES_FILE="${2:?--cases requires a value}"; shift 2 ;;
     --only) ONLY="${2:?--only requires a value}"; shift 2 ;;
     --category) CATEGORY="${2:?--category requires a value}"; shift 2 ;;
+    --reviewed-hooks) REVIEWED_HOOKS=1; shift ;;
     --keep) KEEP=1; shift ;;
     --validate) VALIDATE=1; shift ;;
     --list) LIST=1; shift ;;
@@ -89,6 +92,19 @@ newest="$(printf '%s\n%s\n' "$MIN_CODEX_VERSION" "$CODEX_VERSION" | sort -V | ta
 if [ "$newest" != "$CODEX_VERSION" ] && [ "$CODEX_VERSION" != "$MIN_CODEX_VERSION" ]; then
   echo "UNSUPPORTED: codex $CODEX_VERSION < $MIN_CODEX_VERSION (native hooks require [features] hooks = true, first stable in $MIN_CODEX_VERSION)" >&2
   exit 1
+fi
+
+HOOK_TRUST_ARGS=()
+HOOK_TRUST_MODE="persisted"
+if [ "$REVIEWED_HOOKS" -eq 1 ]; then
+  "$CODEX_BIN" exec --help 2>&1 | grep -q -- '--dangerously-bypass-hook-trust' \
+    || { echo "UNSUPPORTED: codex $CODEX_VERSION lacks --dangerously-bypass-hook-trust" >&2; exit 1; }
+  # Explicit opt-in only: this flag bypasses Codex's persisted trust prompt for
+  # every active hook source. The caller must first review the isolated home's
+  # hook configuration and referenced scripts; ordinary runs keep Codex's
+  # persisted trust behavior.
+  HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)
+  HOOK_TRUST_MODE="automation-bypass"
 fi
 
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
@@ -235,9 +251,11 @@ run_case_session() {
   # workspace-write sandbox protects repository metadata by default. Ignore
   # user/project execpolicy `.rules`: this harness measures agentsmd spec/hooks,
   # and inheriting an operator's unrelated command policy makes the same fixture
-  # pass or fail by machine. Hook trust and hook execution remain enabled.
+  # pass or fail by machine. `--reviewed-hooks` explicitly enables the reviewed
+  # automation trust bypass; otherwise Codex's persisted hook trust still applies.
   AGENTSMD_TELEMETRY_TAG=qa \
   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" -a never exec \
+    ${HOOK_TRUST_ARGS[@]+"${HOOK_TRUST_ARGS[@]}"} \
     --sandbox workspace-write --add-dir "$PROJ/.git" \
     --ignore-rules --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
@@ -274,6 +292,15 @@ session_turn_completed() {
     [ -f "$SBX/$CID.native-transcript.ok" ] || return 1
     [ -f "$SBX/$CID.native-goal-cleanup.ok" ] || return 1
   fi
+}
+
+# A completed model turn without a hook row for its exact thread cannot measure
+# installed-hook behavior. Treat that as a global runner/runtime infrastructure
+# failure and stop before spending the remaining case budget.
+session_hooks_observed() {
+  [ -n "$THREAD_ID" ] || return 1
+  jq -e --arg sid "$THREAD_ID" 'select(.session_id==$sid and (.hook | type)=="string")' \
+    < "$SBX/$CID.telemetry" >/dev/null 2>&1
 }
 
 # check_one ASSERT_JSON → 0/1; on fail appends a reason line to $SBX/$CID.why
@@ -381,7 +408,7 @@ mapfile -t CASE_IDS < <(jq -r "$SELECT_FILTER" "$CASES_FILE")
 [ "${#CASE_IDS[@]}" -gt 0 ] || { echo "FAIL: no cases selected" >&2; exit 1; }
 
 echo "== conformance-eval (codex $CODEX_VERSION, model $RESOLVED_MODEL, agentsmd $AGENTSMD_VERSION) =="
-echo "   cases: ${#CASE_IDS[@]}  captures: $CAP"
+echo "   cases: ${#CASE_IDS[@]}  hook-trust: $HOOK_TRUST_MODE  captures: $CAP"
 
 PASS=0; FAIL=0; ERR=0
 : > "$SBX/results.rows"
@@ -405,6 +432,17 @@ for id in "${CASE_IDS[@]}"; do
       >> "$SBX/results.rows"
     continue
   fi
+  if ! session_hooks_observed; then
+    ERR=$((ERR+1)); verdict=error
+    printf '  ERR  %-24s native hook activation missing for child session; aborting remaining cases\n' "$id"
+    printf 'native hook activation missing for child session (hook trust or wiring unavailable)\n' > "$SBX/$id.why"
+    jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
+          --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --rawfile why "$SBX/$id.why" \
+      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+      >> "$SBX/results.rows"
+    break
+  fi
   if grade_case; then
     PASS=$((PASS+1)); verdict=pass
     printf '  ok   %-24s %s/%s\n' "$id" "$(case_field '.category')" "$(case_field '.kind')"
@@ -423,10 +461,11 @@ done
 jq -s --arg codex "$CODEX_VERSION" --arg model "$RESOLVED_MODEL" \
       --arg agentsmd "$AGENTSMD_VERSION" --arg surface "$AGENTSMD_SURFACE" \
       --arg profile "$AGENTSMD_PROFILE" --arg cases_sha256 "$CASES_SHA256" \
-      --arg thresholds_sha256 "$THRESHOLDS_SHA256" --arg stamp "$STAMP" \
+      --arg thresholds_sha256 "$THRESHOLDS_SHA256" --arg hook_trust "$HOOK_TRUST_MODE" \
+      --arg stamp "$STAMP" \
   '{meta: {stamp:$stamp, codex:$codex, model:$model, agentsmd:$agentsmd,
       surface:$surface, profile:$profile, cases_sha256:$cases_sha256,
-      thresholds_sha256:$thresholds_sha256, cases:(length)},
+      thresholds_sha256:$thresholds_sha256, hook_trust:$hook_trust, cases:(length)},
     categories: (group_by(.category) | map({key: .[0].category,
       value: {pass: (map(select(.verdict=="pass")) | length),
               total: (map(select(.verdict != "error")) | length),
@@ -454,6 +493,7 @@ fi
   echo "conformance-eval capture $STAMP"
   echo "codex: $CODEX_VERSION  model: $RESOLVED_MODEL  agentsmd: $AGENTSMD_VERSION"
   echo "surface: $AGENTSMD_SURFACE  profile: $AGENTSMD_PROFILE"
+  echo "hook_trust: $HOOK_TRUST_MODE"
   echo "cases_sha256: $CASES_SHA256  thresholds_sha256: $THRESHOLDS_SHA256"
   echo "result: $PASS passed, $FAIL failed, $ERR infra-errors (thresholds: $THRESH_MODE)"
 } > "$CAP/SUMMARY.txt"

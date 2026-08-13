@@ -53,6 +53,12 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   distribution, package dry-run, and the full gate instead of remaining an
   uncovered risk. The canonical byte-identity fixture now tracks the generated
   v5.3.0 core.
+- Fixed real-model conformance runs against fresh isolated homes so callers can
+  explicitly attest that every active hook source was reviewed and pass Codex's
+  automation-only hook-trust bypass. Captures record the selected trust mode,
+  and a completed child session with no matching hook telemetry now aborts the
+  remaining cases as infrastructure failure instead of grading hook absence as
+  model behavior.
 - Changed the quality scorecard contract to schema v2. Health and prompt-budget
   measurements now carry source provenance; unresolved bytes and enforcement
   state are `null`, and incomplete inputs render `partial`/`unavailable` rather

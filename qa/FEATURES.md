@@ -282,6 +282,12 @@ external runtime.
   replace it. Performance and conformance staleness, worktree residue, fallback
   use, prompt headroom, no-opportunity, and unmeasured false blocks remain
   explicit. Status: BASELINE.
+- Boundary 3: a fresh non-interactive home uses the Codex hook-trust bypass only
+  after the caller explicitly attests that every active hook source was
+  reviewed. Captures record that trust mode, and a completed child turn with no
+  exact-session hook telemetry aborts the remaining cases as infrastructure
+  failure instead of changing model-behavior rates. Status: BASELINE; fake-Codex
+  activated and missing-activation integration fixtures.
 - Automation: weekly pinned/latest runtime and governance workflows retain
   machine-readable artifacts; PR review is optional, same-repository and
   trusted-actor constrained, Codex read-only, SHA-pinned, and posts from a
