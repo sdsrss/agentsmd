@@ -6,6 +6,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// macOS commonly exposes the same temporary root as both /var/... and
+// /private/var/.... Keep this test process on the canonical spelling so the
+// runner's strict exact-parent cleanup guard is exercised without an alias
+// mismatch; the production runner and its cleanup boundary remain unchanged.
+const TEST_TMPDIR = fs.realpathSync(os.tmpdir());
+if (TEST_TMPDIR !== os.tmpdir()) process.env.TMPDIR = TEST_TMPDIR;
+
 const ROOT = path.resolve(__dirname, '..', '..');
 const RUNNER = path.join(ROOT, 'qa', 'core-ab-eval.js');
 const CASES = path.join(ROOT, 'qa', 'core-ab', 'cases.json');
