@@ -9,6 +9,7 @@ const {
   CAPTURE_ROOT,
   buildEvidence,
   parseArgs,
+  platformCanonicalPath,
   writeEvidence,
 } = require('../conformance-evidence');
 const { validateConformanceReleaseEvidence } = require('../lib/scorecard');
@@ -162,6 +163,16 @@ try {
       '--decision=waived',
       `--results=${first}`,
     ]).error.includes('waiver-scope'), true);
+  });
+
+  test('canonical path comparison permits only the macOS /var system alias', () => {
+    assert.strictEqual(
+      platformCanonicalPath('/var/folders/example', 'darwin'),
+      '/private/var/folders/example',
+    );
+    assert.strictEqual(platformCanonicalPath('/private/var/folders/example', 'darwin'), '/private/var/folders/example');
+    assert.strictEqual(platformCanonicalPath('/variant/example', 'darwin'), '/variant/example');
+    assert.strictEqual(platformCanonicalPath('/var/folders/example', 'linux'), '/var/folders/example');
   });
 
   test('writer creates the exact version path idempotently and refuses different overwrite bytes', () => {

@@ -25,6 +25,14 @@ function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+function platformCanonicalPath(input, platform = process.platform) {
+  const resolved = path.resolve(input);
+  if (platform === 'darwin' && (resolved === '/var' || resolved.startsWith('/var/'))) {
+    return `/private${resolved}`;
+  }
+  return resolved;
+}
+
 function regularBytes(file, max = MAX_RESULT_BYTES) {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${file}: expected a regular non-symlink file`);
@@ -34,8 +42,11 @@ function regularBytes(file, max = MAX_RESULT_BYTES) {
 
 function boundedCaptureFile(raw) {
   const captureRoot = path.resolve(CAPTURE_ROOT);
+  const canonicalCaptureRoot = platformCanonicalPath(captureRoot);
   const rootStat = fs.lstatSync(captureRoot);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || fs.realpathSync(captureRoot) !== captureRoot) {
+  if (!rootStat.isDirectory()
+    || rootStat.isSymbolicLink()
+    || fs.realpathSync(captureRoot) !== canonicalCaptureRoot) {
     throw new Error('docs/qa-captures must be a real non-symlink directory');
   }
   const target = path.resolve(ROOT, raw);
@@ -43,7 +54,8 @@ function boundedCaptureFile(raw) {
     throw new Error(`${raw}: result must stay below docs/qa-captures`);
   }
   const real = fs.realpathSync(target);
-  if (!real.startsWith(`${captureRoot}${path.sep}`) || real !== target) {
+  const canonicalTarget = platformCanonicalPath(target);
+  if (!real.startsWith(`${canonicalCaptureRoot}${path.sep}`) || real !== canonicalTarget) {
     throw new Error(`${raw}: result must not use symlink indirection`);
   }
   if (path.basename(real) !== 'results.json' || !/^conformance-\d{8}T\d{6}Z$/.test(path.basename(path.dirname(real)))) {
@@ -242,12 +254,16 @@ function verifiedReleaseRoot(releaseRoot) {
   const resolvedRoot = path.resolve(releaseRoot);
   const parent = path.dirname(resolvedRoot);
   const parentStat = fs.lstatSync(parent);
-  if (!parentStat.isDirectory() || parentStat.isSymbolicLink() || fs.realpathSync(parent) !== parent) {
+  if (!parentStat.isDirectory()
+    || parentStat.isSymbolicLink()
+    || fs.realpathSync(parent) !== platformCanonicalPath(parent)) {
     throw new Error(`${parent}: release evidence parent must be a real non-symlink directory`);
   }
   try {
     const stat = fs.lstatSync(resolvedRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolvedRoot) !== resolvedRoot) {
+    if (!stat.isDirectory()
+      || stat.isSymbolicLink()
+      || fs.realpathSync(resolvedRoot) !== platformCanonicalPath(resolvedRoot)) {
       throw new Error(`${resolvedRoot}: release evidence root must be a real non-symlink directory`);
     }
   } catch (error) {
@@ -312,6 +328,7 @@ module.exports = {
   buildEvidence,
   main,
   parseArgs,
+  platformCanonicalPath,
   verifiedReleaseRoot,
   writeEvidence,
 };
