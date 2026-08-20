@@ -126,6 +126,12 @@ file_sha256() {
 }
 CASES_SHA256="$(file_sha256 "$CASES_FILE")"
 THRESHOLDS_SHA256="$([ -r "$THRESHOLDS_FILE" ] && file_sha256 "$THRESHOLDS_FILE" || printf 'absent')"
+SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')"
+SOURCE_TRACKED_CLEAN=false
+if [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]] \
+  && git -C "$REPO_ROOT" diff-index --quiet HEAD -- 2>/dev/null; then
+  SOURCE_TRACKED_CLEAN=true
+fi
 
 MODEL_ARGS=()
 [ -n "$MODEL" ] && MODEL_ARGS=(-m "$MODEL")
@@ -462,10 +468,13 @@ jq -s --arg codex "$CODEX_VERSION" --arg model "$RESOLVED_MODEL" \
       --arg agentsmd "$AGENTSMD_VERSION" --arg surface "$AGENTSMD_SURFACE" \
       --arg profile "$AGENTSMD_PROFILE" --arg cases_sha256 "$CASES_SHA256" \
       --arg thresholds_sha256 "$THRESHOLDS_SHA256" --arg hook_trust "$HOOK_TRUST_MODE" \
+      --arg source_commit "$SOURCE_COMMIT" --argjson source_tracked_clean "$SOURCE_TRACKED_CLEAN" \
       --arg stamp "$STAMP" \
   '{meta: {stamp:$stamp, codex:$codex, model:$model, agentsmd:$agentsmd,
       surface:$surface, profile:$profile, cases_sha256:$cases_sha256,
-      thresholds_sha256:$thresholds_sha256, hook_trust:$hook_trust, cases:(length)},
+      thresholds_sha256:$thresholds_sha256, hook_trust:$hook_trust,
+      source_commit:$source_commit, source_tracked_clean:$source_tracked_clean,
+      cases:(length)},
     categories: (group_by(.category) | map({key: .[0].category,
       value: {pass: (map(select(.verdict=="pass")) | length),
               total: (map(select(.verdict != "error")) | length),
@@ -494,6 +503,7 @@ fi
   echo "codex: $CODEX_VERSION  model: $RESOLVED_MODEL  agentsmd: $AGENTSMD_VERSION"
   echo "surface: $AGENTSMD_SURFACE  profile: $AGENTSMD_PROFILE"
   echo "hook_trust: $HOOK_TRUST_MODE"
+  echo "source_commit: $SOURCE_COMMIT  source_tracked_clean: $SOURCE_TRACKED_CLEAN"
   echo "cases_sha256: $CASES_SHA256  thresholds_sha256: $THRESHOLDS_SHA256"
   echo "result: $PASS passed, $FAIL failed, $ERR infra-errors (thresholds: $THRESH_MODE)"
 } > "$CAP/SUMMARY.txt"

@@ -5,6 +5,18 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.3.1 — 2026-08-20 — installed conformance evidence provenance (patch)
+
+- Fixed installed conformance evidence provenance in the quality
+  scorecard. A current-tree `fresh` result now requires a complete capture whose
+  source commit, tracked-clean state, cases hash, and thresholds hash match the
+  current tree. Packaged, schema-validated release summaries remain explicitly
+  historical or mismatch evidence and no longer trigger an unconditional model
+  rerun recommendation. The package now ships conformance thresholds and the
+  sanitized v5.3.0 two-pass record (`57/60`, release-only task-discipline
+  waiver), while a strict generator reads only repository-bounded captures and
+  refuses symlink/path escapes or differing evidence overwrites.
+
 ## v5.3.0 — 2026-08-12 — runtime evidence provenance and representative core evaluation (minor)
 
 - Added a pre-registered representative core A/B surface: 24 harmless coding

@@ -44,6 +44,7 @@ node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --compare=scorecard-previou
 - Run from the project whose AGENTS.md prompt budget and worktree inventory should be measured.
 - Treat `test` and `qa` data classes as visible provenance, not field evidence.
 - Treat missing dimensions, stale captures, no-opportunity, insufficient opportunity, and unmeasured false blocks as gaps.
+- Read `conformance.provenance` before recommending a model run: packaged release evidence is historical, a source/input mismatch is not current-tree proof, and missing evidence calls for a bounded evidence source before an unconditional rerun.
 - Treat sampling calibration as a structural proxy and memory cite-recall as engagement only; neither proves semantic adherence.
 - Use `--compare` only with a prior JSON capture from this command. The reader rejects symlinks, oversized input, malformed JSON, unknown fields, and unsupported schema versions.
 - Read recommended actions as operator prompts. The command is read-only and never promotes/demotes rules, cleans worktrees, changes the spec, or runs external canaries.

@@ -1,6 +1,7 @@
 'use strict';
 
 const cp = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const P = require('./paths');
@@ -17,6 +18,10 @@ const { validateSchema } = require('./task-contract');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'scorecard.schema.json'), 'utf8'));
+const CONFORMANCE_EVIDENCE_SCHEMA = JSON.parse(fs.readFileSync(
+  path.join(ROOT, 'schemas', 'conformance-release-evidence.schema.json'),
+  'utf8',
+));
 const MAX_DAYS = 3650;
 const MAX_CAPTURE_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -140,6 +145,20 @@ function deepBounds(value, at = '$', depth = 0, errors = []) {
   return errors;
 }
 
+function validateConformanceReleaseEvidence(value) {
+  const errors = validateSchema(value, CONFORMANCE_EVIDENCE_SCHEMA, CONFORMANCE_EVIDENCE_SCHEMA);
+  deepBounds(value, '$', 0, errors);
+  if (value && value.decision) {
+    if (value.decision.verdict === 'waived' && !value.decision.waiver) {
+      errors.push('$.decision.waiver: waived evidence requires a release-only waiver');
+    }
+    if (value.decision.verdict !== 'waived' && value.decision.waiver !== null) {
+      errors.push('$.decision.waiver: non-waived evidence must use null');
+    }
+  }
+  return { valid: errors.length === 0, errors: [...new Set(errors)] };
+}
+
 function validateScorecard(value) {
   const errors = validateSchema(value, SCHEMA, SCHEMA);
   deepBounds(value, '$', 0, errors);
@@ -163,8 +182,25 @@ function ageDays(recordedMs, now) {
   return recordedMs === null ? null : Math.round(((now - recordedMs) / 86400000) * 10) / 10;
 }
 
-function conformanceSummary(captureRoot, now, expectedCaseIds) {
-  const empty = (state = 'unavailable') => ({
+function conformanceProvenance({
+  kind = 'none', applicability = 'unavailable', reason = 'no-evidence-input',
+  source = 'none', releaseVersion = 'unknown', releaseCommit = 'unknown',
+  currentCommit = 'unknown', inputsMatch = null,
+} = {}) {
+  return {
+    kind,
+    applicability,
+    reason: boundedText(reason),
+    source: boundedText(source),
+    release_version: boundedText(releaseVersion),
+    release_commit: boundedText(releaseCommit),
+    current_commit: boundedText(currentCommit),
+    inputs_match: typeof inputsMatch === 'boolean' ? inputsMatch : null,
+  };
+}
+
+function emptyConformance(state = 'unavailable', provenance = conformanceProvenance()) {
+  return {
     state,
     capture: 'none',
     recorded_at: 'unknown',
@@ -176,28 +212,128 @@ function conformanceSummary(captureRoot, now, expectedCaseIds) {
     model: 'unknown',
     agentsmd_version: 'unknown',
     false_block_near_negatives: 0,
-  });
-  const expected = Array.isArray(expectedCaseIds)
-    ? [...new Set(expectedCaseIds.filter((id) => typeof id === 'string' && id.length > 0))]
-    : [];
-  if (!expected.length) return empty();
-  const expectedSet = new Set(expected);
-  let names;
+    runs: 0,
+    threshold_verdict: 'unknown',
+    provenance,
+  };
+}
+
+function sha256Regular(file) {
   try {
-    names = fs.readdirSync(captureRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^conformance-\d{8}T\d{6}Z$/.test(entry.name))
-      .map((entry) => entry.name)
-      .sort()
-      .reverse()
-      .slice(0, 256);
+    return crypto.createHash('sha256').update(safeRead(file)).digest('hex');
   } catch {
-    return empty();
+    return null;
   }
+}
+
+function currentSourceIdentity(root) {
+  const git = (args, stdio = ['ignore', 'pipe', 'pipe']) => cp.spawnSync('git', ['-C', root, ...args], {
+    encoding: 'utf8',
+    stdio,
+    timeout: 3000,
+  });
+  try {
+    const revision = git(['rev-parse', '--verify', 'HEAD']);
+    const commit = String(revision.stdout || '').trim();
+    if (revision.status !== 0 || !/^[a-f0-9]{40}$/.test(commit)) {
+      return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+    }
+    const diff = git(['diff-index', '--quiet', 'HEAD', '--'], ['ignore', 'ignore', 'ignore']);
+    if (diff.status !== 0 && diff.status !== 1) {
+      return { state: 'unavailable', commit, tracked_clean: null };
+    }
+    return { state: 'measured', commit, tracked_clean: diff.status === 0 };
+  } catch {
+    return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+  }
+}
+
+function currentPackageIdentity(root) {
+  try {
+    const value = safeJson(path.join(root, 'package.json'));
+    if (!value || typeof value.name !== 'string' || typeof value.version !== 'string') {
+      return { name: 'unknown', version: 'unknown' };
+    }
+    return { name: boundedText(value.name), version: boundedText(value.version) };
+  } catch {
+    return { name: 'unknown', version: 'unknown' };
+  }
+}
+
+function currentConformanceInputIdentity(root) {
+  return {
+    cases_sha256: sha256Regular(path.join(root, 'qa', 'conformance', 'cases.json')),
+    thresholds_sha256: sha256Regular(path.join(root, 'qa', 'conformance', 'thresholds.json')),
+  };
+}
+
+function currentConformanceThresholds(root) {
+  try {
+    const value = safeJson(path.join(root, 'qa', 'conformance', 'thresholds.json'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function thresholdVerdict(categories, thresholds, errors, passed, total) {
+  if (errors > 0) return 'fail';
+  if (passed === total) return 'pass';
+  if (!thresholds || typeof thresholds !== 'object' || Array.isArray(thresholds)) return 'unknown';
+  let measured = 0;
+  for (const [category, threshold] of Object.entries(thresholds)) {
+    if (!threshold || !Number.isInteger(threshold.min_pass)) continue;
+    const bucket = categories && categories[category];
+    if (!bucket || !Number.isInteger(bucket.pass) || !Number.isInteger(bucket.total) || bucket.total === 0) continue;
+    measured += 1;
+    if (bucket.pass < threshold.min_pass) return 'fail';
+  }
+  return measured > 0 ? 'pass' : 'unknown';
+}
+
+function commonText(values) {
+  const bounded = values.map((value) => boundedText(value));
+  return new Set(bounded).size === 1 ? bounded[0] : 'multiple';
+}
+
+function rawConformanceSummary({
+  captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
+}) {
+  const expectedSet = new Set(expected);
+  let entries;
+  try {
+    const resolvedRoot = path.resolve(captureRoot);
+    const stat = fs.lstatSync(resolvedRoot);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolvedRoot) !== resolvedRoot) {
+      return emptyConformance('invalid', conformanceProvenance({
+        applicability: 'invalid', reason: 'invalid-capture-root', source: resolvedRoot,
+      }));
+    }
+    entries = fs.readdirSync(resolvedRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') {
+      return emptyConformance('invalid', conformanceProvenance({
+        applicability: 'invalid', reason: 'invalid-capture-root', source: path.resolve(captureRoot),
+      }));
+    }
+    return null;
+  }
+  const names = entries
+    .filter((entry) => entry.isDirectory() && /^conformance-\d{8}T\d{6}Z$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+    .slice(0, 256);
+  let fallback = null;
+  let invalidSeen = false;
   for (const name of names) {
     const file = path.join(captureRoot, name, 'results.json');
     let result;
-    try { result = safeJson(file); } catch { continue; }
-    if (!result || !result.meta || !Array.isArray(result.cases) || result.cases.length > 512) continue;
+    try { result = safeJson(file); } catch { invalidSeen = true; continue; }
+    if (!result || !result.meta || !Array.isArray(result.cases) || result.cases.length > 512) {
+      invalidSeen = true;
+      continue;
+    }
     const ids = result.cases.map((entry) => entry && entry.id);
     const fullSuite = result.meta.cases === expected.length
       && ids.length === expected.length
@@ -205,7 +341,7 @@ function conformanceSummary(captureRoot, now, expectedCaseIds) {
       && ids.every((id) => expectedSet.has(id));
     if (!fullSuite) continue;
     const recordedMs = stampDate(result.meta.stamp);
-    if (recordedMs === null || recordedMs > now) continue;
+    if (recordedMs === null || recordedMs > now) { invalidSeen = true; continue; }
     const total = result.cases.length;
     const passed = result.cases.filter((entry) => entry && entry.verdict === 'pass').length;
     const errors = Object.values(result.categories || {})
@@ -217,8 +353,38 @@ function conformanceSummary(captureRoot, now, expectedCaseIds) {
       && entry.kind !== 'positive'
       && entry.verdict === 'pass'
     )).length;
-    return {
-      state: age !== null && age <= FRESH_DAYS ? 'fresh' : 'stale',
+    const captureHasSource = /^[a-f0-9]{40}$/.test(String(result.meta.source_commit || ''))
+      && typeof result.meta.source_tracked_clean === 'boolean';
+    const inputsMatch = Boolean(
+      inputIdentity
+      && typeof inputIdentity.cases_sha256 === 'string'
+      && typeof inputIdentity.thresholds_sha256 === 'string'
+      && result.meta.cases_sha256 === inputIdentity.cases_sha256
+      && result.meta.thresholds_sha256 === inputIdentity.thresholds_sha256,
+    );
+    let applicability = 'current';
+    let reason = 'source-and-inputs-match';
+    if (!captureHasSource) {
+      applicability = 'historical';
+      reason = 'capture-source-identity-missing';
+    } else if (!sourceIdentity || sourceIdentity.state !== 'measured') {
+      applicability = 'historical';
+      reason = 'current-source-identity-unavailable';
+    } else if (!inputsMatch) {
+      applicability = 'mismatch';
+      reason = 'conformance-input-mismatch';
+    } else if (result.meta.source_commit !== sourceIdentity.commit) {
+      applicability = 'mismatch';
+      reason = 'source-commit-mismatch';
+    } else if (result.meta.source_tracked_clean !== true) {
+      applicability = 'mismatch';
+      reason = 'capture-source-dirty';
+    } else if (sourceIdentity.tracked_clean !== true) {
+      applicability = 'mismatch';
+      reason = 'current-tree-dirty';
+    }
+    const summary = {
+      state: applicability === 'current' && age !== null && age <= FRESH_DAYS ? 'fresh' : 'stale',
       capture: name,
       recorded_at: new Date(recordedMs).toISOString(),
       age_days: age,
@@ -229,9 +395,160 @@ function conformanceSummary(captureRoot, now, expectedCaseIds) {
       model: boundedText(result.meta.model),
       agentsmd_version: boundedText(result.meta.agentsmd),
       false_block_near_negatives: falseBlock,
+      runs: 1,
+      threshold_verdict: thresholdVerdict(result.categories, thresholds, errors, passed, total),
+      provenance: conformanceProvenance({
+        kind: captureHasSource ? 'current-tree-capture' : 'legacy-capture',
+        applicability,
+        reason,
+        source: name,
+        currentCommit: sourceIdentity && sourceIdentity.commit,
+        inputsMatch,
+      }),
     };
+    if (applicability === 'current') return summary;
+    if (!fallback) fallback = summary;
   }
-  return empty('unavailable');
+  if (fallback) return fallback;
+  return invalidSeen
+    ? emptyConformance('invalid', conformanceProvenance({ applicability: 'invalid', reason: 'invalid-capture' }))
+    : null;
+}
+
+function releaseEvidenceSummary({
+  releaseEvidenceRoot, now, expected, sourceIdentity, inputIdentity, packageIdentity,
+}) {
+  let entries;
+  try {
+    const resolvedRoot = path.resolve(releaseEvidenceRoot);
+    const stat = fs.lstatSync(resolvedRoot);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolvedRoot) !== resolvedRoot) {
+      return emptyConformance('invalid', conformanceProvenance({
+        applicability: 'invalid', reason: 'invalid-release-evidence-root', source: resolvedRoot,
+      }));
+    }
+    entries = fs.readdirSync(resolvedRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') {
+      return emptyConformance('invalid', conformanceProvenance({
+        applicability: 'invalid', reason: 'invalid-release-evidence-root', source: path.resolve(releaseEvidenceRoot),
+      }));
+    }
+    return null;
+  }
+  const candidates = [];
+  let invalidSeen = false;
+  for (const entry of entries
+    .filter((item) => /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.json$/.test(item.name))
+    .sort((left, right) => right.name.localeCompare(left.name))
+    .slice(0, 256)) {
+    if (!entry.isFile() || entry.isSymbolicLink()) { invalidSeen = true; continue; }
+    const file = path.join(releaseEvidenceRoot, entry.name);
+    let record;
+    try { record = safeJson(file); } catch { invalidSeen = true; continue; }
+    const validation = validateConformanceReleaseEvidence(record);
+    const runsValid = record && Array.isArray(record.runs)
+      && record.runs.every((run) => (
+        run.total === expected.length
+        && run.passed <= run.total
+        && run.errors <= run.total
+        && Number.isFinite(Date.parse(run.recorded_at))
+        && Date.parse(run.recorded_at) <= now
+      ));
+    const publishedMs = Date.parse(record && record.release && record.release.published_at);
+    if (!validation.valid || !runsValid || !Number.isFinite(publishedMs) || publishedMs > now) {
+      invalidSeen = true;
+      continue;
+    }
+    candidates.push({ entry, record, publishedMs });
+  }
+  if (!candidates.length) {
+    return invalidSeen
+      ? emptyConformance('invalid', conformanceProvenance({ applicability: 'invalid', reason: 'invalid-release-evidence' }))
+      : null;
+  }
+  candidates.sort((left, right) => right.publishedMs - left.publishedMs);
+  const exact = candidates.filter(({ record }) => (
+    record.release.package === packageIdentity.name
+    && record.release.version === packageIdentity.version
+  ));
+  const selected = exact[0] || candidates[0];
+  const { entry, record } = selected;
+  const inputsMatch = Boolean(
+    inputIdentity
+    && record.subject.cases_sha256 === inputIdentity.cases_sha256
+    && record.subject.thresholds_sha256 === inputIdentity.thresholds_sha256,
+  );
+  const packageMatches = record.release.package === packageIdentity.name
+    && record.release.version === packageIdentity.version;
+  let applicability = 'current';
+  let reason = 'release-and-inputs-match';
+  if (!packageMatches) {
+    applicability = 'mismatch';
+    reason = 'package-version-mismatch';
+  } else if (!inputsMatch) {
+    applicability = 'mismatch';
+    reason = 'conformance-input-mismatch';
+  } else if (!sourceIdentity || sourceIdentity.state !== 'measured') {
+    applicability = 'historical';
+    reason = 'packaged-release-evidence';
+  } else if (sourceIdentity.commit !== record.release.commit) {
+    applicability = 'mismatch';
+    reason = 'release-commit-mismatch';
+  } else if (sourceIdentity.tracked_clean !== true) {
+    applicability = 'mismatch';
+    reason = 'current-tree-dirty';
+  }
+  const latestMs = Math.max(...record.runs.map((run) => Date.parse(run.recorded_at)));
+  const age = ageDays(latestMs, now);
+  return {
+    state: applicability === 'current' && age !== null && age <= FRESH_DAYS ? 'fresh' : 'stale',
+    capture: entry.name,
+    recorded_at: new Date(latestMs).toISOString(),
+    age_days: age,
+    passed: record.runs.reduce((sum, run) => sum + run.passed, 0),
+    total: record.runs.reduce((sum, run) => sum + run.total, 0),
+    errors: record.runs.reduce((sum, run) => sum + run.errors, 0),
+    codex_version: commonText(record.runs.map((run) => run.codex_version)),
+    model: commonText(record.runs.map((run) => run.model)),
+    agentsmd_version: commonText(record.runs.map((run) => run.agentsmd_version)),
+    false_block_near_negatives: record.runs
+      .reduce((sum, run) => sum + run.false_block_near_negatives, 0),
+    runs: record.runs.length,
+    threshold_verdict: record.decision.verdict,
+    provenance: conformanceProvenance({
+      kind: 'release-evidence',
+      applicability,
+      reason,
+      source: entry.name,
+      releaseVersion: record.release.version,
+      releaseCommit: record.release.commit,
+      currentCommit: sourceIdentity && sourceIdentity.commit,
+      inputsMatch,
+    }),
+  };
+}
+
+function conformanceSummary({
+  captureRoot, releaseEvidenceRoot, now, expectedCaseIds, sourceIdentity,
+  inputIdentity, packageIdentity, thresholds,
+}) {
+  const expected = Array.isArray(expectedCaseIds)
+    ? [...new Set(expectedCaseIds.filter((id) => typeof id === 'string' && id.length > 0))]
+    : [];
+  if (!expected.length) {
+    return emptyConformance('unavailable', conformanceProvenance({ reason: 'case-library-unavailable' }));
+  }
+  const raw = rawConformanceSummary({
+    captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
+  });
+  if (raw && raw.provenance.applicability === 'current') return raw;
+  const release = releaseEvidenceSummary({
+    releaseEvidenceRoot, now, expected, sourceIdentity, inputIdentity, packageIdentity,
+  });
+  if (release) return release;
+  if (raw) return raw;
+  return emptyConformance('unavailable', conformanceProvenance({ reason: 'no-evidence-input' }));
 }
 
 function expectedConformanceCaseIds(root) {
@@ -573,8 +890,16 @@ function actionsFor(card, rules) {
   if (card.compatibility.missing_dimension_sessions) {
     add('medium', 'dimension-missing', 'Inspect SessionStart coverage for field sessions without a session-dimension row.', `${card.compatibility.missing_dimension_sessions} field session(s) could not be joined to runtime dimensions.`);
   }
-  if (card.conformance.state !== 'fresh') {
-    add('high', 'conformance-stale', 'Run the declared full conformance suite and retain its machine-readable capture.', `Conformance state is ${card.conformance.state}.`);
+  if (card.conformance.state === 'unavailable') {
+    add('high', 'conformance-evidence-unavailable', 'Configure or import a bounded conformance evidence source; run the declared full suite only when no valid evidence exists.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
+  } else if (card.conformance.state === 'invalid') {
+    add('high', 'conformance-evidence-invalid', 'Inspect and replace the invalid bounded conformance evidence record before relying on this dimension.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
+  } else if (card.conformance.provenance.applicability === 'historical') {
+    add('medium', 'conformance-historical', 'Retain the historical release evidence; obtain a current-tree capture only when the current tree requires fresh proof.', `Release ${card.conformance.provenance.release_version} evidence is available with threshold verdict ${card.conformance.threshold_verdict}.`);
+  } else if (card.conformance.provenance.applicability === 'mismatch') {
+    add('high', 'conformance-mismatch', 'Do not project this evidence onto the current package or tree; refresh evidence only after identifying the changed conformance subject.', `Conformance evidence mismatch reason is ${card.conformance.provenance.reason}.`);
+  } else if (card.conformance.state !== 'fresh') {
+    add('high', 'conformance-stale', 'Run the declared full conformance suite and retain its machine-readable current-tree capture.', `Current-tree conformance capture age is ${card.conformance.age_days ?? 'unknown'} day(s).`);
   }
   if (card.performance.state !== 'fresh') {
     add('high', 'performance-stale', 'Run the formal performance SLO on the reference machine and refresh the versioned baseline.', `Performance state is ${card.performance.state}.`);
@@ -637,11 +962,16 @@ function buildScorecard(options = {}) {
     },
     health,
     compatibility: compatibilitySummary(logPath, days, now),
-    conformance: conformanceSummary(
-      options.conformanceRoot || path.join(root, 'docs', 'qa-captures'),
+    conformance: conformanceSummary({
+      captureRoot: options.conformanceRoot || path.join(root, 'docs', 'qa-captures'),
+      releaseEvidenceRoot: options.releaseEvidenceRoot || path.join(root, 'qa', 'conformance', 'releases'),
       now,
-      options.expectedConformanceCaseIds || expectedConformanceCaseIds(root),
-    ),
+      expectedCaseIds: options.expectedConformanceCaseIds || expectedConformanceCaseIds(root),
+      sourceIdentity: options.sourceIdentity || currentSourceIdentity(root),
+      inputIdentity: options.conformanceInputIdentity || currentConformanceInputIdentity(root),
+      packageIdentity: options.packageIdentity || currentPackageIdentity(root),
+      thresholds: options.conformanceThresholds || currentConformanceThresholds(root),
+    }),
     false_blocks: {
       state: 'unmeasured',
       blocking_events: blocking,
@@ -694,7 +1024,7 @@ function buildScorecard(options = {}) {
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
       'False-block rate is unmeasured until blocking events receive bounded human-reviewed outcome labels.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
-      'Conformance and performance captures become stale; a green historical capture does not prove the current tree.',
+      'Conformance fresh requires a full capture whose source commit, tracked-clean state, cases hash, and thresholds hash match the current tree; historical release evidence remains explicit and never proves changed source.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
       'Confirmed absent prompt files may contribute zero; missing files that contradict or cannot resolve the active surface, plus unreadable or invalid inputs, remain null and prevent a measured headroom claim.',
     ],
@@ -779,7 +1109,8 @@ function formatScorecard(card) {
     `data classes (rows): external ${card.compatibility.data_classes.external} · self ${card.compatibility.data_classes.self} · test ${card.compatibility.data_classes.test} · qa ${card.compatibility.data_classes.qa} · unknown ${card.compatibility.data_classes.unknown}`,
   ]);
   section('Conformance', [
-    `state: ${card.conformance.state} · ${card.conformance.passed}/${card.conformance.total} pass · errors ${card.conformance.errors} · capture ${card.conformance.capture}`,
+    `state: ${card.conformance.state} · ${card.conformance.passed}/${card.conformance.total} pass · errors ${card.conformance.errors} · runs ${card.conformance.runs} · threshold ${card.conformance.threshold_verdict} · capture ${card.conformance.capture}`,
+    `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
   ]);
   section('False blocks', [
     `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · confirmed false blocks ${card.false_blocks.confirmed_false_blocks}`,
@@ -850,5 +1181,7 @@ module.exports = {
   loadComparison,
   parseArgs,
   probeRegularFile,
+  thresholdVerdict,
+  validateConformanceReleaseEvidence,
   validateScorecard,
 };

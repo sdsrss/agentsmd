@@ -312,6 +312,8 @@ t('package files include curl installer and repo marketplace metadata', () => {
   assert(files.includes('qa/core-ab/cases.json'));
   assert(files.includes('qa/perf/baseline.json'));
   assert(files.includes('qa/conformance/cases.json'));
+  assert(files.includes('qa/conformance/thresholds.json'));
+  assert(files.includes('qa/conformance/releases'));
 });
 
 // ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
@@ -676,6 +678,8 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('scripts/spec-source.js'), 'tarball is missing the spec generator');
   assert(packedPaths.includes('qa/core-ab-eval.js'), 'tarball is missing the documented core A/B runner');
   assert(packedPaths.includes('qa/core-ab/cases.json'), 'tarball is missing the core A/B case library');
+  assert(packedPaths.includes('qa/conformance/thresholds.json'), 'tarball is missing conformance thresholds');
+  assert(packedPaths.includes('qa/conformance/releases/v5.3.0.json'), 'tarball is missing release conformance evidence');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,
@@ -699,6 +703,15 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
   assert.strictEqual(installedCli(['--version']).trim(), JSON.parse(read('package.json')).version);
+  const installedScorecard = JSON.parse(installedCli(['scorecard', '--days=30', '--json']));
+  assert.strictEqual(installedScorecard.conformance.state, 'stale');
+  assert.strictEqual(installedScorecard.conformance.passed, 57);
+  assert.strictEqual(installedScorecard.conformance.total, 60);
+  assert.strictEqual(installedScorecard.conformance.threshold_verdict, 'waived');
+  assert.strictEqual(installedScorecard.conformance.provenance.kind, 'release-evidence');
+  assert.strictEqual(installedScorecard.conformance.provenance.release_version, '5.3.0');
+  assert.strictEqual(installedScorecard.conformance.provenance.applicability, 'mismatch');
+  assert.strictEqual(installedScorecard.conformance.provenance.reason, 'package-version-mismatch');
 
   const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
   assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));

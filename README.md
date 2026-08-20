@@ -404,6 +404,26 @@ measured, empty, missing, invalid, and unavailable files; unresolved bytes stay
 `over-budget`. A restricted filesystem can therefore never manufacture green
 headroom from hidden inputs.
 
+Conformance freshness also has an identity boundary. `fresh` requires one full
+capture whose source commit, tracked-clean marker, cases hash, and thresholds
+hash match the current source tree. The distributed package includes bounded,
+schema-validated release evidence under `qa/conformance/releases/`; installed
+scorecards can therefore report the exact historical release result and waiver
+without reading raw transcripts or arbitrary evidence paths. Historical or
+mismatched evidence never becomes current-tree green. Missing evidence first
+recommends configuring or importing a bounded evidence source instead of
+unconditionally spending another model run. Release closure can generate the
+allowlisted record from repository-local captures with:
+
+```bash
+node scripts/conformance-evidence.js --help
+```
+
+The generator accepts only regular non-symlink
+`docs/qa-captures/**/conformance-*/results.json` inputs, emits hashes and
+aggregate runtime/model/result/threshold/waiver provenance, and refuses to
+overwrite a different version record.
+
 `--compare` accepts only a bounded, regular non-symlink scorecard v2 JSON
 capture. Version 1 captures are rejected because they do not carry measurement
 provenance and cannot be safely upgraded by guessing. Distributed recipes under `automation/` define weekly pinned/latest

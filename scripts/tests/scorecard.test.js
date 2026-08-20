@@ -17,6 +17,9 @@ const {
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const NOW = Date.parse('2026-07-29T12:00:00.000Z');
+const FIXTURE_COMMIT = 'a'.repeat(40);
+const FIXTURE_CASES_SHA256 = 'b'.repeat(64);
+const FIXTURE_THRESHOLDS_SHA256 = 'c'.repeat(64);
 
 let PASS = 0;
 let FAIL = 0;
@@ -126,6 +129,10 @@ try {
       codex: '0.145.0',
       model: 'gpt-5.6-sol',
       agentsmd: '5.0.1',
+      source_commit: FIXTURE_COMMIT,
+      source_tracked_clean: true,
+      cases_sha256: FIXTURE_CASES_SHA256,
+      thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
       cases: 4,
     },
     categories: {
@@ -145,6 +152,10 @@ try {
       codex: '0.145.0',
       model: 'gpt-5.6-sol',
       agentsmd: '5.0.1',
+      source_commit: FIXTURE_COMMIT,
+      source_tracked_clean: true,
+      cases_sha256: FIXTURE_CASES_SHA256,
+      thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
       cases: 1,
     },
     categories: { auth: { pass: 1, total: 1, errors: 0 } },
@@ -185,6 +196,12 @@ try {
     now: NOW,
     days: 30,
     expectedConformanceCaseIds: ['auth', 'auth-near', 'false-one', 'false-two'],
+    sourceIdentity: { state: 'measured', commit: FIXTURE_COMMIT, tracked_clean: true },
+    conformanceInputIdentity: {
+      cases_sha256: FIXTURE_CASES_SHA256,
+      thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+    },
+    packageIdentity: { name: '@sdsrs/agentsmd', version: '5.0.1' },
     statusResult: {
       installed: true,
       installedVersion: '5.0.1',
@@ -232,6 +249,18 @@ try {
     assert.strictEqual(card.conformance.capture, 'conformance-20260728T000000Z');
     assert.strictEqual(card.conformance.passed, 4);
     assert.strictEqual(card.conformance.total, 4);
+    assert.strictEqual(card.conformance.runs, 1);
+    assert.strictEqual(card.conformance.threshold_verdict, 'pass');
+    assert.deepStrictEqual(card.conformance.provenance, {
+      kind: 'current-tree-capture',
+      applicability: 'current',
+      reason: 'source-and-inputs-match',
+      source: 'conformance-20260728T000000Z',
+      release_version: 'unknown',
+      release_commit: 'unknown',
+      current_commit: FIXTURE_COMMIT,
+      inputs_match: true,
+    });
     assert.strictEqual(card.false_blocks.state, 'unmeasured');
     assert.match(card.false_blocks.limit, /human-reviewed outcome/);
     assert(card.bypasses.no_opportunity > 0);
@@ -272,6 +301,169 @@ try {
     assert.strictEqual(card.automation.scheduled_workflows, 2);
     assert.strictEqual(card.automation.fallback_events, 1);
     assert.strictEqual(card.automation.worktree_residue, 1);
+  });
+
+  test('missing evidence is unavailable with import-first guidance instead of an unconditional rerun', () => {
+    const unavailable = buildScorecard({
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-captures'),
+      releaseEvidenceRoot: path.join(temp, 'missing-release-evidence'),
+    });
+    assert.strictEqual(unavailable.conformance.state, 'unavailable');
+    assert.strictEqual(unavailable.conformance.provenance.kind, 'none');
+    assert.strictEqual(unavailable.conformance.provenance.applicability, 'unavailable');
+    assert.strictEqual(unavailable.conformance.provenance.reason, 'no-evidence-input');
+    assert(unavailable.recommended_actions.some((item) => item.code === 'conformance-evidence-unavailable'));
+    assert(!unavailable.recommended_actions.some((item) => item.code === 'conformance-stale'));
+  });
+
+  test('a recent full capture with a source or input mismatch cannot render fresh', () => {
+    const mismatch = buildScorecard({
+      ...scorecardOptions,
+      releaseEvidenceRoot: path.join(temp, 'missing-current-release-evidence'),
+      sourceIdentity: { state: 'measured', commit: 'f'.repeat(40), tracked_clean: true },
+    });
+    assert.strictEqual(mismatch.conformance.state, 'stale');
+    assert.strictEqual(mismatch.conformance.provenance.kind, 'current-tree-capture');
+    assert.strictEqual(mismatch.conformance.provenance.applicability, 'mismatch');
+    assert.strictEqual(mismatch.conformance.provenance.reason, 'source-commit-mismatch');
+    assert(mismatch.recommended_actions.some((item) => item.code === 'conformance-mismatch'));
+
+    const dirty = buildScorecard({
+      ...scorecardOptions,
+      releaseEvidenceRoot: path.join(temp, 'missing-current-release-evidence'),
+      sourceIdentity: { state: 'measured', commit: FIXTURE_COMMIT, tracked_clean: false },
+    });
+    assert.strictEqual(dirty.conformance.state, 'stale');
+    assert.strictEqual(dirty.conformance.provenance.reason, 'current-tree-dirty');
+  });
+
+  test('sanitized release evidence is historical, aggregated, and never promoted to current-tree fresh', () => {
+    const releaseEvidenceRoot = path.join(temp, 'release-evidence');
+    const releaseExpectedCaseIds = Array.from({ length: 30 }, (_, index) => `release-case-${index + 1}`);
+    write(path.join(releaseEvidenceRoot, 'v5.3.0.json'), JSON.stringify({
+      schema_version: 1,
+      kind: 'agentsmd-conformance-release-evidence',
+      release: {
+        package: '@sdsrs/agentsmd',
+        version: '5.3.0',
+        commit: 'd'.repeat(40),
+        published_at: '2026-07-29T02:00:00.000Z',
+      },
+      subject: {
+        evaluated_commit: 'e'.repeat(40),
+        cases_sha256: FIXTURE_CASES_SHA256,
+        thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+      },
+      runs: [
+        {
+          capture: 'conformance-20260729T000000Z',
+          recorded_at: '2026-07-29T00:00:00.000Z',
+          results_sha256: '1'.repeat(64),
+          codex_version: '0.147.0',
+          model: 'gpt-5.6-sol',
+          agentsmd_version: '5.3.0',
+          surface: 'standalone',
+          profile: 'full',
+          passed: 29,
+          total: 30,
+          errors: 0,
+          false_block_near_negatives: 3,
+          threshold_verdict: 'pass',
+        },
+        {
+          capture: 'conformance-20260729T010000Z',
+          recorded_at: '2026-07-29T01:00:00.000Z',
+          results_sha256: '2'.repeat(64),
+          codex_version: '0.147.0',
+          model: 'gpt-5.6-sol',
+          agentsmd_version: '5.3.0',
+          surface: 'standalone',
+          profile: 'full',
+          passed: 28,
+          total: 30,
+          errors: 0,
+          false_block_near_negatives: 3,
+          threshold_verdict: 'fail',
+        },
+      ],
+      decision: {
+        verdict: 'waived',
+        waiver: {
+          scope: 'task-discipline',
+          release_only: true,
+          thresholds_unchanged: true,
+          reason: 'two-pass-threshold',
+        },
+      },
+    }));
+    const historical = buildScorecard({
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-release-captures'),
+      releaseEvidenceRoot,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tracked_clean: null },
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.3.0' },
+      expectedConformanceCaseIds: releaseExpectedCaseIds,
+    });
+    assert.strictEqual(historical.conformance.state, 'stale');
+    assert.strictEqual(historical.conformance.passed, 57);
+    assert.strictEqual(historical.conformance.total, 60);
+    assert.strictEqual(historical.conformance.errors, 0);
+    assert.strictEqual(historical.conformance.runs, 2);
+    assert.strictEqual(historical.conformance.threshold_verdict, 'waived');
+    assert.strictEqual(historical.conformance.provenance.kind, 'release-evidence');
+    assert.strictEqual(historical.conformance.provenance.applicability, 'historical');
+    assert.strictEqual(historical.conformance.provenance.reason, 'packaged-release-evidence');
+    assert.strictEqual(historical.conformance.provenance.inputs_match, true);
+    assert(historical.recommended_actions.some((item) => item.code === 'conformance-historical'));
+    assert(!historical.recommended_actions.some((item) => item.code === 'conformance-stale'));
+
+    const mismatch = buildScorecard({
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-release-captures'),
+      releaseEvidenceRoot,
+      sourceIdentity: { state: 'measured', commit: FIXTURE_COMMIT, tracked_clean: true },
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.3.1' },
+      expectedConformanceCaseIds: releaseExpectedCaseIds,
+    });
+    assert.strictEqual(mismatch.conformance.state, 'stale');
+    assert.strictEqual(mismatch.conformance.provenance.applicability, 'mismatch');
+    assert.strictEqual(mismatch.conformance.provenance.reason, 'package-version-mismatch');
+    assert(mismatch.recommended_actions.some((item) => item.code === 'conformance-mismatch'));
+  });
+
+  test('malformed, oversized, and symlinked release records remain invalid evidence', () => {
+    const releaseExpectedCaseIds = Array.from({ length: 30 }, (_, index) => `invalid-case-${index + 1}`);
+    const buildInvalid = (releaseEvidenceRoot) => buildScorecard({
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-invalid-captures'),
+      releaseEvidenceRoot,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tracked_clean: null },
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.3.0' },
+      expectedConformanceCaseIds: releaseExpectedCaseIds,
+    });
+
+    const malformedRoot = path.join(temp, 'malformed-release-evidence');
+    write(path.join(malformedRoot, 'v5.3.0.json'), '{');
+    const malformed = buildInvalid(malformedRoot);
+    assert.strictEqual(malformed.conformance.state, 'invalid');
+    assert.strictEqual(malformed.conformance.provenance.reason, 'invalid-release-evidence');
+    assert(malformed.recommended_actions.some((item) => item.code === 'conformance-evidence-invalid'));
+
+    const oversizedRoot = path.join(temp, 'oversized-release-evidence');
+    write(path.join(oversizedRoot, 'v5.3.0.json'), 'x'.repeat(1048577));
+    assert.strictEqual(buildInvalid(oversizedRoot).conformance.state, 'invalid');
+
+    const symlinkRoot = path.join(temp, 'symlink-release-evidence');
+    fs.mkdirSync(symlinkRoot, { recursive: true });
+    fs.symlinkSync(path.join(malformedRoot, 'v5.3.0.json'), path.join(symlinkRoot, 'v5.3.0.json'));
+    assert.strictEqual(buildInvalid(symlinkRoot).conformance.state, 'invalid');
+
+    const linkedRoot = path.join(temp, 'linked-release-evidence-root');
+    fs.symlinkSync(malformedRoot, linkedRoot);
+    const linked = buildInvalid(linkedRoot);
+    assert.strictEqual(linked.conformance.state, 'invalid');
+    assert.strictEqual(linked.conformance.provenance.reason, 'invalid-release-evidence-root');
   });
 
   test('health preserves unknown enforcement without promoting it to healthy', () => {
@@ -455,6 +647,14 @@ try {
     assert.strictEqual(compared.comparison.deltas.failed_health_checks, -2);
     assert.strictEqual(compared.comparison.deltas.fallback_events, -3);
     assert.strictEqual(validateScorecard(compared).valid, true);
+
+    const legacyV2 = structuredClone(previous);
+    delete legacyV2.conformance.runs;
+    delete legacyV2.conformance.threshold_verdict;
+    delete legacyV2.conformance.provenance;
+    const legacyV2Path = path.join(temp, 'legacy-v2.json');
+    write(legacyV2Path, JSON.stringify(legacyV2));
+    assert.strictEqual(loadComparison(legacyV2Path).schema_version, 2);
   });
 
   test('comparison rejects symlinks, oversized files, malformed JSON, and future schema', () => {
