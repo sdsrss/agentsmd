@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { parseStrict } = require('./lib/argv');
+const { platformCanonicalPath } = require('./lib/paths');
 const { thresholdVerdict, validateConformanceReleaseEvidence } = require('./lib/scorecard');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -23,14 +24,6 @@ const USAGE = [
 
 function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
-}
-
-function platformCanonicalPath(input, platform = process.platform) {
-  const resolved = path.resolve(input);
-  if (platform === 'darwin' && (resolved === '/var' || resolved.startsWith('/var/'))) {
-    return `/private${resolved}`;
-  }
-  return resolved;
 }
 
 function regularBytes(file, max = MAX_RESULT_BYTES) {

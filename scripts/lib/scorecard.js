@@ -304,7 +304,9 @@ function rawConformanceSummary({
   try {
     const resolvedRoot = path.resolve(captureRoot);
     const stat = fs.lstatSync(resolvedRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolvedRoot) !== resolvedRoot) {
+    if (!stat.isDirectory()
+      || stat.isSymbolicLink()
+      || fs.realpathSync(resolvedRoot) !== P.platformCanonicalPath(resolvedRoot)) {
       return emptyConformance('invalid', conformanceProvenance({
         applicability: 'invalid', reason: 'invalid-capture-root', source: resolvedRoot,
       }));
@@ -422,7 +424,9 @@ function releaseEvidenceSummary({
   try {
     const resolvedRoot = path.resolve(releaseEvidenceRoot);
     const stat = fs.lstatSync(resolvedRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolvedRoot) !== resolvedRoot) {
+    if (!stat.isDirectory()
+      || stat.isSymbolicLink()
+      || fs.realpathSync(resolvedRoot) !== P.platformCanonicalPath(resolvedRoot)) {
       return emptyConformance('invalid', conformanceProvenance({
         applicability: 'invalid', reason: 'invalid-release-evidence-root', source: resolvedRoot,
       }));

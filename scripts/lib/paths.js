@@ -12,6 +12,15 @@ function codexHome() {
     ? process.env.CODEX_HOME
     : path.join(os.homedir(), '.codex');
 }
+
+function platformCanonicalPath(input, platform = process.platform) {
+  const resolved = path.resolve(input);
+  if (platform === 'darwin' && (resolved === '/var' || resolved.startsWith('/var/'))) {
+    return `/private${resolved}`;
+  }
+  return resolved;
+}
+
 // Repo root = two levels up from scripts/lib.
 function repoRoot() { return path.resolve(__dirname, '..', '..'); }
 
@@ -37,6 +46,6 @@ function manifestPath() { return path.join(stateDir(), 'manifest.json'); }
 function logPath() { return path.join(codexHome(), 'logs', 'agentsmd.jsonl'); }
 
 module.exports = {
-  codexHome, repoRoot, installDir, installHooksDir, installSpecDir, installScriptsDir, codexSkillsDir,
+  codexHome, platformCanonicalPath, repoRoot, installDir, installHooksDir, installSpecDir, installScriptsDir, codexSkillsDir,
   hooksJsonPath, configTomlPath, agentsMdPath, agentsExtendedMdPath, stateDir, manifestPath, logPath,
 };
