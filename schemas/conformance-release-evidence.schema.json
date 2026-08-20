@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/conformance-release-evidence.schema.json",
+  "title": "agentsmd sanitized conformance release evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "release", "subject", "runs", "decision"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "agentsmd-conformance-release-evidence" },
+    "release": { "$ref": "#/$defs/release" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/run" }
+    },
+    "decision": { "$ref": "#/$defs/decision" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:[+][0-9A-Za-z.-]+)?$"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]{3})?Z$"
+    },
+    "nonnegative": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "commit", "published_at"],
+      "properties": {
+        "package": { "const": "@sdsrs/agentsmd" },
+        "version": { "$ref": "#/$defs/semver" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "published_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluated_commit", "cases_sha256", "thresholds_sha256"],
+      "properties": {
+        "evaluated_commit": { "$ref": "#/$defs/commit" },
+        "cases_sha256": { "$ref": "#/$defs/sha256" },
+        "thresholds_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture", "recorded_at", "results_sha256", "codex_version", "model",
+        "agentsmd_version", "surface", "profile", "passed", "total", "errors",
+        "false_block_near_negatives", "threshold_verdict"
+      ],
+      "properties": {
+        "capture": { "type": "string", "pattern": "^conformance-[0-9]{8}T[0-9]{6}Z$", "maxLength": 64 },
+        "recorded_at": { "$ref": "#/$defs/timestamp" },
+        "results_sha256": { "$ref": "#/$defs/sha256" },
+        "codex_version": { "$ref": "#/$defs/text" },
+        "model": { "$ref": "#/$defs/text" },
+        "agentsmd_version": { "$ref": "#/$defs/semver" },
+        "surface": { "$ref": "#/$defs/text" },
+        "profile": { "$ref": "#/$defs/text" },
+        "passed": { "$ref": "#/$defs/nonnegative" },
+        "total": { "$ref": "#/$defs/nonnegative" },
+        "errors": { "$ref": "#/$defs/nonnegative" },
+        "false_block_near_negatives": { "$ref": "#/$defs/nonnegative" },
+        "threshold_verdict": { "enum": ["pass", "fail"] }
+      }
+    },
+    "waiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "release_only", "thresholds_unchanged", "reason"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/text" },
+        "release_only": { "const": true },
+        "thresholds_unchanged": { "const": true },
+        "reason": { "$ref": "#/$defs/text" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "waiver"],
+      "properties": {
+        "verdict": { "enum": ["pass", "fail", "waived"] },
+        "waiver": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/waiver" }
+          ]
+        }
+      }
+    }
+  }
+}

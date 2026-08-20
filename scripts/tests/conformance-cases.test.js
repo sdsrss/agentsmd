@@ -246,7 +246,10 @@ t('runner exists and points at this library', () => {
     'runner must attribute missing child hooks as infrastructure, not model behavior');
   assert.ok(!runner.includes('--ignore-user-config'),
     'runner still needs the configured provider/auth and installed agentsmd surface');
-  for (const key of ['surface', 'profile', 'cases_sha256', 'thresholds_sha256', 'hook_trust']) {
+  for (const key of [
+    'surface', 'profile', 'source_commit', 'source_tracked_clean',
+    'cases_sha256', 'thresholds_sha256', 'hook_trust',
+  ]) {
     assert.ok(runner.includes(`${key}:$${key}`), `results metadata missing ${key}`);
   }
   for (const type of ASSERT_TYPES) {

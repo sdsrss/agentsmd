@@ -365,6 +365,24 @@ source 会区分 measured、empty、missing、invalid 与 unavailable；未解�
 `null`，汇总状态只能是 `measured`、`partial`、`unavailable` 或 `over-budget`，
 因此受限 filesystem 不能再用隐藏输入制造绿色 headroom。
 
+conformance freshness 也有严格的身份边界。只有完整 capture 中的 source
+commit、tracked-clean 标记、cases hash 与 thresholds hash 都匹配当前源码树时，
+结果才是 `fresh`。分发包会在 `qa/conformance/releases/` 携带有界、通过 schema
+校验的 release evidence，因此 installed scorecard 无需读取原始 transcript 或任意
+evidence 路径，也能呈现精确的历史发布结果与 waiver。historical 或 mismatch
+证据不会变成 current-tree green；没有证据时会先建议配置或导入有界证据来源，
+而不是无条件再次消耗模型调用。release closure 可用以下入口从仓库内 capture
+生成 allowlist record：
+
+```bash
+node scripts/conformance-evidence.js --help
+```
+
+生成器只接受常规、非符号链接的
+`docs/qa-captures/**/conformance-*/results.json`，输出 hashes、聚合后的
+runtime/model/result/threshold/waiver provenance，并拒绝覆盖内容不同的同版本
+record。
+
 `--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v2 JSON。v1 capture
 没有 measurement provenance，无法通过猜测安全升级，因此会被明确拒绝。
 `automation/` 中分发每周 pinned/latest runtime canary、治理复审、report-only

@@ -277,11 +277,16 @@ external runtime.
   tagged test/QA rows do not enter field runtime splits or governance
   denominators. Older sessions without a dimension row remain explicit missing
   joins. Status: BASELINE.
-- Boundary 2: only a full capture matching the current conformance case-library
-  ID set can populate full-suite freshness; later targeted captures cannot
-  replace it. Performance and conformance staleness, worktree residue, fallback
-  use, prompt headroom, no-opportunity, and unmeasured false blocks remain
-  explicit. Status: BASELINE.
+- Boundary 2: only a full capture matching the current source commit,
+  tracked-clean state, case-library ID set, cases hash, and thresholds hash can
+  populate current-tree freshness; later targeted, legacy, dirty-tree, or
+  mismatched captures cannot replace it. Bounded release records preserve only
+  allowlisted hashes, runtime/model totals, threshold verdicts, waiver scope,
+  and capture provenance. Packaged records remain explicit historical evidence
+  when a source-tree identity is unavailable. Performance and conformance
+  staleness, worktree residue, fallback use, prompt headroom, no-opportunity,
+  and unmeasured false blocks remain explicit. Status: BASELINE; source/mismatch,
+  malformed/symlink/oversize, generator privacy, and installed-package fixtures.
 - Boundary 3: a fresh non-interactive home uses the Codex hook-trust bypass only
   after the caller explicitly attests that every active hook source was
   reviewed. Captures record that trust mode, and a completed child turn with no

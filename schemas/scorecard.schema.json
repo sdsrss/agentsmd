@@ -210,7 +210,28 @@
         "codex_version": { "$ref": "#/$defs/text" },
         "model": { "$ref": "#/$defs/text" },
         "agentsmd_version": { "$ref": "#/$defs/text" },
-        "false_block_near_negatives": { "$ref": "#/$defs/nonnegative" }
+        "false_block_near_negatives": { "$ref": "#/$defs/nonnegative" },
+        "runs": { "$ref": "#/$defs/nonnegative" },
+        "threshold_verdict": { "enum": ["pass", "fail", "waived", "unknown"] },
+        "provenance": { "$ref": "#/$defs/conformanceProvenance" }
+      }
+    },
+    "conformanceProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind", "applicability", "reason", "source", "release_version",
+        "release_commit", "current_commit", "inputs_match"
+      ],
+      "properties": {
+        "kind": { "enum": ["current-tree-capture", "legacy-capture", "release-evidence", "none"] },
+        "applicability": { "enum": ["current", "historical", "mismatch", "unavailable", "invalid"] },
+        "reason": { "$ref": "#/$defs/text" },
+        "source": { "$ref": "#/$defs/text" },
+        "release_version": { "$ref": "#/$defs/text" },
+        "release_commit": { "$ref": "#/$defs/text" },
+        "current_commit": { "$ref": "#/$defs/text" },
+        "inputs_match": { "$ref": "#/$defs/nullableBoolean" }
       }
     },
     "falseBlocks": {

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "agentsmd-conformance-release-evidence",
+  "release": {
+    "package": "@sdsrs/agentsmd",
+    "version": "5.3.0",
+    "commit": "e20d35e202afaca4acafb75cd850dadd061fb70c",
+    "published_at": "2026-08-13T10:31:54.000Z"
+  },
+  "subject": {
+    "evaluated_commit": "ed168e7f87cec6d7965b254a68e176dc23bfbb7f",
+    "cases_sha256": "7a2372d7096347f1abe7e460e06d5e128db2b1fa65cbbc0011660e21ed2a626a",
+    "thresholds_sha256": "57e3c049dd08eb15c3ddbf37e949a2d3b6e0e3cd1c420e845812f33899d34c68"
+  },
+  "runs": [
+    {
+      "capture": "conformance-20260813T043926Z",
+      "recorded_at": "2026-08-13T04:39:26.000Z",
+      "results_sha256": "d6d7532b42628ef06a2e66e6765f92cde13cb63fb6f2537ccb360dfd8c9fdacb",
+      "codex_version": "0.147.0",
+      "model": "gpt-5.6-sol",
+      "agentsmd_version": "5.3.0",
+      "surface": "standalone",
+      "profile": "full",
+      "passed": 29,
+      "total": 30,
+      "errors": 0,
+      "false_block_near_negatives": 3,
+      "threshold_verdict": "pass"
+    },
+    {
+      "capture": "conformance-20260813T045837Z",
+      "recorded_at": "2026-08-13T04:58:37.000Z",
+      "results_sha256": "a3d05a13fc7854df64a412a6df4a2441e4f69e08fa1ea855eb4c8b121db386c8",
+      "codex_version": "0.147.0",
+      "model": "gpt-5.6-sol",
+      "agentsmd_version": "5.3.0",
+      "surface": "standalone",
+      "profile": "full",
+      "passed": 28,
+      "total": 30,
+      "errors": 0,
+      "false_block_near_negatives": 3,
+      "threshold_verdict": "fail"
+    }
+  ],
+  "decision": {
+    "verdict": "waived",
+    "waiver": {
+      "scope": "task-discipline",
+      "release_only": true,
+      "thresholds_unchanged": true,
+      "reason": "two-pass-threshold"
+    }
+  }
+}
