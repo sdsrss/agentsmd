@@ -5,6 +5,17 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.3.2 — 2026-08-20 — standalone conformance evidence deployment (patch)
+
+- Fixed the standalone deployment artifact so the sanitized, packaged
+  `qa/conformance/releases/` records are copied into the installed root. The
+  installed scorecard can now report retained release evidence with explicit
+  historical or mismatch provenance instead of falling back to
+  `unavailable/no-evidence-input`. The packaging E2E now executes the scorecard
+  from an isolated deployed `CODEX_HOME`, closing the prior package-root-only
+  test gap; raw captures, transcripts, credential storage, and arbitrary home
+  paths remain outside the deployed evidence input.
+
 ## v5.3.1 — 2026-08-20 — installed conformance evidence provenance (patch)
 
 - Fixed installed conformance evidence provenance in the quality

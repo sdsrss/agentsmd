@@ -772,6 +772,23 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 19);
+  const deployedEvidence = path.join(
+    codexHome, 'agentsmd', 'qa', 'conformance', 'releases', 'v5.3.0.json'
+  );
+  assert(fs.existsSync(deployedEvidence), 'standalone deploy is missing release conformance evidence');
+  const deployedScorecard = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(codexHome, 'agentsmd', 'scripts', 'scorecard.js'),
+    '--days=30',
+    '--json',
+  ], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  assert.strictEqual(deployedScorecard.conformance.state, 'stale');
+  assert.strictEqual(deployedScorecard.conformance.passed, 57);
+  assert.strictEqual(deployedScorecard.conformance.total, 60);
+  assert.strictEqual(deployedScorecard.conformance.threshold_verdict, 'waived');
+  assert.strictEqual(deployedScorecard.conformance.provenance.kind, 'release-evidence');
+  assert.strictEqual(deployedScorecard.conformance.provenance.release_version, '5.3.0');
+  assert.strictEqual(deployedScorecard.conformance.provenance.applicability, 'mismatch');
+  assert.strictEqual(deployedScorecard.conformance.provenance.reason, 'package-version-mismatch');
   const healthyPlan = JSON.parse(installedCli(['repair', '--plan']));
   assert.strictEqual(healthyPlan.classification, 'healthy');
   fs.unlinkSync(path.join(codexHome, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));
