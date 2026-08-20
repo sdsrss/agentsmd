@@ -47,6 +47,13 @@ function stageSources(repo, stageRoot) {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(source, destination);
   }
+  for (const relative of [path.join('conformance', 'releases')]) {
+    const source = path.join(repo, 'qa', relative);
+    if (!fs.existsSync(source)) continue;
+    const destination = path.join(deploy, 'qa', relative);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.cpSync(source, destination, { recursive: true });
+  }
   const packageJson = path.join(repo, 'package.json');
   if (fs.existsSync(packageJson)) fs.copyFileSync(packageJson, path.join(deploy, 'package.json'));
   for (const required of ['hooks', 'spec', 'scripts', 'skills', 'schemas', 'automation']) {
@@ -146,6 +153,7 @@ function inspectReleaseArtifact(repo) {
       'qa/validation-map.json',
       'qa/perf/baseline.json',
       'qa/conformance/cases.json',
+      'qa/conformance/releases',
       'automation/weekly-runtime-canary.md',
       'automation/weekly-governance-review.md',
       'automation/release-readiness.md',
