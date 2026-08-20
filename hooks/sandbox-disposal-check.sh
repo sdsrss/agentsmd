@@ -40,7 +40,13 @@ SCAN="$(find "$TMPROOT" -maxdepth 1 -mindepth 1 -type d -newer "$REF" 2>/dev/nul
   || { hook_observe "$HOOK" '§8.V4' "$SID" true false '{"reason":"scan-failed"}'; exit 0; }
 while IFS= read -r d; do
   [[ -z "$d" ]] && continue
-  case "${d##*/}" in
+  name="${d##*/}"
+  # Codex owns this Linux sandbox proxy directory. Match the complete native
+  # runtime shape only; lookalike codex-* scratch remains task-attributed.
+  if [[ "$name" =~ ^codex-linux-sandbox-proxy-[0-9]+-[0-9]+-[0-9]+$ ]]; then
+    continue
+  fi
+  case "$name" in
     # Codex owns this bwrap mount staging directory. A task did not create it,
     # and parallel Codex sessions may still be using it.
     codex-bwrap-synthetic-mount-targets-*) ;;

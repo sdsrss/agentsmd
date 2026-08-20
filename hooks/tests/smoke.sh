@@ -700,6 +700,23 @@ B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(c
   && rows_have_no_event "$NEW" '§8.V4' advisory; } \
   && ok "Codex runtime scratch is not attributed to the task" \
   || bad "Codex runtime scratch ignored" "out=[$OUT] new=[$NEW]"
+clear_pending
+mkdir -p "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-0"
+B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && ! pending_has "§8.V4" && rows_have_observe "$NEW" '§8.V4' true true \
+  && rows_have_no_event "$NEW" '§8.V4' advisory; } \
+  && ok "exact Codex Linux sandbox proxy scratch is not attributed to the task" \
+  || bad "exact Codex Linux sandbox proxy scratch ignored" "out=[$OUT] new=[$NEW]"
+rmdir "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-0"
+clear_pending
+mkdir -p "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-x" \
+  "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-0-extra"
+B="$(clog_count)"; OUT="$(run_hook sandbox-disposal-check.sh "$STOP")"; NEW="$(clog_new "$B")"
+{ is_empty "$OUT" && pending_has "§8.V4" && rows_have_event "$NEW" '§8.V4' advisory; } \
+  && ok "lookalike Codex sandbox proxy scratch remains task-attributed" \
+  || bad "lookalike Codex sandbox proxy scratch must not be exempt" "out=[$OUT] new=[$NEW]"
+rmdir "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-x" \
+  "$TMPDIR/codex-linux-sandbox-proxy-4242-1000-0-extra"
 unset TMPDIR
 
 echo "== transcript-structure-scan.sh (Stop → queue) =="
