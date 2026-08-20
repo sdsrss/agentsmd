@@ -5,6 +5,14 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.3.3 — 2026-08-20 — native sandbox proxy disposal classification (patch)
+
+- Fixed the Stop-hook disposal advisory so Codex-owned Linux sandbox proxy
+  directories matching the complete
+  `codex-linux-sandbox-proxy-<digits>-<digits>-<digits>` runtime shape are not
+  attributed to the task. Lookalike `codex-*` scratch remains advisory-eligible,
+  with exact positive and near-negative smoke coverage.
+
 ## v5.3.2 — 2026-08-20 — standalone conformance evidence deployment (patch)
 
 - Fixed the standalone deployment artifact so the sanitized, packaged
