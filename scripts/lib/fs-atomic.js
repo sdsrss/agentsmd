@@ -27,6 +27,19 @@ function fileMode(file) {
   try { return fs.statSync(file).mode & 0o777; } catch { return null; }
 }
 
+function assertNotSymbolicLink(file) {
+  let stat;
+  try { stat = fs.lstatSync(file); }
+  catch (error) {
+    if (error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  if (!stat.isSymbolicLink()) return;
+  const error = new Error(`refusing to replace symbolic link: ${file}`);
+  error.code = 'AGENTSMD_SYMBOLIC_LINK_REFUSED';
+  throw error;
+}
+
 function pathExists(file) {
   try { fs.lstatSync(file); return true; } catch { return false; }
 }
@@ -45,6 +58,7 @@ function sameSnapshot(left, right) {
 }
 
 function writeFileAtomic(file, content, options = {}) {
+  assertNotSymbolicLink(file);
   const existingMode = options.preserveMode === false ? null : fileMode(file);
   const mode = options.mode == null ? (existingMode == null ? 0o600 : existingMode) : options.mode;
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -62,6 +76,9 @@ function writeFileAtomic(file, content, options = {}) {
       error.code = 'AGENTSMD_CONCURRENT_CHANGE';
       throw error;
     }
+    // Recheck at the commit boundary: a foreign writer can replace a regular
+    // file with a symlink after the initial inspection but before our rename.
+    assertNotSymbolicLink(file);
     fs.renameSync(tmp, file);
     fsyncDir(path.dirname(file));
   } catch (error) {
@@ -72,11 +89,13 @@ function writeFileAtomic(file, content, options = {}) {
 }
 
 function unlinkFileIfUnchanged(file, expectedSnapshot) {
+  assertNotSymbolicLink(file);
   if (!sameSnapshot(snapshotFile(file), expectedSnapshot)) {
     const error = new Error(`concurrent change detected for ${file}; refusing to delete newer bytes`);
     error.code = 'AGENTSMD_CONCURRENT_CHANGE';
     throw error;
   }
+  assertNotSymbolicLink(file);
   fs.unlinkSync(file);
   fsyncDir(path.dirname(file));
 }
@@ -141,6 +160,7 @@ function snapshotFile(file) {
 
 function restoreFile(file, snapshot) {
   if (!snapshot.present) {
+    assertNotSymbolicLink(file);
     try { fs.unlinkSync(file); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
     return;
   }
@@ -148,6 +168,7 @@ function restoreFile(file, snapshot) {
 }
 
 module.exports = {
+  assertNotSymbolicLink,
   ensurePrivateDir,
   describePath,
   fileMode,

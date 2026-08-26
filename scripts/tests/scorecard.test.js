@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -41,6 +42,10 @@ function write(file, content) {
 
 function jsonl(rows) {
   return `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`;
+}
+
+function digest(algorithm, value) {
+  return crypto.createHash(algorithm).update(value).digest('hex');
 }
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-scorecard.'));
@@ -242,6 +247,196 @@ try {
     });
     assert.strictEqual(card.compatibility.runtime_splits[0].codex_version, '0.145.0');
     assert.strictEqual(card.compatibility.runtime_splits[0].sessions, 1);
+    assert.deepStrictEqual(card.compatibility.dimension_join_attribution, {
+      state: 'post-first-observed-present',
+      first_observed_dimension_at: '2026-07-28T01:00:00.000Z',
+      last_missing_event_at: '2026-07-28T01:03:00.000Z',
+      missing_before_first_observed_dimension: 0,
+      missing_straddling_first_observed_dimension: 0,
+      missing_after_first_observed_dimension: 1,
+      missing_without_dimension_reference: 0,
+      missing_by_class: { external: 1, self: 0, unknown: 0, mixed: 0 },
+      unjoinable_sessions_invalid_id: 0,
+      unjoinable_rows_without_session_id: 0,
+      unjoinable_dimension_rows: 0,
+      ordering_scope: 'retained-window-only',
+      ordering_proves_cause: false,
+    });
+  });
+
+  test('dimension attribution separates retained history from current coverage evidence', () => {
+    const historicalLog = path.join(temp, 'dimension-history', 'agentsmd.jsonl');
+    write(historicalLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'pre-reference',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+    ]));
+    const historical = buildScorecard({ ...scorecardOptions, logPath: historicalLog });
+    const attribution = historical.compatibility.dimension_join_attribution;
+    assert.strictEqual(attribution.state, 'pre-first-observed-only');
+    assert.strictEqual(attribution.missing_before_first_observed_dimension, 1);
+    assert.strictEqual(attribution.missing_after_first_observed_dimension, 0);
+    assert.deepStrictEqual(attribution.missing_by_class, {
+      external: 1, self: 0, unknown: 0, mixed: 0,
+    });
+    const action = historical.recommended_actions.find((item) => item.code === 'dimension-missing');
+    assert(action);
+    assert.match(action.evidence, /retained-window ordering does not prove cause/u);
+    assert.doesNotMatch(action.action, /Inspect SessionStart coverage/u);
+
+    const impossibleOrdering = structuredClone(historical);
+    impossibleOrdering.compatibility.dimension_join_attribution.last_missing_event_at = '2026-07-28T02:00:00.000Z';
+    assert(validateScorecard(impossibleOrdering).errors.some((error) => /last missing event before the first dimension/u.test(error)));
+  });
+
+  test('unjoinable identities stay outside missing joins and no reference remains explicit', () => {
+    const unjoinableLog = path.join(temp, 'dimension-unjoinable', 'agentsmd.jsonl');
+    write(unjoinableLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'valid-without-reference',
+      },
+      {
+        ts: '2026-07-28T00:31:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'invalid/session',
+      },
+      {
+        ts: '2026-07-28T00:32:00.000Z', hook: 'memory-prompt-hint', event: 'fail-open',
+        project: '-work-client-', session_id: null,
+      },
+      {
+        ts: '2026-07-28T00:33:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'unknown', spec_version: 'unknown',
+        agentsmd_version: 'unknown', surface: 'none', codex_version: 'unknown',
+        model: 'unknown', platform: 'unknown',
+      },
+    ]));
+    const unjoinable = buildScorecard({ ...scorecardOptions, logPath: unjoinableLog });
+    const attribution = unjoinable.compatibility.dimension_join_attribution;
+    assert.strictEqual(unjoinable.compatibility.dimension_sessions, 0);
+    assert.strictEqual(unjoinable.compatibility.missing_dimension_sessions, 1);
+    assert.strictEqual(attribution.state, 'no-dimension-reference');
+    assert.strictEqual(attribution.missing_without_dimension_reference, 1);
+    assert.strictEqual(attribution.unjoinable_sessions_invalid_id, 1);
+    assert.strictEqual(attribution.unjoinable_rows_without_session_id, 1);
+    assert.strictEqual(attribution.unjoinable_dimension_rows, 1);
+  });
+
+  test('straddling mixed-provenance sessions and no-missing state stay distinct', () => {
+    const straddlingLog = path.join(temp, 'dimension-straddling', 'agentsmd.jsonl');
+    write(straddlingLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'mixed-gap',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+      {
+        ts: '2026-07-28T01:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-mnt-dev-agentsmd-', session_id: 'mixed-gap',
+      },
+    ]));
+    const straddling = buildScorecard({ ...scorecardOptions, logPath: straddlingLog });
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.state, 'post-first-observed-present');
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.missing_straddling_first_observed_dimension, 1);
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.missing_by_class.mixed, 1);
+
+    const completeLog = path.join(temp, 'dimension-complete', 'agentsmd.jsonl');
+    write(completeLog, jsonl([
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+    ]));
+    const complete = buildScorecard({ ...scorecardOptions, logPath: completeLog });
+    assert.strictEqual(complete.compatibility.dimension_join_attribution.state, 'no-missing');
+    assert.strictEqual(complete.compatibility.dimension_join_attribution.last_missing_event_at, null);
+    assert.strictEqual(complete.recommended_actions.some((item) => item.code === 'dimension-missing'), false);
+  });
+
+  test('first observed dimension uses timestamps across duplicate near-negative rows', () => {
+    const duplicateLog = path.join(temp, 'dimension-duplicate-order', 'agentsmd.jsonl');
+    write(duplicateLog, jsonl([
+      {
+        ts: '2026-07-28T00:50:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'gap',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+      {
+        ts: '2026-07-28T00:45:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+    ]));
+    const duplicate = buildScorecard({ ...scorecardOptions, logPath: duplicateLog });
+    const attribution = duplicate.compatibility.dimension_join_attribution;
+    assert.strictEqual(duplicate.compatibility.dimension_sessions, 1);
+    assert.strictEqual(attribution.first_observed_dimension_at, '2026-07-28T00:45:00.000Z');
+    assert.strictEqual(attribution.missing_after_first_observed_dimension, 1);
+  });
+
+  test('dimension attribution invariants reject count and state drift', () => {
+    const badBuckets = structuredClone(card);
+    badBuckets.compatibility.dimension_join_attribution.missing_after_first_observed_dimension += 1;
+    assert(validateScorecard(badBuckets).errors.some((error) => /dimension_join_attribution.*buckets/u.test(error)));
+
+    const badClasses = structuredClone(card);
+    badClasses.compatibility.dimension_join_attribution.missing_by_class.external += 1;
+    assert(validateScorecard(badClasses).errors.some((error) => /missing_by_class/u.test(error)));
+
+    const badState = structuredClone(card);
+    badState.compatibility.dimension_join_attribution.state = 'pre-first-observed-only';
+    assert(validateScorecard(badState).errors.some((error) => /attribution state/u.test(error)));
+
+    const malformed = structuredClone(card);
+    malformed.compatibility.dimension_join_attribution = { state: 'no-missing' };
+    assert.doesNotThrow(() => validateScorecard(malformed));
+    assert.strictEqual(validateScorecard(malformed).valid, false);
+
+    const badTimestamp = structuredClone(card);
+    badTimestamp.compatibility.dimension_join_attribution.first_observed_dimension_at = '2026-99-28T01:00:00.000Z';
+    assert(validateScorecard(badTimestamp).errors.some((error) => /exact UTC timestamp/u.test(error)));
+
+    const badReferenceBucket = structuredClone(card);
+    badReferenceBucket.compatibility.dimension_join_attribution.missing_after_first_observed_dimension = 0;
+    badReferenceBucket.compatibility.dimension_join_attribution.missing_without_dimension_reference = 1;
+    badReferenceBucket.compatibility.dimension_join_attribution.state = 'pre-first-observed-only';
+    assert(validateScorecard(badReferenceBucket).errors.some((error) => /must be zero when a dimension reference exists/u.test(error)));
   });
 
   test('quality sections retain denominators and refuse proxy overclaims', () => {
@@ -261,12 +456,102 @@ try {
       current_commit: FIXTURE_COMMIT,
       inputs_match: true,
     });
-    assert.strictEqual(card.false_blocks.state, 'unmeasured');
-    assert.match(card.false_blocks.limit, /human-reviewed outcome/);
+    assert.strictEqual(card.false_blocks.state, 'no-opportunity');
+    assert.strictEqual(card.false_blocks.false_block_rate, null);
+    assert.match(card.false_blocks.limit, /No field blocking event/u);
     assert(card.bypasses.no_opportunity > 0);
     assert.strictEqual(card.bypasses.no_opportunity_is_success, false);
     assert.strictEqual(card.evidence_discipline.calibration_is_governance_signal, false);
     assert.strictEqual(card.memory.citation_is_adherence, false);
+  });
+
+  test('reviewed outcomes expose the exact field denominator and fail-open cause classes', () => {
+    const reviewedLog = path.join(temp, 'reviewed', 'agentsmd.jsonl');
+    const reviewedOutcomes = path.join(temp, 'reviewed', 'agentsmd-outcomes.json');
+    const event = (minute, id, project = '-work-client-') => ({
+      ts: `2026-07-28T03:${minute}:00.000Z`,
+      hook: 'pre-bash-safety',
+      event: 'block',
+      event_id: id,
+      project,
+      session_id: `session-${minute}`,
+      spec_section: '§8-rm-rf-var',
+      extra: null,
+    });
+    const ids = [
+      'evt-20260728T030000Z-101-1001-1',
+      'evt-20260728T030100Z-102-1002-1',
+      'evt-20260728T030200Z-103-1003-1',
+    ];
+    write(reviewedLog, jsonl([
+      event('00', ids[0]),
+      event('01', ids[1]),
+      event('02', ids[2]),
+      { ...event('03', null), event_id: undefined },
+      event('04', 'evt-20260728T030400Z-104-1004-1', '-work-agentsmd-fixture-'),
+      { ts: '2026-07-28T04:00:00.000Z', hook: 'memory-read', event: 'fail-open', project: '-work-client-', extra: { reason: 'no-transcript' } },
+      { ts: '2026-07-28T04:01:00.000Z', hook: 'memory-read', event: 'fail-open', project: '-work-client-', extra: { reason: 'timeout' } },
+      { ts: '2026-07-28T04:02:00.000Z', hook: 'secrets-scan', event: 'fail-open', project: '-work-client-', extra: { reason: 'invalid-json' } },
+      { ts: '2026-07-28T04:03:00.000Z', hook: 'secrets-scan', event: 'fail-open', project: '-work-client-', extra: { reason: 'git-diff-failed' } },
+    ]));
+    const outcome = (index, value, reason) => ({
+      event_id: ids[index],
+      event_ts: `2026-07-28T03:0${index}:00.000Z`,
+      hook: 'pre-bash-safety',
+      event: 'block',
+      spec_section: '§8-rm-rf-var',
+      project_class: 'external',
+      outcome: value,
+      reason,
+      reviewed_at: `2026-07-28T05:0${index}:00.000Z`,
+      revision: 1,
+    });
+    write(reviewedOutcomes, JSON.stringify({
+      schema_version: 1,
+      kind: 'agentsmd-reviewed-outcomes',
+      outcomes: [
+        outcome(0, 'true-block', 'policy-violation-confirmed'),
+        outcome(1, 'false-block', 'benign-action-confirmed'),
+        outcome(2, 'unmeasurable', 'insufficient-context'),
+      ],
+    }));
+    const reviewed = buildScorecard({
+      ...scorecardOptions,
+      logPath: reviewedLog,
+      outcomesPath: reviewedOutcomes,
+    });
+    assert.deepStrictEqual(reviewed.false_blocks, {
+      state: 'partial',
+      blocking_events: 5,
+      eligible_field_events: 4,
+      reviewed_outcomes: 3,
+      true_blocks: 1,
+      confirmed_false_blocks: 1,
+      unreviewed_events: 0,
+      unmeasurable_events: 2,
+      excluded_non_field_events: 1,
+      rate_denominator: 2,
+      false_block_rate: 0.5,
+      outcomes_source: 'measured',
+      window_days: 30,
+      limit: '2 field event(s) are unmeasurable and excluded from the reviewed denominator.',
+    });
+    assert.deepStrictEqual(reviewed.automation.fail_open_causes, {
+      dependency_missing: 1,
+      timeout: 1,
+      parse_error: 1,
+      other: 1,
+    });
+    assert(reviewed.recommended_actions.some((item) => item.code === 'false-block-outcomes-partial'));
+    const text = formatScorecard(reviewed);
+    assert.match(text, /denominator 2 · rate 50[.]0%/u);
+    assert.match(text, /fail-open causes dependency\/input-missing 1 · timeout 1 · parse-error 1 · other 1/u);
+    const badDenominator = structuredClone(reviewed);
+    badDenominator.false_blocks.rate_denominator += 1;
+    assert(validateScorecard(badDenominator).errors.some((error) => /rate_denominator/u.test(error)));
+    const badFailOpen = structuredClone(reviewed);
+    badFailOpen.automation.fail_open_causes.other += 1;
+    assert(validateScorecard(badFailOpen).errors.some((error) => /fail_open_causes/u.test(error)));
   });
 
   test('performance, prompt budget, automation, fallback, and residue stay explicit', () => {
@@ -430,6 +715,238 @@ try {
     assert.strictEqual(mismatch.conformance.provenance.applicability, 'mismatch');
     assert.strictEqual(mismatch.conformance.provenance.reason, 'package-version-mismatch');
     assert(mismatch.recommended_actions.some((item) => item.code === 'conformance-mismatch'));
+  });
+
+  test('candidate and published binding evidence remain distinct while matching the exact current artifact', () => {
+    const candidateFile = path.join(temp, 'external-evidence', 'candidate-v5.0.1.json');
+    const bindingFile = path.join(temp, 'external-evidence', 'binding-v5.0.1.json');
+    const sourceTree = 'd'.repeat(40);
+    const releaseCommit = 'e'.repeat(40);
+    const deploySha256 = 'f'.repeat(64);
+    const tarballSha256 = '1'.repeat(64);
+    const tarballSha512 = '2'.repeat(128);
+    const candidate = {
+      schema_version: 1,
+      kind: 'agentsmd-conformance-candidate-attestation',
+      attested_at: '2026-07-29T02:00:00.000Z',
+      subject: {
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        source_commit: FIXTURE_COMMIT,
+        source_tree: sourceTree,
+        source_tracked_clean: true,
+        deploy_sha256: deploySha256,
+        cases_sha256: FIXTURE_CASES_SHA256,
+        thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+      },
+      runs: [{
+        capture: 'conformance-20260729T010000Z',
+        recorded_at: '2026-07-29T01:00:00.000Z',
+        results_sha256: '3'.repeat(64),
+        codex_version: '0.145.0',
+        model: 'gpt-5.6-sol',
+        agentsmd_version: '5.0.1',
+        surface: 'standalone',
+        profile: 'full',
+        passed: 4,
+        total: 4,
+        errors: 0,
+        false_block_near_negatives: 2,
+        threshold_verdict: 'pass',
+      }],
+      decision: { verdict: 'pass', waiver: null },
+    };
+    const candidateText = `${JSON.stringify(candidate, null, 2)}\n`;
+    write(candidateFile, candidateText);
+    write(bindingFile, JSON.stringify({
+      schema_version: 1,
+      kind: 'agentsmd-conformance-release-binding',
+      verified_at: '2026-07-29T04:00:00.000Z',
+      candidate: {
+        sha256: digest('sha256', candidateText),
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        source_commit: FIXTURE_COMMIT,
+        source_tree: sourceTree,
+        deploy_sha256: deploySha256,
+        attested_at: '2026-07-29T02:00:00.000Z',
+      },
+      release: {
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        commit: releaseCommit,
+        tree: sourceTree,
+        tag: 'v5.0.1',
+        published_at: '2026-07-29T03:00:00.000Z',
+      },
+      artifacts: {
+        registry_sha256: tarballSha256,
+        release_sha256: tarballSha256,
+        sha512: tarballSha512,
+      },
+      provenance: {
+        sha256: '4'.repeat(64),
+        subject: 'pkg:npm/%40sdsrs/agentsmd@5.0.1',
+        subject_sha512: tarballSha512,
+        repository: 'https://github.com/sdsrss/agentsmd',
+        ref: 'refs/tags/v5.0.1',
+        workflow: '.github/workflows/release.yml',
+        commit: releaseCommit,
+      },
+    }, null, 2));
+
+    const externalBase = {
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-external-captures'),
+      releaseEvidenceRoot: path.join(temp, 'missing-external-release-evidence'),
+      candidateEvidenceFile: candidateFile,
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: deploySha256 },
+    };
+    const localCandidate = buildScorecard({
+      ...externalBase,
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: sourceTree, tracked_clean: true,
+      },
+    });
+    assert.strictEqual(localCandidate.conformance.state, 'fresh');
+    assert.strictEqual(localCandidate.conformance.provenance.kind, 'release-evidence');
+    assert.strictEqual(localCandidate.conformance.provenance.applicability, 'current');
+    assert.strictEqual(localCandidate.conformance.provenance.evidence_phase, 'local-candidate');
+    assert.strictEqual(localCandidate.conformance.provenance.reason, 'candidate-and-artifact-match');
+    assert(localCandidate.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+
+    const published = buildScorecard({
+      ...externalBase,
+      releaseBindingFile: bindingFile,
+      sourceIdentity: {
+        state: 'measured', commit: releaseCommit, tree: sourceTree, tracked_clean: true,
+      },
+    });
+    assert.strictEqual(published.conformance.state, 'fresh');
+    assert.strictEqual(published.conformance.provenance.kind, 'release-evidence');
+    assert.strictEqual(published.conformance.provenance.applicability, 'current');
+    assert.strictEqual(published.conformance.provenance.evidence_phase, 'published-binding');
+    assert.strictEqual(published.conformance.provenance.reason, 'published-binding-and-artifact-match');
+    assert.strictEqual(published.conformance.provenance.release_commit, releaseCommit);
+    assert(!published.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+    assert.match(formatScorecard(published), /phase published-binding/u);
+  });
+
+  test('external evidence tamper, replay, dirty tree, and missing input never render current', () => {
+    const candidateFile = path.join(temp, 'external-negative', 'candidate-v5.0.1.json');
+    const candidate = {
+      schema_version: 1,
+      kind: 'agentsmd-conformance-candidate-attestation',
+      attested_at: '2026-07-29T02:00:00.000Z',
+      subject: {
+        package: '@sdsrs/agentsmd', version: '5.0.0', source_commit: FIXTURE_COMMIT,
+        source_tree: '5'.repeat(40), source_tracked_clean: true,
+        deploy_sha256: '6'.repeat(64), cases_sha256: FIXTURE_CASES_SHA256,
+        thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+      },
+      runs: [{
+        capture: 'conformance-20260729T010000Z', recorded_at: '2026-07-29T01:00:00.000Z',
+        results_sha256: '7'.repeat(64), codex_version: '0.145.0', model: 'gpt-5.6-sol',
+        agentsmd_version: '5.0.0', surface: 'standalone', profile: 'full', passed: 4,
+        total: 4, errors: 0, false_block_near_negatives: 2, threshold_verdict: 'pass',
+      }],
+      decision: { verdict: 'pass', waiver: null },
+    };
+    write(candidateFile, JSON.stringify(candidate));
+    const common = {
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-negative-captures'),
+      releaseEvidenceRoot: path.join(temp, 'missing-negative-release'),
+      candidateEvidenceFile: candidateFile,
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: '5'.repeat(40), tracked_clean: true,
+      },
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: '6'.repeat(64) },
+    };
+    const replay = buildScorecard(common);
+    assert.strictEqual(replay.conformance.state, 'stale');
+    assert.strictEqual(replay.conformance.provenance.applicability, 'mismatch');
+    assert.strictEqual(replay.conformance.provenance.reason, 'package-version-mismatch');
+
+    const dirty = buildScorecard({
+      ...common,
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.0.0' },
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: '5'.repeat(40), tracked_clean: false,
+      },
+    });
+    assert.strictEqual(dirty.conformance.state, 'stale');
+    assert.strictEqual(dirty.conformance.provenance.reason, 'current-tree-dirty');
+
+    const artifactMismatch = buildScorecard({
+      ...common,
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.0.0' },
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: '8'.repeat(64) },
+    });
+    assert.strictEqual(artifactMismatch.conformance.state, 'stale');
+    assert.strictEqual(artifactMismatch.conformance.provenance.reason, 'deploy-tree-mismatch');
+
+    const missing = buildScorecard({
+      ...common,
+      candidateEvidenceFile: path.join(temp, 'does-not-exist.json'),
+    });
+    assert.strictEqual(missing.conformance.state, 'unavailable');
+    assert.strictEqual(missing.conformance.provenance.reason, 'candidate-evidence-unavailable');
+
+    const staleCandidate = structuredClone(candidate);
+    staleCandidate.subject.version = '5.0.1';
+    staleCandidate.runs[0].agentsmd_version = '5.0.1';
+    staleCandidate.runs[0].recorded_at = '2026-01-01T00:00:00.000Z';
+    staleCandidate.attested_at = '2026-01-01T01:00:00.000Z';
+    const staleFile = path.join(temp, 'external-negative', 'stale-candidate.json');
+    write(staleFile, JSON.stringify(staleCandidate));
+    const stale = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+    });
+    assert.strictEqual(stale.conformance.state, 'stale');
+    assert.strictEqual(stale.conformance.provenance.applicability, 'current');
+    assert(stale.recommended_actions.some((item) => item.code === 'conformance-stale'));
+    assert(!stale.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+
+    const artifactUnavailable = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null },
+      conformanceArtifactIdentity: { state: 'unavailable', deploy_sha256: null },
+    });
+    assert.strictEqual(artifactUnavailable.conformance.provenance.applicability, 'historical');
+    assert.strictEqual(artifactUnavailable.conformance.provenance.reason, 'current-artifact-identity-unavailable');
+
+    const artifactInvalid = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null },
+      conformanceArtifactIdentity: { state: 'invalid', deploy_sha256: null },
+    });
+    assert.strictEqual(artifactInvalid.conformance.state, 'invalid');
+    assert.strictEqual(artifactInvalid.conformance.provenance.applicability, 'invalid');
+    assert.strictEqual(artifactInvalid.conformance.provenance.reason, 'current-artifact-identity-invalid');
+
+    const missingBinding = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      releaseBindingFile: path.join(temp, 'does-not-exist-binding.json'),
+    });
+    assert.strictEqual(missingBinding.conformance.state, 'unavailable');
+    assert.strictEqual(missingBinding.conformance.provenance.reason, 'release-binding-unavailable');
+
+    const linkedCandidate = path.join(temp, 'external-negative', 'linked-candidate.json');
+    fs.symlinkSync(staleFile, linkedCandidate);
+    const linked = buildScorecard({ ...common, candidateEvidenceFile: linkedCandidate });
+    assert.strictEqual(linked.conformance.state, 'invalid');
+    assert.strictEqual(linked.conformance.provenance.reason, 'invalid-candidate-evidence');
+
+    const oversizedCandidate = path.join(temp, 'external-negative', 'oversized-candidate.json');
+    write(oversizedCandidate, 'x'.repeat(1048577));
+    const oversized = buildScorecard({ ...common, candidateEvidenceFile: oversizedCandidate });
+    assert.strictEqual(oversized.conformance.state, 'invalid');
+    assert.strictEqual(oversized.conformance.provenance.reason, 'invalid-candidate-evidence');
   });
 
   test('malformed, oversized, and symlinked release records remain invalid evidence', () => {
@@ -652,6 +1169,13 @@ try {
     delete legacyV2.conformance.runs;
     delete legacyV2.conformance.threshold_verdict;
     delete legacyV2.conformance.provenance;
+    for (const field of [
+      'eligible_field_events', 'true_blocks', 'unreviewed_events',
+      'unmeasurable_events', 'excluded_non_field_events', 'rate_denominator',
+      'false_block_rate', 'outcomes_source', 'window_days',
+    ]) delete legacyV2.false_blocks[field];
+    delete legacyV2.automation.fail_open_causes;
+    delete legacyV2.compatibility.dimension_join_attribution;
     const legacyV2Path = path.join(temp, 'legacy-v2.json');
     write(legacyV2Path, JSON.stringify(legacyV2));
     assert.strictEqual(loadComparison(legacyV2Path).schema_version, 2);
@@ -678,14 +1202,22 @@ try {
   });
 
   test('argv is strict and keeps days/json/compare independent', () => {
-    assert.deepStrictEqual(parseArgs(['--days=7', '--json', '--compare=old.json']), {
+    assert.deepStrictEqual(parseArgs([
+      '--days=7', '--json', '--compare=old.json',
+      '--conformance-candidate=candidate.json', '--conformance-binding=binding.json',
+      '--outcomes=outcomes.json',
+    ]), {
       days: 7,
       json: true,
       compare: 'old.json',
+      candidateEvidenceFile: 'candidate.json',
+      releaseBindingFile: 'binding.json',
+      outcomesPath: 'outcomes.json',
     });
     assert.strictEqual(parseArgs(['--days']).error.includes("requires '=value'"), true);
     assert.strictEqual(parseArgs(['--days=0']).error.includes('invalid --days'), true);
     assert.strictEqual(parseArgs(['--json=true']).error.includes('does not take a value'), true);
+    assert.strictEqual(parseArgs(['--conformance-binding=binding.json']).error.includes('requires --conformance-candidate'), true);
     assert.strictEqual(parseArgs(['old.json']).error.includes('Unknown argument'), true);
   });
 } finally {

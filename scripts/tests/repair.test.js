@@ -92,6 +92,34 @@ withSandbox((home) => {
   });
 });
 
+for (const targetName of ['hooks.json', 'config.toml', 'AGENTS.md']) {
+  withSandbox((home) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-repair-shared-symlink.'));
+    try {
+      const { install, repair, F } = load();
+      install('2026-07-14T00:00:00.000Z');
+      const shared = path.join(home, targetName);
+      const external = path.join(outside, targetName);
+      const original = fs.readFileSync(shared);
+      fs.writeFileSync(external, original);
+      fs.unlinkSync(shared);
+      fs.symlinkSync(external, shared);
+      const before = F.sha256Tree(home);
+      const plan = repair.planRepair();
+
+      test(`repair plan and confirm refuse a symlinked shared ${targetName} with zero mutation`, () => {
+        assert.strictEqual(plan.applyAllowed, false);
+        assert(plan.blockers.some((blocker) => blocker === `shared path has unsafe live type: ${targetName}:symlink`));
+        assert.throws(() => repair.applyRepair(plan.planDigest), /shared file.*symbolic link|symbolic link.*shared file/i);
+        assert.strictEqual(F.sha256Tree(home), before);
+        assert(fs.lstatSync(shared).isSymbolicLink());
+        assert.strictEqual(fs.readlinkSync(shared), external);
+        assert(fs.readFileSync(external).equals(original));
+      });
+    } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+  });
+}
+
 withSandbox((home) => {
   const { install, doctor, repair } = load();
   install('2026-07-14T00:00:00.000Z');

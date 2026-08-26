@@ -95,7 +95,10 @@ release tag（同样校验）；40 位 commit 具备不可变身份但没有已�
 变更类生命周期操作（install / update / uninstall / `restore --confirm` /
 `repair --confirm`）按 `$CODEX_HOME` 由跨进程锁串行化：并发的第二个操作以
 exit 1 拒绝且不做任何改动，并指明正在进行的那一个。崩溃残留的锁会在下一次
-生命周期命令时自动清除；`doctor` 会报告 stale 锁。每次 commit 还会在首次
+生命周期命令时自动清除；`doctor` 会报告 stale 锁。共享 `hooks.json`、
+`config.toml`、`AGENTS.md` 逻辑路径必须是普通文件或不存在；任一为 symlink
+（包括断链）时，所有变更类生命周期入口都会在取得锁和恢复 journal 前拒绝，
+既不跟随链接写入外部目标，也不把链接 inode 替换为普通文件。每次 commit 还会在首次
 live 变更前写入持久 journal：中途被杀的运行可仅凭磁盘状态判定,并由**下一次
 生命周期命令自动恢复**——staged 源完好时前滚完成,否则回滚还原,然后继续;
 任意崩溃点都能通过平常的重跑自愈。仅当 journal 记录的目标被外部并发修改时
@@ -350,16 +353,34 @@ targeted 优先运行，第一个失败会阻止后续更宽的检查。
 agentsmd scorecard --days=30
 agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
+agentsmd scorecard --conformance-candidate=candidate.json --conformance-binding=binding.json
+agentsmd scorecard --outcomes=/absolute/path/to/agentsmd-outcomes.json
+agentsmd outcomes list --days=30 --json
+agentsmd outcomes review --event=EVENT_ID --outcome=false-block --reason=benign-action-confirmed
 ```
 
 版本化 scorecard v2 通过每个 session 一条有界 `session-dimension` 记录关联现场
 遥测，分开呈现 `self`、`test`、`qa`、`external` 与 `unknown` 来源，并汇总
 health、runtime compatibility、完整 conformance 新鲜度、false-block 测量状态、
 bypass、evidence discipline、performance、memory engagement、prompt budget、
-automation、operator actions 与 measurement limits。它不会自动升降级规则：
+automation、operator actions 与 measurement limits。missing join 还会保留可加性的
+归因对象：相对于保留窗口内第一条 observed dimension，session 被严格分成之前、跨越、
+之后和无参照四个桶，并分别统计 `self`、`external`、`unknown`、`mixed` 来源。无效或
+缺失 session identity 是 unjoinable input，不计作 missing join。这个顺序只覆盖保留
+日志，不能证明历史 schema、轮转丢失、跨 surface 丢失或当前 emitter 缺陷；因此只在
+第一条 dimension 之前出现的缺口不会再触发“当前 SessionStart 覆盖失败”的诊断。
+它不会自动升降级规则：
 raw hit 不代表规则价值，no-opportunity 不是成功，memory citation 不等于
 adherence，sampling calibration 只是结构 proxy；没有人工审核 outcome 时，
-现场 false-block rate 保持 `unmeasured`。health 会记录调用根目录、Codex home，
+现场 false-block rate 保持 `unmeasured`。新的 `block`/`deny` 行带不包含项目、会话或
+命令内容的 correlation ID；没有 ID 的 legacy 行明确计为 unmeasurable，不按秒级
+时间戳猜测关联。`outcomes list` 只呈现有界事件摘要，`outcomes review` 追加明确的
+私有 revision，不改写原始遥测。现场 rate 的分母严格等于已审核 external
+`true-block` 加 `false-block`；self、test、QA、unknown、unreviewed 与 unmeasurable
+都会单独报告但不进入分母。测量状态只能是 `no-opportunity`、`unmeasured`、
+`partial`、`measured` 或 `invalid`，不会把缺失证据推断成零。scorecard 还会把
+全部 fail-open 原因归入 dependency/input missing、timeout、parse error 或 other，
+同时保留 `audit` 中的精确原因。health 会记录调用根目录、Codex home，
 以及 status/doctor 证据来自 runtime filesystem 还是 supplied fixture。prompt-budget
 source 会区分 measured、empty、missing、invalid 与 unavailable；未解析的字节保持
 `null`，汇总状态只能是 `measured`、`partial`、`unavailable` 或 `over-budget`，
@@ -371,17 +392,34 @@ commit、tracked-clean 标记、cases hash 与 thresholds hash 都匹配当前�
 校验的 release evidence，因此 installed scorecard 无需读取原始 transcript 或任意
 evidence 路径，也能呈现精确的历史发布结果与 waiver。historical 或 mismatch
 证据不会变成 current-tree green；没有证据时会先建议配置或导入有界证据来源，
-而不是无条件再次消耗模型调用。release closure 可用以下入口从仓库内 capture
-生成 allowlist record：
+而不是无条件再次消耗模型调用。
+
+新版本使用两阶段协议。发布前 candidate attestation 绑定 clean source commit/tree、
+确定性的 standalone deploy-tree hash、package/version、conformance 输入、有限的运行
+摘要与 decision；发布后 binding 再绑定 candidate 的精确字节，并校验 GitHub Release
+与 npm tarball 字节相同，以及 npm SLSA subject、tag/ref、workflow 与 release commit
+一致。只有 candidate 时 provenance 显示为 `local-candidate`，不能当作已发布证明；
+匹配 binding 后显示为 `published-binding`。外部输入必须是有界、非符号链接的普通
+文件；scorecard 不会隐式访问网络，离线或缺失证据保持 unavailable/historical。
+旧版 package 中的 v1 record 继续作为历史证据读取。
+离线 binding 校验的是 byte/hash 与已解码 SLSA payload 的一致性；release closure
+仍须从声明的 release/registry 来源取得这些输入，并单独执行 npm signature/Sigstore
+真实性 gate。
+
+release closure 可用以下入口检查旧生成器和两个新阶段：
 
 ```bash
 node scripts/conformance-evidence.js --help
+npm run conformance:candidate -- --help
+npm run conformance:binding -- --help
 ```
 
-生成器只接受常规、非符号链接的
+candidate 生成器只接受常规、非符号链接的
 `docs/qa-captures/**/conformance-*/results.json`，输出 hashes、聚合后的
-runtime/model/result/threshold/waiver provenance，并拒绝覆盖内容不同的同版本
-record。
+runtime/model/result/threshold/waiver provenance，并拒绝 dirty source 或覆盖内容不同
+的同版本 record。binding 生成器显式读取 candidate、release tarball、registry
+tarball 与 SLSA provenance 文件；byte substitution、source-tree mismatch、version
+replay、provenance ref/workflow/commit mismatch、时间顺序错误和不同字节覆盖都会被拒绝。
 
 `--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v2 JSON。v1 capture
 没有 measurement provenance，无法通过猜测安全升级，因此会被明确拒绝。
@@ -406,6 +444,7 @@ ship 授权。
 | `perf-baseline`、`version-cascade` | 测量 hook 成本并检测 README 中过期的版本文本 |
 | `verify` | 解释并运行变更感知的本地验证；只报告真实外部服务与 AUTH boundary |
 | `scorecard` | 汇总有界的 health、compatibility、quality、performance、automation 与 measurement-limit 证据 |
+| `outcomes` | 列出有界的阻断事件摘要，并追加明确、私有的 true/false/unmeasurable 评审 revision |
 
 运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception`、`verify` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
 
@@ -470,7 +509,7 @@ doctor 的旧 `surface` 仍表示诊断调用 context，逻辑赢家使用 `sele
 
 ## 安全、所有权与共存
 
-standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
+standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件、symlink 共享逻辑路径或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
 
 `repair --plan` 是只读操作，会区分可普通更新的完整安装、缺少 manifest-owned
 文件的安装，以及无法证明 ownership 的状态。自动 repair 只处理有效 exact-path
@@ -485,7 +524,7 @@ manifest 的 partial install 都会阻断并要求人工复核。`--confirm=<pla
 `config.toml` 和 `AGENTS.md`，不能修复 deploy、skills、extended spec 或 ownership
 manifest。
 
-卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
+卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已审核 outcomes、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
 
 agentsmd 会保留其他 tenant 的 hook 条目和 sentinel 块外的全局 guidance，但不再有
 任何 OMX 专用 profile 选择或运行时依赖。完整规范内建 Codex 原生子代理契约：
@@ -503,20 +542,23 @@ node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
 agentsmd scorecard --days=30
+agentsmd outcomes list --days=30
 ```
 
 只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
 
 `rules` 另有 **bypass governance**：对每条带 escape-hatch token 的规则，报告 token 被用来跳过拦截的比例，以及这些跳过来自多少个不同 session。比例偏高只是复核提示，且有两种相反的解法——规则过度触发，或闸门被习惯性绕过——报告不替你选。`audit --trend` 把窗口切成等长时间桶并按每百 session 归一，让纪律指标的走向可见，而不只有当前快照；桶按时间划分，不按 spec 版本。
 
-scorecard 在不改变上述语义的前提下组合信号。runtime、model、surface、spec
+scorecard 在不改变上述语义的前提下组合信号。只有 operator 对精确事件完成
+审核后，outcome 才进入现场 false-block rate；缺失、legacy、self、test、QA、
+unknown 和 unmeasurable 证据都不进入分母。runtime、model、surface、spec
 和 agentsmd 版本由 SessionStart 去重维度记录提供，并通过 `session_id`
 关联；缺少该记录的旧 session 仍明确显示为 missing join。历史绿色 capture
 超过 freshness window 后，不会被当成当前树的新鲜证据。
 
 ## 安全与隐私
 
-漏洞报告渠道与响应目标、支持版本、威胁模型、遥测 schema/保留/删除/退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测仅本地（`~/.codex/logs/agentsmd.jsonl`，私有文件权限，按大小轮转封顶，`DISABLE_RULE_HITS_LOG=1` 退出，删除文件即抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
+漏洞报告渠道与响应目标、支持版本、威胁模型、遥测/评审 schema、保留、删除和退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测和人工评审 outcome 都只保存在本地（`~/.codex/logs/agentsmd.jsonl` 与 `agentsmd-outcomes.json`，私有文件权限和有界存储，`DISABLE_RULE_HITS_LOG=1` 停止新增遥测，删除两组数据才能完全抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
 
 ## 开发
 

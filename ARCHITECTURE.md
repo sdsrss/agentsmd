@@ -28,13 +28,53 @@ bin/        npm CLI 入口  bin/agentsmd.js（Node）：`agentsmd <cmd>` / `npx 
               —— 薄 dispatcher，spawn（而非 import）对应 L2 脚本，透传参数/输出/退出码；不属于三层，不引入 L1↔L2 耦合
 L3  命令层    17 个 Codex skills（dir + SKILL.md）：init / analyze / design / audit / doctor / rules / status / restore / verify / scorecard / perf 等
               —— stub，告诉 agent 去跑对应的 L2 脚本
-L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
+L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / outcomes / scorecard / doctor / rules / migrate / init / analyze / design / diagnostics
               —— 处理安装、scoped merge/remove、遥测聚合与治理信号
 L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 6 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
 ```
 
 **层间隔离不变式**：L1 永不 import L2；hook 异常时 fail-open，管理命令仍可独立运行。npm CLI 入口 `bin/agentsmd.js` 通过 spawn 子进程调用 L2 脚本。
+
+**Doctor 诊断分期**：`scripts/doctor.js` 保留依赖探测、生命周期状态读取、
+standalone 检查编排、最终健康折叠和公共 CLI/export；已完成的 plugin surface
+inspection 由 `scripts/lib/doctor-plugin.js` 纯映射既有 `surfaceStatus` 为有序检查行
+与返回元数据，不读取或写入文件。直接 characterization 固定 null/健康/损坏/receipt
+分支，`plugin-surface` 与 install 套件继续证明公共结果、诊断文本和退出语义；后续
+分期不得把 lifecycle mutation 引入该纯模块。
+
+**Repair 计划分期**：`scripts/repair.js` 保留 manifest/source/live inventory
+采集、ownership 判定、plan digest、锁、recovery snapshot、confirm mutation 与
+rollback；`scripts/lib/repair-classification.js` 只把已采集的 manifest/evidence 数组
+映射为 7 种 classification、apply eligibility、追加后的 blocker 副本和 6 种 operator
+recommendation。纯矩阵固定 blocker → modified/unexpected → missing → source mismatch
+的优先级，不读写文件；lifecycle 路由先跑直接矩阵和 repair 公共流，再进入
+fault-injection 与全门禁。
+
+**测试覆盖观测边界**：`scripts/coverage-observe.js` 是开发期、只观测、不设门槛的
+QA 工具，不属于 `agentsmd` 公共 CLI。`--run` 在任务自有临时目录中隔离
+`CODEX_HOME`，用 `NODE_V8_COVERAGE` 汇聚现有多进程 `npm test`，只读取仓库内
+`bin/`、`scripts/`、`hooks/lib/`、`qa/` 的生产 JavaScript，并对跨进程的同一函数
+根区间与嵌套 block range 去重。报告把未进入任何 capture 的生产文件单列，不为其
+虚构函数分母；原始 V8 range 也不被表述为精确可执行行或语义分支覆盖率。capture
+文件数/单文件/总字节、生产文件数和未覆盖函数输出均有上限；成功或失败都只清理
+经过前缀、直接父目录与文件类型校验的临时工作区。
+
+**JavaScript 最低 runtime 语法门禁**：`scripts/js-syntax-check.js` 不依赖第三方
+parser，而是枚举同一组仓库 JavaScript 根并逐文件调用当前 `process.execPath
+--check`，不执行源文件。由于它属于既有 `npm test`，Node 18/20/22/24 与 macOS
+矩阵会分别用自己的解析器验证全部 JS，而不是用开发机的新 Node 代替最低版本。
+扫描跳过 symlink，限制文件数、单文件大小、单次解析时间、失败条数和诊断长度；JSON
+只保留 repo-relative 文件名。该门禁只证明语法可被对应 runtime 解析，不推断 promise
+正确性、不可达语义、精确行或分支覆盖率。
+
+**本地 QA 证据留存**：`scripts/capture-inventory.js` 只扫描 canonical、非 symlink
+的 `docs/qa-captures`，把 `core-ab/<child>` 与其他顶层目录分别作为 evidence unit，
+对有界 regular files 和目录名生成确定性 SHA-256，不跟随 symlink，也不读取 special
+file。release、phase 和 unknown unit 无限期 hold；其他已识别实验在 90 天后仅进入人工
+review，年龄本身永不产生删除资格。默认命令只读；`--write` 只原子更新 ignored
+`index.json`，不会改写 capture payload。索引同时报告 group/other mode；当挂载层不能
+保持 `0600/0700` 时状态为 `privacy:degraded`，不得把 sanitized 等同于 private。
 
 **唯一豁免（spawn-with-fail-open）**：`hooks/session-start-check.sh` 以子进程方式 spawn `scripts/lib/surface-arbitration.js` 读取 surface 仲裁结果。它不是 import——三重防护（`command -v node`、文件可读探测、`platform_timeout`）保证缺失或超时只让 banner 变短，永不阻断用户，因此符合“L1 不依赖 L2 可用性”这一不变式的实质。豁免范围到此为止：`drift.test.js` 断言引用 `scripts/` 的 hook 集合恰好等于这一个文件，并断言这三重防护仍在——新增第二处会让 CI 变红。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
 
@@ -66,6 +106,15 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 外推其他版本。官方同时明确 `transcript_path` 指向的格式不是稳定 Hook 接口，所以
 消息扫描优先使用 `last_assistant_message`，fallback 每次写
 `event:"compat-fallback"`。
+
+**命令解析边界**：`hooks/lib/command-parse.js` 是有界 lexer/parser，不执行 shell
+展开。安全分析保留 pipeline 连接，支持消费者 subshell、`|` 后换行和 Bash `|&`；
+动态 alias/function、运行时生成命令词和超过 3 层的任意递归仍显式 fail-open，不以
+猜测代替证据。`scripts/tests/command-parse-property.test.js` 以固定默认 seed 生成
+quoting、wrapper、separator、subshell、environment assignment 的正例与近反例，
+另对任意输入只断言不崩溃、不超时和输出结构有效。单次解析时限为 2 秒，随机生成
+输入上限为 16 KiB，并保留 140 KB stdin 与 3/4 层递归边界样例；失败输出固定分为
+crash、timeout、false-negative、false-positive，且包含可重放 seed。
 
 **跨会话记忆分层**：Codex native Memories 是 opt-in 的模型智能层，负责在后台从
 eligible chats 选择、脱敏和整合长期事实；agentsmd 不静默开启它。agentsmd 自己的
@@ -105,13 +154,18 @@ manifest 仍写入绝对 hook 路径，不依赖 plugin runtime 变量。
 spec/AGENTS*.md 的 (HARD) 规则
   └─ spec/hard-rules.json           机器可读镜像（每条规则的 section_anchor + enforcement + codex_hook_event）
       └─ hooks/*.sh + hooks/lib/*.sh 强制/支撑  命中/阻断/fail-open 时 hook_record
-          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度）
-              └─ scripts/audit.js    bySection 聚合
-                  ├─ 治理信号         rule-specific opportunity + outcome → operator review
-                  └─ scorecard        session_id join + provenance split + freshness/measurement limits
+          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度；新 block/deny 带 correlation ID）
+              ├─ scripts/audit.js    bySection 聚合
+              │   └─ 治理信号         rule-specific opportunity + outcome → operator review
+              ├─ scripts/outcomes.js  有界事件摘要 → 人工 true/false/unmeasurable revision
+              │   └─ ~/.codex/logs/agentsmd-outcomes.json  私有、有界、append-history 侧车；不改写原始遥测
+              └─ scorecard           exact event join + 现场分母 + session/provenance/freshness limits
+                  └─ lib/conformance-evidence.js  schema semantics + exact-byte pair validation + state normalization
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
+- 只有新 `block`/`deny` 行生成不含 project/session/command/path 的 correlation ID；legacy 无 ID 行保持 unmeasurable。scorecard 的现场误拦分母只含已审核 external `true-block + false-block`，所有排除项逐项可见；sidecar 缺失、部分覆盖或无效分别进入 `unmeasured`、`partial`、`invalid`，不推断零值。
+- scorecard 保留 missing session 总数，同时按第一条 retained `session-dimension` 的前/跨越/后/无参照顺序和 self/external/unknown/mixed 来源归因；无效/缺失 session identity 单列为 unjoinable。该顺序只证明 retained-window ordering，不推断历史 schema、日志轮转、跨 surface 丢失或当前 emitter 根因。
 - manifest 的反向 drift gate 同时核对显式 HARD/MUST 行和 §8 Never 子句；`operational_sections` 单独声明 `§hooks-fail-open` 这类非规范规则的运行遥测。
 - **离线兜底**（Codex 特有优势）：`codex exec` 可无交互跑，为「离线扫历史会话产出命中率」提供一条 CI/定时路径——即 `agentsmd.txt` 设想的「试运行拿稀释度信号」，无需实时 hook 也能取数。
 - `hard-rules.json` 的 `last_demote_review` 现为 `null`（部署前无字段数据）；首批遥测落地后由 OPERATOR 按节奏回填。
@@ -129,6 +183,7 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 **装卸语义**：
 - **安装/更新 = stage + preflight + transaction**：先构建完整 release tree 并验证既有 manifest ownership，再更新共享文件和 live tree；注入失败时用快照条件检查回滚，拒绝覆盖在最终文件系统操作前已观察到的事务外写入。
 - **卸载 = preflight + transaction**：先验证全部 manifest-owned artifact，任一冲突都零 mutation；通过后 quarantine owned tree 并更新共享文件，失败时以快照条件检查回滚。可移植 POSIX 不提供原子 compare-and-replace，因此 check 到 rename/unlink 之间的非协作写入仍是明确边界。
+- **共享路径类型 = regular-or-absent**：`hooks.json`、`config.toml`、`AGENTS.md` 任一为 symlink 时，install/update/uninstall/restore/repair 在取得锁和处理 pending journal 前零 mutation 拒绝；原子 write/unlink 在 commit 边界再次检查，防止把链接 inode 替换为普通文件或删除链接。生命周期不自动 `realpath` 后写入任意外部目标。
 - **修复 = read-only plan + digest-bound confirm**：只对 valid exact-path manifest 下“缺失而未修改”且 source version/deploy digest 与 manifest 完全一致的 owned artifact 开放 apply；确认时重算 source/live/shared descriptor，创建包含 deploy、skills、extended、manifest 和 3 个共享文件的 pre-repair snapshot，再复用 install transaction。修改、额外文件、manifest-less partial、artifact 不匹配或摘要漂移均拒绝写入。
 - **双面仲裁 = health first + SemVer precedence**：`surface-arbitration.js` 对 standalone 验证 exact-path manifest、单次 deploy inventory/hash、extended/skills hash、live wiring 的 event/matcher/command/timeout/order/context limit、由隔离临时 home 中 Codex CLI 验证的 `config.toml`、`features.hooks`、required support，以及实际 discovery head 的 core 字节 identity；对 plugin 拒绝越界 symlink，并验证 manifest/package/core/extended 版本及 19 条 wiring/support/order/context limit。仅健康候选参与 SemVer precedence（无界十进制字符串比较，build metadata 不参与），同 precedence 时 standalone 确定性胜出。plugin context 按 `PLUGIN_ROOT` → `CLAUDE_PLUGIN_ROOT` → skill 解析出的 `AGENTSMD_PLUGIN_ROOT` 选择；冲突 fail closed，且不扫描 cache。结果区分逻辑赢家与静态 `exclusive` 协作条件：protocol-v1 且两份 hook 都获得 plugin context 时 loser 可退出；该字段不是 runtime exact-once 证明。legacy standalone 已注册命令和预加载 global core 无法由新 plugin 单方面移除，doctor 必须保持 degraded，最终优先级留给真实 Codex E2E。
 - **运行激活证据与结构健康分离**：plugin SessionStart 仅在 plugin surface 被仲裁选中且 packaged spec 成功加载后，原子写入 `$PLUGIN_DATA/runtime/activation.json`（兼容 `$CLAUDE_PLUGIN_DATA`），目录/文件权限分别为 `0700`/`0600`。receipt 记录版本、session、时间、profile、选择原因与 extended 路径；status/doctor 的 `observed` 只证明 SessionStart handler 已选择并准备返回该 profile，不证明 Codex host 已接纳响应，也不外推为全部 hooks trusted/enforced。缺失 receipt 是 `unverified` 信息态，不改变既有 doctor 退出语义。
@@ -150,7 +205,7 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 | `~/.codex/AGENTS.md`（规范部署） | sentinel 托管块 `# >>> agentsmd >>> … # <<< agentsmd <<<`，块外内容逐字保留；卸载只删块 | 不存在则创建，只含自己的块 |
 | MCP servers | 强制层不加 MCP（遥测是本地 jsonl）；未来若加，用 `agentsmd_*` 键 | 无影响 |
 | skills（命令层） | manifest exact path + tree hash；前缀不是 ownership 证据 | 无影响 |
-| state / log | manifest/cache/telemetry 共享；plugin 与 standalone ephemeral runtime 分面；legacy 双读不搬迁；backups、unknown、symlink 与 telemetry 保留 | 无碰撞 |
+| state / log | manifest/cache/telemetry/reviewed outcomes 共享；plugin 与 standalone ephemeral runtime 分面；legacy 双读不搬迁；backups、unknown、symlink、telemetry 与 reviewed outcomes 保留 | 无碰撞 |
 
 **打包形态**：仓库提供 `.codex-plugin/plugin.json`、顶层 `hooks.json` 和 standalone `scripts/install.js`。`.agents/plugins/marketplace.json` 固定指向已发布的 `@sdsrs/agentsmd` npm artifact；npm 包排除源码测试目录。plugin surface 的装配由 Codex plugin runtime 管理；standalone surface 使用本节的 manifest-backed transaction。两套 surface 分开卸载。
 
@@ -192,8 +247,8 @@ agentsmd/
     hooks.json               agentsmd 的 hook 条目（供安装器 append 进 ~/.codex/hooks.json）
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
-  scripts/                   L2 管理脚本（含 install/uninstall/repair/verify）
-  schemas/                   task/evidence、scorecard、conformance release evidence、runtime-canary 的有界 JSON Schema
+  scripts/                   L2 管理脚本（含 install/uninstall/repair/verify 与 security-policy gate）
+  schemas/                   task/evidence、reviewed outcomes、scorecard、conformance candidate/binding、runtime-canary 的有界 JSON Schema
   qa/validation-map.json     路径→风险→检查的机器可读验证映射
   qa/runtime-canary.js       pinned/latest 隔离 canary 与机器可读证据
   automation/                weekly canary/governance、readiness、PR review recipes

@@ -312,6 +312,10 @@ function install(nowIso, options = {}) {
   if (!preflight.ok && options.degraded !== true) {
     throw new Error(PF.refusalMessage(preflight.missing));
   }
+  // Shared files are multi-tenant logical paths. Atomic rename would replace a
+  // symlink inode, so refuse before the lifecycle lock creates any CODEX_HOME
+  // state. installCore repeats this under the lock to close the check/use gap.
+  B.assertSharedFilesSafe();
   // R2-01: one writer per $CODEX_HOME. Reentrant when repair --confirm drives
   // this install in-process (LOCK is a module singleton).
   const lock = LOCK.acquire(options.repair ? 'repair' : 'install');
@@ -323,6 +327,7 @@ function install(nowIso, options = {}) {
 }
 
 function installCore(nowIso, options, preflight, txid) {
+  B.assertSharedFilesSafe();
   // R2-03: we hold the lifecycle lock, so a journal on disk here is the record
   // of a CRASHED predecessor. Recover it FIRST — roll it forward when every
   // forward source survives on disk, else roll it back — and only then run this
@@ -330,6 +335,7 @@ function installCore(nowIso, options, preflight, txid) {
   // concurrent change, or both directions missing sources) throws fail-closed
   // with the journal preserved; `doctor` explains the verdict.
   const recoveredJournal = J.processPending();
+  B.assertSharedFilesSafe();
   const repo = P.repoRoot();
   const stamp = nowIso || new Date().toISOString();
   const stageRoot = path.join(P.codexHome(), `.agentsmd-stage-${process.pid}-${Date.now()}`);

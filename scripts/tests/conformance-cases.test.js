@@ -239,13 +239,15 @@ t('runner exists and points at this library', () => {
   assert.ok(runner.includes('--reviewed-hooks) REVIEWED_HOOKS=1'),
     'runner must require an explicit reviewed-hooks opt-in');
   assert.ok(runner.includes('HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)'),
-    'reviewed automation must run installed hooks without persisted trust');
+    'reviewed automation must run installed hooks without persisted hook trust');
+  assert.ok(runner.includes('qa/cleanup-project-trust.js'),
+    'runner must remove only its exact task-owned project trust tables');
   assert.ok(runner.includes('session_hooks_observed'),
     'runner must fail closed when a completed child session emits no hook telemetry');
   assert.ok(runner.includes('native hook activation missing for child session'),
     'runner must attribute missing child hooks as infrastructure, not model behavior');
   assert.ok(!runner.includes('--ignore-user-config'),
-    'runner still needs the configured provider/auth and installed agentsmd surface');
+    'runner still needs the configured subscription provider and installed agentsmd surface');
   for (const key of [
     'surface', 'profile', 'source_commit', 'source_tracked_clean',
     'cases_sha256', 'thresholds_sha256', 'hook_trust',
@@ -266,6 +268,9 @@ tBashMapfile('reviewed hook trust reaches Codex; missing child activation fails 
     fs.mkdirSync(logDir, { recursive: true });
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(path.join(logDir, 'agentsmd.jsonl'), '');
+    const configPath = path.join(home, 'config.toml');
+    const initialConfig = 'model = "fixture"\n';
+    fs.writeFileSync(configPath, initialConfig);
     fs.writeFileSync(path.join(stateDir, 'manifest.json'), JSON.stringify({
       name: 'agentsmd',
       version: '5.3.0',
@@ -300,16 +305,19 @@ for arg in "$@"; do
   fi
 done
 reviewed=0
+project=''
 last=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dangerously-bypass-hook-trust) reviewed=1; shift ;;
+    -C) project="$2"; shift 2 ;;
     -o) last="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 sid='11111111-1111-1111-1111-111111111111'
 printf 'PASS\\n' > "$last"
+printf '\\n[projects."%s"]\\ntrust_level = "trusted"\\n' "$project" >> "$CODEX_HOME/config.toml"
 if [ "$reviewed" -eq 1 ]; then
   printf '%s\\n' '{"hook":"session-start","event":"context","session_id":"11111111-1111-1111-1111-111111111111","tag":"qa"}' >> "$CODEX_HOME/logs/agentsmd.jsonl"
 fi
@@ -341,6 +349,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     const reviewedResult = JSON.parse(fs.readFileSync(path.join(reviewedCapture, 'results.json'), 'utf8'));
     assert.strictEqual(reviewedResult.meta.hook_trust, 'automation-bypass');
     assert.strictEqual(reviewedResult.cases[0].verdict, 'pass');
+    assert.strictEqual(fs.readFileSync(configPath, 'utf8'), initialConfig);
 
     const persistedOut = path.join(sandbox, 'persisted-out');
     const persisted = run(persistedOut);
@@ -354,6 +363,101 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     assert.ok(path.basename(sandbox).startsWith('agentsmd-conformance-contract-'));
     fs.rmSync(sandbox, { recursive: true, force: true });
   }
+});
+
+t('project trust cleanup removes exact task tables and preserves every neighbor', () => {
+  const helperPath = path.join(ROOT, 'qa', 'cleanup-project-trust.js');
+  assert.ok(fs.existsSync(helperPath), 'project trust cleanup helper missing');
+  const { parseArgs, removeProjectTrustTables, sameCanonicalPath } = require(helperPath);
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/fixture', 'darwin'),
+    true,
+    'macOS /var and /private/var aliases must compare as the same sandbox',
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/other', 'darwin'),
+    false,
+    'macOS alias handling must not accept a different sandbox',
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/fixture', 'linux'),
+    false,
+    'non-macOS platforms must not gain a path alias',
+  );
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance.'));
+  try {
+    const config = path.join(sandbox, 'config.toml');
+    assert.deepStrictEqual(parseArgs([`--config=${config}`, `--sandbox=${sandbox}`]), { config, sandbox });
+    assert.throws(() => parseArgs(['--config', config, `--sandbox=${sandbox}`]), /requires '=value'/u);
+    assert.throws(() => parseArgs([`--config=${config}`, `--sandbox=${sandbox}`, '--unknown']), /Unknown flag/u);
+    const original = [
+      'model = "fixture"',
+      'notes = """',
+      `[projects."${sandbox}/case-string-data"]`,
+      'trust_level = "trusted"',
+      '"""',
+      '',
+      '[projects."/tmp/foreign"]',
+      'trust_level = "trusted"',
+      '',
+    ].join('\n');
+    const taskTable = `\n[projects."${sandbox}/case-fixture"]\ntrust_level = "trusted"\n`;
+    fs.writeFileSync(config, original + taskTable, { mode: 0o600 });
+    const cleaned = removeProjectTrustTables(config, sandbox);
+    assert.strictEqual(cleaned.removed, 1);
+    assert.strictEqual(fs.readFileSync(config, 'utf8'), original);
+
+    const adjacentTaskTables = `${taskTable}\n[projects."${sandbox}/case-second"]\ntrust_level = "trusted"\n`;
+    fs.writeFileSync(config, original + adjacentTaskTables, { mode: 0o600 });
+    const adjacentCleaned = removeProjectTrustTables(config, sandbox);
+    assert.strictEqual(adjacentCleaned.removed, 2);
+    assert.strictEqual(fs.readFileSync(config, 'utf8'), original);
+
+    const unsafe = `${original}\n[projects."${sandbox}/case-unsafe"]\ntrust_level = "trusted"\nextra = true\n`;
+    fs.writeFileSync(config, unsafe, { mode: 0o600 });
+    assert.throws(() => removeProjectTrustTables(config, sandbox), /unexpected content/u);
+    assert.strictEqual(fs.readFileSync(config, 'utf8'), unsafe);
+
+    const unterminated = `${original}notes = """\n[projects."${sandbox}/case-string-data"]\ntrust_level = "trusted"\n`;
+    fs.writeFileSync(config, unterminated, { mode: 0o600 });
+    assert.throws(() => removeProjectTrustTables(config, sandbox), /unterminated TOML string/u);
+    assert.strictEqual(fs.readFileSync(config, 'utf8'), unterminated);
+
+    fs.writeFileSync(config, original + taskTable, { mode: 0o600 });
+    const F = require('../lib/fs-atomic');
+    assert.throws(() => removeProjectTrustTables(config, sandbox, {
+      write: (file, content, options) => {
+        fs.appendFileSync(file, '# concurrent\n');
+        F.writeFileAtomic(file, content, options);
+      },
+    }), /concurrent change/u);
+    assert.match(fs.readFileSync(config, 'utf8'), /# concurrent\n$/u);
+
+    const target = path.join(sandbox, 'target.toml');
+    const link = path.join(sandbox, 'linked.toml');
+    fs.writeFileSync(target, original, { mode: 0o600 });
+    fs.symlinkSync(target, link);
+    assert.throws(() => removeProjectTrustTables(link, sandbox), /symlink/u);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), original);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: false });
+  }
+});
+
+t('outcome-first assertion accepts strict English/Chinese answers and rejects evidence-first prose', () => {
+  const target = lib.cases.find((item) => item.id === 'discipline-outcome-first');
+  assert.ok(target, 'discipline-outcome-first case missing');
+  const assertion = target.assert.find((item) => item.type === 'last_regex' && item.regex.startsWith('^'));
+  assert.ok(assertion, 'outcome-first anchored assertion missing');
+  const matches = (input) => cp.spawnSync('grep', ['-Eiq', assertion.regex], {
+    input,
+    encoding: 'utf8',
+  }).status === 0;
+  assert.strictEqual(matches('Yes — the service is enabled.\n'), true);
+  assert.strictEqual(matches('Enabled: true.\n'), true);
+  assert.strictEqual(matches('服务**已启用**。证据为 "enabled": true。\n'), true);
+  assert.strictEqual(matches('证据显示服务已启用。\n'), false);
+  assert.strictEqual(matches('The evidence says enabled.\n'), false);
 });
 
 t('runner signal traps exit before the destructive sandbox cleanup', () => {

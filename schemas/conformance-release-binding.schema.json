@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/conformance-release-binding.schema.json",
+  "title": "agentsmd conformance release binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "kind", "verified_at", "candidate", "release",
+    "artifacts", "provenance"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "agentsmd-conformance-release-binding" },
+    "verified_at": { "$ref": "#/$defs/timestamp" },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "release": { "$ref": "#/$defs/release" },
+    "artifacts": { "$ref": "#/$defs/artifacts" },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:[+][0-9A-Za-z.-]+)?$"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sha512": { "type": "string", "pattern": "^[a-f0-9]{128}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]{3})?Z$"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256", "package", "version", "source_commit", "source_tree",
+        "deploy_sha256", "attested_at"
+      ],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "package": { "const": "@sdsrs/agentsmd" },
+        "version": { "$ref": "#/$defs/semver" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "source_tree": { "$ref": "#/$defs/commit" },
+        "deploy_sha256": { "$ref": "#/$defs/sha256" },
+        "attested_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "commit", "tree", "tag", "published_at"],
+      "properties": {
+        "package": { "const": "@sdsrs/agentsmd" },
+        "version": { "$ref": "#/$defs/semver" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "tree": { "$ref": "#/$defs/commit" },
+        "tag": { "type": "string", "pattern": "^v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$", "maxLength": 64 },
+        "published_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_sha256", "release_sha256", "sha512"],
+      "properties": {
+        "registry_sha256": { "$ref": "#/$defs/sha256" },
+        "release_sha256": { "$ref": "#/$defs/sha256" },
+        "sha512": { "$ref": "#/$defs/sha512" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256", "subject", "subject_sha512", "repository", "ref",
+        "workflow", "commit"
+      ],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "subject": { "$ref": "#/$defs/text" },
+        "subject_sha512": { "$ref": "#/$defs/sha512" },
+        "repository": { "const": "https://github.com/sdsrss/agentsmd" },
+        "ref": { "type": "string", "pattern": "^refs/tags/v[0-9]+[.][0-9]+[.][0-9]+$", "maxLength": 96 },
+        "workflow": { "const": ".github/workflows/release.yml" },
+        "commit": { "$ref": "#/$defs/commit" }
+      }
+    }
+  }
+}

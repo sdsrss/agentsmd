@@ -142,12 +142,22 @@ CAP="$OUT_DIR/conformance-$STAMP"
 mkdir -p "$CAP"
 
 SBX="$(mktemp -d "${TMPDIR:-/tmp}/agentsmd-conformance.XXXXXX")" || { echo "FAIL: mktemp" >&2; exit 1; }
+cleanup_project_trust() {
+  node "$REPO_ROOT/qa/cleanup-project-trust.js" \
+    --config="$CODEX_HOME_DIR/config.toml" --sandbox="$SBX"
+}
 cleanup() {
+  local exit_rc=$?
+  if ! cleanup_project_trust >/dev/null; then
+    echo "FAIL: could not remove task-owned project trust from $CODEX_HOME_DIR/config.toml" >&2
+    [ "$exit_rc" -ne 0 ] || exit_rc=1
+  fi
   if [ "$KEEP" -ne 1 ]; then
     case "$SBX" in
       /tmp/agentsmd-conformance.*|"${TMPDIR:-/tmp}"/agentsmd-conformance.*) rm -rf "$SBX" ;;
     esac
   fi
+  return "$exit_rc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -290,6 +300,18 @@ run_case_session() {
   return "$rc"
 }
 
+TRUST_CLEANUP_ERROR=""
+run_case_session_clean() {
+  local run_rc=0 cleanup_output
+  TRUST_CLEANUP_ERROR=""
+  run_case_session || run_rc=$?
+  if ! cleanup_output="$(cleanup_project_trust 2>&1)"; then
+    TRUST_CLEANUP_ERROR="$cleanup_output"
+    return 125
+  fi
+  return "$run_rc"
+}
+
 # A session whose turn never completed (provider 401/timeout/disconnect) is an
 # infrastructure error, not model behavior — grading it would poison the rates.
 session_turn_completed() {
@@ -420,11 +442,22 @@ PASS=0; FAIL=0; ERR=0
 : > "$SBX/results.rows"
 for id in "${CASE_IDS[@]}"; do
   setup_case "$id"
-  run_case_session || true
-  if ! session_turn_completed; then
+  run_case_session_clean || true
+  if [ -z "$TRUST_CLEANUP_ERROR" ] && ! session_turn_completed; then
     # one retry on a fresh fixture (the failed attempt may have half-mutated it)
     setup_case "$id"
-    run_case_session || true
+    run_case_session_clean || true
+  fi
+  if [ -n "$TRUST_CLEANUP_ERROR" ]; then
+    ERR=$((ERR+1)); verdict=error
+    printf '  ERR  %-24s project trust cleanup failed; aborting remaining cases\n' "$id"
+    printf '%s\n' "$TRUST_CLEANUP_ERROR" > "$SBX/$id.why"
+    jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
+          --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --rawfile why "$SBX/$id.why" \
+      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+      >> "$SBX/results.rows"
+    break
   fi
   if ! session_turn_completed; then
     ERR=$((ERR+1)); verdict=error

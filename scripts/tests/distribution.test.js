@@ -3,6 +3,7 @@
 // installer wrapper and the repo marketplace metadata used by `codex plugin add`.
 
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
@@ -52,7 +53,61 @@ const singlePackResult = (packOutput) => {
   return results[0];
 };
 
-const provenanceUrlFromNpmView = require('../lib/release-artifact').provenanceUrlFromNpmView;
+const {
+  inspectReleaseArtifact,
+  provenanceUrlFromNpmView,
+  stageSources,
+} = require('../lib/release-artifact');
+const F = require('../lib/fs-atomic');
+const fileDigest = (algorithm, file) => crypto.createHash(algorithm).update(fs.readFileSync(file)).digest('hex');
+
+t('standalone deploy staging normalizes source modes into one deterministic tree identity', () => withSandbox((dir) => {
+  const populateSource = (root, directoryMode, fileMode) => {
+    const directories = [
+      'hooks',
+      'spec',
+      'scripts',
+      path.join('skills', 'fixture'),
+      'schemas',
+      'automation',
+      'qa',
+    ];
+    for (const relative of directories) {
+      const target = path.join(root, relative);
+      fs.mkdirSync(target, { recursive: true });
+      fs.chmodSync(target, directoryMode);
+    }
+    const files = new Map([
+      [path.join('hooks', 'fixture.sh'), '#!/bin/sh\nexit 0\n'],
+      [path.join('spec', 'AGENTS.md'), '# fixture\n'],
+      [path.join('scripts', 'fixture.js'), "'use strict';\n"],
+      [path.join('skills', 'fixture', 'SKILL.md'), '# fixture\n'],
+      [path.join('schemas', 'fixture.json'), '{}\n'],
+      [path.join('automation', 'README.md'), '# fixture\n'],
+      [path.join('qa', 'validation-map.json'), '{}\n'],
+      ['package.json', '{"name":"fixture","version":"1.0.0"}\n'],
+    ]);
+    for (const [relative, content] of files) {
+      const target = path.join(root, relative);
+      fs.writeFileSync(target, content);
+      fs.chmodSync(target, fileMode);
+    }
+  };
+
+  const permissiveSource = path.join(dir, 'source-permissive');
+  const restrictiveSource = path.join(dir, 'source-restrictive');
+  populateSource(permissiveSource, 0o777, 0o777);
+  populateSource(restrictiveSource, 0o700, 0o600);
+
+  const permissiveDeploy = stageSources(permissiveSource, path.join(dir, 'stage-permissive'));
+  const restrictiveDeploy = stageSources(restrictiveSource, path.join(dir, 'stage-restrictive'));
+  assert.strictEqual(F.sha256Tree(permissiveDeploy), F.sha256Tree(restrictiveDeploy));
+  assert.strictEqual(fs.statSync(permissiveDeploy).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'skills', 'fixture')).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'hooks', 'fixture.sh')).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'scripts', 'fixture.js')).mode & 0o777, 0o644);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'package.json')).mode & 0o777, 0o644);
+}));
 
 t('npm pack JSON accepts legacy arrays and npm 12 package maps only when singular', () => {
   const result = { filename: 'agentsmd.tgz', files: [] };
@@ -314,6 +369,7 @@ t('package files include curl installer and repo marketplace metadata', () => {
   assert(files.includes('qa/conformance/cases.json'));
   assert(files.includes('qa/conformance/thresholds.json'));
   assert(files.includes('qa/conformance/releases'));
+  assert(files.includes('SECURITY.md'));
 });
 
 // ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
@@ -333,7 +389,7 @@ t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => wi
     'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore', 'repair',
     'status', 'doctor', 'audit', 'sampling-audit', 'lesson-bypass-audit',
     'sparkline', 'safety-coverage-audit', 'version-cascade', 'perf-baseline',
-    'lint-argv', 'verify', 'scorecard', 'rules',
+    'lint-argv', 'verify', 'scorecard', 'outcomes', 'rules',
   ]) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
@@ -367,6 +423,7 @@ t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
     ['perf-baseline', '--runs=0'],
     ['verify', '--since'],
     ['scorecard', '--days=0'],
+    ['outcomes', 'list', '--days=0'],
     ['repair'],
     ['repair', '--confirm=not-a-digest'],
   ];
@@ -445,10 +502,17 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'task-contract.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'task-evidence.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'scorecard.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'conformance-candidate-attestation.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'conformance-release-binding.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'reviewed-outcomes.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'runtime-canary.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'validation-map.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'perf', 'baseline.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'conformance', 'cases.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'conformance', 'thresholds.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'conformance-candidate.js')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'conformance-binding.js')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'outcomes.js')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'automation', 'weekly-runtime-canary.md')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'skills', 'agentsmd-scorecard', 'SKILL.md')));
   const verifyPlan = JSON.parse(cp.execFileSync(process.execPath, [
@@ -479,14 +543,27 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   assert.strictEqual(scorecard.schema_version, 2);
   assert.strictEqual(scorecard.performance.state, 'fresh');
   assert.strictEqual(scorecard.automation.recipes_present, 4);
+  const outcomeList = JSON.parse(cli(['outcomes', 'list', '--days=30', '--json'], env));
+  assert.deepStrictEqual(outcomeList, { days: 30, events: [] });
+  assert(!fs.existsSync(path.join(dir, 'logs', 'agentsmd-outcomes.json')),
+    'outcomes list must not create a review sidecar');
 
   const status = JSON.parse(cli(['status'], env));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 19);
 
+  const retainedOutcome = path.join(dir, 'logs', 'agentsmd-outcomes.json');
+  fs.mkdirSync(path.dirname(retainedOutcome), { recursive: true });
+  fs.writeFileSync(retainedOutcome, JSON.stringify({
+    schema_version: 1,
+    kind: 'agentsmd-reviewed-outcomes',
+    outcomes: [],
+  }));
+  fs.chmodSync(retainedOutcome, 0o600);
   const uninstallOut = cli(['uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));
   assert.strictEqual(JSON.parse(cli(['status'], env)).installed, false);
+  assert(fs.existsSync(retainedOutcome), 'uninstall must retain user-owned reviewed outcomes');
 }));
 
 t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) => {
@@ -680,6 +757,14 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('qa/core-ab/cases.json'), 'tarball is missing the core A/B case library');
   assert(packedPaths.includes('qa/conformance/thresholds.json'), 'tarball is missing conformance thresholds');
   assert(packedPaths.includes('qa/conformance/releases/v5.3.0.json'), 'tarball is missing release conformance evidence');
+  assert(packedPaths.includes('schemas/conformance-candidate-attestation.schema.json'), 'tarball is missing the candidate-attestation schema');
+  assert(packedPaths.includes('schemas/conformance-release-binding.schema.json'), 'tarball is missing the release-binding schema');
+  assert(packedPaths.includes('schemas/reviewed-outcomes.schema.json'), 'tarball is missing the reviewed-outcomes schema');
+  assert(packedPaths.includes('scripts/conformance-candidate.js'), 'tarball is missing the candidate-attestation generator');
+  assert(packedPaths.includes('scripts/conformance-binding.js'), 'tarball is missing the release-binding generator');
+  assert(packedPaths.includes('scripts/outcomes.js'), 'tarball is missing the reviewed-outcomes command');
+  assert(packedPaths.includes('SECURITY.md'), 'tarball is missing the security policy');
+  assert(packedPaths.includes('scripts/security-policy-check.js'), 'tarball is missing the security-policy gate');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,
@@ -714,6 +799,117 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert.strictEqual(installedScorecard.conformance.provenance.reason, 'package-version-mismatch');
 
   const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
+  assert.match(cp.execFileSync(process.execPath, [
+    path.join(installedRoot, 'scripts', 'conformance-candidate.js'), '--help',
+  ], { cwd: installedRoot, encoding: 'utf8' }), /candidate attestation/u);
+  assert.match(cp.execFileSync(process.execPath, [
+    path.join(installedRoot, 'scripts', 'conformance-binding.js'), '--help',
+  ], { cwd: installedRoot, encoding: 'utf8' }), /post-publication record/u);
+  const missingExternal = JSON.parse(installedCli([
+    'scorecard', '--days=30', '--json',
+    `--conformance-candidate=${path.join(dir, 'missing-candidate.json')}`,
+  ]));
+  assert.strictEqual(missingExternal.conformance.state, 'unavailable');
+  assert.strictEqual(missingExternal.conformance.provenance.reason, 'candidate-evidence-unavailable');
+  const installedPackage = JSON.parse(fs.readFileSync(path.join(installedRoot, 'package.json'), 'utf8'));
+  const installedCasesFile = path.join(installedRoot, 'qa', 'conformance', 'cases.json');
+  const installedThresholdsFile = path.join(installedRoot, 'qa', 'conformance', 'thresholds.json');
+  const installedCases = JSON.parse(fs.readFileSync(installedCasesFile, 'utf8')).cases;
+  const candidateCommit = 'a'.repeat(40);
+  const candidateTree = 'b'.repeat(40);
+  const releaseCommit = 'c'.repeat(40);
+  const packagedArtifact = inspectReleaseArtifact(installedRoot);
+  assert.strictEqual(packagedArtifact.complete, true, packagedArtifact.errors.join('\n'));
+  const candidate = {
+    schema_version: 1,
+    kind: 'agentsmd-conformance-candidate-attestation',
+    attested_at: '2026-08-20T01:00:00.000Z',
+    subject: {
+      package: installedPackage.name,
+      version: installedPackage.version,
+      source_commit: candidateCommit,
+      source_tree: candidateTree,
+      source_tracked_clean: true,
+      deploy_sha256: packagedArtifact.deploySha256,
+      cases_sha256: fileDigest('sha256', installedCasesFile),
+      thresholds_sha256: fileDigest('sha256', installedThresholdsFile),
+    },
+    runs: [{
+      capture: 'conformance-20260820T000000Z',
+      recorded_at: '2026-08-20T00:00:00.000Z',
+      results_sha256: 'd'.repeat(64),
+      codex_version: '0.147.0',
+      model: 'gpt-5.6-sol',
+      agentsmd_version: installedPackage.version,
+      surface: 'standalone',
+      profile: 'full',
+      passed: installedCases.length,
+      total: installedCases.length,
+      errors: 0,
+      false_block_near_negatives: 3,
+      threshold_verdict: 'pass',
+    }],
+    decision: { verdict: 'pass', waiver: null },
+  };
+  const candidateFile = path.join(dir, 'candidate.json');
+  fs.writeFileSync(candidateFile, `${JSON.stringify(candidate, null, 2)}\n`);
+  const tarballSha256 = fileDigest('sha256', tarball);
+  const tarballSha512 = fileDigest('sha512', tarball);
+  const bindingFile = path.join(dir, 'binding.json');
+  fs.writeFileSync(bindingFile, `${JSON.stringify({
+    schema_version: 1,
+    kind: 'agentsmd-conformance-release-binding',
+    verified_at: '2026-08-20T03:00:00.000Z',
+    candidate: {
+      sha256: fileDigest('sha256', candidateFile),
+      package: installedPackage.name,
+      version: installedPackage.version,
+      source_commit: candidateCommit,
+      source_tree: candidateTree,
+      deploy_sha256: packagedArtifact.deploySha256,
+      attested_at: candidate.attested_at,
+    },
+    release: {
+      package: installedPackage.name,
+      version: installedPackage.version,
+      commit: releaseCommit,
+      tree: candidateTree,
+      tag: `v${installedPackage.version}`,
+      published_at: '2026-08-20T02:00:00.000Z',
+    },
+    artifacts: {
+      registry_sha256: tarballSha256,
+      release_sha256: tarballSha256,
+      sha512: tarballSha512,
+    },
+    provenance: {
+      sha256: 'e'.repeat(64),
+      subject: `pkg:npm/%40sdsrs/agentsmd@${installedPackage.version}`,
+      subject_sha512: tarballSha512,
+      repository: 'https://github.com/sdsrss/agentsmd',
+      ref: `refs/tags/v${installedPackage.version}`,
+      workflow: '.github/workflows/release.yml',
+      commit: releaseCommit,
+    },
+  }, null, 2)}\n`);
+  const boundInstalledScorecard = JSON.parse(installedCli([
+    'scorecard', '--days=30', '--json',
+    `--conformance-candidate=${candidateFile}`,
+    `--conformance-binding=${bindingFile}`,
+  ]));
+  assert.strictEqual(boundInstalledScorecard.conformance.state, 'fresh');
+  assert.strictEqual(boundInstalledScorecard.conformance.provenance.evidence_phase, 'published-binding');
+  assert.strictEqual(boundInstalledScorecard.conformance.provenance.reason, 'published-binding-and-artifact-match');
+  const installedSecurityPolicy = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(installedRoot, 'scripts', 'security-policy-check.js'),
+    '--json',
+  ], {
+    cwd: installedRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  assert.strictEqual(installedSecurityPolicy.ok, true, JSON.stringify(installedSecurityPolicy));
+  assert.strictEqual(installedSecurityPolicy.expectedMajor, installedSecurityPolicy.declaredMajor);
   assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));
   assert(!fs.existsSync(path.join(installedRoot, 'scripts', 'tests')));
   const installedPlugin = JSON.parse(fs.readFileSync(
@@ -776,6 +972,12 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     codexHome, 'agentsmd', 'qa', 'conformance', 'releases', 'v5.3.0.json'
   );
   assert(fs.existsSync(deployedEvidence), 'standalone deploy is missing release conformance evidence');
+  assert(fs.existsSync(path.join(codexHome, 'agentsmd', 'qa', 'conformance', 'thresholds.json')),
+    'standalone deploy is missing conformance thresholds');
+  assert(fs.existsSync(path.join(codexHome, 'agentsmd', 'scripts', 'conformance-candidate.js')),
+    'standalone deploy is missing the candidate-attestation generator');
+  assert(fs.existsSync(path.join(codexHome, 'agentsmd', 'scripts', 'conformance-binding.js')),
+    'standalone deploy is missing the release-binding generator');
   const deployedScorecard = JSON.parse(cp.execFileSync(process.execPath, [
     path.join(codexHome, 'agentsmd', 'scripts', 'scorecard.js'),
     '--days=30',
@@ -789,6 +991,16 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert.strictEqual(deployedScorecard.conformance.provenance.release_version, '5.3.0');
   assert.strictEqual(deployedScorecard.conformance.provenance.applicability, 'mismatch');
   assert.strictEqual(deployedScorecard.conformance.provenance.reason, 'package-version-mismatch');
+  const deployedBoundScorecard = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(codexHome, 'agentsmd', 'scripts', 'scorecard.js'),
+    '--days=30',
+    '--json',
+    `--conformance-candidate=${candidateFile}`,
+    `--conformance-binding=${bindingFile}`,
+  ], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  assert.strictEqual(deployedBoundScorecard.conformance.state, 'fresh');
+  assert.strictEqual(deployedBoundScorecard.conformance.provenance.evidence_phase, 'published-binding');
+  assert.strictEqual(deployedBoundScorecard.conformance.provenance.reason, 'published-binding-and-artifact-match');
   const healthyPlan = JSON.parse(installedCli(['repair', '--plan']));
   assert.strictEqual(healthyPlan.classification, 'healthy');
   fs.unlinkSync(path.join(codexHome, 'agentsmd', 'hooks', 'lib', 'hook-common.sh'));

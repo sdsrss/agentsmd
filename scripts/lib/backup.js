@@ -24,6 +24,31 @@ const DEFAULT_KEEP = 5;
 
 function backupsDir() { return path.join(P.stateDir(), 'backups'); }
 
+function assertSharedFilesSafe() {
+  for (const [name, resolve] of Object.entries(SHARED_FILES)) {
+    const file = resolve();
+    let stat;
+    try { stat = fs.lstatSync(file); }
+    catch (error) {
+      if (error && error.code === 'ENOENT') continue;
+      throw error;
+    }
+    if (stat.isFile()) continue;
+    const type = stat.isSymbolicLink()
+      ? 'symbolic link'
+      : stat.isDirectory()
+        ? 'directory'
+        : 'unsupported filesystem object';
+    const error = new Error(
+      `shared file ${name} is a ${type}: ${file}; refusing lifecycle mutation because the path must be a regular file or absent`
+    );
+    error.code = stat.isSymbolicLink()
+      ? 'AGENTSMD_SHARED_FILE_SYMLINK'
+      : 'AGENTSMD_SHARED_FILE_UNSAFE_TYPE';
+    throw error;
+  }
+}
+
 function agentsmdSharedState(hooksContent, agentsMdContent) {
   const hooksPresent = H.countAgentsmdHooks(hooksContent || '') > 0;
   const specPresent = AM.hasSpecBlock(agentsMdContent);
@@ -65,6 +90,7 @@ function statMtime(p) {
 // Returns { id, dir, purpose, files:[present names], skipped:[absent names] }.
 function createBackup(stamp, purpose = 'pre-install', { write = writeFileAtomic } = {}) {
   if (purpose !== 'pre-install' && purpose !== 'pre-uninstall') throw new Error(`invalid backup purpose: ${purpose}`);
+  assertSharedFilesSafe();
   const id = String(stamp || new Date().toISOString()).replace(/[^0-9A-Za-z._-]/g, '_');
   const dir = path.join(backupsDir(), id);
   F.ensurePrivateDir(P.stateDir());
@@ -184,6 +210,7 @@ function pruneBackups(keep = DEFAULT_KEEP) {
 // planRestore(id) — resolve which files a restore would touch, WITHOUT writing. `id`
 // null → newest compatible pre-install/legacy snapshot. Returns the exact write plan.
 function planRestore(id) {
+  assertSharedFilesSafe();
   const all = listBackups();
   if (!all.length) throw new Error('no backups found');
   const currentState = currentAgentsmdInstallState();
@@ -226,7 +253,9 @@ function sameSnapshot(left, right) {
 }
 
 function restoreBackup(id, { write = writeFileAtomic } = {}) {
+  assertSharedFilesSafe();
   const plan = planRestore(id);
+  assertSharedFilesSafe();
   const meta = readBackupManifest(plan).files;
   const prepared = plan.willRestore.map((name) => {
     const file = SHARED_FILES[name]();
@@ -262,5 +291,5 @@ function restoreBackup(id, { write = writeFileAtomic } = {}) {
 module.exports = {
   createBackup, listBackups, pruneBackups, planRestore, restoreBackup,
   writeFileAtomic, backupsDir, readBackupManifest, agentsmdSharedState,
-  currentAgentsmdInstallState, SHARED_FILES, DEFAULT_KEEP,
+  currentAgentsmdInstallState, assertSharedFilesSafe, SHARED_FILES, DEFAULT_KEEP,
 };

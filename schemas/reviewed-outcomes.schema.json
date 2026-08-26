@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sdsrss/agentsmd/schemas/reviewed-outcomes.schema.json",
+  "title": "agentsmd reviewed blocking outcomes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "outcomes"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "agentsmd-reviewed-outcomes" },
+    "outcomes": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/outcome" }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]{3})?Z$"
+    },
+    "text": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "eventId": {
+      "type": "string",
+      "pattern": "^evt-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+-[0-9]+$",
+      "maxLength": 96
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id", "event_ts", "hook", "event", "spec_section",
+        "project_class", "outcome", "reason", "reviewed_at", "revision"
+      ],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/eventId" },
+        "event_ts": { "$ref": "#/$defs/timestamp" },
+        "hook": { "$ref": "#/$defs/text" },
+        "event": { "enum": ["block", "deny"] },
+        "spec_section": { "$ref": "#/$defs/text" },
+        "project_class": { "enum": ["external", "self"] },
+        "outcome": { "enum": ["true-block", "false-block", "unmeasurable"] },
+        "reason": {
+          "enum": [
+            "policy-violation-confirmed",
+            "benign-action-confirmed",
+            "insufficient-context",
+            "telemetry-incomplete"
+          ]
+        },
+        "reviewed_at": { "$ref": "#/$defs/timestamp" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    }
+  }
+}

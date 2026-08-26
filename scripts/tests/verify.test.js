@@ -132,6 +132,7 @@ test('force-full keeps changed-file context but cannot remove release checks', (
   const ids = plan.checks.map((check) => check.id);
   assert(ids.includes('full-check'));
   assert(ids.includes('release-dry-run'));
+  assert(ids.includes('security-policy'));
   assert.strictEqual(plan.requires_full_gate, true);
 });
 

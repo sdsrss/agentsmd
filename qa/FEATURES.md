@@ -211,9 +211,30 @@ external runtime.
   allowlists are exact. Status: BASELINE; ROUND9.
 - Boundary 2: empty/all-zero inputs and odd/even performance medians are correct.
   Status: BASELINE; ROUND9.
+- Coverage observation: an opt-in, dependency-free V8 collector runs the
+  existing multi-process suite in an isolated home, deduplicates function and
+  nested block ranges across child captures, and separates production files
+  absent from every capture. It is observation-only: no threshold is enforced,
+  and exact executable-line plus semantic-branch coverage remain explicitly
+  unmeasured. Status: LOCAL; R-08 deterministic fixtures and one current-tree
+  full-suite observation.
+- JavaScript syntax compatibility: every `npm test` runtime parses all `.js`
+  files in the repository's executable/QA roots with its own `node --check`.
+  Discovery and diagnostics are bounded, symlinks are excluded, and invalid
+  syntax/timeout/spawn errors remain distinct without executing source. This
+  checks syntax and minimum-runtime parser compatibility only; it is not a
+  semantic linter. Status: LOCAL; R-08 RED-first fixtures and Node matrix wiring.
+- Local capture retention inventory: a fixed-root, bounded read-only scan
+  classifies strict evidence units, hashes their directory/file bytes, exposes
+  invalid metadata plus symlink/special/wide-mode boundaries, and records a
+  90-day review trigger without granting deletion eligibility. `--write` may
+  atomically refresh only the ignored index. Status: LOCAL; R-09 RED-first
+  fixtures and one current-root inventory, with zero capture payload deletion.
 - Misuse: nonexistent filters, unsafe run counts, stale tokens, and parser
-  antipattern fixtures return an actionable non-zero result. Status: BASELINE;
-  ROUND9.
+  antipattern fixtures return an actionable non-zero result. Coverage capture
+  symlinks, malformed/oversized JSON, source-incompatible ranges, unsafe output
+  bounds, and ambiguous cleanup roots also fail closed. Status: BASELINE for
+  existing tools; LOCAL for R-08 coverage observation.
 
 ## F19 — Current Codex hook contract
 
@@ -239,6 +260,13 @@ external runtime.
 - Boundary 2: nested shells, path-qualified tools, command chains, redirection,
   pipes, multilingual text, and commit variants are parsed. Status: BASELINE;
   expert replay ROUND9.
+- Boundary 3: a fixed-seed command-parser property gate composes quoting,
+  wrappers, separators, consumer/whole subshells, environment assignments, and
+  up to three nested shell command strings across positive and near-negative
+  Git/publisher/delete/remote-exec families. It also bounds generated input,
+  each parser invocation, a 140 KB stdin regression, and arbitrary non-crash
+  inputs, with replay diagnostics split into crash, timeout, false negative,
+  and false positive. Status: LOCAL; R-06 deterministic gate.
 - Misuse: recursive-delete variables, unknown remote scripts, secrets, red shared
   pushes, false memory evidence, and invalid report shapes cannot bypass the
   declared gate through common command variants. Status: BASELINE; ROUND9.
@@ -276,18 +304,39 @@ external runtime.
 - Boundary 1: self/test/qa/external/unknown rows remain separately visible;
   tagged test/QA rows do not enter field runtime splits or governance
   denominators. Older sessions without a dimension row remain explicit missing
-  joins. Status: BASELINE.
-- Boundary 2: only a full capture matching the current source commit,
+  joins, split into pre-first-observed, straddling, post-first-observed, and
+  no-reference ordering buckets with missing-session data classes. Invalid or
+  absent identities stay unjoinable, and retained ordering never becomes a
+  cause or current-version claim. Status: BASELINE; ordering positive/near-
+  negative, identity, semantic-invariant, and legacy-v2 fixtures.
+- Boundary 2: new block/deny rows receive an opaque correlation ID in jq and
+  jq-less paths; legacy/duplicate IDs remain unmeasurable. A bounded private
+  sidecar keeps explicit true-block, false-block, and unmeasurable revisions
+  without rewriting raw telemetry. The field false-block denominator contains
+  only reviewed external true/false outcomes; self/test/qa/unknown, unreviewed,
+  unmeasurable, mismatched, or future-dated evidence is excluded and surfaced as
+  no-opportunity/unmeasured/partial/invalid rather than zero. Fail-open cause
+  categories sum exactly to fail-open events. Status: BASELINE; privacy,
+  revision, identity, symlink/oversize/malformed, denominator, semantic-invariant,
+  jq/jq-less, and installed-package fixtures.
+- Boundary 3: only a full capture matching the current source commit,
   tracked-clean state, case-library ID set, cases hash, and thresholds hash can
   populate current-tree freshness; later targeted, legacy, dirty-tree, or
   mismatched captures cannot replace it. Bounded release records preserve only
   allowlisted hashes, runtime/model totals, threshold verdicts, waiver scope,
-  and capture provenance. Packaged records remain explicit historical evidence
+  and capture provenance. A pre-publication candidate additionally binds the
+  clean Git commit/tree and deterministic standalone deploy-tree hash; a
+  post-publication record hashes the exact candidate bytes and cross-checks
+  GitHub/npm tarball bytes plus npm SLSA subject/ref/workflow/commit provenance.
+  Candidate-only, published-binding, packaged historical, mismatch, invalid,
+  and unavailable states remain distinct, and external evidence is never
+  fetched implicitly. Packaged v1 records remain explicit historical evidence
   when a source-tree identity is unavailable. Performance and conformance
   staleness, worktree residue, fallback use, prompt headroom, no-opportunity,
   and unmeasured false blocks remain explicit. Status: BASELINE; source/mismatch,
-  malformed/symlink/oversize, generator privacy, and installed-package fixtures.
-- Boundary 3: a fresh non-interactive home uses the Codex hook-trust bypass only
+  dirty-tree/replay/tamper, malformed/symlink/oversize, generator privacy, and
+  installed-package fixtures.
+- Boundary 4: a fresh non-interactive home uses the Codex hook-trust bypass only
   after the caller explicitly attests that every active hook source was
   reviewed. Captures record that trust mode, and a completed child turn with no
   exact-session hook telemetry aborts the remaining cases as infrastructure
@@ -298,11 +347,13 @@ external runtime.
   trusted-actor constrained, Codex read-only, SHA-pinned, and posts from a
   separate least-privilege feedback job. Four distributed recipes define
   worktree and AUTH boundaries. Status: BASELINE; static workflow fixtures.
-- Misuse: scorecard comparison rejects symlinks, files over 1 MiB, malformed or
-  future-schema JSON; it never promotes/demotes rules, equates citations with
-  adherence, treats no-opportunity as success, or treats a sampling proxy as
-  semantic proof. Runtime near-negative grading rejects any mutation or changed
-  tracked file. Status: BASELINE.
+- Misuse: scorecard comparison and reviewed-outcome input reject symlinks,
+  files over 1 MiB, malformed or future-schema JSON; outcome review also rejects
+  unknown IDs, invalid reason pairs, future timestamps, and replacement without
+  `--replace`. The scorecard never promotes/demotes rules, equates citations
+  with adherence, treats no-opportunity as success, or treats a sampling proxy
+  as semantic proof. Runtime near-negative grading rejects any mutation or
+  changed tracked file. Status: BASELINE.
 
 ## Known sandbox blind spots
 

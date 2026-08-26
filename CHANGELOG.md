@@ -5,6 +5,83 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.4.0 — 2026-08-26 — evidence integrity and engineering controls (minor)
+
+- Added a bounded, observation-first inventory for ignored local QA captures.
+  It hashes strict evidence units, reports age/class/permission and malformed or
+  unsafe entries, treats 90 days only as a human-review trigger, and grants no
+  deletion eligibility. An explicit `--write` atomically refreshes only the
+  ignored `docs/qa-captures/index.json`; capture payloads are never pruned. A
+  clean checkout with no capture root now fails with a bounded diagnostic and
+  no absolute-path disclosure instead of making the test gate host-dependent.
+- Added a dependency-free JavaScript syntax compatibility gate. Every existing
+  Node CI runtime now parses all `.js` files under `bin/`, `scripts/`,
+  `hooks/lib/`, and `qa/` with its own `node --check`; discovery skips symlinks
+  and bounds file count/size, while failures retain bounded repo-relative
+  diagnostics. This is explicitly a syntax/minimum-runtime check, not semantic
+  promise, line, or branch analysis.
+- Added an observation-only V8 coverage collector for the repository's existing
+  multi-process `npm test` chain. It propagates `NODE_V8_COVERAGE` through an
+  isolated `CODEX_HOME`, deduplicates function and nested block ranges across
+  child captures, separates unobserved production files, bounds capture input
+  and uncovered output, and removes only its validated temporary workspace.
+  The report enforces no threshold and explicitly leaves exact executable-line
+  and semantic-branch coverage unmeasured.
+- Refactored repair evidence classification and operator recommendations into
+  a pure decision matrix. Direct table coverage freezes all seven plan states,
+  all six actions, evidence precedence, exact diagnostics, and input
+  immutability while plan digesting, locking, snapshots, mutation, and rollback
+  remain in the existing repair orchestrator.
+- Refactored the plugin-selected phase of `doctor()` into a side-effect-free
+  internal mapper while preserving public exports, check order, diagnostics,
+  result fields, and exit behavior. Direct healthy/near-negative
+  characterization plus plugin and standalone public-flow suites now run first
+  through an exact change-aware validation route.
+- Fixed command-parser pipeline boundaries so a downloader piped through a
+  parenthesized consumer, a newline after `|`, or Bash `|&` remains connected to
+  the interpreter and reaches the existing unknown-script gate. The strict
+  `realpath` deletion-guard matcher now requires a variable-identifier boundary,
+  avoiding repeated suffix scans on long commands. A fixed-seed property gate
+  covers quoting, wrappers, separators, subshells, environment assignments,
+  recursion/input/time bounds, arbitrary non-crash inputs, and explicit
+  crash/timeout/false-negative/false-positive diagnostics.
+- Added retained-window session-dimension attribution to the quality scorecard.
+  Missing sessions are split into pre-first-observed, straddling, post-first-
+  observed, and no-reference buckets with self/external/unknown/mixed
+  provenance; invalid or absent session identities remain separate unjoinable
+  inputs. Recommended actions no longer diagnose current SessionStart coverage
+  from a gap that exists only before the first retained dimension. Ordering is
+  explicitly non-causal, and older schema-v2 captures remain comparison-readable.
+- Added a reviewed blocking-outcome loop. New block/deny telemetry carries a
+  bounded correlation ID in jq and jq-less paths; a strict `outcomes` command
+  lists privacy-reduced summaries and appends schema-validated private review
+  revisions without rewriting raw telemetry. Scorecard now exposes exact field
+  true/false/unreviewed/unmeasurable/excluded counts, a reviewed-only
+  denominator, five evidence states, and complete fail-open cause categories.
+  Legacy rows remain explicitly unmeasurable, and absent labels never become a
+  measured zero.
+- Added a two-phase conformance evidence protocol. A clean pre-publication
+  candidate attestation binds the source tree, deterministic deploy tree,
+  conformance inputs, bounded results, and decision; a post-publication binding
+  links those exact bytes to identical GitHub/npm tarballs and npm SLSA
+  subject/ref/workflow/commit provenance. Scorecard accepts both only through
+  explicit bounded files, distinguishes local candidate from published binding,
+  and retains the packaged v1 record as historical evidence.
+- Fixed standalone artifact staging so directory, shell, and regular-file modes
+  are normalized to `0755`, `0755`, and `0644` respectively. Identical tracked
+  bytes now produce the same mode-bound deploy-tree identity when the source is
+  checked out on filesystems with different permission semantics.
+- Fixed reviewed conformance automation so it CAS-removes only exact
+  trust-only tables created for its random throwaway case directories, while
+  preserving all neighboring and concurrent user-config bytes. macOS system
+  aliases under `/var` and `/private/var` are compared canonically without
+  accepting arbitrary aliases or symlinks. The
+  outcome-first assertion now recognizes strict anchored English and Chinese
+  affirmative openings while retaining its evidence-first near-negative and
+  the existing 3/4 task-discipline threshold. Historical v5.3.0 evidence keeps
+  its original case hash and is explicitly tested as input-mismatched rather
+  than rebound to the evolved case library.
+
 ## v5.3.3 — 2026-08-20 — native sandbox proxy disposal classification (patch)
 
 - Fixed the Stop-hook disposal advisory so Codex-owned Linux sandbox proxy

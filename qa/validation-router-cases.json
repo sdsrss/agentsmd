@@ -43,11 +43,56 @@
       "auth_boundary": false
     },
     {
+      "name": "command parser property contract",
+      "files": [
+        "hooks/lib/command-parse.js"
+      ],
+      "checks_include": [
+        "command-parse-property",
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "full-check"
+      ],
+      "categories_include": [
+        "command-parser",
+        "native-hook",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": false
+    },
+    {
+      "name": "doctor plugin diagnosis",
+      "files": [
+        "scripts/lib/doctor-plugin.js"
+      ],
+      "checks_include": [
+        "doctor-plugin",
+        "plugin-surface",
+        "install",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "diagnostics",
+        "script",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
       "name": "lifecycle exact path",
       "files": [
         "scripts/install.js"
       ],
       "checks_include": [
+        "repair-classification",
         "install",
         "preflight",
         "fault-injection",
@@ -159,6 +204,27 @@
       "uncovered": false
     },
     {
+      "name": "formal conformance runtime contract",
+      "files": [
+        "qa/conformance-eval.sh"
+      ],
+      "checks_include": [
+        "conformance-structure",
+        "shellcheck",
+        "validation-router",
+        "full-check"
+      ],
+      "categories_include": [
+        "conformance-runtime-contract",
+        "model-measurement",
+        "qa-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "runtime canary contract",
       "files": [
         "qa/runtime-canary.js"
@@ -179,6 +245,29 @@
       "auth_boundary": false
     },
     {
+      "name": "reviewed outcome contract",
+      "files": [
+        "scripts/lib/outcomes.js"
+      ],
+      "checks_include": [
+        "outcomes-unit",
+        "scorecard-unit",
+        "hook-smoke",
+        "argv-lint",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "reviewed-outcomes-contract",
+        "measurement-semantics",
+        "telemetry-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "scorecard contract",
       "files": [
         "scripts/lib/scorecard.js"
@@ -196,6 +285,68 @@
       "requires_full": true,
       "external_service": false,
       "auth_boundary": false
+    },
+    {
+      "name": "coverage observation",
+      "files": [
+        "scripts/coverage-observe.js"
+      ],
+      "checks_include": [
+        "coverage-observe",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "quality-observation",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
+      "name": "JavaScript syntax compatibility",
+      "files": [
+        "scripts/js-syntax-check.js"
+      ],
+      "checks_include": [
+        "js-syntax",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "runtime-compatibility",
+        "static-analysis",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
+      "name": "local capture retention inventory",
+      "files": [
+        "scripts/capture-inventory.js"
+      ],
+      "checks_include": [
+        "capture-inventory",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "evidence-retention",
+        "privacy-observation",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
     },
     {
       "name": "distributed automation recipe",
@@ -306,6 +457,50 @@
       "external_service": false,
       "auth_boundary": false,
       "uncovered": true
+    },
+    {
+      "name": "security support policy",
+      "files": [
+        "SECURITY.md"
+      ],
+      "checks_include": [
+        "security-policy",
+        "distribution",
+        "release-dry-run",
+        "full-check"
+      ],
+      "categories_include": [
+        "public-security-policy",
+        "shared-contract",
+        "documentation"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
+      "name": "conformance candidate and release binding protocol",
+      "files": [
+        "scripts/conformance-binding.js"
+      ],
+      "checks_include": [
+        "conformance-evidence",
+        "conformance-binding",
+        "scorecard-unit",
+        "argv-lint",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "conformance-evidence-contract",
+        "release-evidence",
+        "measurement-semantics"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
     },
     {
       "name": "package release cannot bypass full",

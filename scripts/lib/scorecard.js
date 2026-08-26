@@ -15,13 +15,19 @@ const { samplingAudit } = require('../sampling-audit');
 const { sparkline } = require('../sparkline');
 const { status } = require('../status');
 const { validateSchema } = require('./task-contract');
+const F = require('./fs-atomic');
+const { inspectReleaseArtifact } = require('./release-artifact');
+const {
+  externalConformanceSummary,
+  validateConformanceCandidateAttestation,
+  validateConformanceEvidencePair,
+  validateConformanceReleaseBinding,
+  validateConformanceReleaseEvidence,
+} = require('./conformance-evidence');
+const { classifyFailOpenCauses, summarizeReviewedOutcomes } = require('./outcomes');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'scorecard.schema.json'), 'utf8'));
-const CONFORMANCE_EVIDENCE_SCHEMA = JSON.parse(fs.readFileSync(
-  path.join(ROOT, 'schemas', 'conformance-release-evidence.schema.json'),
-  'utf8',
-));
 const MAX_DAYS = 3650;
 const MAX_CAPTURE_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -47,6 +53,12 @@ function boundedText(value, fallback = 'unknown') {
 
 function finite(value) {
   return Number.isFinite(value) ? value : null;
+}
+
+function exactTimestamp(value) {
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? parsed : null;
 }
 
 function safeBytes(file, max = MAX_CAPTURE_BYTES) {
@@ -145,23 +157,102 @@ function deepBounds(value, at = '$', depth = 0, errors = []) {
   return errors;
 }
 
-function validateConformanceReleaseEvidence(value) {
-  const errors = validateSchema(value, CONFORMANCE_EVIDENCE_SCHEMA, CONFORMANCE_EVIDENCE_SCHEMA);
-  deepBounds(value, '$', 0, errors);
-  if (value && value.decision) {
-    if (value.decision.verdict === 'waived' && !value.decision.waiver) {
-      errors.push('$.decision.waiver: waived evidence requires a release-only waiver');
-    }
-    if (value.decision.verdict !== 'waived' && value.decision.waiver !== null) {
-      errors.push('$.decision.waiver: non-waived evidence must use null');
-    }
-  }
-  return { valid: errors.length === 0, errors: [...new Set(errors)] };
-}
-
 function validateScorecard(value) {
   const errors = validateSchema(value, SCHEMA, SCHEMA);
   deepBounds(value, '$', 0, errors);
+  const falseBlocks = value && value.false_blocks;
+  if (falseBlocks && Number.isInteger(falseBlocks.rate_denominator)) {
+    if (falseBlocks.rate_denominator !== falseBlocks.true_blocks + falseBlocks.confirmed_false_blocks) {
+      errors.push('$.false_blocks.rate_denominator: must equal true_blocks + confirmed_false_blocks');
+    }
+    if (falseBlocks.blocking_events !== falseBlocks.eligible_field_events + falseBlocks.excluded_non_field_events) {
+      errors.push('$.false_blocks.blocking_events: must equal eligible_field_events + excluded_non_field_events');
+    }
+    if (falseBlocks.eligible_field_events !== falseBlocks.rate_denominator
+      + falseBlocks.unreviewed_events + falseBlocks.unmeasurable_events) {
+      errors.push('$.false_blocks.eligible_field_events: must equal denominator + unreviewed + unmeasurable');
+    }
+    const expectedRate = falseBlocks.rate_denominator > 0
+      ? falseBlocks.confirmed_false_blocks / falseBlocks.rate_denominator : null;
+    if (falseBlocks.state === 'invalid') {
+      if (falseBlocks.false_block_rate !== null) errors.push('$.false_blocks.false_block_rate: invalid evidence requires null');
+    } else if (falseBlocks.false_block_rate !== expectedRate) {
+      errors.push('$.false_blocks.false_block_rate: must equal confirmed_false_blocks / rate_denominator');
+    }
+  }
+  const automation = value && value.automation;
+  if (automation && automation.fail_open_causes) {
+    const causeTotal = Object.values(automation.fail_open_causes)
+      .reduce((sum, count) => sum + count, 0);
+    if (causeTotal !== automation.fail_open_events) {
+      errors.push('$.automation.fail_open_causes: categories must sum to fail_open_events');
+    }
+  }
+  const compatibility = value && value.compatibility;
+  const attribution = compatibility && compatibility.dimension_join_attribution;
+  if (compatibility && attribution && typeof attribution === 'object' && !Array.isArray(attribution)) {
+    const bucketValues = [
+      attribution.missing_before_first_observed_dimension,
+      attribution.missing_straddling_first_observed_dimension,
+      attribution.missing_after_first_observed_dimension,
+      attribution.missing_without_dimension_reference,
+    ];
+    if (bucketValues.every(Number.isInteger) && Number.isInteger(compatibility.missing_dimension_sessions)) {
+      const bucketTotal = bucketValues.reduce((sum, count) => sum + count, 0);
+      if (bucketTotal !== compatibility.missing_dimension_sessions) {
+        errors.push('$.compatibility.dimension_join_attribution: ordering buckets must sum to missing_dimension_sessions');
+      }
+      let expectedState = 'no-missing';
+      if (compatibility.missing_dimension_sessions > 0 && attribution.first_observed_dimension_at === null) {
+        expectedState = 'no-dimension-reference';
+      } else if (attribution.missing_after_first_observed_dimension > 0
+        || attribution.missing_straddling_first_observed_dimension > 0) {
+        expectedState = 'post-first-observed-present';
+      } else if (compatibility.missing_dimension_sessions > 0) {
+        expectedState = 'pre-first-observed-only';
+      }
+      if (attribution.state !== expectedState) {
+        errors.push(`$.compatibility.dimension_join_attribution: attribution state must be ${expectedState}`);
+      }
+      if ((compatibility.missing_dimension_sessions === 0) !== (attribution.last_missing_event_at === null)) {
+        errors.push('$.compatibility.dimension_join_attribution.last_missing_event_at: null exactly when no session is missing');
+      }
+      if (attribution.first_observed_dimension_at === null) {
+        if (bucketValues[0] + bucketValues[1] + bucketValues[2] !== 0) {
+          errors.push('$.compatibility.dimension_join_attribution: referenced ordering buckets require a first observed dimension');
+        }
+      } else if (attribution.missing_without_dimension_reference !== 0) {
+        errors.push('$.compatibility.dimension_join_attribution.missing_without_dimension_reference: must be zero when a dimension reference exists');
+      }
+    }
+    const byClass = attribution.missing_by_class;
+    if (byClass && typeof byClass === 'object' && !Array.isArray(byClass)) {
+      const classValues = Object.values(byClass);
+      if (classValues.every(Number.isInteger) && Number.isInteger(compatibility.missing_dimension_sessions)) {
+        const classTotal = classValues.reduce((sum, count) => sum + count, 0);
+        if (classTotal !== compatibility.missing_dimension_sessions) {
+          errors.push('$.compatibility.dimension_join_attribution.missing_by_class: classes must sum to missing_dimension_sessions');
+        }
+      }
+    }
+    if (Number.isInteger(compatibility.dimension_sessions)
+      && (attribution.first_observed_dimension_at === null || typeof attribution.first_observed_dimension_at === 'string')
+      && (compatibility.dimension_sessions === 0) !== (attribution.first_observed_dimension_at === null)) {
+      errors.push('$.compatibility.dimension_join_attribution.first_observed_dimension_at: null exactly when no joinable dimension exists');
+    }
+    const firstMs = exactTimestamp(attribution.first_observed_dimension_at);
+    const lastMissingMs = exactTimestamp(attribution.last_missing_event_at);
+    if (typeof attribution.first_observed_dimension_at === 'string' && firstMs === null) {
+      errors.push('$.compatibility.dimension_join_attribution.first_observed_dimension_at: must be an exact UTC timestamp');
+    }
+    if (typeof attribution.last_missing_event_at === 'string' && lastMissingMs === null) {
+      errors.push('$.compatibility.dimension_join_attribution.last_missing_event_at: must be an exact UTC timestamp');
+    }
+    if (attribution.state === 'pre-first-observed-only' && firstMs !== null
+      && lastMissingMs !== null && lastMissingMs >= firstMs) {
+      errors.push('$.compatibility.dimension_join_attribution: pre-first-observed state requires the last missing event before the first dimension');
+    }
+  }
   let serialized = '';
   try { serialized = JSON.stringify(value); } catch (error) { errors.push(`$: is not JSON serializable (${error.message})`); }
   if (Buffer.byteLength(serialized) > MAX_OUTPUT_BYTES) {
@@ -185,9 +276,9 @@ function ageDays(recordedMs, now) {
 function conformanceProvenance({
   kind = 'none', applicability = 'unavailable', reason = 'no-evidence-input',
   source = 'none', releaseVersion = 'unknown', releaseCommit = 'unknown',
-  currentCommit = 'unknown', inputsMatch = null,
+  currentCommit = 'unknown', inputsMatch = null, evidencePhase = null,
 } = {}) {
-  return {
+  const result = {
     kind,
     applicability,
     reason: boundedText(reason),
@@ -197,6 +288,8 @@ function conformanceProvenance({
     current_commit: boundedText(currentCommit),
     inputs_match: typeof inputsMatch === 'boolean' ? inputsMatch : null,
   };
+  if (evidencePhase) result.evidence_phase = boundedText(evidencePhase);
+  return result;
 }
 
 function emptyConformance(state = 'unavailable', provenance = conformanceProvenance()) {
@@ -236,15 +329,43 @@ function currentSourceIdentity(root) {
     const revision = git(['rev-parse', '--verify', 'HEAD']);
     const commit = String(revision.stdout || '').trim();
     if (revision.status !== 0 || !/^[a-f0-9]{40}$/.test(commit)) {
-      return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+      return { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null };
+    }
+    const treeRevision = git(['rev-parse', '--verify', 'HEAD^{tree}']);
+    const tree = String(treeRevision.stdout || '').trim();
+    if (treeRevision.status !== 0 || !/^[a-f0-9]{40}$/.test(tree)) {
+      return { state: 'unavailable', commit, tree: 'unknown', tracked_clean: null };
     }
     const diff = git(['diff-index', '--quiet', 'HEAD', '--'], ['ignore', 'ignore', 'ignore']);
     if (diff.status !== 0 && diff.status !== 1) {
-      return { state: 'unavailable', commit, tracked_clean: null };
+      return { state: 'unavailable', commit, tree, tracked_clean: null };
     }
-    return { state: 'measured', commit, tracked_clean: diff.status === 0 };
+    return { state: 'measured', commit, tree, tracked_clean: diff.status === 0 };
   } catch {
-    return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+    return { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null };
+  }
+}
+
+function currentConformanceArtifactIdentity(root, sourceIdentity) {
+  try {
+    const pluginFile = path.join(root, '.codex-plugin', 'plugin.json');
+    let hasPackagedSource = false;
+    try {
+      const stat = fs.lstatSync(pluginFile);
+      hasPackagedSource = stat.isFile() && !stat.isSymbolicLink();
+    } catch {}
+    if (hasPackagedSource || (sourceIdentity && sourceIdentity.state === 'measured')) {
+      const artifact = inspectReleaseArtifact(root);
+      if (/^[a-f0-9]{64}$/.test(String(artifact.deploySha256 || ''))) {
+        return { state: artifact.complete ? 'measured' : 'invalid', deploy_sha256: artifact.deploySha256 };
+      }
+      return { state: 'invalid', deploy_sha256: null };
+    }
+    const stat = fs.lstatSync(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return { state: 'invalid', deploy_sha256: null };
+    return { state: 'measured', deploy_sha256: F.sha256Tree(root) };
+  } catch {
+    return { state: 'unavailable', deploy_sha256: null };
   }
 }
 
@@ -535,7 +656,8 @@ function releaseEvidenceSummary({
 
 function conformanceSummary({
   captureRoot, releaseEvidenceRoot, now, expectedCaseIds, sourceIdentity,
-  inputIdentity, packageIdentity, thresholds,
+  inputIdentity, packageIdentity, thresholds, candidateEvidenceFile,
+  releaseBindingFile, artifactIdentity,
 }) {
   const expected = Array.isArray(expectedCaseIds)
     ? [...new Set(expectedCaseIds.filter((id) => typeof id === 'string' && id.length > 0))]
@@ -547,9 +669,15 @@ function conformanceSummary({
     captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
   });
   if (raw && raw.provenance.applicability === 'current') return raw;
+  const external = externalConformanceSummary({
+    candidateEvidenceFile, releaseBindingFile, now, expected, sourceIdentity,
+    inputIdentity, packageIdentity, artifactIdentity, freshDays: FRESH_DAYS,
+  });
+  if (external && external.provenance.applicability === 'current') return external;
   const release = releaseEvidenceSummary({
     releaseEvidenceRoot, now, expected, sourceIdentity, inputIdentity, packageIdentity,
   });
+  if (external) return external;
   if (release) return release;
   if (raw) return raw;
   return emptyConformance('unavailable', conformanceProvenance({ reason: 'no-evidence-input' }));
@@ -609,6 +737,23 @@ function dataClass(row) {
   return classifyProject(row && row.project);
 }
 
+function joinableSessionId(value) {
+  if (typeof value !== 'string' || value === '' || value === 'unknown' || value.length > 256) return null;
+  return /^[A-Za-z0-9._:-]+$/.test(value) ? value : null;
+}
+
+function invalidSessionIdentity(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') return `string:${value}`;
+  try { return `${typeof value}:${JSON.stringify(value)}`; } catch { return typeof value; }
+}
+
+function missingSessionClass(classes) {
+  const values = [...classes].sort();
+  if (values.length === 1 && ['external', 'self', 'unknown'].includes(values[0])) return values[0];
+  return values.length === 0 ? 'unknown' : 'mixed';
+}
+
 function compatibilitySummary(logPath, days, now) {
   const cutoff = now - days * 86400000;
   const rows = readRows(logPath).filter((row) => {
@@ -618,13 +763,42 @@ function compatibilitySummary(logPath, days, now) {
   const classes = { external: 0, self: 0, test: 0, qa: 0, unknown: 0 };
   for (const row of rows) classes[dataClass(row)] += 1;
   const dimensions = new Map();
-  const fieldSessions = new Set();
+  const fieldSessions = new Map();
+  const invalidSessions = new Set();
+  let rowsWithoutSession = 0;
+  let unjoinableDimensionRows = 0;
+  let firstDimension = null;
   for (const row of rows) {
     if (!row || TEST_TAGS.has(String(row.tag || ''))) continue;
-    if (row.session_id && row.event !== 'session-dimension') fieldSessions.add(String(row.session_id));
-    if (row.event === 'session-dimension' && row.session_id && !dimensions.has(String(row.session_id))) {
-      dimensions.set(String(row.session_id), row);
+    const sessionId = joinableSessionId(row.session_id);
+    if (row.event === 'session-dimension') {
+      if (!sessionId) {
+        unjoinableDimensionRows += 1;
+      } else {
+        const ts = Date.parse(row.ts);
+        firstDimension = firstDimension === null ? ts : Math.min(firstDimension, ts);
+        if (!dimensions.has(sessionId)) dimensions.set(sessionId, row);
+      }
+      continue;
     }
+    if (!sessionId) {
+      const invalid = invalidSessionIdentity(row.session_id);
+      if (invalid === null) rowsWithoutSession += 1;
+      else invalidSessions.add(invalid);
+      continue;
+    }
+    const ts = Date.parse(row.ts);
+    if (!fieldSessions.has(sessionId)) {
+      fieldSessions.set(sessionId, {
+        first: ts,
+        last: ts,
+        classes: new Set(),
+      });
+    }
+    const session = fieldSessions.get(sessionId);
+    session.first = Math.min(session.first, ts);
+    session.last = Math.max(session.last, ts);
+    session.classes.add(dataClass(row));
   }
   const splits = new Map();
   for (const row of dimensions.values()) {
@@ -653,14 +827,47 @@ function compatibilitySummary(logPath, days, now) {
   const runtimeSplits = [...splits.values()]
     .sort((a, b) => b.sessions - a.sessions || JSON.stringify(a).localeCompare(JSON.stringify(b)))
     .slice(0, 128);
-  let missing = 0;
-  for (const sid of fieldSessions) if (!dimensions.has(sid)) missing += 1;
+  let lastMissing = null;
+  const missingByClass = { external: 0, self: 0, unknown: 0, mixed: 0 };
+  let before = 0;
+  let straddling = 0;
+  let after = 0;
+  let withoutReference = 0;
+  for (const [sessionId, session] of fieldSessions) {
+    if (dimensions.has(sessionId)) continue;
+    lastMissing = lastMissing === null ? session.last : Math.max(lastMissing, session.last);
+    missingByClass[missingSessionClass(session.classes)] += 1;
+    if (firstDimension === null) withoutReference += 1;
+    else if (session.last < firstDimension) before += 1;
+    else if (session.first >= firstDimension) after += 1;
+    else straddling += 1;
+  }
+  const missing = before + straddling + after + withoutReference;
+  let attributionState = 'no-missing';
+  if (missing > 0 && firstDimension === null) attributionState = 'no-dimension-reference';
+  else if (after > 0 || straddling > 0) attributionState = 'post-first-observed-present';
+  else if (missing > 0) attributionState = 'pre-first-observed-only';
   return {
     dimension_sessions: dimensions.size,
     missing_dimension_sessions: missing,
     runtime_splits: runtimeSplits,
     data_classes: classes,
     excluded_test_qa_from_field_metrics: true,
+    dimension_join_attribution: {
+      state: attributionState,
+      first_observed_dimension_at: firstDimension === null ? null : new Date(firstDimension).toISOString(),
+      last_missing_event_at: lastMissing === null ? null : new Date(lastMissing).toISOString(),
+      missing_before_first_observed_dimension: before,
+      missing_straddling_first_observed_dimension: straddling,
+      missing_after_first_observed_dimension: after,
+      missing_without_dimension_reference: withoutReference,
+      missing_by_class: missingByClass,
+      unjoinable_sessions_invalid_id: invalidSessions.size,
+      unjoinable_rows_without_session_id: rowsWithoutSession,
+      unjoinable_dimension_rows: unjoinableDimensionRows,
+      ordering_scope: 'retained-window-only',
+      ordering_proves_cause: false,
+    },
   };
 }
 
@@ -820,6 +1027,7 @@ function automationSummary({ automationRoot, workflowsRoot, worktrees, projectRo
     governance_workflow: workflow.governance,
     fallback_events: pointAudit.byEvent['compat-fallback'] || 0,
     fail_open_events: pointAudit.byEvent['fail-open'] || 0,
+    fail_open_causes: classifyFailOpenCauses(pointAudit.byFailOpen),
     worktrees: records.length,
     protected_worktrees: protectedCount,
     worktree_residue: residue,
@@ -892,12 +1100,40 @@ function actionsFor(card, rules) {
     add('high', 'prompt-budget-over', 'Reduce the measured discovery chain or raise the reviewed project_doc_max_bytes cap.', `${card.prompt_budget.total_bytes}/${card.prompt_budget.cap} measured bytes.`);
   }
   if (card.compatibility.missing_dimension_sessions) {
-    add('medium', 'dimension-missing', 'Inspect SessionStart coverage for field sessions without a session-dimension row.', `${card.compatibility.missing_dimension_sessions} field session(s) could not be joined to runtime dimensions.`);
+    const attribution = card.compatibility.dimension_join_attribution;
+    if (attribution && attribution.state === 'pre-first-observed-only') {
+      add(
+        'low',
+        'dimension-missing',
+        'Retain the pre-reference gap as attribution debt; inspect current SessionStart only if post-reference or current-version evidence appears.',
+        `The latest retained event for ${card.compatibility.missing_dimension_sessions} session(s) was ${attribution.last_missing_event_at}, before the first observed dimension at ${attribution.first_observed_dimension_at}; retained-window ordering does not prove cause.`,
+      );
+    } else if (attribution && attribution.state === 'no-dimension-reference') {
+      add(
+        'medium',
+        'dimension-missing',
+        'Restore a joinable SessionStart dimension reference before attributing missing sessions to a version or surface.',
+        `${card.compatibility.missing_dimension_sessions} session(s) lack a dimension and the retained window contains no joinable dimension reference.`,
+      );
+    } else {
+      add(
+        'medium',
+        'dimension-missing',
+        'Inspect SessionStart coverage for sessions at or after the first observed dimension boundary.',
+        attribution
+          ? `${card.compatibility.missing_dimension_sessions} session(s) are missing dimensions: ${attribution.missing_straddling_first_observed_dimension} straddle and ${attribution.missing_after_first_observed_dimension} start after the first observed dimension.`
+          : `${card.compatibility.missing_dimension_sessions} session(s) could not be joined to runtime dimensions.`,
+      );
+    }
   }
   if (card.conformance.state === 'unavailable') {
     add('high', 'conformance-evidence-unavailable', 'Configure or import a bounded conformance evidence source; run the declared full suite only when no valid evidence exists.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
   } else if (card.conformance.state === 'invalid') {
     add('high', 'conformance-evidence-invalid', 'Inspect and replace the invalid bounded conformance evidence record before relying on this dimension.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
+  } else if (card.conformance.provenance.evidence_phase === 'local-candidate'
+    && card.conformance.provenance.applicability === 'current'
+    && card.conformance.state === 'fresh') {
+    add('medium', 'conformance-candidate-unbound', 'Retain this exact candidate attestation and create a post-publication binding before treating it as published-release proof.', `Candidate ${card.conformance.provenance.release_version} matches the current deploy tree but has no release binding.`);
   } else if (card.conformance.provenance.applicability === 'historical') {
     add('medium', 'conformance-historical', 'Retain the historical release evidence; obtain a current-tree capture only when the current tree requires fresh proof.', `Release ${card.conformance.provenance.release_version} evidence is available with threshold verdict ${card.conformance.threshold_verdict}.`);
   } else if (card.conformance.provenance.applicability === 'mismatch') {
@@ -905,11 +1141,19 @@ function actionsFor(card, rules) {
   } else if (card.conformance.state !== 'fresh') {
     add('high', 'conformance-stale', 'Run the declared full conformance suite and retain its machine-readable current-tree capture.', `Current-tree conformance capture age is ${card.conformance.age_days ?? 'unknown'} day(s).`);
   }
+  if (card.false_blocks.state === 'invalid') {
+    add('high', 'false-block-outcomes-invalid', 'Inspect the bounded reviewed-outcome sidecar and repair its event identity or schema before calculating a field rate.', `Outcome source is ${card.false_blocks.outcomes_source}; no false-block rate is reported.`);
+  } else if (card.false_blocks.state === 'unmeasured' && card.false_blocks.eligible_field_events > 0) {
+    add('medium', 'false-block-outcomes-unmeasured', 'Review bounded field blocking events with agentsmd outcomes; do not use conformance near-negatives as field labels.', `${card.false_blocks.unreviewed_events} unreviewed and ${card.false_blocks.unmeasurable_events} unmeasurable field event(s).`);
+  } else if (card.false_blocks.state === 'partial') {
+    add('medium', 'false-block-outcomes-partial', 'Continue bounded field-event review; keep unreviewed and unmeasurable events outside the rate denominator.', `Denominator ${card.false_blocks.rate_denominator}; ${card.false_blocks.unreviewed_events} unreviewed and ${card.false_blocks.unmeasurable_events} unmeasurable event(s).`);
+  }
   if (card.performance.state !== 'fresh') {
     add('high', 'performance-stale', 'Run the formal performance SLO on the reference machine and refresh the versioned baseline.', `Performance state is ${card.performance.state}.`);
   }
   if (card.automation.fallback_events || card.automation.fail_open_events) {
-    add('medium', 'fallback-usage', 'Review compatibility fallback and fail-open reasons by runtime split.', `${card.automation.fallback_events} fallback and ${card.automation.fail_open_events} fail-open event(s).`);
+    const causes = card.automation.fail_open_causes;
+    add('medium', 'fallback-usage', 'Review compatibility fallback and fail-open reasons by runtime split.', `${card.automation.fallback_events} fallback and ${card.automation.fail_open_events} fail-open event(s): dependency/input-missing ${causes.dependency_missing}, timeout ${causes.timeout}, parse-error ${causes.parse_error}, other ${causes.other}.`);
   }
   if (card.automation.worktree_residue) {
     add('low', 'worktree-residue', 'Review unprotected worktree residue; clean only task-owned, inactive, unpinned entries.', `${card.automation.worktree_residue} unprotected worktree(s) require ownership review.`);
@@ -932,6 +1176,12 @@ function buildScorecard(options = {}) {
   const logPath = options.logPath || path.join(codexHome, 'logs', 'agentsmd.jsonl');
   const sessionsDir = options.sessionsDir || path.join(codexHome, 'sessions');
   const pointAudit = audit({ days, now, logPath });
+  const falseBlocks = summarizeReviewedOutcomes({
+    days,
+    now,
+    logPath,
+    outcomesPath: options.outcomesPath || path.join(codexHome, 'logs', 'agentsmd-outcomes.json'),
+  });
   const rules = rulesAudit({
     days,
     now,
@@ -956,6 +1206,10 @@ function buildScorecard(options = {}) {
     statusSource: statusSupplied ? 'supplied' : 'runtime-filesystem',
     doctorSource: doctorSupplied ? 'supplied' : 'runtime-filesystem',
   });
+  const conformanceSourceIdentity = options.sourceIdentity || currentSourceIdentity(root);
+  const candidateEvidenceFile = options.candidateEvidenceFile || null;
+  const conformanceArtifactIdentity = options.conformanceArtifactIdentity
+    || (candidateEvidenceFile ? currentConformanceArtifactIdentity(root, conformanceSourceIdentity) : null);
   const card = {
     schema_version: 2,
     generated_at: new Date(now).toISOString(),
@@ -971,18 +1225,15 @@ function buildScorecard(options = {}) {
       releaseEvidenceRoot: options.releaseEvidenceRoot || path.join(root, 'qa', 'conformance', 'releases'),
       now,
       expectedCaseIds: options.expectedConformanceCaseIds || expectedConformanceCaseIds(root),
-      sourceIdentity: options.sourceIdentity || currentSourceIdentity(root),
+      sourceIdentity: conformanceSourceIdentity,
       inputIdentity: options.conformanceInputIdentity || currentConformanceInputIdentity(root),
       packageIdentity: options.packageIdentity || currentPackageIdentity(root),
       thresholds: options.conformanceThresholds || currentConformanceThresholds(root),
+      candidateEvidenceFile,
+      releaseBindingFile: options.releaseBindingFile || null,
+      artifactIdentity: conformanceArtifactIdentity,
     }),
-    false_blocks: {
-      state: 'unmeasured',
-      blocking_events: blocking,
-      reviewed_outcomes: 0,
-      confirmed_false_blocks: 0,
-      limit: 'Blocking telemetry has no human-reviewed outcome label; conformance near-negatives are regression evidence, not a field false-block rate.',
-    },
+    false_blocks: falseBlocks,
     bypasses: {
       blocking_decisions: blocking,
       bypass_decisions: bypasses,
@@ -1026,9 +1277,11 @@ function buildScorecard(options = {}) {
       'No-opportunity and insufficient-opportunity are missing denominators, not successful outcomes.',
       'Sampling preflight and planning classifications are structural proxies and are not semantic proof.',
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
-      'False-block rate is unmeasured until blocking events receive bounded human-reviewed outcome labels.',
+      'Field false-block rate uses only reviewed external true/false outcomes; self, test, QA, unknown, unreviewed, and unmeasurable events stay outside its denominator.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
-      'Conformance fresh requires a full capture whose source commit, tracked-clean state, cases hash, and thresholds hash match the current tree; historical release evidence remains explicit and never proves changed source.',
+      'Session-dimension ordering covers only parseable rows in retained log segments; a pre-first-observed gap does not prove historical schema, rotation loss, surface loss, or a current emitter defect.',
+      'Conformance fresh requires a matching current capture or an explicit candidate/binding whose package, inputs, clean source identity, and deterministic deploy tree match; packaged historical evidence never proves changed source.',
+      'A published binding verifies internal byte/hash and decoded SLSA payload consistency; file acquisition, npm signature audit, and Sigstore authenticity remain release-closure evidence outside this offline scorecard.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
       'Confirmed absent prompt files may contribute zero; missing files that contradict or cannot resolve the active surface, plus unreadable or invalid inputs, remain null and prevent a measured headroom claim.',
     ],
@@ -1110,14 +1363,16 @@ function formatScorecard(card) {
   ]);
   section('Compatibility', [
     `dimension sessions: ${card.compatibility.dimension_sessions} · missing joins: ${card.compatibility.missing_dimension_sessions} · runtime splits: ${card.compatibility.runtime_splits.length}`,
+    `join attribution: ${card.compatibility.dimension_join_attribution.state} · pre ${card.compatibility.dimension_join_attribution.missing_before_first_observed_dimension} · straddling ${card.compatibility.dimension_join_attribution.missing_straddling_first_observed_dimension} · post ${card.compatibility.dimension_join_attribution.missing_after_first_observed_dimension} · no-reference ${card.compatibility.dimension_join_attribution.missing_without_dimension_reference}`,
     `data classes (rows): external ${card.compatibility.data_classes.external} · self ${card.compatibility.data_classes.self} · test ${card.compatibility.data_classes.test} · qa ${card.compatibility.data_classes.qa} · unknown ${card.compatibility.data_classes.unknown}`,
   ]);
   section('Conformance', [
     `state: ${card.conformance.state} · ${card.conformance.passed}/${card.conformance.total} pass · errors ${card.conformance.errors} · runs ${card.conformance.runs} · threshold ${card.conformance.threshold_verdict} · capture ${card.conformance.capture}`,
-    `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
+    `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability}${card.conformance.provenance.evidence_phase ? ` · phase ${card.conformance.provenance.evidence_phase}` : ''} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
   ]);
   section('False blocks', [
-    `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · confirmed false blocks ${card.false_blocks.confirmed_false_blocks}`,
+    `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · field ${card.false_blocks.eligible_field_events} · reviewed ${card.false_blocks.reviewed_outcomes}`,
+    `true ${card.false_blocks.true_blocks} · false ${card.false_blocks.confirmed_false_blocks} · unreviewed ${card.false_blocks.unreviewed_events} · unmeasurable ${card.false_blocks.unmeasurable_events} · denominator ${card.false_blocks.rate_denominator} · rate ${pct(card.false_blocks.false_block_rate)}`,
     `limit: ${card.false_blocks.limit}`,
   ]);
   section('Bypasses', [
@@ -1141,6 +1396,7 @@ function formatScorecard(card) {
   ]);
   section('Automation', [
     `recipes ${card.automation.recipes_present}/${card.automation.recipes_expected} · scheduled workflows ${card.automation.scheduled_workflows} · fallback ${card.automation.fallback_events} · fail-open ${card.automation.fail_open_events}`,
+    `fail-open causes dependency/input-missing ${card.automation.fail_open_causes.dependency_missing} · timeout ${card.automation.fail_open_causes.timeout} · parse-error ${card.automation.fail_open_causes.parse_error} · other ${card.automation.fail_open_causes.other}`,
     `worktrees ${card.automation.worktrees} · protected ${card.automation.protected_worktrees} · residue ${card.automation.worktree_residue}`,
   ]);
   section('Recommended operator actions', card.recommended_actions.map((item) => (
@@ -1159,7 +1415,10 @@ function formatScorecard(card) {
 function parseArgs(argv) {
   let parsed;
   try {
-    parsed = parseStrict(argv, { bools: ['json'], values: ['days', 'compare'] });
+    parsed = parseStrict(argv, {
+      bools: ['json'],
+      values: ['days', 'compare', 'conformance-candidate', 'conformance-binding', 'outcomes'],
+    });
   } catch (error) {
     return { error: error.message };
   }
@@ -1170,7 +1429,26 @@ function parseArgs(argv) {
   if (compare !== undefined && (!compare || compare.length > 4096)) {
     return { error: 'invalid --compare value: expected a non-empty path no longer than 4096 characters' };
   }
-  return { days, json: parsed.bools.has('json'), compare: compare || null };
+  const candidateEvidenceFile = parsed.values['conformance-candidate'];
+  const releaseBindingFile = parsed.values['conformance-binding'];
+  const outcomesPath = parsed.values.outcomes;
+  if (candidateEvidenceFile !== undefined && (!candidateEvidenceFile || candidateEvidenceFile.length > 4096)) {
+    return { error: 'invalid --conformance-candidate value: expected a non-empty bounded path' };
+  }
+  if (releaseBindingFile !== undefined && (!releaseBindingFile || releaseBindingFile.length > 4096)) {
+    return { error: 'invalid --conformance-binding value: expected a non-empty bounded path' };
+  }
+  if (releaseBindingFile && !candidateEvidenceFile) {
+    return { error: '--conformance-binding requires --conformance-candidate' };
+  }
+  if (outcomesPath !== undefined && (!outcomesPath || outcomesPath.length > 4096)) {
+    return { error: 'invalid --outcomes value: expected a non-empty bounded path' };
+  }
+  const result = { days, json: parsed.bools.has('json'), compare: compare || null };
+  if (candidateEvidenceFile) result.candidateEvidenceFile = candidateEvidenceFile;
+  if (releaseBindingFile) result.releaseBindingFile = releaseBindingFile;
+  if (outcomesPath) result.outcomesPath = outcomesPath;
+  return result;
 }
 
 module.exports = {
@@ -1186,6 +1464,9 @@ module.exports = {
   parseArgs,
   probeRegularFile,
   thresholdVerdict,
+  validateConformanceCandidateAttestation,
+  validateConformanceEvidencePair,
   validateConformanceReleaseEvidence,
+  validateConformanceReleaseBinding,
   validateScorecard,
 };

@@ -46,9 +46,14 @@ function invoke(home, sid, overrides = {}) {
     platform: 'linux-x64',
     ...overrides,
   };
+  const withoutJq = values.withoutJq === true;
+  delete values.withoutJq;
+  const script = withoutJq
+    ? 'source "$1"; command() { if [[ "${1:-}" == "-v" && "${2:-}" == "jq" ]]; then return 1; fi; builtin command "$@"; }; rule_hits_session_dimension "$2" "$3" "$4" "$5" "$6" "$7" "$8"'
+    : 'source "$1"; rule_hits_session_dimension "$2" "$3" "$4" "$5" "$6" "$7" "$8"';
   return cp.spawn('bash', [
     '-c',
-    'source "$1"; rule_hits_session_dimension "$2" "$3" "$4" "$5" "$6" "$7" "$8"',
+    script,
     'session-dimension-test',
     LIB,
     sid,
@@ -133,6 +138,18 @@ function rows(home) {
       for (const key of ['spec_version', 'agentsmd_version', 'surface', 'codex_version', 'model', 'platform']) {
         assert.strictEqual(row[key], 'unknown', `${key}=${row[key]}`);
       }
+    });
+
+    await wait(invoke(home, 'session-jqless', {
+      withoutJq: true,
+      model: 'model"with\\escapes',
+    }));
+    test('jq-less dimension fallback preserves valid bounded JSON and exact values', () => {
+      const row = rows(home).find((entry) => entry.session_id === 'session-jqless');
+      assert(row);
+      assert.strictEqual(row.event, 'session-dimension');
+      assert.strictEqual(row.model, 'model"with\\escapes');
+      assert(Object.keys(row).every((key) => ALLOWED_KEYS.has(key)), Object.keys(row).join(', '));
     });
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

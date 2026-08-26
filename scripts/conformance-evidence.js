@@ -270,19 +270,33 @@ function writeEvidence(file, releaseVersion, text, bounds = {}) {
   const root = bounds.root || ROOT;
   const releaseRoot = bounds.releaseRoot || RELEASE_ROOT;
   const expected = path.join(path.resolve(releaseRoot), `v${releaseVersion}.json`);
+  return writeImmutableEvidence(file, expected, text, {
+    root,
+    outputRoot: releaseRoot,
+    noun: 'evidence',
+    mode: 0o644,
+  });
+}
+
+function writeImmutableEvidence(file, expected, text, options = {}) {
+  const root = options.root || ROOT;
+  const outputRoot = options.outputRoot || path.dirname(expected);
+  const noun = options.noun || 'evidence';
+  const mode = options.mode == null ? 0o600 : options.mode;
   const destination = path.resolve(root, file);
-  if (destination !== expected) throw new Error(`--out must equal ${path.relative(ROOT, expected)}`);
-  verifiedReleaseRoot(releaseRoot);
+  const resolvedExpected = path.resolve(expected);
+  if (destination !== resolvedExpected) throw new Error(`--out must equal ${path.relative(ROOT, resolvedExpected)}`);
+  verifiedReleaseRoot(outputRoot);
   try {
     const existing = regularBytes(destination);
-    if (existing.toString('utf8') !== text) throw new Error(`${destination}: refusing to overwrite different evidence`);
+    if (existing.toString('utf8') !== text) throw new Error(`${destination}: refusing to overwrite different ${noun}`);
     return destination;
   } catch (error) {
     if (!error || error.code !== 'ENOENT') throw error;
   }
   const temporary = `${destination}.tmp-${process.pid}-${Date.now()}`;
   try {
-    fs.writeFileSync(temporary, text, { flag: 'wx', mode: 0o644 });
+    fs.writeFileSync(temporary, text, { flag: 'wx', mode });
     fs.linkSync(temporary, destination);
   } finally {
     try { fs.unlinkSync(temporary); } catch {}
@@ -324,4 +338,5 @@ module.exports = {
   platformCanonicalPath,
   verifiedReleaseRoot,
   writeEvidence,
+  writeImmutableEvidence,
 };

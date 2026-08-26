@@ -254,6 +254,7 @@ function driveForward(step) {
     return;
   }
   if (step.afterPresent === false) {
+    F.assertNotSymbolicLink(step.target);
     try { fs.unlinkSync(step.target); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
     return;
   }
@@ -271,6 +272,7 @@ function driveBackward(step) {
     return;
   }
   if (step.beforePresent === false) {
+    F.assertNotSymbolicLink(step.target);
     try { fs.unlinkSync(step.target); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
     return;
   }

@@ -32,6 +32,7 @@ function loadModules() {
     uninstall: require('../uninstall').uninstall,
     status: require('../status').status,
     doctor: require('../doctor').doctor,
+    F: require('../lib/fs-atomic'),
     H: require('../lib/codex-hooks'),
     M: require('../lib/migrate'),
   };
@@ -163,6 +164,71 @@ withSandbox((dir) => {
     assert.strictEqual(F.sha256Tree(dir), before);
   });
 });
+
+// ── 0a. shared-file symlinks are an unsafe lifecycle boundary ────────────────
+// Atomic rename replaces the link inode instead of preserving its target
+// relationship. Every shared lifecycle entry must therefore refuse before it
+// creates a lock, stage, backup, or any other CODEX_HOME state.
+const SHARED_FILE_SEEDS = {
+  'hooks.json': tenantSeed(),
+  'config.toml': 'model = "tenant-model"\n',
+  'AGENTS.md': '# Tenant instructions\nKeep this text.\n',
+};
+
+function replaceSharedWithExternalSymlink(dir, name, content) {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-shared-symlink.'));
+  const external = path.join(outside, name);
+  fs.writeFileSync(external, content);
+  const shared = path.join(dir, name);
+  try { fs.unlinkSync(shared); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
+  fs.symlinkSync(external, shared);
+  return { outside, external, shared };
+}
+
+for (const name of Object.keys(SHARED_FILE_SEEDS)) {
+  withSandbox((dir) => {
+    const { install, F } = loadModules();
+    const link = replaceSharedWithExternalSymlink(dir, name, SHARED_FILE_SEEDS[name]);
+    const beforeTree = F.sha256Tree(dir);
+    const beforeTarget = fs.readFileSync(link.external);
+    let error = null;
+    try { install('2026-07-02T00:00:00.000Z'); } catch (caught) { error = caught; }
+    t(`fresh install refuses a symlinked shared ${name} with zero CODEX_HOME mutation`, () => {
+      assert(error && /shared file.*symbolic link|symbolic link.*shared file/i.test(error.message), error && error.message);
+      assert.strictEqual(F.sha256Tree(dir), beforeTree);
+      assert(fs.lstatSync(link.shared).isSymbolicLink());
+      assert.strictEqual(fs.readlinkSync(link.shared), link.external);
+      assert(fs.readFileSync(link.external).equals(beforeTarget));
+    });
+    fs.rmSync(link.outside, { recursive: true, force: true });
+  });
+}
+
+for (const action of ['update', 'uninstall']) {
+  for (const name of Object.keys(SHARED_FILE_SEEDS)) {
+    withSandbox((dir) => {
+      const { install, uninstall, F } = loadModules();
+      install('2026-07-02T00:00:00.000Z');
+      const installedContent = fs.readFileSync(path.join(dir, name));
+      const link = replaceSharedWithExternalSymlink(dir, name, installedContent);
+      const beforeTree = F.sha256Tree(dir);
+      const beforeTarget = fs.readFileSync(link.external);
+      let error = null;
+      try {
+        if (action === 'update') install('2026-07-03T00:00:00.000Z');
+        else uninstall();
+      } catch (caught) { error = caught; }
+      t(`${action} refuses a symlinked shared ${name} with zero CODEX_HOME mutation`, () => {
+        assert(error && /shared file.*symbolic link|symbolic link.*shared file/i.test(error.message), error && error.message);
+        assert.strictEqual(F.sha256Tree(dir), beforeTree);
+        assert(fs.lstatSync(link.shared).isSymbolicLink());
+        assert.strictEqual(fs.readlinkSync(link.shared), link.external);
+        assert(fs.readFileSync(link.external).equals(beforeTarget));
+      });
+      fs.rmSync(link.outside, { recursive: true, force: true });
+    });
+  }
+}
 
 withSandbox((dir) => {
   const legacyCommand = `bash "${path.join(dir, 'codexmd', 'hooks', 'session-start-check.sh')}"`;

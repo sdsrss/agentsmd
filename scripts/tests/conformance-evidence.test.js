@@ -198,12 +198,16 @@ try {
     assert.deepStrictEqual(fs.readdirSync(escaped), []);
   });
 
-  test('committed v5.3.0 record is schema-valid and bound to current cases and thresholds', () => {
+  test('committed v5.3.0 record retains its historical input identity after case evolution', () => {
     const record = JSON.parse(fs.readFileSync(RELEASE_FILE, 'utf8'));
     const validation = validateConformanceReleaseEvidence(record);
     assert.strictEqual(validation.valid, true, validation.errors.join('\n'));
-    assert.strictEqual(record.subject.cases_sha256, casesSha);
-    assert.strictEqual(record.subject.thresholds_sha256, thresholdsSha);
+    assert.strictEqual(record.subject.cases_sha256, '7a2372d7096347f1abe7e460e06d5e128db2b1fa65cbbc0011660e21ed2a626a');
+    assert.strictEqual(record.subject.thresholds_sha256, '57e3c049dd08eb15c3ddbf37e949a2d3b6e0e3cd1c420e845812f33899d34c68');
+    assert.notStrictEqual(record.subject.cases_sha256, casesSha,
+      'historical evidence must not be rebound to the evolved case library');
+    assert.strictEqual(record.subject.thresholds_sha256, thresholdsSha,
+      'the release threshold remains unchanged');
     assert.deepStrictEqual(record.runs.map((run) => run.passed), [29, 28]);
     assert.strictEqual(record.decision.verdict, 'waived');
   });

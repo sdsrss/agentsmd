@@ -381,6 +381,9 @@ function cleanupTransaction(transaction) {
 }
 
 function uninstall() {
+  // Refuse before lock acquisition so a shared symlink is a zero-mutation
+  // outcome. uninstallCore repeats the check while holding the lock.
+  B.assertSharedFilesSafe();
   // R2-01: one writer per $CODEX_HOME (the lock dir lives OUTSIDE .agentsmd-state,
   // so removing the state dir below never deletes our own lock mid-operation).
   const lock = LOCK.acquire('uninstall');
@@ -501,6 +504,7 @@ function uninstallPluginStateCore() {
 }
 
 function uninstallCore() {
+  B.assertSharedFilesSafe();
   // Bind the newly-owned standalone runtime cleanup to the real state tree
   // before journal recovery or any other mutation. A symlinked state/runtime
   // path is an ownership ambiguity, not an uninstall target.
@@ -510,6 +514,7 @@ function uninstallCore() {
   // lock), so this uninstall always starts from a coherent tree. Fail-closed
   // throw (journal preserved) when recovery is not derivable from disk.
   const recoveredJournal = J.processPending();
+  B.assertSharedFilesSafe();
 
   // 0. Pre-flight abort on an unparseable shared hooks.json (mirror of install's
   //    step-0). It may hold other tenants' hooks we can't see; removeMarkedHooks

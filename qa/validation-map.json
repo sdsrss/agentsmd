@@ -36,6 +36,17 @@
       "width": "targeted",
       "order": 30
     },
+    "security-policy": {
+      "command": [
+        "node",
+        "scripts/tests/security-policy-check.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 35
+    },
     "conformance-structure": {
       "command": [
         "node",
@@ -47,6 +58,28 @@
       "width": "targeted",
       "order": 40
     },
+    "conformance-evidence": {
+      "command": [
+        "node",
+        "scripts/tests/conformance-evidence.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 42
+    },
+    "conformance-binding": {
+      "command": [
+        "node",
+        "scripts/tests/conformance-binding.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 43
+    },
     "core-ab-structure": {
       "command": [
         "node",
@@ -57,6 +90,17 @@
       "auth_boundary": false,
       "width": "targeted",
       "order": 41
+    },
+    "command-parse-property": {
+      "command": [
+        "node",
+        "scripts/tests/command-parse-property.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 45
     },
     "hook-smoke": {
       "command": [
@@ -141,6 +185,39 @@
       "auth_boundary": false,
       "width": "targeted",
       "order": 92
+    },
+    "doctor-plugin": {
+      "command": [
+        "node",
+        "scripts/tests/doctor-plugin.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 93
+    },
+    "plugin-surface": {
+      "command": [
+        "node",
+        "scripts/tests/plugin-surface.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 94
+    },
+    "repair-classification": {
+      "command": [
+        "node",
+        "scripts/tests/repair-classification.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 99
     },
     "install": {
       "command": [
@@ -241,6 +318,17 @@
       "width": "targeted",
       "order": 180
     },
+    "outcomes-unit": {
+      "command": [
+        "node",
+        "scripts/tests/outcomes.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 181
+    },
     "scorecard-unit": {
       "command": [
         "node",
@@ -250,7 +338,40 @@
       "external_service": false,
       "auth_boundary": false,
       "width": "targeted",
-      "order": 181
+      "order": 182
+    },
+    "coverage-observe": {
+      "command": [
+        "node",
+        "scripts/tests/coverage-observe.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 183
+    },
+    "js-syntax": {
+      "command": [
+        "node",
+        "scripts/tests/js-syntax-check.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 184
+    },
+    "capture-inventory": {
+      "command": [
+        "node",
+        "scripts/tests/capture-inventory.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 185
     },
     "argv-lint": {
       "command": [
@@ -433,12 +554,52 @@
       "auth_boundary": false
     },
     {
+      "id": "command-parser-contract",
+      "patterns": [
+        "hooks/lib/command-parse.js",
+        "scripts/tests/command-parse-property.test.js"
+      ],
+      "risk_categories": [
+        "command-parser",
+        "shared-runtime"
+      ],
+      "checks": [
+        "command-parse-property"
+      ],
+      "reason": "Command-parser changes require replayable positive/near-negative metamorphic cases plus explicit crash, timeout, input-size, and recursion bounds.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "doctor-diagnostics",
+      "patterns": [
+        "scripts/doctor.js",
+        "scripts/lib/doctor-plugin.js",
+        "scripts/tests/doctor-plugin.test.js",
+        "scripts/tests/plugin-surface.test.js"
+      ],
+      "risk_categories": [
+        "diagnostics",
+        "shared-runtime"
+      ],
+      "checks": [
+        "doctor-plugin",
+        "plugin-surface",
+        "install"
+      ],
+      "reason": "Doctor diagnostics must preserve pure phase mapping, public plugin-surface results, and standalone install health before the full gate widens coverage.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
       "id": "lifecycle",
       "patterns": [
         "scripts/install.js",
         "scripts/preflight.js",
         "scripts/repair.js",
         "scripts/uninstall.js",
+        "scripts/lib/repair-classification.js",
+        "scripts/tests/repair-classification.test.js",
         "scripts/lib/lifecycle-journal.js",
         "scripts/lib/lifecycle-lock.js"
       ],
@@ -447,13 +608,14 @@
         "shared-runtime"
       ],
       "checks": [
+        "repair-classification",
         "install",
         "preflight",
         "fault-injection",
         "repair",
         "distribution"
       ],
-      "reason": "Lifecycle mutation paths require transaction, repair, fault, and distribution evidence.",
+      "reason": "Lifecycle planning or mutation paths require classification, transaction, repair, fault, and distribution evidence.",
       "requires_full": true,
       "auth_boundary": false
     },
@@ -480,6 +642,30 @@
       "auth_boundary": false
     },
     {
+      "id": "conformance-runtime-contract",
+      "patterns": [
+        "qa/conformance-eval.sh",
+        "qa/cleanup-project-trust.js",
+        "qa/capture-native-tools.js",
+        "qa/clear-thread-goal.js",
+        "qa/conformance/cases.json",
+        "qa/conformance/thresholds.json",
+        "scripts/tests/conformance-cases.test.js"
+      ],
+      "risk_categories": [
+        "conformance-runtime-contract",
+        "model-measurement",
+        "qa-contract"
+      ],
+      "checks": [
+        "conformance-structure",
+        "shellcheck"
+      ],
+      "reason": "Formal conformance runner, grading, cleanup, and threshold changes require zero-model contract coverage, shell validation, and a full-gate widen before release evidence can be trusted.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
       "id": "runtime-canary-contract",
       "patterns": [
         "qa/runtime-canary.js",
@@ -501,6 +687,63 @@
       "auth_boundary": false
     },
     {
+      "id": "conformance-evidence-contract",
+      "patterns": [
+        "scripts/conformance-evidence.js",
+        "scripts/conformance-candidate.js",
+        "scripts/conformance-binding.js",
+        "scripts/lib/conformance-evidence.js",
+        "scripts/lib/release-artifact.js",
+        "scripts/tests/conformance-evidence.test.js",
+        "scripts/tests/conformance-binding.test.js",
+        "schemas/conformance-release-evidence.schema.json",
+        "schemas/conformance-candidate-attestation.schema.json",
+        "schemas/conformance-release-binding.schema.json",
+        "qa/conformance/releases/**"
+      ],
+      "risk_categories": [
+        "conformance-evidence-contract",
+        "release-evidence",
+        "measurement-semantics"
+      ],
+      "checks": [
+        "conformance-evidence",
+        "conformance-binding",
+        "scorecard-unit",
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Conformance evidence changes must preserve bounded privacy-safe summaries, exact candidate and artifact identity, strict argv, replay/tamper rejection, scorecard provenance, and distributed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "reviewed-outcomes-contract",
+      "patterns": [
+        "hooks/lib/rule-hits.sh",
+        "hooks/tests/smoke.sh",
+        "scripts/outcomes.js",
+        "scripts/lib/outcomes.js",
+        "scripts/tests/outcomes.test.js",
+        "schemas/reviewed-outcomes.schema.json"
+      ],
+      "risk_categories": [
+        "reviewed-outcomes-contract",
+        "measurement-semantics",
+        "telemetry-contract"
+      ],
+      "checks": [
+        "outcomes-unit",
+        "scorecard-unit",
+        "hook-smoke",
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Reviewed outcome changes must preserve exact blocking-event identity, bounded private review history, explicit denominator exclusions, strict argv, hook parity, and distributed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
       "id": "scorecard-contract",
       "patterns": [
         "scripts/scorecard.js",
@@ -517,6 +760,59 @@
         "distribution"
       ],
       "reason": "Scorecard changes must preserve bounded schema, measurement limits, strict argv, and installed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "coverage-observation",
+      "patterns": [
+        "scripts/coverage-observe.js",
+        "scripts/tests/coverage-observe.test.js"
+      ],
+      "risk_categories": [
+        "quality-observation",
+        "tooling"
+      ],
+      "checks": [
+        "coverage-observe"
+      ],
+      "reason": "Coverage observation changes must preserve bounded capture parsing, subprocess deduplication, explicit measurement limits, and exact temporary-workspace cleanup.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "js-syntax-compatibility",
+      "patterns": [
+        "scripts/js-syntax-check.js",
+        "scripts/tests/js-syntax-check.test.js"
+      ],
+      "risk_categories": [
+        "runtime-compatibility",
+        "static-analysis",
+        "tooling"
+      ],
+      "checks": [
+        "js-syntax"
+      ],
+      "reason": "The all-JavaScript syntax gate must keep bounded file discovery, symlink exclusion, parser timeouts, relative diagnostics, and current-runtime repository coverage.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "capture-retention-inventory",
+      "patterns": [
+        "scripts/capture-inventory.js",
+        "scripts/tests/capture-inventory.test.js"
+      ],
+      "risk_categories": [
+        "evidence-retention",
+        "privacy-observation",
+        "tooling"
+      ],
+      "checks": [
+        "capture-inventory"
+      ],
+      "reason": "The local evidence inventory must keep fixed-root bounded traversal, deterministic hashes, conservative retention, privacy diagnostics, atomic index-only writes, and zero payload deletion.",
       "requires_full": true,
       "auth_boundary": false
     },
@@ -612,6 +908,27 @@
       "reason": "Package and release surfaces cannot bypass the full gate or dry-run artifact inspection.",
       "requires_full": true,
       "auth_boundary": true
+    },
+    {
+      "id": "security-support-policy",
+      "patterns": [
+        "SECURITY.md",
+        "package.json",
+        "scripts/security-policy-check.js",
+        "scripts/tests/security-policy-check.test.js"
+      ],
+      "risk_categories": [
+        "public-security-policy",
+        "shared-contract"
+      ],
+      "checks": [
+        "security-policy",
+        "distribution",
+        "release-dry-run"
+      ],
+      "reason": "The published security-support major must match the package major and remain present in the npm artifact.",
+      "requires_full": true,
+      "auth_boundary": false
     },
     {
       "id": "quality-assurance",

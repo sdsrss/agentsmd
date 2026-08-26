@@ -21,6 +21,14 @@ readiness evidence only.
 7. Reviewed rollback path for the package and shared install surface.
 8. Authorization state: name whether push, merge, tag, publish, release, and
    post-publish marketplace E2E are authorized.
+9. Before publication, generate the candidate conformance attestation from the
+   exact clean candidate commit and retain it outside the package bytes. After
+   publication, create the binding from that exact candidate file, the GitHub
+   release tarball, the independently downloaded npm tarball, and decoded npm
+   SLSA provenance. Candidate-only evidence is readiness evidence, not proof of
+   publication. The offline binding checks consistency, not Sigstore
+   authenticity; retain the separate successful npm signature audit and source
+   acquisition evidence in the release packet.
 
 Report full command, exit code, observed result, capture identity, freshness, and
 what each check proves. Missing, stale, incomplete, or inconclusive evidence
