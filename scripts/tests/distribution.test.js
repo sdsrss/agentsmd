@@ -56,8 +56,58 @@ const singlePackResult = (packOutput) => {
 const {
   inspectReleaseArtifact,
   provenanceUrlFromNpmView,
+  stageSources,
 } = require('../lib/release-artifact');
+const F = require('../lib/fs-atomic');
 const fileDigest = (algorithm, file) => crypto.createHash(algorithm).update(fs.readFileSync(file)).digest('hex');
+
+t('standalone deploy staging normalizes source modes into one deterministic tree identity', () => withSandbox((dir) => {
+  const populateSource = (root, directoryMode, fileMode) => {
+    const directories = [
+      'hooks',
+      'spec',
+      'scripts',
+      path.join('skills', 'fixture'),
+      'schemas',
+      'automation',
+      'qa',
+    ];
+    for (const relative of directories) {
+      const target = path.join(root, relative);
+      fs.mkdirSync(target, { recursive: true });
+      fs.chmodSync(target, directoryMode);
+    }
+    const files = new Map([
+      [path.join('hooks', 'fixture.sh'), '#!/bin/sh\nexit 0\n'],
+      [path.join('spec', 'AGENTS.md'), '# fixture\n'],
+      [path.join('scripts', 'fixture.js'), "'use strict';\n"],
+      [path.join('skills', 'fixture', 'SKILL.md'), '# fixture\n'],
+      [path.join('schemas', 'fixture.json'), '{}\n'],
+      [path.join('automation', 'README.md'), '# fixture\n'],
+      [path.join('qa', 'validation-map.json'), '{}\n'],
+      ['package.json', '{"name":"fixture","version":"1.0.0"}\n'],
+    ]);
+    for (const [relative, content] of files) {
+      const target = path.join(root, relative);
+      fs.writeFileSync(target, content);
+      fs.chmodSync(target, fileMode);
+    }
+  };
+
+  const permissiveSource = path.join(dir, 'source-permissive');
+  const restrictiveSource = path.join(dir, 'source-restrictive');
+  populateSource(permissiveSource, 0o777, 0o777);
+  populateSource(restrictiveSource, 0o700, 0o600);
+
+  const permissiveDeploy = stageSources(permissiveSource, path.join(dir, 'stage-permissive'));
+  const restrictiveDeploy = stageSources(restrictiveSource, path.join(dir, 'stage-restrictive'));
+  assert.strictEqual(F.sha256Tree(permissiveDeploy), F.sha256Tree(restrictiveDeploy));
+  assert.strictEqual(fs.statSync(permissiveDeploy).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'skills', 'fixture')).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'hooks', 'fixture.sh')).mode & 0o777, 0o755);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'scripts', 'fixture.js')).mode & 0o777, 0o644);
+  assert.strictEqual(fs.statSync(path.join(permissiveDeploy, 'package.json')).mode & 0o777, 0o644);
+}));
 
 t('npm pack JSON accepts legacy arrays and npm 12 package maps only when singular', () => {
   const result = { filename: 'agentsmd.tgz', files: [] };

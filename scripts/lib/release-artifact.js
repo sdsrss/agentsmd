@@ -15,13 +15,17 @@ function includeStandaloneDeploySource(repo, source) {
     && (segments[0] === 'hooks' || segments[0] === 'scripts'));
 }
 
-function chmodShells(dir) {
-  if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) chmodShells(file);
-    else if (entry.isFile() && entry.name.endsWith('.sh')) fs.chmodSync(file, 0o755);
-  }
+function normalizeDeployModes(root) {
+  if (!fs.existsSync(root)) return;
+  const visit = (dir) => {
+    fs.chmodSync(dir, 0o755);
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else if (entry.isFile()) fs.chmodSync(target, entry.name.endsWith('.sh') ? 0o755 : 0o644);
+    }
+  };
+  visit(root);
 }
 
 function stageSources(repo, stageRoot) {
@@ -63,7 +67,7 @@ function stageSources(repo, stageRoot) {
   if (!fs.existsSync(path.join(deploy, 'qa', 'validation-map.json'))) {
     throw new Error('install source is incomplete: missing qa/validation-map.json');
   }
-  chmodShells(path.join(deploy, 'hooks'));
+  normalizeDeployModes(deploy);
   return deploy;
 }
 

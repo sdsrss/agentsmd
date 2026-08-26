@@ -65,6 +65,10 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   subject/ref/workflow/commit provenance. Scorecard accepts both only through
   explicit bounded files, distinguishes local candidate from published binding,
   and retains the packaged v1 record as historical evidence.
+- Fixed standalone artifact staging so directory, shell, and regular-file modes
+  are normalized to `0755`, `0755`, and `0644` respectively. Identical tracked
+  bytes now produce the same mode-bound deploy-tree identity when the source is
+  checked out on filesystems with different permission semantics.
 
 ## v5.3.3 — 2026-08-20 — native sandbox proxy disposal classification (patch)
 
