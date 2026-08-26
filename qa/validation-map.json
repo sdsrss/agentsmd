@@ -274,6 +274,17 @@
       "width": "targeted",
       "order": 180
     },
+    "outcomes-unit": {
+      "command": [
+        "node",
+        "scripts/tests/outcomes.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 181
+    },
     "scorecard-unit": {
       "command": [
         "node",
@@ -283,7 +294,7 @@
       "external_service": false,
       "auth_boundary": false,
       "width": "targeted",
-      "order": 181
+      "order": 182
     },
     "argv-lint": {
       "command": [
@@ -561,6 +572,32 @@
         "distribution"
       ],
       "reason": "Conformance evidence changes must preserve bounded privacy-safe summaries, exact candidate and artifact identity, strict argv, replay/tamper rejection, scorecard provenance, and distributed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "reviewed-outcomes-contract",
+      "patterns": [
+        "hooks/lib/rule-hits.sh",
+        "hooks/tests/smoke.sh",
+        "scripts/outcomes.js",
+        "scripts/lib/outcomes.js",
+        "scripts/tests/outcomes.test.js",
+        "schemas/reviewed-outcomes.schema.json"
+      ],
+      "risk_categories": [
+        "reviewed-outcomes-contract",
+        "measurement-semantics",
+        "telemetry-contract"
+      ],
+      "checks": [
+        "outcomes-unit",
+        "scorecard-unit",
+        "hook-smoke",
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Reviewed outcome changes must preserve exact blocking-event identity, bounded private review history, explicit denominator exclusions, strict argv, hook parity, and distributed behavior.",
       "requires_full": true,
       "auth_boundary": false
     },

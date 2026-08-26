@@ -44,8 +44,9 @@ function agentsExtendedMdPath() { return path.join(codexHome(), 'AGENTS-extended
 function stateDir() { return path.join(codexHome(), '.agentsmd-state'); }
 function manifestPath() { return path.join(stateDir(), 'manifest.json'); }
 function logPath() { return path.join(codexHome(), 'logs', 'agentsmd.jsonl'); }
+function outcomesPath() { return path.join(codexHome(), 'logs', 'agentsmd-outcomes.json'); }
 
 module.exports = {
   codexHome, platformCanonicalPath, repoRoot, installDir, installHooksDir, installSpecDir, installScriptsDir, codexSkillsDir,
-  hooksJsonPath, configTomlPath, agentsMdPath, agentsExtendedMdPath, stateDir, manifestPath, logPath,
+  hooksJsonPath, configTomlPath, agentsMdPath, agentsExtendedMdPath, stateDir, manifestPath, logPath, outcomesPath,
 };

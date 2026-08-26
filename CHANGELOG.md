@@ -5,6 +5,14 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added a reviewed blocking-outcome loop. New block/deny telemetry carries a
+  bounded correlation ID in jq and jq-less paths; a strict `outcomes` command
+  lists privacy-reduced summaries and appends schema-validated private review
+  revisions without rewriting raw telemetry. Scorecard now exposes exact field
+  true/false/unreviewed/unmeasurable/excluded counts, a reviewed-only
+  denominator, five evidence states, and complete fail-open cause categories.
+  Legacy rows remain explicitly unmeasurable, and absent labels never become a
+  measured zero.
 - Added a two-phase conformance evidence protocol. A clean pre-publication
   candidate attestation binds the source tree, deterministic deploy tree,
   conformance inputs, bounded results, and decision; a post-publication binding

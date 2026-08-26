@@ -38,6 +38,7 @@ const COMMANDS = {
   'lint-argv': 'lint-argv.js',
   verify: 'verify.js',
   scorecard: 'scorecard.js',
+  outcomes: 'outcomes.js',
   rules: 'rules.js',
 };
 
@@ -75,6 +76,7 @@ function usage() {
     '  lint-argv [--json]   Gate against silent-fallback argv parsing (args.includes(--x) / main block without a parser) across bin + scripts/.',
     '  verify [--changed | --since=<commit>] [--explain] [--full] [--json]   Select and run change-aware validation; external/AUTH operations are report-only.',
     '  scorecard [--days=N] [--json] [--compare=CAPTURE]   Aggregate versioned health, compatibility, quality, performance, automation, and measurement-limit evidence; read-only.',
+    '  outcomes list|review   List bounded blocking-event summaries or record a private reviewed true/false/unmeasurable outcome.',
     '',
     'Options:',
     '  -v, --version      Print the agentsmd version.',

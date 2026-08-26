@@ -1599,6 +1599,11 @@ if [[ -r "$TAGHOME/logs/agentsmd.jsonl" ]] && jq -e '.tag=="test"' "$TAGHOME/log
 else
   bad "AGENTSMD_TELEMETRY_TAG stamps tag field" "$(cat "$TAGHOME/logs/agentsmd.jsonl" 2>/dev/null || echo missing)"
 fi
+if jq -e '.event_id | test("^evt-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+-[0-9]+$")' "$TAGHOME/logs/agentsmd.jsonl" >/dev/null 2>&1; then
+  ok "blocking telemetry receives a bounded opaque event_id"
+else
+  bad "blocking telemetry receives event_id" "$(cat "$TAGHOME/logs/agentsmd.jsonl" 2>/dev/null || echo missing)"
+fi
 
 NOJQ="$SANDBOX/no-jq"
 mkdir -p "$NOJQ/bin" "$NOJQ/home"
@@ -1608,6 +1613,19 @@ if node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1],"
   ok "telemetry jq-less fallback writes valid JSON"
 else
   bad "telemetry jq-less fallback writes valid JSON" "$(cat "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
+fi
+if node -e 'const row=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (Object.hasOwn(row,"event_id")) process.exit(1);' "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null; then
+  ok "non-blocking jq-less telemetry omits event_id"
+else
+  bad "non-blocking jq-less telemetry omits event_id" "$(cat "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
+fi
+NOJQBLOCK="$SANDBOX/no-jq-block"
+mkdir -p "$NOJQBLOCK/home"
+PATH="$NOJQ/bin" CODEX_HOME="$NOJQBLOCK/home" bash -c 'source hooks/lib/rule-hits.sh; rule_hits_append "hook" "deny" "null" "§8-rm-rf-var" "sid-block"; rule_hits_append "hook" "block" "null" "§8-rm-rf-var" "sid-block"; unset EPOCHREALTIME; printf -v EPOCHREALTIME "%0100d" 0; rule_hits_append "hook" "deny" "null" "§8-rm-rf-var" "sid-block"'
+if node -e 'const rows=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map((line)=>JSON.parse(line)); const re=/^evt-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+-[0-9]+$/; if (rows.length!==3 || rows.some((row)=>!re.test(row.event_id||"") || row.event_id.length>96) || new Set(rows.map((row)=>row.event_id)).size!==3) process.exit(1);' "$NOJQBLOCK/home/logs/agentsmd.jsonl" 2>/dev/null; then
+  ok "blocking jq-less telemetry receives distinct bounded event_id values"
+else
+  bad "blocking jq-less telemetry receives distinct bounded event_id values" "$(cat "$NOJQBLOCK/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
 fi
 
 # R1-03: jq missing at runtime → SessionStart still emits a per-startup degraded

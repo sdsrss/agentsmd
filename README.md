@@ -389,6 +389,9 @@ agentsmd scorecard --days=30
 agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
 agentsmd scorecard --conformance-candidate=candidate.json --conformance-binding=binding.json
+agentsmd scorecard --outcomes=/absolute/path/to/agentsmd-outcomes.json
+agentsmd outcomes list --days=30 --json
+agentsmd outcomes review --event=EVENT_ID --outcome=false-block --reason=benign-action-confirmed
 ```
 
 The versioned scorecard v2 joins one bounded `session-dimension` row per session to
@@ -399,7 +402,17 @@ discipline, performance, memory engagement, prompt budget, automation, operator
 actions, and measurement limits. It never promotes/demotes a rule. Raw hits do
 not rank rule value; no-opportunity is not success; memory citation is not
 adherence; sampling calibration is a structural proxy; and field false-block
-rate remains `unmeasured` without a human-reviewed outcome. Health records the
+rate remains `unmeasured` without a human-reviewed outcome. New `block`/`deny`
+rows carry an opaque correlation ID; legacy rows without one remain explicitly
+unmeasurable instead of being joined by timestamp. `outcomes list` exposes only
+a bounded event summary and `outcomes review` appends an explicit, private
+revision without rewriting raw telemetry. The field rate denominator is exactly
+reviewed external `true-block` plus `false-block` outcomes; self, test, QA,
+unknown, unreviewed, and unmeasurable events are reported but excluded. The
+measurement state is `no-opportunity`, `unmeasured`, `partial`, `measured`, or
+`invalid`, never an inferred zero. Scorecard also classifies every fail-open
+reason as dependency/input missing, timeout, parse error, or other while keeping
+the exact reason available to `audit`. Health records the
 invocation root, Codex home, and whether status/doctor evidence came from the
 runtime filesystem or supplied fixtures. Unknown enforcement remains `null`
 (`n/a` in the human report) and makes health `unavailable`; only measured
@@ -477,6 +490,7 @@ changes or ship authorization.
 | `perf-baseline`, `version-cascade` | Measure hook cost and detect stale README version prose |
 | `verify` | Explain and run change-aware local validation; report external/AUTH boundaries without executing them |
 | `scorecard` | Aggregate bounded health, compatibility, quality, performance, automation, and measurement-limit evidence |
+| `outcomes` | List bounded blocking-event summaries and append explicit private true/false/unmeasurable review revisions |
 
 Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, `design`, `exception`, and `verify`, which operate on the current project.
 
@@ -565,7 +579,7 @@ digest becomes stale if the artifact or any target/shared file changes.
 `hooks.json`, `config.toml`, and `AGENTS.md`. It cannot repair deploy, skills,
 the extended spec, or the ownership manifest.
 
-Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, the extended spec, and the status-line preset it added — a status line you have since customized is left untouched. It retains recovery backups, unknown state, telemetry, the enabled hook flag (removing it could break other tenants' hooks), and unregistered no-op shims needed by already-running sessions.
+Uninstall removes registered hooks, skills, the managed `AGENTS.md` block, known runtime state, the extended spec, and the status-line preset it added — a status line you have since customized is left untouched. It retains recovery backups, unknown state, telemetry, reviewed outcomes, the enabled hook flag (removing it could break other tenants' hooks), and unregistered no-op shims needed by already-running sessions.
 
 agentsmd preserves other tenants' hook entries and global guidance outside its
 sentinel block, but has no OMX-specific selection or runtime dependency. Its
@@ -585,13 +599,17 @@ node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
 agentsmd scorecard --days=30
+agentsmd outcomes list --days=30
 ```
 
 A rule becomes a demotion candidate only after enough rule-specific evaluated opportunities with zero enforcement hits. `--project` is an informational lens; demotion remains cross-project. `no-opportunity`, low evaluation counts, and global session counts are not demotion evidence. High hit counts show activity, not correctness. The operator makes the decision using [`spec/OPERATOR.md`](./spec/OPERATOR.md).
 
 `rules` also reports **bypass governance**: for each rule with an escape-hatch token, how often that token was used instead of accepting the block, plus how many distinct sessions the overrides came from. A high rate is a review prompt with two opposite remedies — the rule over-fires, or the gate is being routed around — and the report picks neither. `audit --trend` slices the window into equal time buckets normalised per 100 sessions, so discipline movement is visible instead of only the current snapshot; buckets are time, not spec versions.
 
-The scorecard composes these signals without changing their semantics. Runtime,
+The scorecard composes these signals without changing their semantics. Reviewed
+outcomes form a field false-block rate only after an operator labels an exact
+event; absent, legacy, self, test, QA, unknown, and unmeasurable evidence never
+enters that denominator. Runtime,
 model, surface, spec, and agentsmd versions come from one deduplicated
 SessionStart dimension row and are joined by `session_id`; older sessions with
 no row stay visible as missing joins. A historical green capture is never
@@ -599,7 +617,7 @@ presented as fresh evidence for the current tree after its freshness window.
 
 ## Security and privacy
 
-See [`SECURITY.md`](./SECURITY.md) for the vulnerability-reporting channel and response targets, supported versions, the threat model, and the telemetry schema/retention/deletion/opt-out reference. The one-paragraph version: agentsmd is a **fail-open coding-discipline layer, not a security boundary**; telemetry is local-only (`~/.codex/logs/agentsmd.jsonl`, private file modes, size-capped rotation, `DISABLE_RULE_HITS_LOG=1` to opt out, delete the file to erase). Note for dual-surface installs: skills load outside surface arbitration, so plugin + standalone simultaneously means duplicated skills in the session — install one surface only; `doctor` flags it.
+See [`SECURITY.md`](./SECURITY.md) for the vulnerability-reporting channel and response targets, supported versions, the threat model, and the telemetry/review schema, retention, deletion, and opt-out reference. The one-paragraph version: agentsmd is a **fail-open coding-discipline layer, not a security boundary**; telemetry and explicit reviewed outcomes are local-only (`~/.codex/logs/agentsmd.jsonl` plus `agentsmd-outcomes.json`, private file modes, bounded storage, `DISABLE_RULE_HITS_LOG=1` to stop new telemetry, delete both data sets to erase them). Note for dual-surface installs: skills load outside surface arbitration, so plugin + standalone simultaneously means duplicated skills in the session — install one surface only; `doctor` flags it.
 
 ## Development
 

@@ -24,6 +24,7 @@ const {
   validateConformanceReleaseBinding,
   validateConformanceReleaseEvidence,
 } = require('./conformance-evidence');
+const { classifyFailOpenCauses, summarizeReviewedOutcomes } = require('./outcomes');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'scorecard.schema.json'), 'utf8'));
@@ -153,6 +154,34 @@ function deepBounds(value, at = '$', depth = 0, errors = []) {
 function validateScorecard(value) {
   const errors = validateSchema(value, SCHEMA, SCHEMA);
   deepBounds(value, '$', 0, errors);
+  const falseBlocks = value && value.false_blocks;
+  if (falseBlocks && Number.isInteger(falseBlocks.rate_denominator)) {
+    if (falseBlocks.rate_denominator !== falseBlocks.true_blocks + falseBlocks.confirmed_false_blocks) {
+      errors.push('$.false_blocks.rate_denominator: must equal true_blocks + confirmed_false_blocks');
+    }
+    if (falseBlocks.blocking_events !== falseBlocks.eligible_field_events + falseBlocks.excluded_non_field_events) {
+      errors.push('$.false_blocks.blocking_events: must equal eligible_field_events + excluded_non_field_events');
+    }
+    if (falseBlocks.eligible_field_events !== falseBlocks.rate_denominator
+      + falseBlocks.unreviewed_events + falseBlocks.unmeasurable_events) {
+      errors.push('$.false_blocks.eligible_field_events: must equal denominator + unreviewed + unmeasurable');
+    }
+    const expectedRate = falseBlocks.rate_denominator > 0
+      ? falseBlocks.confirmed_false_blocks / falseBlocks.rate_denominator : null;
+    if (falseBlocks.state === 'invalid') {
+      if (falseBlocks.false_block_rate !== null) errors.push('$.false_blocks.false_block_rate: invalid evidence requires null');
+    } else if (falseBlocks.false_block_rate !== expectedRate) {
+      errors.push('$.false_blocks.false_block_rate: must equal confirmed_false_blocks / rate_denominator');
+    }
+  }
+  const automation = value && value.automation;
+  if (automation && automation.fail_open_causes) {
+    const causeTotal = Object.values(automation.fail_open_causes)
+      .reduce((sum, count) => sum + count, 0);
+    if (causeTotal !== automation.fail_open_events) {
+      errors.push('$.automation.fail_open_causes: categories must sum to fail_open_events');
+    }
+  }
   let serialized = '';
   try { serialized = JSON.stringify(value); } catch (error) { errors.push(`$: is not JSON serializable (${error.message})`); }
   if (Buffer.byteLength(serialized) > MAX_OUTPUT_BYTES) {
@@ -848,6 +877,7 @@ function automationSummary({ automationRoot, workflowsRoot, worktrees, projectRo
     governance_workflow: workflow.governance,
     fallback_events: pointAudit.byEvent['compat-fallback'] || 0,
     fail_open_events: pointAudit.byEvent['fail-open'] || 0,
+    fail_open_causes: classifyFailOpenCauses(pointAudit.byFailOpen),
     worktrees: records.length,
     protected_worktrees: protectedCount,
     worktree_residue: residue,
@@ -937,11 +967,19 @@ function actionsFor(card, rules) {
   } else if (card.conformance.state !== 'fresh') {
     add('high', 'conformance-stale', 'Run the declared full conformance suite and retain its machine-readable current-tree capture.', `Current-tree conformance capture age is ${card.conformance.age_days ?? 'unknown'} day(s).`);
   }
+  if (card.false_blocks.state === 'invalid') {
+    add('high', 'false-block-outcomes-invalid', 'Inspect the bounded reviewed-outcome sidecar and repair its event identity or schema before calculating a field rate.', `Outcome source is ${card.false_blocks.outcomes_source}; no false-block rate is reported.`);
+  } else if (card.false_blocks.state === 'unmeasured' && card.false_blocks.eligible_field_events > 0) {
+    add('medium', 'false-block-outcomes-unmeasured', 'Review bounded field blocking events with agentsmd outcomes; do not use conformance near-negatives as field labels.', `${card.false_blocks.unreviewed_events} unreviewed and ${card.false_blocks.unmeasurable_events} unmeasurable field event(s).`);
+  } else if (card.false_blocks.state === 'partial') {
+    add('medium', 'false-block-outcomes-partial', 'Continue bounded field-event review; keep unreviewed and unmeasurable events outside the rate denominator.', `Denominator ${card.false_blocks.rate_denominator}; ${card.false_blocks.unreviewed_events} unreviewed and ${card.false_blocks.unmeasurable_events} unmeasurable event(s).`);
+  }
   if (card.performance.state !== 'fresh') {
     add('high', 'performance-stale', 'Run the formal performance SLO on the reference machine and refresh the versioned baseline.', `Performance state is ${card.performance.state}.`);
   }
   if (card.automation.fallback_events || card.automation.fail_open_events) {
-    add('medium', 'fallback-usage', 'Review compatibility fallback and fail-open reasons by runtime split.', `${card.automation.fallback_events} fallback and ${card.automation.fail_open_events} fail-open event(s).`);
+    const causes = card.automation.fail_open_causes;
+    add('medium', 'fallback-usage', 'Review compatibility fallback and fail-open reasons by runtime split.', `${card.automation.fallback_events} fallback and ${card.automation.fail_open_events} fail-open event(s): dependency/input-missing ${causes.dependency_missing}, timeout ${causes.timeout}, parse-error ${causes.parse_error}, other ${causes.other}.`);
   }
   if (card.automation.worktree_residue) {
     add('low', 'worktree-residue', 'Review unprotected worktree residue; clean only task-owned, inactive, unpinned entries.', `${card.automation.worktree_residue} unprotected worktree(s) require ownership review.`);
@@ -964,6 +1002,12 @@ function buildScorecard(options = {}) {
   const logPath = options.logPath || path.join(codexHome, 'logs', 'agentsmd.jsonl');
   const sessionsDir = options.sessionsDir || path.join(codexHome, 'sessions');
   const pointAudit = audit({ days, now, logPath });
+  const falseBlocks = summarizeReviewedOutcomes({
+    days,
+    now,
+    logPath,
+    outcomesPath: options.outcomesPath || path.join(codexHome, 'logs', 'agentsmd-outcomes.json'),
+  });
   const rules = rulesAudit({
     days,
     now,
@@ -1015,13 +1059,7 @@ function buildScorecard(options = {}) {
       releaseBindingFile: options.releaseBindingFile || null,
       artifactIdentity: conformanceArtifactIdentity,
     }),
-    false_blocks: {
-      state: 'unmeasured',
-      blocking_events: blocking,
-      reviewed_outcomes: 0,
-      confirmed_false_blocks: 0,
-      limit: 'Blocking telemetry has no human-reviewed outcome label; conformance near-negatives are regression evidence, not a field false-block rate.',
-    },
+    false_blocks: falseBlocks,
     bypasses: {
       blocking_decisions: blocking,
       bypass_decisions: bypasses,
@@ -1065,7 +1103,7 @@ function buildScorecard(options = {}) {
       'No-opportunity and insufficient-opportunity are missing denominators, not successful outcomes.',
       'Sampling preflight and planning classifications are structural proxies and are not semantic proof.',
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
-      'False-block rate is unmeasured until blocking events receive bounded human-reviewed outcome labels.',
+      'Field false-block rate uses only reviewed external true/false outcomes; self, test, QA, unknown, unreviewed, and unmeasurable events stay outside its denominator.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
       'Conformance fresh requires a matching current capture or an explicit candidate/binding whose package, inputs, clean source identity, and deterministic deploy tree match; packaged historical evidence never proves changed source.',
       'A published binding verifies internal byte/hash and decoded SLSA payload consistency; file acquisition, npm signature audit, and Sigstore authenticity remain release-closure evidence outside this offline scorecard.',
@@ -1157,7 +1195,8 @@ function formatScorecard(card) {
     `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability}${card.conformance.provenance.evidence_phase ? ` · phase ${card.conformance.provenance.evidence_phase}` : ''} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
   ]);
   section('False blocks', [
-    `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · confirmed false blocks ${card.false_blocks.confirmed_false_blocks}`,
+    `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · field ${card.false_blocks.eligible_field_events} · reviewed ${card.false_blocks.reviewed_outcomes}`,
+    `true ${card.false_blocks.true_blocks} · false ${card.false_blocks.confirmed_false_blocks} · unreviewed ${card.false_blocks.unreviewed_events} · unmeasurable ${card.false_blocks.unmeasurable_events} · denominator ${card.false_blocks.rate_denominator} · rate ${pct(card.false_blocks.false_block_rate)}`,
     `limit: ${card.false_blocks.limit}`,
   ]);
   section('Bypasses', [
@@ -1181,6 +1220,7 @@ function formatScorecard(card) {
   ]);
   section('Automation', [
     `recipes ${card.automation.recipes_present}/${card.automation.recipes_expected} · scheduled workflows ${card.automation.scheduled_workflows} · fallback ${card.automation.fallback_events} · fail-open ${card.automation.fail_open_events}`,
+    `fail-open causes dependency/input-missing ${card.automation.fail_open_causes.dependency_missing} · timeout ${card.automation.fail_open_causes.timeout} · parse-error ${card.automation.fail_open_causes.parse_error} · other ${card.automation.fail_open_causes.other}`,
     `worktrees ${card.automation.worktrees} · protected ${card.automation.protected_worktrees} · residue ${card.automation.worktree_residue}`,
   ]);
   section('Recommended operator actions', card.recommended_actions.map((item) => (
@@ -1201,7 +1241,7 @@ function parseArgs(argv) {
   try {
     parsed = parseStrict(argv, {
       bools: ['json'],
-      values: ['days', 'compare', 'conformance-candidate', 'conformance-binding'],
+      values: ['days', 'compare', 'conformance-candidate', 'conformance-binding', 'outcomes'],
     });
   } catch (error) {
     return { error: error.message };
@@ -1215,6 +1255,7 @@ function parseArgs(argv) {
   }
   const candidateEvidenceFile = parsed.values['conformance-candidate'];
   const releaseBindingFile = parsed.values['conformance-binding'];
+  const outcomesPath = parsed.values.outcomes;
   if (candidateEvidenceFile !== undefined && (!candidateEvidenceFile || candidateEvidenceFile.length > 4096)) {
     return { error: 'invalid --conformance-candidate value: expected a non-empty bounded path' };
   }
@@ -1224,9 +1265,13 @@ function parseArgs(argv) {
   if (releaseBindingFile && !candidateEvidenceFile) {
     return { error: '--conformance-binding requires --conformance-candidate' };
   }
+  if (outcomesPath !== undefined && (!outcomesPath || outcomesPath.length > 4096)) {
+    return { error: 'invalid --outcomes value: expected a non-empty bounded path' };
+  }
   const result = { days, json: parsed.bools.has('json'), compare: compare || null };
   if (candidateEvidenceFile) result.candidateEvidenceFile = candidateEvidenceFile;
   if (releaseBindingFile) result.releaseBindingFile = releaseBindingFile;
+  if (outcomesPath) result.outcomesPath = outcomesPath;
   return result;
 }
 

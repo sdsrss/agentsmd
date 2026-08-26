@@ -266,12 +266,102 @@ try {
       current_commit: FIXTURE_COMMIT,
       inputs_match: true,
     });
-    assert.strictEqual(card.false_blocks.state, 'unmeasured');
-    assert.match(card.false_blocks.limit, /human-reviewed outcome/);
+    assert.strictEqual(card.false_blocks.state, 'no-opportunity');
+    assert.strictEqual(card.false_blocks.false_block_rate, null);
+    assert.match(card.false_blocks.limit, /No field blocking event/u);
     assert(card.bypasses.no_opportunity > 0);
     assert.strictEqual(card.bypasses.no_opportunity_is_success, false);
     assert.strictEqual(card.evidence_discipline.calibration_is_governance_signal, false);
     assert.strictEqual(card.memory.citation_is_adherence, false);
+  });
+
+  test('reviewed outcomes expose the exact field denominator and fail-open cause classes', () => {
+    const reviewedLog = path.join(temp, 'reviewed', 'agentsmd.jsonl');
+    const reviewedOutcomes = path.join(temp, 'reviewed', 'agentsmd-outcomes.json');
+    const event = (minute, id, project = '-work-client-') => ({
+      ts: `2026-07-28T03:${minute}:00.000Z`,
+      hook: 'pre-bash-safety',
+      event: 'block',
+      event_id: id,
+      project,
+      session_id: `session-${minute}`,
+      spec_section: '§8-rm-rf-var',
+      extra: null,
+    });
+    const ids = [
+      'evt-20260728T030000Z-101-1001-1',
+      'evt-20260728T030100Z-102-1002-1',
+      'evt-20260728T030200Z-103-1003-1',
+    ];
+    write(reviewedLog, jsonl([
+      event('00', ids[0]),
+      event('01', ids[1]),
+      event('02', ids[2]),
+      { ...event('03', null), event_id: undefined },
+      event('04', 'evt-20260728T030400Z-104-1004-1', '-work-agentsmd-fixture-'),
+      { ts: '2026-07-28T04:00:00.000Z', hook: 'memory-read', event: 'fail-open', project: '-work-client-', extra: { reason: 'no-transcript' } },
+      { ts: '2026-07-28T04:01:00.000Z', hook: 'memory-read', event: 'fail-open', project: '-work-client-', extra: { reason: 'timeout' } },
+      { ts: '2026-07-28T04:02:00.000Z', hook: 'secrets-scan', event: 'fail-open', project: '-work-client-', extra: { reason: 'invalid-json' } },
+      { ts: '2026-07-28T04:03:00.000Z', hook: 'secrets-scan', event: 'fail-open', project: '-work-client-', extra: { reason: 'git-diff-failed' } },
+    ]));
+    const outcome = (index, value, reason) => ({
+      event_id: ids[index],
+      event_ts: `2026-07-28T03:0${index}:00.000Z`,
+      hook: 'pre-bash-safety',
+      event: 'block',
+      spec_section: '§8-rm-rf-var',
+      project_class: 'external',
+      outcome: value,
+      reason,
+      reviewed_at: `2026-07-28T05:0${index}:00.000Z`,
+      revision: 1,
+    });
+    write(reviewedOutcomes, JSON.stringify({
+      schema_version: 1,
+      kind: 'agentsmd-reviewed-outcomes',
+      outcomes: [
+        outcome(0, 'true-block', 'policy-violation-confirmed'),
+        outcome(1, 'false-block', 'benign-action-confirmed'),
+        outcome(2, 'unmeasurable', 'insufficient-context'),
+      ],
+    }));
+    const reviewed = buildScorecard({
+      ...scorecardOptions,
+      logPath: reviewedLog,
+      outcomesPath: reviewedOutcomes,
+    });
+    assert.deepStrictEqual(reviewed.false_blocks, {
+      state: 'partial',
+      blocking_events: 5,
+      eligible_field_events: 4,
+      reviewed_outcomes: 3,
+      true_blocks: 1,
+      confirmed_false_blocks: 1,
+      unreviewed_events: 0,
+      unmeasurable_events: 2,
+      excluded_non_field_events: 1,
+      rate_denominator: 2,
+      false_block_rate: 0.5,
+      outcomes_source: 'measured',
+      window_days: 30,
+      limit: '2 field event(s) are unmeasurable and excluded from the reviewed denominator.',
+    });
+    assert.deepStrictEqual(reviewed.automation.fail_open_causes, {
+      dependency_missing: 1,
+      timeout: 1,
+      parse_error: 1,
+      other: 1,
+    });
+    assert(reviewed.recommended_actions.some((item) => item.code === 'false-block-outcomes-partial'));
+    const text = formatScorecard(reviewed);
+    assert.match(text, /denominator 2 · rate 50[.]0%/u);
+    assert.match(text, /fail-open causes dependency\/input-missing 1 · timeout 1 · parse-error 1 · other 1/u);
+    const badDenominator = structuredClone(reviewed);
+    badDenominator.false_blocks.rate_denominator += 1;
+    assert(validateScorecard(badDenominator).errors.some((error) => /rate_denominator/u.test(error)));
+    const badFailOpen = structuredClone(reviewed);
+    badFailOpen.automation.fail_open_causes.other += 1;
+    assert(validateScorecard(badFailOpen).errors.some((error) => /fail_open_causes/u.test(error)));
   });
 
   test('performance, prompt budget, automation, fallback, and residue stay explicit', () => {
@@ -889,6 +979,12 @@ try {
     delete legacyV2.conformance.runs;
     delete legacyV2.conformance.threshold_verdict;
     delete legacyV2.conformance.provenance;
+    for (const field of [
+      'eligible_field_events', 'true_blocks', 'unreviewed_events',
+      'unmeasurable_events', 'excluded_non_field_events', 'rate_denominator',
+      'false_block_rate', 'outcomes_source', 'window_days',
+    ]) delete legacyV2.false_blocks[field];
+    delete legacyV2.automation.fail_open_causes;
     const legacyV2Path = path.join(temp, 'legacy-v2.json');
     write(legacyV2Path, JSON.stringify(legacyV2));
     assert.strictEqual(loadComparison(legacyV2Path).schema_version, 2);
@@ -918,12 +1014,14 @@ try {
     assert.deepStrictEqual(parseArgs([
       '--days=7', '--json', '--compare=old.json',
       '--conformance-candidate=candidate.json', '--conformance-binding=binding.json',
+      '--outcomes=outcomes.json',
     ]), {
       days: 7,
       json: true,
       compare: 'old.json',
       candidateEvidenceFile: 'candidate.json',
       releaseBindingFile: 'binding.json',
+      outcomesPath: 'outcomes.json',
     });
     assert.strictEqual(parseArgs(['--days']).error.includes("requires '=value'"), true);
     assert.strictEqual(parseArgs(['--days=0']).error.includes('invalid --days'), true);

@@ -28,7 +28,7 @@ bin/        npm CLI 入口  bin/agentsmd.js（Node）：`agentsmd <cmd>` / `npx 
               —— 薄 dispatcher，spawn（而非 import）对应 L2 脚本，透传参数/输出/退出码；不属于三层，不引入 L1↔L2 耦合
 L3  命令层    17 个 Codex skills（dir + SKILL.md）：init / analyze / design / audit / doctor / rules / status / restore / verify / scorecard / perf 等
               —— stub，告诉 agent 去跑对应的 L2 脚本
-L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / doctor / rules / migrate / init / analyze / design / diagnostics
+L2  管理脚本  scripts/*.js（Node）：install / uninstall / repair / status / audit / outcomes / scorecard / doctor / rules / migrate / init / analyze / design / diagnostics
               —— 处理安装、scoped merge/remove、遥测聚合与治理信号
 L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex harness 在 6 个已注册事件调用
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
@@ -105,14 +105,17 @@ manifest 仍写入绝对 hook 路径，不依赖 plugin runtime 变量。
 spec/AGENTS*.md 的 (HARD) 规则
   └─ spec/hard-rules.json           机器可读镜像（每条规则的 section_anchor + enforcement + codex_hook_event）
       └─ hooks/*.sh + hooks/lib/*.sh 强制/支撑  命中/阻断/fail-open 时 hook_record
-          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度）
-              └─ scripts/audit.js    bySection 聚合
-                  ├─ 治理信号         rule-specific opportunity + outcome → operator review
-                  └─ scorecard        session_id join + capture/candidate/published-binding provenance + freshness limits
-                      └─ lib/conformance-evidence.js  schema semantics + exact-byte pair validation + state normalization
+          └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度；新 block/deny 带 correlation ID）
+              ├─ scripts/audit.js    bySection 聚合
+              │   └─ 治理信号         rule-specific opportunity + outcome → operator review
+              ├─ scripts/outcomes.js  有界事件摘要 → 人工 true/false/unmeasurable revision
+              │   └─ ~/.codex/logs/agentsmd-outcomes.json  私有、有界、append-history 侧车；不改写原始遥测
+              └─ scorecard           exact event join + 现场分母 + session/provenance/freshness limits
+                  └─ lib/conformance-evidence.js  schema semantics + exact-byte pair validation + state normalization
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
+- 只有新 `block`/`deny` 行生成不含 project/session/command/path 的 correlation ID；legacy 无 ID 行保持 unmeasurable。scorecard 的现场误拦分母只含已审核 external `true-block + false-block`，所有排除项逐项可见；sidecar 缺失、部分覆盖或无效分别进入 `unmeasured`、`partial`、`invalid`，不推断零值。
 - manifest 的反向 drift gate 同时核对显式 HARD/MUST 行和 §8 Never 子句；`operational_sections` 单独声明 `§hooks-fail-open` 这类非规范规则的运行遥测。
 - **离线兜底**（Codex 特有优势）：`codex exec` 可无交互跑，为「离线扫历史会话产出命中率」提供一条 CI/定时路径——即 `agentsmd.txt` 设想的「试运行拿稀释度信号」，无需实时 hook 也能取数。
 - `hard-rules.json` 的 `last_demote_review` 现为 `null`（部署前无字段数据）；首批遥测落地后由 OPERATOR 按节奏回填。
@@ -152,7 +155,7 @@ guidance 或非 agentsmd hook 条目保留，不参与 profile 选择。
 | `~/.codex/AGENTS.md`（规范部署） | sentinel 托管块 `# >>> agentsmd >>> … # <<< agentsmd <<<`，块外内容逐字保留；卸载只删块 | 不存在则创建，只含自己的块 |
 | MCP servers | 强制层不加 MCP（遥测是本地 jsonl）；未来若加，用 `agentsmd_*` 键 | 无影响 |
 | skills（命令层） | manifest exact path + tree hash；前缀不是 ownership 证据 | 无影响 |
-| state / log | manifest/cache/telemetry 共享；plugin 与 standalone ephemeral runtime 分面；legacy 双读不搬迁；backups、unknown、symlink 与 telemetry 保留 | 无碰撞 |
+| state / log | manifest/cache/telemetry/reviewed outcomes 共享；plugin 与 standalone ephemeral runtime 分面；legacy 双读不搬迁；backups、unknown、symlink、telemetry 与 reviewed outcomes 保留 | 无碰撞 |
 
 **打包形态**：仓库提供 `.codex-plugin/plugin.json`、顶层 `hooks.json` 和 standalone `scripts/install.js`。`.agents/plugins/marketplace.json` 固定指向已发布的 `@sdsrs/agentsmd` npm artifact；npm 包排除源码测试目录。plugin surface 的装配由 Codex plugin runtime 管理；standalone surface 使用本节的 manifest-backed transaction。两套 surface 分开卸载。
 
@@ -195,7 +198,7 @@ agentsmd/
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
   scripts/                   L2 管理脚本（含 install/uninstall/repair/verify 与 security-policy gate）
-  schemas/                   task/evidence、scorecard、conformance candidate/binding、runtime-canary 的有界 JSON Schema
+  schemas/                   task/evidence、reviewed outcomes、scorecard、conformance candidate/binding、runtime-canary 的有界 JSON Schema
   qa/validation-map.json     路径→风险→检查的机器可读验证映射
   qa/runtime-canary.js       pinned/latest 隔离 canary 与机器可读证据
   automation/                weekly canary/governance、readiness、PR review recipes

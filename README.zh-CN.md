@@ -354,6 +354,9 @@ agentsmd scorecard --days=30
 agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
 agentsmd scorecard --conformance-candidate=candidate.json --conformance-binding=binding.json
+agentsmd scorecard --outcomes=/absolute/path/to/agentsmd-outcomes.json
+agentsmd outcomes list --days=30 --json
+agentsmd outcomes review --event=EVENT_ID --outcome=false-block --reason=benign-action-confirmed
 ```
 
 版本化 scorecard v2 通过每个 session 一条有界 `session-dimension` 记录关联现场
@@ -363,7 +366,15 @@ bypass、evidence discipline、performance、memory engagement、prompt budget�
 automation、operator actions 与 measurement limits。它不会自动升降级规则：
 raw hit 不代表规则价值，no-opportunity 不是成功，memory citation 不等于
 adherence，sampling calibration 只是结构 proxy；没有人工审核 outcome 时，
-现场 false-block rate 保持 `unmeasured`。health 会记录调用根目录、Codex home，
+现场 false-block rate 保持 `unmeasured`。新的 `block`/`deny` 行带不包含项目、会话或
+命令内容的 correlation ID；没有 ID 的 legacy 行明确计为 unmeasurable，不按秒级
+时间戳猜测关联。`outcomes list` 只呈现有界事件摘要，`outcomes review` 追加明确的
+私有 revision，不改写原始遥测。现场 rate 的分母严格等于已审核 external
+`true-block` 加 `false-block`；self、test、QA、unknown、unreviewed 与 unmeasurable
+都会单独报告但不进入分母。测量状态只能是 `no-opportunity`、`unmeasured`、
+`partial`、`measured` 或 `invalid`，不会把缺失证据推断成零。scorecard 还会把
+全部 fail-open 原因归入 dependency/input missing、timeout、parse error 或 other，
+同时保留 `audit` 中的精确原因。health 会记录调用根目录、Codex home，
 以及 status/doctor 证据来自 runtime filesystem 还是 supplied fixture。prompt-budget
 source 会区分 measured、empty、missing、invalid 与 unavailable；未解析的字节保持
 `null`，汇总状态只能是 `measured`、`partial`、`unavailable` 或 `over-budget`，
@@ -427,6 +438,7 @@ ship 授权。
 | `perf-baseline`、`version-cascade` | 测量 hook 成本并检测 README 中过期的版本文本 |
 | `verify` | 解释并运行变更感知的本地验证；只报告真实外部服务与 AUTH boundary |
 | `scorecard` | 汇总有界的 health、compatibility、quality、performance、automation 与 measurement-limit 证据 |
+| `outcomes` | 列出有界的阻断事件摘要，并追加明确、私有的 true/false/unmeasurable 评审 revision |
 
 运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception`、`verify` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
 
@@ -506,7 +518,7 @@ manifest 的 partial install 都会阻断并要求人工复核。`--confirm=<pla
 `config.toml` 和 `AGENTS.md`，不能修复 deploy、skills、extended spec 或 ownership
 manifest。
 
-卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
+卸载会移除已注册 hooks、skills、受管理的 `AGENTS.md` 块、已知 runtime state、extended spec，以及安装时自己添加的状态栏预置——你之后自定义过的状态栏会原样保留。它保留恢复备份、未知状态、遥测、已审核 outcomes、已启用的 hook 开关（移除它可能破坏其他租户的 hooks），以及当前会话可能仍需要的未注册 no-op shims。
 
 agentsmd 会保留其他 tenant 的 hook 条目和 sentinel 块外的全局 guidance，但不再有
 任何 OMX 专用 profile 选择或运行时依赖。完整规范内建 Codex 原生子代理契约：
@@ -524,20 +536,23 @@ node scripts/audit.js --days=90 --trend
 agentsmd rules --days=30
 agentsmd sparkline --windows=6 --bucket-days=7
 agentsmd scorecard --days=30
+agentsmd outcomes list --days=30
 ```
 
 只有在积累足够 rule-specific evaluated opportunities 后仍为零 enforcement hits，规则才进入降级候选。`--project` 对 rules 仅作信息透镜；降级信号仍跨项目。`no-opportunity`、低评估量和全局 session 数都不是降级证据。高命中只表示活跃，不代表正确。最终由 operator 依据 [`spec/OPERATOR.md`](./spec/OPERATOR.md) 决策。
 
 `rules` 另有 **bypass governance**：对每条带 escape-hatch token 的规则，报告 token 被用来跳过拦截的比例，以及这些跳过来自多少个不同 session。比例偏高只是复核提示，且有两种相反的解法——规则过度触发，或闸门被习惯性绕过——报告不替你选。`audit --trend` 把窗口切成等长时间桶并按每百 session 归一，让纪律指标的走向可见，而不只有当前快照；桶按时间划分，不按 spec 版本。
 
-scorecard 在不改变上述语义的前提下组合信号。runtime、model、surface、spec
+scorecard 在不改变上述语义的前提下组合信号。只有 operator 对精确事件完成
+审核后，outcome 才进入现场 false-block rate；缺失、legacy、self、test、QA、
+unknown 和 unmeasurable 证据都不进入分母。runtime、model、surface、spec
 和 agentsmd 版本由 SessionStart 去重维度记录提供，并通过 `session_id`
 关联；缺少该记录的旧 session 仍明确显示为 missing join。历史绿色 capture
 超过 freshness window 后，不会被当成当前树的新鲜证据。
 
 ## 安全与隐私
 
-漏洞报告渠道与响应目标、支持版本、威胁模型、遥测 schema/保留/删除/退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测仅本地（`~/.codex/logs/agentsmd.jsonl`，私有文件权限，按大小轮转封顶，`DISABLE_RULE_HITS_LOG=1` 退出，删除文件即抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
+漏洞报告渠道与响应目标、支持版本、威胁模型、遥测/评审 schema、保留、删除和退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测和人工评审 outcome 都只保存在本地（`~/.codex/logs/agentsmd.jsonl` 与 `agentsmd-outcomes.json`，私有文件权限和有界存储，`DISABLE_RULE_HITS_LOG=1` 停止新增遥测，删除两组数据才能完全抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
 
 ## 开发
 

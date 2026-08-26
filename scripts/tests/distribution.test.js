@@ -339,7 +339,7 @@ t('agentsmd --help lists every subcommand without touching CODEX_HOME', () => wi
     'init', 'analyze', 'design', 'install', 'update', 'uninstall', 'restore', 'repair',
     'status', 'doctor', 'audit', 'sampling-audit', 'lesson-bypass-audit',
     'sparkline', 'safety-coverage-audit', 'version-cascade', 'perf-baseline',
-    'lint-argv', 'verify', 'scorecard', 'rules',
+    'lint-argv', 'verify', 'scorecard', 'outcomes', 'rules',
   ]) {
     assert(out.includes(c), `help missing subcommand: ${c}`);
   }
@@ -373,6 +373,7 @@ t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
     ['perf-baseline', '--runs=0'],
     ['verify', '--since'],
     ['scorecard', '--days=0'],
+    ['outcomes', 'list', '--days=0'],
     ['repair'],
     ['repair', '--confirm=not-a-digest'],
   ];
@@ -453,6 +454,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'scorecard.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'conformance-candidate-attestation.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'conformance-release-binding.schema.json')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'reviewed-outcomes.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'schemas', 'runtime-canary.schema.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'validation-map.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'perf', 'baseline.json')));
@@ -460,6 +462,7 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'qa', 'conformance', 'thresholds.json')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'conformance-candidate.js')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'conformance-binding.js')));
+  assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'outcomes.js')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'automation', 'weekly-runtime-canary.md')));
   assert(fs.existsSync(path.join(dir, 'agentsmd', 'skills', 'agentsmd-scorecard', 'SKILL.md')));
   const verifyPlan = JSON.parse(cp.execFileSync(process.execPath, [
@@ -490,14 +493,27 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
   assert.strictEqual(scorecard.schema_version, 2);
   assert.strictEqual(scorecard.performance.state, 'fresh');
   assert.strictEqual(scorecard.automation.recipes_present, 4);
+  const outcomeList = JSON.parse(cli(['outcomes', 'list', '--days=30', '--json'], env));
+  assert.deepStrictEqual(outcomeList, { days: 30, events: [] });
+  assert(!fs.existsSync(path.join(dir, 'logs', 'agentsmd-outcomes.json')),
+    'outcomes list must not create a review sidecar');
 
   const status = JSON.parse(cli(['status'], env));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 19);
 
+  const retainedOutcome = path.join(dir, 'logs', 'agentsmd-outcomes.json');
+  fs.mkdirSync(path.dirname(retainedOutcome), { recursive: true });
+  fs.writeFileSync(retainedOutcome, JSON.stringify({
+    schema_version: 1,
+    kind: 'agentsmd-reviewed-outcomes',
+    outcomes: [],
+  }));
+  fs.chmodSync(retainedOutcome, 0o600);
   const uninstallOut = cli(['uninstall'], env);
   assert(uninstallOut.includes('agentsmd uninstalled:'));
   assert.strictEqual(JSON.parse(cli(['status'], env)).installed, false);
+  assert(fs.existsSync(retainedOutcome), 'uninstall must retain user-owned reviewed outcomes');
 }));
 
 t('agentsmd update is an idempotent alias for install', () => withSandbox((dir) => {
@@ -693,8 +709,10 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('qa/conformance/releases/v5.3.0.json'), 'tarball is missing release conformance evidence');
   assert(packedPaths.includes('schemas/conformance-candidate-attestation.schema.json'), 'tarball is missing the candidate-attestation schema');
   assert(packedPaths.includes('schemas/conformance-release-binding.schema.json'), 'tarball is missing the release-binding schema');
+  assert(packedPaths.includes('schemas/reviewed-outcomes.schema.json'), 'tarball is missing the reviewed-outcomes schema');
   assert(packedPaths.includes('scripts/conformance-candidate.js'), 'tarball is missing the candidate-attestation generator');
   assert(packedPaths.includes('scripts/conformance-binding.js'), 'tarball is missing the release-binding generator');
+  assert(packedPaths.includes('scripts/outcomes.js'), 'tarball is missing the reviewed-outcomes command');
   assert(packedPaths.includes('SECURITY.md'), 'tarball is missing the security policy');
   assert(packedPaths.includes('scripts/security-policy-check.js'), 'tarball is missing the security-policy gate');
   const forbidden = [

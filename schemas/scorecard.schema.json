@@ -242,10 +242,19 @@
       "additionalProperties": false,
       "required": ["state", "blocking_events", "reviewed_outcomes", "confirmed_false_blocks", "limit"],
       "properties": {
-        "state": { "enum": ["measured", "unmeasured"] },
+        "state": { "enum": ["measured", "partial", "unmeasured", "no-opportunity", "invalid"] },
         "blocking_events": { "$ref": "#/$defs/nonnegative" },
+        "eligible_field_events": { "$ref": "#/$defs/nonnegative" },
         "reviewed_outcomes": { "$ref": "#/$defs/nonnegative" },
+        "true_blocks": { "$ref": "#/$defs/nonnegative" },
         "confirmed_false_blocks": { "$ref": "#/$defs/nonnegative" },
+        "unreviewed_events": { "$ref": "#/$defs/nonnegative" },
+        "unmeasurable_events": { "$ref": "#/$defs/nonnegative" },
+        "excluded_non_field_events": { "$ref": "#/$defs/nonnegative" },
+        "rate_denominator": { "$ref": "#/$defs/nonnegative" },
+        "false_block_rate": { "$ref": "#/$defs/nullableNumber" },
+        "outcomes_source": { "enum": ["missing", "measured", "invalid", "unavailable"] },
+        "window_days": { "type": "integer", "minimum": 1, "maximum": 3650 },
         "limit": { "$ref": "#/$defs/longText" }
       }
     },
@@ -445,9 +454,21 @@
         "governance_workflow": { "type": "boolean" },
         "fallback_events": { "$ref": "#/$defs/nonnegative" },
         "fail_open_events": { "$ref": "#/$defs/nonnegative" },
+        "fail_open_causes": { "$ref": "#/$defs/failOpenCauses" },
         "worktrees": { "$ref": "#/$defs/nonnegative" },
         "protected_worktrees": { "$ref": "#/$defs/nonnegative" },
         "worktree_residue": { "$ref": "#/$defs/nonnegative" }
+      }
+    },
+    "failOpenCauses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency_missing", "timeout", "parse_error", "other"],
+      "properties": {
+        "dependency_missing": { "$ref": "#/$defs/nonnegative" },
+        "timeout": { "$ref": "#/$defs/nonnegative" },
+        "parse_error": { "$ref": "#/$defs/nonnegative" },
+        "other": { "$ref": "#/$defs/nonnegative" }
       }
     },
     "action": {

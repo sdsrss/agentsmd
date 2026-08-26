@@ -238,38 +238,67 @@ rule_hits_emit() {
   local log_file="$log_dir/agentsmd.jsonl"
   mkdir -p "$log_dir" 2>/dev/null || return 0
 
-  local ts tag row=""
+  local ts tag row="" event_id="" event_stamp="" event_nonce="" event_pid="" prior_seq=""
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   tag="${AGENTSMD_TELEMETRY_TAG:-}"
+  # A reviewed outcome must join one exact blocking observation. Historical
+  # rows cannot safely derive this from their second-resolution timestamp, so
+  # only new block/deny rows receive an opaque ID. It contains no project,
+  # session, command, path, or extra payload and costs no additional process.
+  case "$event" in
+    block|deny)
+      event_stamp="${ts//[-:]/}"
+      prior_seq="${_AGENTSMD_RULE_HITS_EVENT_SEQ:-0}"
+      case "$prior_seq" in
+        ''|*[!0-9]*) prior_seq=0 ;;
+      esac
+      [[ ${#prior_seq} -gt 9 ]] && prior_seq=0
+      _AGENTSMD_RULE_HITS_EVENT_SEQ=$((10#$prior_seq + 1))
+      event_nonce="${EPOCHREALTIME:-${RANDOM:-0}}"
+      event_nonce="${event_nonce//[.]/}"
+      case "$event_nonce" in
+        ''|*[!0-9]*) event_nonce="${RANDOM:-0}" ;;
+      esac
+      [[ ${#event_nonce} -gt 24 ]] && event_nonce="${RANDOM:-0}"
+      event_pid="${BASHPID:-$$}"
+      case "$event_pid" in
+        ''|*[!0-9]*) event_pid="$$" ;;
+      esac
+      [[ ${#event_pid} -gt 12 ]] && event_pid="$$"
+      event_id="evt-${event_stamp}-${event_pid}-${event_nonce}-${_AGENTSMD_RULE_HITS_EVENT_SEQ}"
+      ;;
+  esac
 
   if command -v jq >/dev/null 2>&1; then
     row=$(jq -cn \
       --arg ts "$ts" --arg hook "$hook" --arg event "$event" --arg project "$project" \
       --arg session_id "$session_id" --arg section "$section" --argjson extra "$extra" --arg tag "$tag" \
-      --arg eligible "$eligible" --arg evaluated "$evaluated" \
+      --arg eligible "$eligible" --arg evaluated "$evaluated" --arg event_id "$event_id" \
       '{ts:$ts, hook:$hook, event:$event, project:$project,
         session_id:(if $session_id=="" then null else $session_id end),
         spec_section:(if $section=="" then null else $section end),
         extra:$extra}
+        + (if $event_id=="" then {} else {event_id:$event_id} end)
         + (if $eligible=="" then {} else {eligible:($eligible=="true")} end)
         + (if $evaluated=="" then {} else {evaluated:($evaluated=="true")} end)
         + (if $tag=="" then {} else {tag:$tag} end)' 2>/dev/null) || return 0
   else
-    local es eh ee ep esection tagfrag="" observationfrag=""
+    local es eh ee ep esection tagfrag="" observationfrag="" eventidfrag=""
     es="$(rule_hits_json_escape "$session_id")"
     eh="$(rule_hits_json_escape "$hook")"
     ee="$(rule_hits_json_escape "$event")"
     ep="$(rule_hits_json_escape "$project")"
     esection="$(rule_hits_json_escape "$section")"
     [[ -n "$tag" ]] && tagfrag=",\"tag\":\"$(rule_hits_json_escape "$tag")\""
+    [[ -n "$event_id" ]] && eventidfrag=",\"event_id\":\"$(rule_hits_json_escape "$event_id")\""
     if [[ -n "$eligible" ]]; then
       observationfrag=",\"eligible\":${eligible},\"evaluated\":${evaluated}"
     fi
-    printf -v row '{"ts":"%s","hook":"%s","event":"%s","project":"%s","session_id":%s,"spec_section":%s,"extra":%s%s%s}' \
+    printf -v row '{"ts":"%s","hook":"%s","event":"%s","project":"%s","session_id":%s,"spec_section":%s,"extra":%s%s%s%s}' \
       "$ts" "$eh" "$ee" "$ep" \
       "$([[ -n "$es" ]] && printf '"%s"' "$es" || echo null)" \
       "$([[ -n "$esection" ]] && printf '"%s"' "$esection" || echo null)" \
-      "$extra" "$observationfrag" "$tagfrag"
+      "$extra" "$eventidfrag" "$observationfrag" "$tagfrag"
   fi
 
   [[ -n "$row" ]] || return 0

@@ -277,7 +277,17 @@ external runtime.
   tagged test/QA rows do not enter field runtime splits or governance
   denominators. Older sessions without a dimension row remain explicit missing
   joins. Status: BASELINE.
-- Boundary 2: only a full capture matching the current source commit,
+- Boundary 2: new block/deny rows receive an opaque correlation ID in jq and
+  jq-less paths; legacy/duplicate IDs remain unmeasurable. A bounded private
+  sidecar keeps explicit true-block, false-block, and unmeasurable revisions
+  without rewriting raw telemetry. The field false-block denominator contains
+  only reviewed external true/false outcomes; self/test/qa/unknown, unreviewed,
+  unmeasurable, mismatched, or future-dated evidence is excluded and surfaced as
+  no-opportunity/unmeasured/partial/invalid rather than zero. Fail-open cause
+  categories sum exactly to fail-open events. Status: BASELINE; privacy,
+  revision, identity, symlink/oversize/malformed, denominator, semantic-invariant,
+  jq/jq-less, and installed-package fixtures.
+- Boundary 3: only a full capture matching the current source commit,
   tracked-clean state, case-library ID set, cases hash, and thresholds hash can
   populate current-tree freshness; later targeted, legacy, dirty-tree, or
   mismatched captures cannot replace it. Bounded release records preserve only
@@ -294,7 +304,7 @@ external runtime.
   and unmeasured false blocks remain explicit. Status: BASELINE; source/mismatch,
   dirty-tree/replay/tamper, malformed/symlink/oversize, generator privacy, and
   installed-package fixtures.
-- Boundary 3: a fresh non-interactive home uses the Codex hook-trust bypass only
+- Boundary 4: a fresh non-interactive home uses the Codex hook-trust bypass only
   after the caller explicitly attests that every active hook source was
   reviewed. Captures record that trust mode, and a completed child turn with no
   exact-session hook telemetry aborts the remaining cases as infrastructure
@@ -305,11 +315,13 @@ external runtime.
   trusted-actor constrained, Codex read-only, SHA-pinned, and posts from a
   separate least-privilege feedback job. Four distributed recipes define
   worktree and AUTH boundaries. Status: BASELINE; static workflow fixtures.
-- Misuse: scorecard comparison rejects symlinks, files over 1 MiB, malformed or
-  future-schema JSON; it never promotes/demotes rules, equates citations with
-  adherence, treats no-opportunity as success, or treats a sampling proxy as
-  semantic proof. Runtime near-negative grading rejects any mutation or changed
-  tracked file. Status: BASELINE.
+- Misuse: scorecard comparison and reviewed-outcome input reject symlinks,
+  files over 1 MiB, malformed or future-schema JSON; outcome review also rejects
+  unknown IDs, invalid reason pairs, future timestamps, and replacement without
+  `--replace`. The scorecard never promotes/demotes rules, equates citations
+  with adherence, treats no-opportunity as success, or treats a sampling proxy
+  as semantic proof. Runtime near-negative grading rejects any mutation or
+  changed tracked file. Status: BASELINE.
 
 ## Known sandbox blind spots
 

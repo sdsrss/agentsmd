@@ -39,13 +39,17 @@ Generate the operator report or versioned JSON capture:
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --json
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --compare=scorecard-previous.json
+node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --outcomes=/absolute/agentsmd-outcomes.json
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --conformance-candidate=/absolute/candidate.json
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --conformance-candidate=/absolute/candidate.json --conformance-binding=/absolute/binding.json
 ```
 
 - Run from the project whose AGENTS.md prompt budget and worktree inventory should be measured.
 - Treat `test` and `qa` data classes as visible provenance, not field evidence.
-- Treat missing dimensions, stale captures, no-opportunity, insufficient opportunity, and unmeasured false blocks as gaps.
+- Treat missing dimensions, stale captures, no-opportunity, insufficient opportunity, and unmeasured/partial/invalid false-block outcomes as gaps.
+- Read `false_blocks.state` before interpreting its rate. The denominator contains only reviewed external `true-block` plus `false-block` outcomes; legacy, duplicate, self, test, QA, unknown, unreviewed, unmeasurable, mismatched, and future-dated evidence stays outside it.
+- Use `agentsmd outcomes list/review` for explicit bounded human review. The scorecard is read-only, never fabricates labels from conformance near-negatives, and never rewrites raw telemetry or the review sidecar.
+- Read `automation.fail_open_causes` as a complete category split whose total must equal `fail_open_events`; retain `audit` for exact reasons and version attribution.
 - Read `conformance.provenance` before recommending a model run: packaged release evidence is historical, a source/input mismatch is not current-tree proof, and missing evidence calls for a bounded evidence source before an unconditional rerun.
 - Read `conformance.provenance.evidence_phase` when present: `local-candidate` matches a candidate artifact but is not publication proof; `published-binding` also binds the exact candidate to verified release/registry bytes and npm provenance. The command never fetches either file implicitly.
 - Treat a `published-binding` as offline consistency evidence, not an independent signature audit; release provenance authenticity and input acquisition remain separate release-closure checks.

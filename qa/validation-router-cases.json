@@ -179,6 +179,29 @@
       "auth_boundary": false
     },
     {
+      "name": "reviewed outcome contract",
+      "files": [
+        "scripts/lib/outcomes.js"
+      ],
+      "checks_include": [
+        "outcomes-unit",
+        "scorecard-unit",
+        "hook-smoke",
+        "argv-lint",
+        "distribution",
+        "full-check"
+      ],
+      "categories_include": [
+        "reviewed-outcomes-contract",
+        "measurement-semantics",
+        "telemetry-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "scorecard contract",
       "files": [
         "scripts/lib/scorecard.js"
