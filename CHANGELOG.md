@@ -5,6 +5,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added a bounded, observation-first inventory for ignored local QA captures.
+  It hashes strict evidence units, reports age/class/permission and malformed or
+  unsafe entries, treats 90 days only as a human-review trigger, and grants no
+  deletion eligibility. An explicit `--write` atomically refreshes only the
+  ignored `docs/qa-captures/index.json`; capture payloads are never pruned.
 - Added a dependency-free JavaScript syntax compatibility gate. Every existing
   Node CI runtime now parses all `.js` files under `bin/`, `scripts/`,
   `hooks/lib/`, and `qa/` with its own `node --check`; discovery skips symlinks

@@ -224,6 +224,12 @@ external runtime.
   syntax/timeout/spawn errors remain distinct without executing source. This
   checks syntax and minimum-runtime parser compatibility only; it is not a
   semantic linter. Status: LOCAL; R-08 RED-first fixtures and Node matrix wiring.
+- Local capture retention inventory: a fixed-root, bounded read-only scan
+  classifies strict evidence units, hashes their directory/file bytes, exposes
+  invalid metadata plus symlink/special/wide-mode boundaries, and records a
+  90-day review trigger without granting deletion eligibility. `--write` may
+  atomically refresh only the ignored index. Status: LOCAL; R-09 RED-first
+  fixtures and one current-root inventory, with zero capture payload deletion.
 - Misuse: nonexistent filters, unsafe run counts, stale tokens, and parser
   antipattern fixtures return an actionable non-zero result. Coverage capture
   symlinks, malformed/oversized JSON, source-incompatible ranges, unsafe output

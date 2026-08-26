@@ -362,6 +362,17 @@
       "width": "targeted",
       "order": 184
     },
+    "capture-inventory": {
+      "command": [
+        "node",
+        "scripts/tests/capture-inventory.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 185
+    },
     "argv-lint": {
       "command": [
         "node",
@@ -760,6 +771,24 @@
         "js-syntax"
       ],
       "reason": "The all-JavaScript syntax gate must keep bounded file discovery, symlink exclusion, parser timeouts, relative diagnostics, and current-runtime repository coverage.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "capture-retention-inventory",
+      "patterns": [
+        "scripts/capture-inventory.js",
+        "scripts/tests/capture-inventory.test.js"
+      ],
+      "risk_categories": [
+        "evidence-retention",
+        "privacy-observation",
+        "tooling"
+      ],
+      "checks": [
+        "capture-inventory"
+      ],
+      "reason": "The local evidence inventory must keep fixed-root bounded traversal, deterministic hashes, conservative retention, privacy diagnostics, atomic index-only writes, and zero payload deletion.",
       "requires_full": true,
       "auth_boundary": false
     },

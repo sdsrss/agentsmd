@@ -307,6 +307,27 @@
       "uncovered": false
     },
     {
+      "name": "local capture retention inventory",
+      "files": [
+        "scripts/capture-inventory.js"
+      ],
+      "checks_include": [
+        "capture-inventory",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "evidence-retention",
+        "privacy-observation",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "distributed automation recipe",
       "files": [
         "automation/weekly-runtime-canary.md"
