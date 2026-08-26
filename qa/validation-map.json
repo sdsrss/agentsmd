@@ -208,6 +208,17 @@
       "width": "targeted",
       "order": 94
     },
+    "repair-classification": {
+      "command": [
+        "node",
+        "scripts/tests/repair-classification.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 99
+    },
     "install": {
       "command": [
         "node",
@@ -554,6 +565,8 @@
         "scripts/preflight.js",
         "scripts/repair.js",
         "scripts/uninstall.js",
+        "scripts/lib/repair-classification.js",
+        "scripts/tests/repair-classification.test.js",
         "scripts/lib/lifecycle-journal.js",
         "scripts/lib/lifecycle-lock.js"
       ],
@@ -562,13 +575,14 @@
         "shared-runtime"
       ],
       "checks": [
+        "repair-classification",
         "install",
         "preflight",
         "fault-injection",
         "repair",
         "distribution"
       ],
-      "reason": "Lifecycle mutation paths require transaction, repair, fault, and distribution evidence.",
+      "reason": "Lifecycle planning or mutation paths require classification, transaction, repair, fault, and distribution evidence.",
       "requires_full": true,
       "auth_boundary": false
     },

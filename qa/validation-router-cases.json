@@ -92,6 +92,7 @@
         "scripts/install.js"
       ],
       "checks_include": [
+        "repair-classification",
         "install",
         "preflight",
         "fault-injection",

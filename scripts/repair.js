@@ -13,6 +13,7 @@ const A = require('./lib/release-artifact');
 const { inspectPluginBundle, validateInstallManifest } = require('./status');
 const LOCK = require('./lib/lifecycle-lock');
 const J = require('./lib/lifecycle-journal');
+const { classifyRepairEvidence } = require('./lib/repair-classification');
 const { parseStrict, printHelpAndExit } = require('./lib/argv');
 
 const SHA256_RE = /^[a-f0-9]{64}$/;
@@ -153,7 +154,7 @@ function planRepair() {
   const missing = [];
   const mismatched = [];
   const unexpected = [];
-  const blockers = [];
+  let blockers = [];
 
   const liveInventory = {
     deploy: F.describePath(P.installDir()),
@@ -174,9 +175,7 @@ function planRepair() {
   if (stateDescriptor.present && stateDescriptor.type !== 'tree') blockers.push(`state path has unsafe live type: ${stateDescriptor.type}`);
   if (recoveryRoot.present && recoveryRoot.type !== 'tree') blockers.push(`repair snapshot path has unsafe live type: ${recoveryRoot.type}`);
   let ownedArtifacts = [];
-  let classification;
-  let applyAllowed = false;
-  let recommendation;
+  let standaloneFootprintPresent = false;
 
   if (!manifestState.present) {
     const hooksRaw = F.readFileOptional(P.hooksJsonPath(), 'utf8') || '';
@@ -184,27 +183,8 @@ function planRepair() {
     const specLive = AM.hasSpecBlock(F.readFileOptional(P.agentsMdPath(), 'utf8'));
     const exactShim = S.isExactUninstalledShimTree(P.installDir());
     const deployPresent = F.pathExists(P.installDir());
-    const footprintUnprovable = blockers.length > 0 || hooksLive || specLive || F.pathExists(P.agentsExtendedMdPath()) || (deployPresent && !exactShim);
-    classification = footprintUnprovable ? 'ownership-unprovable' : 'not-installed';
-    if (classification === 'ownership-unprovable') {
-      blockers.push('manifest is missing while an agentsmd runtime/shared footprint remains');
-      recommendation = {
-        code: 'inspect-manually',
-        command: 'agentsmd repair --plan',
-        reason: 'automatic repair cannot prove ownership without a valid manifest',
-      };
-    } else {
-      recommendation = { code: 'install', command: 'agentsmd install', reason: 'no active standalone install was found' };
-    }
-  } else if (!manifestState.valid) {
-    classification = 'ownership-unprovable';
-    blockers.push(manifestState.error || 'manifest is invalid');
-    recommendation = {
-      code: 'inspect-manually',
-      command: 'agentsmd repair --plan',
-      reason: 'automatic repair cannot prove ownership from this manifest',
-    };
-  } else {
+    standaloneFootprintPresent = hooksLive || specLive || F.pathExists(P.agentsExtendedMdPath()) || (deployPresent && !exactShim);
+  } else if (manifestState.valid) {
     const manifest = manifestState.manifest;
     const ownershipError = exactOwnershipError(manifest);
     if (ownershipError) blockers.push(ownershipError);
@@ -234,37 +214,19 @@ function planRepair() {
     }
 
     if (!source.complete) blockers.push(...source.errors.map((error) => `source artifact: ${error}`));
-    if (blockers.length) classification = 'ownership-unprovable';
-    else if (mismatched.length || unexpected.length) classification = 'owned-content-modified';
-    else if (missing.length) {
-      const matchingArtifact = manifest.version === source.version
-        && manifest.ownedArtifacts.deploy.sha256 === source.deploySha256;
-      if (matchingArtifact) {
-        classification = 'owned-files-missing';
-        applyAllowed = true;
-      } else classification = 'matching-artifact-required';
-    } else if (manifest.version !== source.version || manifest.ownedArtifacts.deploy.sha256 !== source.deploySha256) {
-      classification = 'update-ready';
-    } else classification = 'healthy';
-
-    if (applyAllowed) recommendation = {
-      code: 'confirm-repair',
-      command: 'agentsmd repair --confirm=<planDigest>',
-      reason: 'valid ownership exists and only manifest-recorded files or directories are missing',
-    };
-    else if (classification === 'healthy') recommendation = { code: 'none', command: null, reason: 'standalone owned artifacts are intact and current' };
-    else if (classification === 'update-ready') recommendation = { code: 'update', command: 'agentsmd update', reason: 'owned artifacts are intact and can use the ordinary update path' };
-    else if (classification === 'matching-artifact-required') recommendation = {
-      code: 'use-matching-artifact',
-      command: `run agentsmd repair --plan from @sdsrs/agentsmd@${manifest.version}`,
-      reason: 'repair replaces the complete release tree, so its source version and deploy digest must match the ownership manifest',
-    };
-    else recommendation = {
-      code: 'inspect-manually',
-      command: 'agentsmd repair --plan',
-      reason: 'automatic repair will not overwrite modified, unexpected, unsafe, or unprovable content',
-    };
   }
+
+  const decision = classifyRepairEvidence({
+    manifestState,
+    source,
+    missing,
+    mismatched,
+    unexpected,
+    blockers,
+    standaloneFootprintPresent,
+  });
+  const { classification, applyAllowed, recommendedAction: recommendation } = decision;
+  blockers = decision.blockers;
 
   missing.sort();
   mismatched.sort();

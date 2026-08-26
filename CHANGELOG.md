@@ -5,6 +5,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Refactored repair evidence classification and operator recommendations into
+  a pure decision matrix. Direct table coverage freezes all seven plan states,
+  all six actions, evidence precedence, exact diagnostics, and input
+  immutability while plan digesting, locking, snapshots, mutation, and rollback
+  remain in the existing repair orchestrator.
 - Refactored the plugin-selected phase of `doctor()` into a side-effect-free
   internal mapper while preserving public exports, check order, diagnostics,
   result fields, and exit behavior. Direct healthy/near-negative
