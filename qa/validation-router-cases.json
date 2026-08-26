@@ -266,6 +266,26 @@
       "auth_boundary": false
     },
     {
+      "name": "coverage observation",
+      "files": [
+        "scripts/coverage-observe.js"
+      ],
+      "checks_include": [
+        "coverage-observe",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "quality-observation",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "distributed automation recipe",
       "files": [
         "automation/weekly-runtime-canary.md"

@@ -340,6 +340,17 @@
       "width": "targeted",
       "order": 182
     },
+    "coverage-observe": {
+      "command": [
+        "node",
+        "scripts/tests/coverage-observe.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 183
+    },
     "argv-lint": {
       "command": [
         "node",
@@ -703,6 +714,23 @@
         "distribution"
       ],
       "reason": "Scorecard changes must preserve bounded schema, measurement limits, strict argv, and installed behavior.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "coverage-observation",
+      "patterns": [
+        "scripts/coverage-observe.js",
+        "scripts/tests/coverage-observe.test.js"
+      ],
+      "risk_categories": [
+        "quality-observation",
+        "tooling"
+      ],
+      "checks": [
+        "coverage-observe"
+      ],
+      "reason": "Coverage observation changes must preserve bounded capture parsing, subprocess deduplication, explicit measurement limits, and exact temporary-workspace cleanup.",
       "requires_full": true,
       "auth_boundary": false
     },

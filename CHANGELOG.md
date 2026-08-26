@@ -5,6 +5,13 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added an observation-only V8 coverage collector for the repository's existing
+  multi-process `npm test` chain. It propagates `NODE_V8_COVERAGE` through an
+  isolated `CODEX_HOME`, deduplicates function and nested block ranges across
+  child captures, separates unobserved production files, bounds capture input
+  and uncovered output, and removes only its validated temporary workspace.
+  The report enforces no threshold and explicitly leaves exact executable-line
+  and semantic-branch coverage unmeasured.
 - Refactored repair evidence classification and operator recommendations into
   a pure decision matrix. Direct table coverage freezes all seven plan states,
   all six actions, evidence precedence, exact diagnostics, and input

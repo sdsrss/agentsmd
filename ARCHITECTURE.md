@@ -51,6 +51,15 @@ recommendation。纯矩阵固定 blocker → modified/unexpected → missing →
 的优先级，不读写文件；lifecycle 路由先跑直接矩阵和 repair 公共流，再进入
 fault-injection 与全门禁。
 
+**测试覆盖观测边界**：`scripts/coverage-observe.js` 是开发期、只观测、不设门槛的
+QA 工具，不属于 `agentsmd` 公共 CLI。`--run` 在任务自有临时目录中隔离
+`CODEX_HOME`，用 `NODE_V8_COVERAGE` 汇聚现有多进程 `npm test`，只读取仓库内
+`bin/`、`scripts/`、`hooks/lib/`、`qa/` 的生产 JavaScript，并对跨进程的同一函数
+根区间与嵌套 block range 去重。报告把未进入任何 capture 的生产文件单列，不为其
+虚构函数分母；原始 V8 range 也不被表述为精确可执行行或语义分支覆盖率。capture
+文件数/单文件/总字节、生产文件数和未覆盖函数输出均有上限；成功或失败都只清理
+经过前缀、直接父目录与文件类型校验的临时工作区。
+
 **唯一豁免（spawn-with-fail-open）**：`hooks/session-start-check.sh` 以子进程方式 spawn `scripts/lib/surface-arbitration.js` 读取 surface 仲裁结果。它不是 import——三重防护（`command -v node`、文件可读探测、`platform_timeout`）保证缺失或超时只让 banner 变短，永不阻断用户，因此符合“L1 不依赖 L2 可用性”这一不变式的实质。豁免范围到此为止：`drift.test.js` 断言引用 `scripts/` 的 hook 集合恰好等于这一个文件，并断言这三重防护仍在——新增第二处会让 CI 变红。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
 
 **命令层为何使用 skills**：仓库把 `dir + SKILL.md(name+description frontmatter)` 作为命令元数据，并让每个 skill 路由到一个 L2 脚本；触发边界与 progressive disclosure 见 `spec/AGENTS-extended.md §E9`。runner resolver 与命令必须在同一 shell invocation 中执行，并只接受身份和版本匹配的 selected bundle、manifest deploy record 匹配的 standalone，或 package `bin.agentsmd` 匹配的 versioned CLI root；无可读 root 时输出结构化诊断并停止，CLI fallback 不导出 plugin context。

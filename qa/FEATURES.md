@@ -211,9 +211,18 @@ external runtime.
   allowlists are exact. Status: BASELINE; ROUND9.
 - Boundary 2: empty/all-zero inputs and odd/even performance medians are correct.
   Status: BASELINE; ROUND9.
+- Coverage observation: an opt-in, dependency-free V8 collector runs the
+  existing multi-process suite in an isolated home, deduplicates function and
+  nested block ranges across child captures, and separates production files
+  absent from every capture. It is observation-only: no threshold is enforced,
+  and exact executable-line plus semantic-branch coverage remain explicitly
+  unmeasured. Status: LOCAL; R-08 deterministic fixtures and one current-tree
+  full-suite observation.
 - Misuse: nonexistent filters, unsafe run counts, stale tokens, and parser
-  antipattern fixtures return an actionable non-zero result. Status: BASELINE;
-  ROUND9.
+  antipattern fixtures return an actionable non-zero result. Coverage capture
+  symlinks, malformed/oversized JSON, source-incompatible ranges, unsafe output
+  bounds, and ambiguous cleanup roots also fail closed. Status: BASELINE for
+  existing tools; LOCAL for R-08 coverage observation.
 
 ## F19 — Current Codex hook contract
 
