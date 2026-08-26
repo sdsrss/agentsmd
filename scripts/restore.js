@@ -70,12 +70,17 @@ function main(argv) {
   // R2-01: only the mutating path takes the lifecycle lock; --list and the
   // dry-run above stay lock-free (read-only).
   let lock;
-  try { lock = LOCK.acquire('restore'); }
+  try {
+    B.assertSharedFilesSafe();
+    lock = LOCK.acquire('restore');
+  }
   catch (e) { console.error(`agentsmd restore: ${e.message}`); return 1; }
   let res;
   try {
     // R2-03: every lifecycle entry recovers a crashed predecessor first.
+    B.assertSharedFilesSafe();
     const recovered = J.processPending();
+    B.assertSharedFilesSafe();
     if (recovered && recovered.mode !== 'clean') console.error(`agentsmd restore: recovered a crashed ${recovered.action || 'lifecycle'} transaction first (${recovered.mode}).`);
     res = B.restoreBackup(p.id);
   }

@@ -95,7 +95,10 @@ release tag（同样校验）；40 位 commit 具备不可变身份但没有已�
 变更类生命周期操作（install / update / uninstall / `restore --confirm` /
 `repair --confirm`）按 `$CODEX_HOME` 由跨进程锁串行化：并发的第二个操作以
 exit 1 拒绝且不做任何改动，并指明正在进行的那一个。崩溃残留的锁会在下一次
-生命周期命令时自动清除；`doctor` 会报告 stale 锁。每次 commit 还会在首次
+生命周期命令时自动清除；`doctor` 会报告 stale 锁。共享 `hooks.json`、
+`config.toml`、`AGENTS.md` 逻辑路径必须是普通文件或不存在；任一为 symlink
+（包括断链）时，所有变更类生命周期入口都会在取得锁和恢复 journal 前拒绝，
+既不跟随链接写入外部目标，也不把链接 inode 替换为普通文件。每次 commit 还会在首次
 live 变更前写入持久 journal：中途被杀的运行可仅凭磁盘状态判定,并由**下一次
 生命周期命令自动恢复**——staged 源完好时前滚完成,否则回滚还原,然后继续;
 任意崩溃点都能通过平常的重跑自愈。仅当 journal 记录的目标被外部并发修改时
@@ -470,7 +473,7 @@ doctor 的旧 `surface` 仍表示诊断调用 context，逻辑赢家使用 `sele
 
 ## 安全、所有权与共存
 
-standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
+standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件、symlink 共享逻辑路径或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
 
 `repair --plan` 是只读操作，会区分可普通更新的完整安装、缺少 manifest-owned
 文件的安装，以及无法证明 ownership 的状态。自动 repair 只处理有效 exact-path

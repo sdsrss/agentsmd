@@ -136,6 +136,31 @@ await t('planRecovery + executeRecovery: inline contents make rollback stage-ind
   } finally { delete process.env.CODEX_HOME; }
 });
 
+await t('journal recovery refuses to unlink a concurrently substituted symlink', () => {
+  const home = sandbox('symlink-delete');
+  process.env.CODEX_HOME = home;
+  try {
+    const external = path.join(home, 'external.json');
+    const target = path.join(home, 'shared.json');
+    const before = 'old\n';
+    const sha = (s) => require('crypto').createHash('sha256').update(s).digest('hex');
+    fs.writeFileSync(external, before);
+    fs.symlinkSync(external, target);
+    const step = {
+      kind: 'write', target,
+      beforePresent: true, beforeSha256: sha(before), beforeContentB64: Buffer.from(before).toString('base64'),
+      afterPresent: false, afterSha256: null, afterContentB64: null,
+    };
+    assert.throws(
+      () => J.executeRecovery({ txid: 'symlink-delete', action: 'uninstall', steps: [step] }, { mode: 'roll-forward', verdict: {} }),
+      /symbolic link/i
+    );
+    assert(fs.lstatSync(target).isSymbolicLink());
+    assert.strictEqual(fs.readlinkSync(target), external);
+    assert.strictEqual(fs.readFileSync(external, 'utf8'), before);
+  } finally { delete process.env.CODEX_HOME; }
+});
+
 await t('successful install leaves NO journal, no residue, and records no recovery', () => {
   const home = sandbox('success');
   const r = run('install.js', ['--json'], { CODEX_HOME: home });

@@ -17,6 +17,7 @@ const t = (n, f) => { try { f(); PASS++; console.log('  ok   ' + n); } catch (e)
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-'));
 process.env.CODEX_HOME = SANDBOX;
 const B = require('../lib/backup');
+const F = require('../lib/fs-atomic');
 const seed = (rel, c) => { const p = path.join(SANDBOX, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, c); };
 const read = (rel) => fs.readFileSync(path.join(SANDBOX, rel), 'utf8');
 
@@ -60,6 +61,109 @@ try {
     B.restoreBackup(b.id);
     assert.strictEqual(fs.statSync(hooks).mode & 0o777, 0o640);
   });
+
+  t('atomic writer refuses to replace a symbolic link or mutate its target', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-atomic-symlink-'));
+    const external = path.join(SB, 'external');
+    const link = path.join(SB, 'link');
+    try {
+      fs.writeFileSync(external, 'external-bytes');
+      fs.symlinkSync(external, link);
+      assert.throws(() => B.writeFileAtomic(link, 'replacement'), /symbolic link/i);
+      assert(fs.lstatSync(link).isSymbolicLink());
+      assert.strictEqual(fs.readlinkSync(link), external);
+      assert.strictEqual(fs.readFileSync(external, 'utf8'), 'external-bytes');
+    } finally { fs.rmSync(SB, { recursive: true, force: true }); }
+  });
+
+  t('shared-file preflight refuses a broken symbolic link without creating state', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-broken-shared-symlink-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      const missing = path.join(SB, 'missing-config-target');
+      const link = path.join(SB, 'config.toml');
+      fs.symlinkSync(missing, link);
+      assert.throws(() => B.createBackup('broken-shared-symlink', 'pre-install'), /shared file.*symbolic link|symbolic link.*shared file/i);
+      assert.deepStrictEqual(fs.readdirSync(SB), ['config.toml']);
+      assert(fs.lstatSync(link).isSymbolicLink());
+      assert.strictEqual(fs.readlinkSync(link), missing);
+      assert(!fs.existsSync(path.join(SB, '.agentsmd-state')));
+    } finally {
+      process.env.CODEX_HOME = SANDBOX;
+      fs.rmSync(SB, { recursive: true, force: true });
+    }
+  });
+
+  t('shared-file preflight refuses a non-regular path without creating state', () => {
+    const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-non-regular-shared-'));
+    process.env.CODEX_HOME = SB;
+    try {
+      const configDir = path.join(SB, 'config.toml');
+      fs.mkdirSync(configDir);
+      assert.throws(() => B.createBackup('non-regular-shared', 'pre-install'), /shared file.*directory|directory.*shared file/i);
+      assert.deepStrictEqual(fs.readdirSync(SB), ['config.toml']);
+      assert(fs.lstatSync(configDir).isDirectory());
+      assert(!fs.existsSync(path.join(SB, '.agentsmd-state')));
+    } finally {
+      process.env.CODEX_HOME = SANDBOX;
+      fs.rmSync(SB, { recursive: true, force: true });
+    }
+  });
+
+  for (const targetName of ['hooks.json', 'config.toml', 'AGENTS.md']) {
+    t(`createBackup refuses a symlinked shared ${targetName} without creating state`, () => {
+      const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-symlink-'));
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-backup-target-'));
+      process.env.CODEX_HOME = SB;
+      try {
+        const external = path.join(outside, targetName);
+        fs.writeFileSync(external, `external-${targetName}`);
+        fs.symlinkSync(external, path.join(SB, targetName));
+        const before = fs.readdirSync(SB).sort();
+        assert.throws(() => B.createBackup(`symlink-${targetName}`, 'pre-install'), /shared file.*symbolic link|symbolic link.*shared file/i);
+        assert.deepStrictEqual(fs.readdirSync(SB).sort(), before);
+        assert(fs.lstatSync(path.join(SB, targetName)).isSymbolicLink());
+        assert.strictEqual(fs.readFileSync(external, 'utf8'), `external-${targetName}`);
+      } finally {
+        process.env.CODEX_HOME = SANDBOX;
+        fs.rmSync(SB, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  }
+
+  for (const targetName of ['hooks.json', 'config.toml', 'AGENTS.md']) {
+    t(`restore refuses a symlinked live ${targetName} with zero shared-file mutation`, () => {
+      const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-restore-symlink-'));
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-restore-target-'));
+      process.env.CODEX_HOME = SB;
+      try {
+        const names = ['hooks.json', 'config.toml', 'AGENTS.md'];
+        for (const name of names) fs.writeFileSync(path.join(SB, name), `backup-${name}`);
+        const backup = B.createBackup(`restore-symlink-${targetName}`, 'pre-install');
+        for (const name of names) fs.writeFileSync(path.join(SB, name), `live-${name}`);
+        const external = path.join(outside, targetName);
+        fs.writeFileSync(external, `external-${targetName}`);
+        fs.unlinkSync(path.join(SB, targetName));
+        fs.symlinkSync(external, path.join(SB, targetName));
+        const before = names.map((name) => ({
+          name,
+          descriptor: F.describePath(path.join(SB, name)),
+          content: fs.readFileSync(path.join(SB, name)),
+        }));
+        assert.throws(() => B.restoreBackup(backup.id), /shared file.*symbolic link|symbolic link.*shared file/i);
+        for (const record of before) {
+          assert.deepStrictEqual(F.describePath(path.join(SB, record.name)), record.descriptor);
+          assert(fs.readFileSync(path.join(SB, record.name)).equals(record.content));
+        }
+        assert.strictEqual(fs.readFileSync(external, 'utf8'), `external-${targetName}`);
+      } finally {
+        process.env.CODEX_HOME = SANDBOX;
+        fs.rmSync(SB, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  }
 
   t('planRestore is a pure preview — it never writes', () => {
     fs.writeFileSync(path.join(SANDBOX, 'hooks.json'), 'MUTATED');

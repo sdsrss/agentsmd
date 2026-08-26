@@ -402,6 +402,7 @@ function createRecoverySnapshot(plan, stamp) {
 
 function applyRepair(planDigest, options = {}) {
   if (!SHA256_RE.test(String(planDigest || ''))) throw new Error('repair confirmation requires a valid plan digest');
+  B.assertSharedFilesSafe();
   // R2-01: hold the lifecycle lock across plan re-verification, the recovery
   // snapshot, and the repair install. The inner install() re-acquires reentrantly
   // (same-process module singleton), so this is one continuous critical section.
@@ -414,10 +415,12 @@ function applyRepair(planDigest, options = {}) {
 }
 
 function applyRepairLocked(planDigest, options) {
+  B.assertSharedFilesSafe();
   // R2-03: recover a crashed predecessor BEFORE re-verifying the plan — a plan
   // computed against a crashed tree either matches the recovered state or
   // honestly fails the digest check below and asks for a re-plan.
   J.processPending();
+  B.assertSharedFilesSafe();
   const plan = planRepair();
   if (plan.planDigest !== planDigest) throw new Error('repair plan changed; run agentsmd repair --plan again');
   if (!plan.applyAllowed) throw new Error(`repair apply is not allowed for classification '${plan.classification}'`);

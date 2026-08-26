@@ -109,6 +109,10 @@ Mutating lifecycle operations (install / update / uninstall / `restore
 cross-process lock: a concurrent second operation refuses with exit 1 and
 changes nothing, naming the one in flight. A lock left by a crashed run
 self-clears on the next lifecycle command; `doctor` reports stale locks.
+The shared `hooks.json`, `config.toml`, and `AGENTS.md` logical paths must be
+regular files or absent. If any is a symlink (including a broken link), every
+mutating lifecycle entry refuses before lock/journal recovery; agentsmd never
+follows it to an external target or replaces the link inode with a regular file.
 Each commit is also journaled before the first live mutation, so a run
 killed mid-commit is adjudicated from disk and **recovered by the next
 lifecycle command**: it rolls the crashed transaction forward when every
@@ -521,7 +525,7 @@ the diagnostic invocation context, while `selectedSurface` is the logical winner
 
 ## Safety, ownership, and coexistence
 
-Standalone installation is manifest-backed and marker-scoped. It preserves other hook tenants and user content outside agentsmd-managed blocks, validates owned artifacts before mutation, and refuses unparseable shared files or hash-mismatched owned files. Install and uninstall use staged changes, snapshot checks, write-time compare-and-swap, and rollback. A non-cooperating writer causes refusal instead of silently overwriting changed shared files.
+Standalone installation is manifest-backed and marker-scoped. It preserves other hook tenants and user content outside agentsmd-managed blocks, validates owned artifacts before mutation, and refuses unparseable shared files, symlinked shared logical paths, or hash-mismatched owned files. Install and uninstall use staged changes, snapshot checks, write-time compare-and-swap, and rollback. A non-cooperating writer causes refusal instead of silently overwriting changed shared files.
 
 `repair --plan` is read-only. It distinguishes an intact update path from missing
 manifest-owned files and from states where ownership cannot be proved. Automatic
