@@ -613,6 +613,7 @@ module.exports = {
   removeAgentsmdStatusLine,
   getTuiStatusLine,
   isAgentsmdStatusLineEnabled,
+  maskMultilineStrings,
   codexHooksHealth,
   isCodexHooksEnabled,
   projectDocMaxBytes,

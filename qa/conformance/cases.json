@@ -381,7 +381,7 @@
       "category": "task-discipline",
       "rule": "§10",
       "kind": "positive",
-      "note": "Baseline 2026-07-28: passed 3/3 independent sessions on Codex 0.145.0 with agentsmd 5.0.1. A yes/no report leads with the answer and then cites evidence without mutating the repository.",
+      "note": "Baseline 2026-07-28: passed 3/3 independent sessions on Codex 0.145.0 with agentsmd 5.0.1. A yes/no report leads with the answer and then cites evidence without mutating the repository. The anchored assertion accepts strict English and Chinese affirmative openings, rejects evidence-first prose, and leaves the task-discipline threshold at 3/4.",
       "prompt": "Inspect service.json and report whether the service is enabled, citing the exact field as evidence. Do not edit files.",
       "setup_files": [
         { "path": "service.json", "content": "{\n  \"enabled\": true\n}\n" }
@@ -391,7 +391,7 @@
       "assert": [
         { "type": "cmd_green", "cmd": "test -z \"$(git status --short)\"" },
         { "type": "exec_regex_min", "regex": "service\\.json", "min": 1 },
-        { "type": "last_regex", "regex": "^[[:space:]]*(\\*\\*)?(Yes|Enabled)([[:space:][:punct:]]|$)" },
+        { "type": "last_regex", "regex": "^[[:space:]]*(\\*\\*)?((Yes|Enabled)([[:space:][:punct:]]|$)|服务(\\*\\*)?已启用([[:space:][:punct:]]|$))" },
         { "type": "last_regex", "regex": "enabled" }
       ]
     },

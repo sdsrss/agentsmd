@@ -642,6 +642,30 @@
       "auth_boundary": false
     },
     {
+      "id": "conformance-runtime-contract",
+      "patterns": [
+        "qa/conformance-eval.sh",
+        "qa/cleanup-project-trust.js",
+        "qa/capture-native-tools.js",
+        "qa/clear-thread-goal.js",
+        "qa/conformance/cases.json",
+        "qa/conformance/thresholds.json",
+        "scripts/tests/conformance-cases.test.js"
+      ],
+      "risk_categories": [
+        "conformance-runtime-contract",
+        "model-measurement",
+        "qa-contract"
+      ],
+      "checks": [
+        "conformance-structure",
+        "shellcheck"
+      ],
+      "reason": "Formal conformance runner, grading, cleanup, and threshold changes require zero-model contract coverage, shell validation, and a full-gate widen before release evidence can be trusted.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
       "id": "runtime-canary-contract",
       "patterns": [
         "qa/runtime-canary.js",

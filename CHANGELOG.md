@@ -69,6 +69,14 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   are normalized to `0755`, `0755`, and `0644` respectively. Identical tracked
   bytes now produce the same mode-bound deploy-tree identity when the source is
   checked out on filesystems with different permission semantics.
+- Fixed reviewed conformance automation so it CAS-removes only exact
+  trust-only tables created for its random throwaway case directories, while
+  preserving all neighboring and concurrent user-config bytes. The
+  outcome-first assertion now recognizes strict anchored English and Chinese
+  affirmative openings while retaining its evidence-first near-negative and
+  the existing 3/4 task-discipline threshold. Historical v5.3.0 evidence keeps
+  its original case hash and is explicitly tested as input-mismatched rather
+  than rebound to the evolved case library.
 
 ## v5.3.3 — 2026-08-20 — native sandbox proxy disposal classification (patch)
 

@@ -204,6 +204,27 @@
       "uncovered": false
     },
     {
+      "name": "formal conformance runtime contract",
+      "files": [
+        "qa/conformance-eval.sh"
+      ],
+      "checks_include": [
+        "conformance-structure",
+        "shellcheck",
+        "validation-router",
+        "full-check"
+      ],
+      "categories_include": [
+        "conformance-runtime-contract",
+        "model-measurement",
+        "qa-contract"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "runtime canary contract",
       "files": [
         "qa/runtime-canary.js"
