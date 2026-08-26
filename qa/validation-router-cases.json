@@ -66,6 +66,27 @@
       "auth_boundary": false
     },
     {
+      "name": "doctor plugin diagnosis",
+      "files": [
+        "scripts/lib/doctor-plugin.js"
+      ],
+      "checks_include": [
+        "doctor-plugin",
+        "plugin-surface",
+        "install",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "diagnostics",
+        "script",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false
+    },
+    {
       "name": "lifecycle exact path",
       "files": [
         "scripts/install.js"

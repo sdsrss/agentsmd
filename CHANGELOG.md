@@ -5,6 +5,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Refactored the plugin-selected phase of `doctor()` into a side-effect-free
+  internal mapper while preserving public exports, check order, diagnostics,
+  result fields, and exit behavior. Direct healthy/near-negative
+  characterization plus plugin and standalone public-flow suites now run first
+  through an exact change-aware validation route.
 - Fixed command-parser pipeline boundaries so a downloader piped through a
   parenthesized consumer, a newline after `|`, or Bash `|&` remains connected to
   the interpreter and reaches the existing unknown-script gate. The strict
