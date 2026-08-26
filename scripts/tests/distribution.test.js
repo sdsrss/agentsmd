@@ -314,6 +314,7 @@ t('package files include curl installer and repo marketplace metadata', () => {
   assert(files.includes('qa/conformance/cases.json'));
   assert(files.includes('qa/conformance/thresholds.json'));
   assert(files.includes('qa/conformance/releases'));
+  assert(files.includes('SECURITY.md'));
 });
 
 // ---- npm CLI dispatcher (bin/agentsmd.js) — `npx @sdsrs/agentsmd <cmd>` ----
@@ -680,6 +681,8 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('qa/core-ab/cases.json'), 'tarball is missing the core A/B case library');
   assert(packedPaths.includes('qa/conformance/thresholds.json'), 'tarball is missing conformance thresholds');
   assert(packedPaths.includes('qa/conformance/releases/v5.3.0.json'), 'tarball is missing release conformance evidence');
+  assert(packedPaths.includes('SECURITY.md'), 'tarball is missing the security policy');
+  assert(packedPaths.includes('scripts/security-policy-check.js'), 'tarball is missing the security-policy gate');
   const forbidden = [
     /^hooks\/tests(?:\/|$)/,
     /^scripts\/tests(?:\/|$)/,
@@ -714,6 +717,16 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert.strictEqual(installedScorecard.conformance.provenance.reason, 'package-version-mismatch');
 
   const installedRoot = path.resolve(path.dirname(fs.realpathSync(binLink)), '..');
+  const installedSecurityPolicy = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(installedRoot, 'scripts', 'security-policy-check.js'),
+    '--json',
+  ], {
+    cwd: installedRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  assert.strictEqual(installedSecurityPolicy.ok, true, JSON.stringify(installedSecurityPolicy));
+  assert.strictEqual(installedSecurityPolicy.expectedMajor, installedSecurityPolicy.declaredMajor);
   assert(!fs.existsSync(path.join(installedRoot, 'hooks', 'tests')));
   assert(!fs.existsSync(path.join(installedRoot, 'scripts', 'tests')));
   const installedPlugin = JSON.parse(fs.readFileSync(

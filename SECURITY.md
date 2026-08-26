@@ -10,7 +10,7 @@
 
 ## Supported versions
 
-Only the **latest published minor of the 4.x line** receives security fixes (the project ships forward-only minors; there are no maintenance branches). Check the current version with `npm view @sdsrs/agentsmd dist-tags.latest` or `agentsmd status`. Older versions: upgrade via `npm i -g @sdsrs/agentsmd && agentsmd update`.
+Only the **latest published minor of the 5.x line** receives security fixes (the project ships forward-only minors; there are no maintenance branches). Check the current version with `npm view @sdsrs/agentsmd dist-tags.latest` or `agentsmd status`. Older versions: upgrade via `npm i -g @sdsrs/agentsmd && agentsmd update`.
 
 ## What agentsmd is — and is not
 

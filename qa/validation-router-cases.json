@@ -308,6 +308,27 @@
       "uncovered": true
     },
     {
+      "name": "security support policy",
+      "files": [
+        "SECURITY.md"
+      ],
+      "checks_include": [
+        "security-policy",
+        "distribution",
+        "release-dry-run",
+        "full-check"
+      ],
+      "categories_include": [
+        "public-security-policy",
+        "shared-contract",
+        "documentation"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "package release cannot bypass full",
       "files": [
         "package.json"

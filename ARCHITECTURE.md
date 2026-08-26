@@ -193,7 +193,7 @@ agentsmd/
     hooks.json               agentsmd 的 hook 条目（供安装器 append 进 ~/.codex/hooks.json）
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
-  scripts/                   L2 管理脚本（含 install/uninstall/repair/verify）
+  scripts/                   L2 管理脚本（含 install/uninstall/repair/verify 与 security-policy gate）
   schemas/                   task/evidence、scorecard、conformance release evidence、runtime-canary 的有界 JSON Schema
   qa/validation-map.json     路径→风险→检查的机器可读验证映射
   qa/runtime-canary.js       pinned/latest 隔离 canary 与机器可读证据

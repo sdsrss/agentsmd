@@ -36,6 +36,17 @@
       "width": "targeted",
       "order": 30
     },
+    "security-policy": {
+      "command": [
+        "node",
+        "scripts/tests/security-policy-check.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 35
+    },
     "conformance-structure": {
       "command": [
         "node",
@@ -612,6 +623,27 @@
       "reason": "Package and release surfaces cannot bypass the full gate or dry-run artifact inspection.",
       "requires_full": true,
       "auth_boundary": true
+    },
+    {
+      "id": "security-support-policy",
+      "patterns": [
+        "SECURITY.md",
+        "package.json",
+        "scripts/security-policy-check.js",
+        "scripts/tests/security-policy-check.test.js"
+      ],
+      "risk_categories": [
+        "public-security-policy",
+        "shared-contract"
+      ],
+      "checks": [
+        "security-policy",
+        "distribution",
+        "release-dry-run"
+      ],
+      "reason": "The published security-support major must match the package major and remain present in the npm artifact.",
+      "requires_full": true,
+      "auth_boundary": false
     },
     {
       "id": "quality-assurance",
