@@ -5,6 +5,8 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.4.0 — 2026-08-26 — evidence integrity and engineering controls (minor)
+
 - Added a bounded, observation-first inventory for ignored local QA captures.
   It hashes strict evidence units, reports age/class/permission and malformed or
   unsafe entries, treats 90 days only as a human-review trigger, and grants no
