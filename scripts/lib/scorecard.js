@@ -55,6 +55,12 @@ function finite(value) {
   return Number.isFinite(value) ? value : null;
 }
 
+function exactTimestamp(value) {
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? parsed : null;
+}
+
 function safeBytes(file, max = MAX_CAPTURE_BYTES) {
   try {
     const stat = fs.lstatSync(file);
@@ -180,6 +186,71 @@ function validateScorecard(value) {
       .reduce((sum, count) => sum + count, 0);
     if (causeTotal !== automation.fail_open_events) {
       errors.push('$.automation.fail_open_causes: categories must sum to fail_open_events');
+    }
+  }
+  const compatibility = value && value.compatibility;
+  const attribution = compatibility && compatibility.dimension_join_attribution;
+  if (compatibility && attribution && typeof attribution === 'object' && !Array.isArray(attribution)) {
+    const bucketValues = [
+      attribution.missing_before_first_observed_dimension,
+      attribution.missing_straddling_first_observed_dimension,
+      attribution.missing_after_first_observed_dimension,
+      attribution.missing_without_dimension_reference,
+    ];
+    if (bucketValues.every(Number.isInteger) && Number.isInteger(compatibility.missing_dimension_sessions)) {
+      const bucketTotal = bucketValues.reduce((sum, count) => sum + count, 0);
+      if (bucketTotal !== compatibility.missing_dimension_sessions) {
+        errors.push('$.compatibility.dimension_join_attribution: ordering buckets must sum to missing_dimension_sessions');
+      }
+      let expectedState = 'no-missing';
+      if (compatibility.missing_dimension_sessions > 0 && attribution.first_observed_dimension_at === null) {
+        expectedState = 'no-dimension-reference';
+      } else if (attribution.missing_after_first_observed_dimension > 0
+        || attribution.missing_straddling_first_observed_dimension > 0) {
+        expectedState = 'post-first-observed-present';
+      } else if (compatibility.missing_dimension_sessions > 0) {
+        expectedState = 'pre-first-observed-only';
+      }
+      if (attribution.state !== expectedState) {
+        errors.push(`$.compatibility.dimension_join_attribution: attribution state must be ${expectedState}`);
+      }
+      if ((compatibility.missing_dimension_sessions === 0) !== (attribution.last_missing_event_at === null)) {
+        errors.push('$.compatibility.dimension_join_attribution.last_missing_event_at: null exactly when no session is missing');
+      }
+      if (attribution.first_observed_dimension_at === null) {
+        if (bucketValues[0] + bucketValues[1] + bucketValues[2] !== 0) {
+          errors.push('$.compatibility.dimension_join_attribution: referenced ordering buckets require a first observed dimension');
+        }
+      } else if (attribution.missing_without_dimension_reference !== 0) {
+        errors.push('$.compatibility.dimension_join_attribution.missing_without_dimension_reference: must be zero when a dimension reference exists');
+      }
+    }
+    const byClass = attribution.missing_by_class;
+    if (byClass && typeof byClass === 'object' && !Array.isArray(byClass)) {
+      const classValues = Object.values(byClass);
+      if (classValues.every(Number.isInteger) && Number.isInteger(compatibility.missing_dimension_sessions)) {
+        const classTotal = classValues.reduce((sum, count) => sum + count, 0);
+        if (classTotal !== compatibility.missing_dimension_sessions) {
+          errors.push('$.compatibility.dimension_join_attribution.missing_by_class: classes must sum to missing_dimension_sessions');
+        }
+      }
+    }
+    if (Number.isInteger(compatibility.dimension_sessions)
+      && (attribution.first_observed_dimension_at === null || typeof attribution.first_observed_dimension_at === 'string')
+      && (compatibility.dimension_sessions === 0) !== (attribution.first_observed_dimension_at === null)) {
+      errors.push('$.compatibility.dimension_join_attribution.first_observed_dimension_at: null exactly when no joinable dimension exists');
+    }
+    const firstMs = exactTimestamp(attribution.first_observed_dimension_at);
+    const lastMissingMs = exactTimestamp(attribution.last_missing_event_at);
+    if (typeof attribution.first_observed_dimension_at === 'string' && firstMs === null) {
+      errors.push('$.compatibility.dimension_join_attribution.first_observed_dimension_at: must be an exact UTC timestamp');
+    }
+    if (typeof attribution.last_missing_event_at === 'string' && lastMissingMs === null) {
+      errors.push('$.compatibility.dimension_join_attribution.last_missing_event_at: must be an exact UTC timestamp');
+    }
+    if (attribution.state === 'pre-first-observed-only' && firstMs !== null
+      && lastMissingMs !== null && lastMissingMs >= firstMs) {
+      errors.push('$.compatibility.dimension_join_attribution: pre-first-observed state requires the last missing event before the first dimension');
     }
   }
   let serialized = '';
@@ -666,6 +737,23 @@ function dataClass(row) {
   return classifyProject(row && row.project);
 }
 
+function joinableSessionId(value) {
+  if (typeof value !== 'string' || value === '' || value === 'unknown' || value.length > 256) return null;
+  return /^[A-Za-z0-9._:-]+$/.test(value) ? value : null;
+}
+
+function invalidSessionIdentity(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') return `string:${value}`;
+  try { return `${typeof value}:${JSON.stringify(value)}`; } catch { return typeof value; }
+}
+
+function missingSessionClass(classes) {
+  const values = [...classes].sort();
+  if (values.length === 1 && ['external', 'self', 'unknown'].includes(values[0])) return values[0];
+  return values.length === 0 ? 'unknown' : 'mixed';
+}
+
 function compatibilitySummary(logPath, days, now) {
   const cutoff = now - days * 86400000;
   const rows = readRows(logPath).filter((row) => {
@@ -675,13 +763,42 @@ function compatibilitySummary(logPath, days, now) {
   const classes = { external: 0, self: 0, test: 0, qa: 0, unknown: 0 };
   for (const row of rows) classes[dataClass(row)] += 1;
   const dimensions = new Map();
-  const fieldSessions = new Set();
+  const fieldSessions = new Map();
+  const invalidSessions = new Set();
+  let rowsWithoutSession = 0;
+  let unjoinableDimensionRows = 0;
+  let firstDimension = null;
   for (const row of rows) {
     if (!row || TEST_TAGS.has(String(row.tag || ''))) continue;
-    if (row.session_id && row.event !== 'session-dimension') fieldSessions.add(String(row.session_id));
-    if (row.event === 'session-dimension' && row.session_id && !dimensions.has(String(row.session_id))) {
-      dimensions.set(String(row.session_id), row);
+    const sessionId = joinableSessionId(row.session_id);
+    if (row.event === 'session-dimension') {
+      if (!sessionId) {
+        unjoinableDimensionRows += 1;
+      } else {
+        const ts = Date.parse(row.ts);
+        firstDimension = firstDimension === null ? ts : Math.min(firstDimension, ts);
+        if (!dimensions.has(sessionId)) dimensions.set(sessionId, row);
+      }
+      continue;
     }
+    if (!sessionId) {
+      const invalid = invalidSessionIdentity(row.session_id);
+      if (invalid === null) rowsWithoutSession += 1;
+      else invalidSessions.add(invalid);
+      continue;
+    }
+    const ts = Date.parse(row.ts);
+    if (!fieldSessions.has(sessionId)) {
+      fieldSessions.set(sessionId, {
+        first: ts,
+        last: ts,
+        classes: new Set(),
+      });
+    }
+    const session = fieldSessions.get(sessionId);
+    session.first = Math.min(session.first, ts);
+    session.last = Math.max(session.last, ts);
+    session.classes.add(dataClass(row));
   }
   const splits = new Map();
   for (const row of dimensions.values()) {
@@ -710,14 +827,47 @@ function compatibilitySummary(logPath, days, now) {
   const runtimeSplits = [...splits.values()]
     .sort((a, b) => b.sessions - a.sessions || JSON.stringify(a).localeCompare(JSON.stringify(b)))
     .slice(0, 128);
-  let missing = 0;
-  for (const sid of fieldSessions) if (!dimensions.has(sid)) missing += 1;
+  let lastMissing = null;
+  const missingByClass = { external: 0, self: 0, unknown: 0, mixed: 0 };
+  let before = 0;
+  let straddling = 0;
+  let after = 0;
+  let withoutReference = 0;
+  for (const [sessionId, session] of fieldSessions) {
+    if (dimensions.has(sessionId)) continue;
+    lastMissing = lastMissing === null ? session.last : Math.max(lastMissing, session.last);
+    missingByClass[missingSessionClass(session.classes)] += 1;
+    if (firstDimension === null) withoutReference += 1;
+    else if (session.last < firstDimension) before += 1;
+    else if (session.first >= firstDimension) after += 1;
+    else straddling += 1;
+  }
+  const missing = before + straddling + after + withoutReference;
+  let attributionState = 'no-missing';
+  if (missing > 0 && firstDimension === null) attributionState = 'no-dimension-reference';
+  else if (after > 0 || straddling > 0) attributionState = 'post-first-observed-present';
+  else if (missing > 0) attributionState = 'pre-first-observed-only';
   return {
     dimension_sessions: dimensions.size,
     missing_dimension_sessions: missing,
     runtime_splits: runtimeSplits,
     data_classes: classes,
     excluded_test_qa_from_field_metrics: true,
+    dimension_join_attribution: {
+      state: attributionState,
+      first_observed_dimension_at: firstDimension === null ? null : new Date(firstDimension).toISOString(),
+      last_missing_event_at: lastMissing === null ? null : new Date(lastMissing).toISOString(),
+      missing_before_first_observed_dimension: before,
+      missing_straddling_first_observed_dimension: straddling,
+      missing_after_first_observed_dimension: after,
+      missing_without_dimension_reference: withoutReference,
+      missing_by_class: missingByClass,
+      unjoinable_sessions_invalid_id: invalidSessions.size,
+      unjoinable_rows_without_session_id: rowsWithoutSession,
+      unjoinable_dimension_rows: unjoinableDimensionRows,
+      ordering_scope: 'retained-window-only',
+      ordering_proves_cause: false,
+    },
   };
 }
 
@@ -950,7 +1100,31 @@ function actionsFor(card, rules) {
     add('high', 'prompt-budget-over', 'Reduce the measured discovery chain or raise the reviewed project_doc_max_bytes cap.', `${card.prompt_budget.total_bytes}/${card.prompt_budget.cap} measured bytes.`);
   }
   if (card.compatibility.missing_dimension_sessions) {
-    add('medium', 'dimension-missing', 'Inspect SessionStart coverage for field sessions without a session-dimension row.', `${card.compatibility.missing_dimension_sessions} field session(s) could not be joined to runtime dimensions.`);
+    const attribution = card.compatibility.dimension_join_attribution;
+    if (attribution && attribution.state === 'pre-first-observed-only') {
+      add(
+        'low',
+        'dimension-missing',
+        'Retain the pre-reference gap as attribution debt; inspect current SessionStart only if post-reference or current-version evidence appears.',
+        `The latest retained event for ${card.compatibility.missing_dimension_sessions} session(s) was ${attribution.last_missing_event_at}, before the first observed dimension at ${attribution.first_observed_dimension_at}; retained-window ordering does not prove cause.`,
+      );
+    } else if (attribution && attribution.state === 'no-dimension-reference') {
+      add(
+        'medium',
+        'dimension-missing',
+        'Restore a joinable SessionStart dimension reference before attributing missing sessions to a version or surface.',
+        `${card.compatibility.missing_dimension_sessions} session(s) lack a dimension and the retained window contains no joinable dimension reference.`,
+      );
+    } else {
+      add(
+        'medium',
+        'dimension-missing',
+        'Inspect SessionStart coverage for sessions at or after the first observed dimension boundary.',
+        attribution
+          ? `${card.compatibility.missing_dimension_sessions} session(s) are missing dimensions: ${attribution.missing_straddling_first_observed_dimension} straddle and ${attribution.missing_after_first_observed_dimension} start after the first observed dimension.`
+          : `${card.compatibility.missing_dimension_sessions} session(s) could not be joined to runtime dimensions.`,
+      );
+    }
   }
   if (card.conformance.state === 'unavailable') {
     add('high', 'conformance-evidence-unavailable', 'Configure or import a bounded conformance evidence source; run the declared full suite only when no valid evidence exists.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
@@ -1105,6 +1279,7 @@ function buildScorecard(options = {}) {
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
       'Field false-block rate uses only reviewed external true/false outcomes; self, test, QA, unknown, unreviewed, and unmeasurable events stay outside its denominator.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
+      'Session-dimension ordering covers only parseable rows in retained log segments; a pre-first-observed gap does not prove historical schema, rotation loss, surface loss, or a current emitter defect.',
       'Conformance fresh requires a matching current capture or an explicit candidate/binding whose package, inputs, clean source identity, and deterministic deploy tree match; packaged historical evidence never proves changed source.',
       'A published binding verifies internal byte/hash and decoded SLSA payload consistency; file acquisition, npm signature audit, and Sigstore authenticity remain release-closure evidence outside this offline scorecard.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
@@ -1188,6 +1363,7 @@ function formatScorecard(card) {
   ]);
   section('Compatibility', [
     `dimension sessions: ${card.compatibility.dimension_sessions} · missing joins: ${card.compatibility.missing_dimension_sessions} · runtime splits: ${card.compatibility.runtime_splits.length}`,
+    `join attribution: ${card.compatibility.dimension_join_attribution.state} · pre ${card.compatibility.dimension_join_attribution.missing_before_first_observed_dimension} · straddling ${card.compatibility.dimension_join_attribution.missing_straddling_first_observed_dimension} · post ${card.compatibility.dimension_join_attribution.missing_after_first_observed_dimension} · no-reference ${card.compatibility.dimension_join_attribution.missing_without_dimension_reference}`,
     `data classes (rows): external ${card.compatibility.data_classes.external} · self ${card.compatibility.data_classes.self} · test ${card.compatibility.data_classes.test} · qa ${card.compatibility.data_classes.qa} · unknown ${card.compatibility.data_classes.unknown}`,
   ]);
   section('Conformance', [

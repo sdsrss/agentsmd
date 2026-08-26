@@ -247,6 +247,196 @@ try {
     });
     assert.strictEqual(card.compatibility.runtime_splits[0].codex_version, '0.145.0');
     assert.strictEqual(card.compatibility.runtime_splits[0].sessions, 1);
+    assert.deepStrictEqual(card.compatibility.dimension_join_attribution, {
+      state: 'post-first-observed-present',
+      first_observed_dimension_at: '2026-07-28T01:00:00.000Z',
+      last_missing_event_at: '2026-07-28T01:03:00.000Z',
+      missing_before_first_observed_dimension: 0,
+      missing_straddling_first_observed_dimension: 0,
+      missing_after_first_observed_dimension: 1,
+      missing_without_dimension_reference: 0,
+      missing_by_class: { external: 1, self: 0, unknown: 0, mixed: 0 },
+      unjoinable_sessions_invalid_id: 0,
+      unjoinable_rows_without_session_id: 0,
+      unjoinable_dimension_rows: 0,
+      ordering_scope: 'retained-window-only',
+      ordering_proves_cause: false,
+    });
+  });
+
+  test('dimension attribution separates retained history from current coverage evidence', () => {
+    const historicalLog = path.join(temp, 'dimension-history', 'agentsmd.jsonl');
+    write(historicalLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'pre-reference',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+    ]));
+    const historical = buildScorecard({ ...scorecardOptions, logPath: historicalLog });
+    const attribution = historical.compatibility.dimension_join_attribution;
+    assert.strictEqual(attribution.state, 'pre-first-observed-only');
+    assert.strictEqual(attribution.missing_before_first_observed_dimension, 1);
+    assert.strictEqual(attribution.missing_after_first_observed_dimension, 0);
+    assert.deepStrictEqual(attribution.missing_by_class, {
+      external: 1, self: 0, unknown: 0, mixed: 0,
+    });
+    const action = historical.recommended_actions.find((item) => item.code === 'dimension-missing');
+    assert(action);
+    assert.match(action.evidence, /retained-window ordering does not prove cause/u);
+    assert.doesNotMatch(action.action, /Inspect SessionStart coverage/u);
+
+    const impossibleOrdering = structuredClone(historical);
+    impossibleOrdering.compatibility.dimension_join_attribution.last_missing_event_at = '2026-07-28T02:00:00.000Z';
+    assert(validateScorecard(impossibleOrdering).errors.some((error) => /last missing event before the first dimension/u.test(error)));
+  });
+
+  test('unjoinable identities stay outside missing joins and no reference remains explicit', () => {
+    const unjoinableLog = path.join(temp, 'dimension-unjoinable', 'agentsmd.jsonl');
+    write(unjoinableLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'valid-without-reference',
+      },
+      {
+        ts: '2026-07-28T00:31:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'invalid/session',
+      },
+      {
+        ts: '2026-07-28T00:32:00.000Z', hook: 'memory-prompt-hint', event: 'fail-open',
+        project: '-work-client-', session_id: null,
+      },
+      {
+        ts: '2026-07-28T00:33:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'unknown', spec_version: 'unknown',
+        agentsmd_version: 'unknown', surface: 'none', codex_version: 'unknown',
+        model: 'unknown', platform: 'unknown',
+      },
+    ]));
+    const unjoinable = buildScorecard({ ...scorecardOptions, logPath: unjoinableLog });
+    const attribution = unjoinable.compatibility.dimension_join_attribution;
+    assert.strictEqual(unjoinable.compatibility.dimension_sessions, 0);
+    assert.strictEqual(unjoinable.compatibility.missing_dimension_sessions, 1);
+    assert.strictEqual(attribution.state, 'no-dimension-reference');
+    assert.strictEqual(attribution.missing_without_dimension_reference, 1);
+    assert.strictEqual(attribution.unjoinable_sessions_invalid_id, 1);
+    assert.strictEqual(attribution.unjoinable_rows_without_session_id, 1);
+    assert.strictEqual(attribution.unjoinable_dimension_rows, 1);
+  });
+
+  test('straddling mixed-provenance sessions and no-missing state stay distinct', () => {
+    const straddlingLog = path.join(temp, 'dimension-straddling', 'agentsmd.jsonl');
+    write(straddlingLog, jsonl([
+      {
+        ts: '2026-07-28T00:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'mixed-gap',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+      {
+        ts: '2026-07-28T01:30:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-mnt-dev-agentsmd-', session_id: 'mixed-gap',
+      },
+    ]));
+    const straddling = buildScorecard({ ...scorecardOptions, logPath: straddlingLog });
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.state, 'post-first-observed-present');
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.missing_straddling_first_observed_dimension, 1);
+    assert.strictEqual(straddling.compatibility.dimension_join_attribution.missing_by_class.mixed, 1);
+
+    const completeLog = path.join(temp, 'dimension-complete', 'agentsmd.jsonl');
+    write(completeLog, jsonl([
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+    ]));
+    const complete = buildScorecard({ ...scorecardOptions, logPath: completeLog });
+    assert.strictEqual(complete.compatibility.dimension_join_attribution.state, 'no-missing');
+    assert.strictEqual(complete.compatibility.dimension_join_attribution.last_missing_event_at, null);
+    assert.strictEqual(complete.recommended_actions.some((item) => item.code === 'dimension-missing'), false);
+  });
+
+  test('first observed dimension uses timestamps across duplicate near-negative rows', () => {
+    const duplicateLog = path.join(temp, 'dimension-duplicate-order', 'agentsmd.jsonl');
+    write(duplicateLog, jsonl([
+      {
+        ts: '2026-07-28T00:50:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'gap',
+      },
+      {
+        ts: '2026-07-28T01:00:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+      {
+        ts: '2026-07-28T01:01:00.000Z', hook: 'memory-prompt-hint', event: 'suggest',
+        project: '-work-client-', session_id: 'joined',
+      },
+      {
+        ts: '2026-07-28T00:45:00.000Z', hook: 'session-start', event: 'session-dimension',
+        project: '-work-client-', session_id: 'joined', spec_version: 'v5.0.1',
+        agentsmd_version: '5.0.1', surface: 'standalone', codex_version: '0.145.0',
+        model: 'gpt-5.6-sol', platform: 'linux-x64',
+      },
+    ]));
+    const duplicate = buildScorecard({ ...scorecardOptions, logPath: duplicateLog });
+    const attribution = duplicate.compatibility.dimension_join_attribution;
+    assert.strictEqual(duplicate.compatibility.dimension_sessions, 1);
+    assert.strictEqual(attribution.first_observed_dimension_at, '2026-07-28T00:45:00.000Z');
+    assert.strictEqual(attribution.missing_after_first_observed_dimension, 1);
+  });
+
+  test('dimension attribution invariants reject count and state drift', () => {
+    const badBuckets = structuredClone(card);
+    badBuckets.compatibility.dimension_join_attribution.missing_after_first_observed_dimension += 1;
+    assert(validateScorecard(badBuckets).errors.some((error) => /dimension_join_attribution.*buckets/u.test(error)));
+
+    const badClasses = structuredClone(card);
+    badClasses.compatibility.dimension_join_attribution.missing_by_class.external += 1;
+    assert(validateScorecard(badClasses).errors.some((error) => /missing_by_class/u.test(error)));
+
+    const badState = structuredClone(card);
+    badState.compatibility.dimension_join_attribution.state = 'pre-first-observed-only';
+    assert(validateScorecard(badState).errors.some((error) => /attribution state/u.test(error)));
+
+    const malformed = structuredClone(card);
+    malformed.compatibility.dimension_join_attribution = { state: 'no-missing' };
+    assert.doesNotThrow(() => validateScorecard(malformed));
+    assert.strictEqual(validateScorecard(malformed).valid, false);
+
+    const badTimestamp = structuredClone(card);
+    badTimestamp.compatibility.dimension_join_attribution.first_observed_dimension_at = '2026-99-28T01:00:00.000Z';
+    assert(validateScorecard(badTimestamp).errors.some((error) => /exact UTC timestamp/u.test(error)));
+
+    const badReferenceBucket = structuredClone(card);
+    badReferenceBucket.compatibility.dimension_join_attribution.missing_after_first_observed_dimension = 0;
+    badReferenceBucket.compatibility.dimension_join_attribution.missing_without_dimension_reference = 1;
+    badReferenceBucket.compatibility.dimension_join_attribution.state = 'pre-first-observed-only';
+    assert(validateScorecard(badReferenceBucket).errors.some((error) => /must be zero when a dimension reference exists/u.test(error)));
   });
 
   test('quality sections retain denominators and refuse proxy overclaims', () => {
@@ -985,6 +1175,7 @@ try {
       'false_block_rate', 'outcomes_source', 'window_days',
     ]) delete legacyV2.false_blocks[field];
     delete legacyV2.automation.fail_open_causes;
+    delete legacyV2.compatibility.dimension_join_attribution;
     const legacyV2Path = path.join(temp, 'legacy-v2.json');
     write(legacyV2Path, JSON.stringify(legacyV2));
     assert.strictEqual(loadComparison(legacyV2Path).schema_version, 2);

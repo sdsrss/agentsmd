@@ -5,6 +5,13 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added retained-window session-dimension attribution to the quality scorecard.
+  Missing sessions are split into pre-first-observed, straddling, post-first-
+  observed, and no-reference buckets with self/external/unknown/mixed
+  provenance; invalid or absent session identities remain separate unjoinable
+  inputs. Recommended actions no longer diagnose current SessionStart coverage
+  from a gap that exists only before the first retained dimension. Ordering is
+  explicitly non-causal, and older schema-v2 captures remain comparison-readable.
 - Added a reviewed blocking-outcome loop. New block/deny telemetry carries a
   bounded correlation ID in jq and jq-less paths; a strict `outcomes` command
   lists privacy-reduced summaries and appends schema-validated private review

@@ -399,7 +399,14 @@ field telemetry, keeps `self`, `test`, `qa`, `external`, and `unknown`
 provenance separate, and reports health, runtime compatibility, full-suite
 conformance freshness, false-block measurement state, bypasses, evidence
 discipline, performance, memory engagement, prompt budget, automation, operator
-actions, and measurement limits. It never promotes/demotes a rule. Raw hits do
+actions, and measurement limits. Missing joins retain an additive attribution:
+sessions are split into before, straddling, after, or no-reference buckets
+relative to the first observed dimension in the retained window, and their
+`self`/`external`/`unknown`/`mixed` provenance is counted separately. Invalid or
+absent session identities are unjoinable inputs, not missing joins. This ordering
+does not prove historical schema, rotation loss, cross-surface loss, or a current
+emitter defect, so a pre-first-observed-only gap no longer triggers a current
+SessionStart diagnosis. It never promotes/demotes a rule. Raw hits do
 not rank rule value; no-opportunity is not success; memory citation is not
 adherence; sampling calibration is a structural proxy; and field false-block
 rate remains `unmeasured` without a human-reviewed outcome. New `block`/`deny`

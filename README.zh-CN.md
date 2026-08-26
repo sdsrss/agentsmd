@@ -363,7 +363,13 @@ agentsmd outcomes review --event=EVENT_ID --outcome=false-block --reason=benign-
 遥测，分开呈现 `self`、`test`、`qa`、`external` 与 `unknown` 来源，并汇总
 health、runtime compatibility、完整 conformance 新鲜度、false-block 测量状态、
 bypass、evidence discipline、performance、memory engagement、prompt budget、
-automation、operator actions 与 measurement limits。它不会自动升降级规则：
+automation、operator actions 与 measurement limits。missing join 还会保留可加性的
+归因对象：相对于保留窗口内第一条 observed dimension，session 被严格分成之前、跨越、
+之后和无参照四个桶，并分别统计 `self`、`external`、`unknown`、`mixed` 来源。无效或
+缺失 session identity 是 unjoinable input，不计作 missing join。这个顺序只覆盖保留
+日志，不能证明历史 schema、轮转丢失、跨 surface 丢失或当前 emitter 缺陷；因此只在
+第一条 dimension 之前出现的缺口不会再触发“当前 SessionStart 覆盖失败”的诊断。
+它不会自动升降级规则：
 raw hit 不代表规则价值，no-opportunity 不是成功，memory citation 不等于
 adherence，sampling calibration 只是结构 proxy；没有人工审核 outcome 时，
 现场 false-block rate 保持 `unmeasured`。新的 `block`/`deny` 行带不包含项目、会话或

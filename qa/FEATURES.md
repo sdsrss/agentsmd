@@ -276,7 +276,11 @@ external runtime.
 - Boundary 1: self/test/qa/external/unknown rows remain separately visible;
   tagged test/QA rows do not enter field runtime splits or governance
   denominators. Older sessions without a dimension row remain explicit missing
-  joins. Status: BASELINE.
+  joins, split into pre-first-observed, straddling, post-first-observed, and
+  no-reference ordering buckets with missing-session data classes. Invalid or
+  absent identities stay unjoinable, and retained ordering never becomes a
+  cause or current-version claim. Status: BASELINE; ordering positive/near-
+  negative, identity, semantic-invariant, and legacy-v2 fixtures.
 - Boundary 2: new block/deny rows receive an opaque correlation ID in jq and
   jq-less paths; legacy/duplicate IDs remain unmeasurable. A bounded private
   sidecar keeps explicit true-block, false-block, and unmeasurable revisions

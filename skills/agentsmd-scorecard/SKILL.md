@@ -47,6 +47,7 @@ node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --conformance-candidate=/ab
 - Run from the project whose AGENTS.md prompt budget and worktree inventory should be measured.
 - Treat `test` and `qa` data classes as visible provenance, not field evidence.
 - Treat missing dimensions, stale captures, no-opportunity, insufficient opportunity, and unmeasured/partial/invalid false-block outcomes as gaps.
+- Read `compatibility.dimension_join_attribution` before diagnosing missing dimensions. `pre-first-observed-only` is retained-window ordering debt, not proof of historical schema or a current emitter defect; `post-first-observed-present` warrants current SessionStart investigation, while `no-dimension-reference` cannot attribute a version or surface. Invalid/absent identities stay unjoinable and outside the missing-session count.
 - Read `false_blocks.state` before interpreting its rate. The denominator contains only reviewed external `true-block` plus `false-block` outcomes; legacy, duplicate, self, test, QA, unknown, unreviewed, unmeasurable, mismatched, and future-dated evidence stays outside it.
 - Use `agentsmd outcomes list/review` for explicit bounded human review. The scorecard is read-only, never fabricates labels from conformance near-negatives, and never rewrites raw telemetry or the review sidecar.
 - Read `automation.fail_open_causes` as a complete category split whose total must equal `fail_open_events`; retain `audit` for exact reasons and version attribution.

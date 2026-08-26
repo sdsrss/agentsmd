@@ -116,6 +116,7 @@ spec/AGENTS*.md 的 (HARD) 规则
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
 - 只有新 `block`/`deny` 行生成不含 project/session/command/path 的 correlation ID；legacy 无 ID 行保持 unmeasurable。scorecard 的现场误拦分母只含已审核 external `true-block + false-block`，所有排除项逐项可见；sidecar 缺失、部分覆盖或无效分别进入 `unmeasured`、`partial`、`invalid`，不推断零值。
+- scorecard 保留 missing session 总数，同时按第一条 retained `session-dimension` 的前/跨越/后/无参照顺序和 self/external/unknown/mixed 来源归因；无效/缺失 session identity 单列为 unjoinable。该顺序只证明 retained-window ordering，不推断历史 schema、日志轮转、跨 surface 丢失或当前 emitter 根因。
 - manifest 的反向 drift gate 同时核对显式 HARD/MUST 行和 §8 Never 子句；`operational_sections` 单独声明 `§hooks-fail-open` 这类非规范规则的运行遥测。
 - **离线兜底**（Codex 特有优势）：`codex exec` 可无交互跑，为「离线扫历史会话产出命中率」提供一条 CI/定时路径——即 `agentsmd.txt` 设想的「试运行拿稀释度信号」，无需实时 hook 也能取数。
 - `hard-rules.json` 的 `last_demote_review` 现为 `null`（部署前无字段数据）；首批遥测落地后由 OPERATOR 按节奏回填。
