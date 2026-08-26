@@ -5,6 +5,14 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed command-parser pipeline boundaries so a downloader piped through a
+  parenthesized consumer, a newline after `|`, or Bash `|&` remains connected to
+  the interpreter and reaches the existing unknown-script gate. The strict
+  `realpath` deletion-guard matcher now requires a variable-identifier boundary,
+  avoiding repeated suffix scans on long commands. A fixed-seed property gate
+  covers quoting, wrappers, separators, subshells, environment assignments,
+  recursion/input/time bounds, arbitrary non-crash inputs, and explicit
+  crash/timeout/false-negative/false-positive diagnostics.
 - Added retained-window session-dimension attribution to the quality scorecard.
   Missing sessions are split into pre-first-observed, straddling, post-first-
   observed, and no-reference buckets with self/external/unknown/mixed

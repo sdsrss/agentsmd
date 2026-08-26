@@ -43,6 +43,29 @@
       "auth_boundary": false
     },
     {
+      "name": "command parser property contract",
+      "files": [
+        "hooks/lib/command-parse.js"
+      ],
+      "checks_include": [
+        "command-parse-property",
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "full-check"
+      ],
+      "categories_include": [
+        "command-parser",
+        "native-hook",
+        "shared-runtime"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": false
+    },
+    {
       "name": "lifecycle exact path",
       "files": [
         "scripts/install.js"

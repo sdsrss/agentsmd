@@ -119,10 +119,10 @@ function lexSafetyCommands(source) {
     word = { value: "", raw: "", expands: false };
     started = false;
   }
-  function finishCommand(opAfter = null) {
+  function finishCommand(opAfter = null, overwritePrevious = false) {
     finishWord();
     if (words.length) commands.push({ words, opAfter });
-    else if (commands.length && opAfter) commands[commands.length - 1].opAfter = opAfter;
+    else if (commands.length && opAfter && overwritePrevious) commands[commands.length - 1].opAfter = opAfter;
     words = [];
   }
   function append(ch, raw = ch) {
@@ -180,10 +180,15 @@ function lexSafetyCommands(source) {
     } else if (ch === ";") {
       finishCommand(";");
     } else if (ch === "|" || ch === "&") {
+      const pipeStderr = ch === "|" && source[i + 1] === "&";
       const doubled = source[i + 1] === ch;
-      finishCommand(ch === "|" && !doubled ? "|" : ";");
-      if (doubled) i += 1;
-    } else if (ch === "(" || ch === ")") {
+      finishCommand(ch === "|" && !doubled ? "|" : ";", true);
+      if (doubled || pipeStderr) i += 1;
+    } else if (ch === "(") {
+      // An opening subshell groups the next command; it is not a separator that
+      // may erase the pipeline operator already attached to the producer.
+      finishCommand();
+    } else if (ch === ")") {
       finishCommand(";");
     } else if (ch === "#" && !started) {
       while (i + 1 < source.length && source[i + 1] !== "\n") i += 1;
@@ -299,7 +304,10 @@ function stripDataHereDocs(source) {
 // prefix may be /tmp/* or any literal absolute path of >=2 segments (a single
 // top-level segment like /home/* stays blocked — that bound proves nothing).
 function markStrictlyValidatedRmTargets(source) {
-  const guard = /(?<safe>[A-Za-z_][A-Za-z0-9_]*)=(?<outer>["'])\$\(realpath(?:\s+-e)?\s+--\s+(?<inner>["'])\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?::?\?[^}]*)?\}|[A-Za-z_][A-Za-z0-9_]*)\k<inner>\)\k<outer>\s+&&\s+\[\[\s+-n\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\4\s+&&\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\5\s+==\s+(?:\/tmp\/\*|(?:\/[A-Za-z0-9._][A-Za-z0-9._-]*){2,}\/\*)\s+\]\]\s+&&\s+(?<rm>(?:(?:command|sudo)\s+)*(?:\/[^\s]+\/)?rm\b[^;\n]*)/g;
+  // The identifier boundary is also a complexity bound. Without it, a long
+  // ordinary word makes the regex retry the greedy variable-name prefix from
+  // every character, turning a no-match scan quadratic in the command length.
+  const guard = /(?<![A-Za-z0-9_])(?<safe>[A-Za-z_][A-Za-z0-9_]*)=(?<outer>["'])\$\(realpath(?:\s+-e)?\s+--\s+(?<inner>["'])\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?::?\?[^}]*)?\}|[A-Za-z_][A-Za-z0-9_]*)\k<inner>\)\k<outer>\s+&&\s+\[\[\s+-n\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\4\s+&&\s+(["']?)\$(?:\{\k<safe>\}|\k<safe>)\5\s+==\s+(?:\/tmp\/\*|(?:\/[A-Za-z0-9._][A-Za-z0-9._-]*){2,}\/\*)\s+\]\]\s+&&\s+(?<rm>(?:(?:command|sudo)\s+)*(?:\/[^\s]+\/)?rm\b[^;\n]*)/g;
   return source.replace(guard, (...args) => {
     const groups = args.at(-1);
     const whole = args[0];

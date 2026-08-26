@@ -67,6 +67,15 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
 消息扫描优先使用 `last_assistant_message`，fallback 每次写
 `event:"compat-fallback"`。
 
+**命令解析边界**：`hooks/lib/command-parse.js` 是有界 lexer/parser，不执行 shell
+展开。安全分析保留 pipeline 连接，支持消费者 subshell、`|` 后换行和 Bash `|&`；
+动态 alias/function、运行时生成命令词和超过 3 层的任意递归仍显式 fail-open，不以
+猜测代替证据。`scripts/tests/command-parse-property.test.js` 以固定默认 seed 生成
+quoting、wrapper、separator、subshell、environment assignment 的正例与近反例，
+另对任意输入只断言不崩溃、不超时和输出结构有效。单次解析时限为 2 秒，随机生成
+输入上限为 16 KiB，并保留 140 KB stdin 与 3/4 层递归边界样例；失败输出固定分为
+crash、timeout、false-negative、false-positive，且包含可重放 seed。
+
 **跨会话记忆分层**：Codex native Memories 是 opt-in 的模型智能层，负责在后台从
 eligible chats 选择、脱敏和整合长期事实；agentsmd 不静默开启它。agentsmd 自己的
 deterministic handoff 解决时间窗口：每个有实质完成内容的 Stop 只保存 bounded、

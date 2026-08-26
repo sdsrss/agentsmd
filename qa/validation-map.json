@@ -91,6 +91,17 @@
       "width": "targeted",
       "order": 41
     },
+    "command-parse-property": {
+      "command": [
+        "node",
+        "scripts/tests/command-parse-property.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 45
+    },
     "hook-smoke": {
       "command": [
         "bash",
@@ -473,6 +484,23 @@
         "runtime-canary"
       ],
       "reason": "Native hook changes affect safety coverage, shell portability, latency, and live runtime compatibility.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "command-parser-contract",
+      "patterns": [
+        "hooks/lib/command-parse.js",
+        "scripts/tests/command-parse-property.test.js"
+      ],
+      "risk_categories": [
+        "command-parser",
+        "shared-runtime"
+      ],
+      "checks": [
+        "command-parse-property"
+      ],
+      "reason": "Command-parser changes require replayable positive/near-negative metamorphic cases plus explicit crash, timeout, input-size, and recursion bounds.",
       "requires_full": true,
       "auth_boundary": false
     },

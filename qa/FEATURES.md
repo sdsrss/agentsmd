@@ -239,6 +239,13 @@ external runtime.
 - Boundary 2: nested shells, path-qualified tools, command chains, redirection,
   pipes, multilingual text, and commit variants are parsed. Status: BASELINE;
   expert replay ROUND9.
+- Boundary 3: a fixed-seed command-parser property gate composes quoting,
+  wrappers, separators, consumer/whole subshells, environment assignments, and
+  up to three nested shell command strings across positive and near-negative
+  Git/publisher/delete/remote-exec families. It also bounds generated input,
+  each parser invocation, a 140 KB stdin regression, and arbitrary non-crash
+  inputs, with replay diagnostics split into crash, timeout, false negative,
+  and false positive. Status: LOCAL; R-06 deterministic gate.
 - Misuse: recursive-delete variables, unknown remote scripts, secrets, red shared
   pushes, false memory evidence, and invalid report shapes cannot bypass the
   declared gate through common command variants. Status: BASELINE; ROUND9.
