@@ -388,6 +388,7 @@ order; it is not parsed back into JSON.
 agentsmd scorecard --days=30
 agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
+agentsmd scorecard --conformance-candidate=candidate.json --conformance-binding=binding.json
 ```
 
 The versioned scorecard v2 joins one bounded `session-dimension` row per session to
@@ -416,17 +417,40 @@ scorecards can therefore report the exact historical release result and waiver
 without reading raw transcripts or arbitrary evidence paths. Historical or
 mismatched evidence never becomes current-tree green. Missing evidence first
 recommends configuring or importing a bounded evidence source instead of
-unconditionally spending another model run. Release closure can generate the
-allowlisted record from repository-local captures with:
+unconditionally spending another model run.
+
+For a new release, the evidence protocol is two-phase. A pre-publication
+candidate attestation binds the clean source commit/tree, deterministic
+standalone deploy-tree hash, package/version, conformance inputs, bounded run
+summaries, and decision. A post-publication binding then hashes those exact
+candidate bytes and verifies GitHub-release/npm tarball equality plus the npm
+SLSA subject, tag/ref, workflow, and release commit. Candidate-only provenance
+is rendered as `local-candidate`; it is not published-release proof. A matching
+binding is rendered as `published-binding`. Explicit input files must be bounded
+regular non-symlink files; the scorecard never fetches network evidence
+implicitly, and missing/offline evidence remains unavailable or historical.
+The legacy packaged v1 record remains readable as historical evidence.
+The offline binding validates byte/hash and decoded SLSA payload consistency;
+release closure must still obtain those inputs from the declared release and
+registry sources and run the separate npm signature/Sigstore authenticity gate.
+
+Release closure can inspect the legacy generator and the two new protocol
+stages with:
 
 ```bash
 node scripts/conformance-evidence.js --help
+npm run conformance:candidate -- --help
+npm run conformance:binding -- --help
 ```
 
-The generator accepts only regular non-symlink
+The candidate generator accepts only regular non-symlink
 `docs/qa-captures/**/conformance-*/results.json` inputs, emits hashes and
-aggregate runtime/model/result/threshold/waiver provenance, and refuses to
-overwrite a different version record.
+aggregate runtime/model/result/threshold/waiver provenance, and refuses dirty
+source or a different same-version output. The binding generator reads explicit
+candidate, release tarball, registry tarball, and SLSA provenance files; it
+refuses byte substitution, source-tree mismatch, version replay, provenance
+ref/workflow/commit mismatch, invalid timestamp order, and differing overwrite
+bytes.
 
 `--compare` accepts only a bounded, regular non-symlink scorecard v2 JSON
 capture. Version 1 captures are rejected because they do not carry measurement

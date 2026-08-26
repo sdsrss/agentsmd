@@ -353,6 +353,7 @@ targeted 优先运行，第一个失败会阻止后续更宽的检查。
 agentsmd scorecard --days=30
 agentsmd scorecard --days=30 --json
 agentsmd scorecard --compare=scorecard-previous.json
+agentsmd scorecard --conformance-candidate=candidate.json --conformance-binding=binding.json
 ```
 
 版本化 scorecard v2 通过每个 session 一条有界 `session-dimension` 记录关联现场
@@ -374,17 +375,34 @@ commit、tracked-clean 标记、cases hash 与 thresholds hash 都匹配当前�
 校验的 release evidence，因此 installed scorecard 无需读取原始 transcript 或任意
 evidence 路径，也能呈现精确的历史发布结果与 waiver。historical 或 mismatch
 证据不会变成 current-tree green；没有证据时会先建议配置或导入有界证据来源，
-而不是无条件再次消耗模型调用。release closure 可用以下入口从仓库内 capture
-生成 allowlist record：
+而不是无条件再次消耗模型调用。
+
+新版本使用两阶段协议。发布前 candidate attestation 绑定 clean source commit/tree、
+确定性的 standalone deploy-tree hash、package/version、conformance 输入、有限的运行
+摘要与 decision；发布后 binding 再绑定 candidate 的精确字节，并校验 GitHub Release
+与 npm tarball 字节相同，以及 npm SLSA subject、tag/ref、workflow 与 release commit
+一致。只有 candidate 时 provenance 显示为 `local-candidate`，不能当作已发布证明；
+匹配 binding 后显示为 `published-binding`。外部输入必须是有界、非符号链接的普通
+文件；scorecard 不会隐式访问网络，离线或缺失证据保持 unavailable/historical。
+旧版 package 中的 v1 record 继续作为历史证据读取。
+离线 binding 校验的是 byte/hash 与已解码 SLSA payload 的一致性；release closure
+仍须从声明的 release/registry 来源取得这些输入，并单独执行 npm signature/Sigstore
+真实性 gate。
+
+release closure 可用以下入口检查旧生成器和两个新阶段：
 
 ```bash
 node scripts/conformance-evidence.js --help
+npm run conformance:candidate -- --help
+npm run conformance:binding -- --help
 ```
 
-生成器只接受常规、非符号链接的
+candidate 生成器只接受常规、非符号链接的
 `docs/qa-captures/**/conformance-*/results.json`，输出 hashes、聚合后的
-runtime/model/result/threshold/waiver provenance，并拒绝覆盖内容不同的同版本
-record。
+runtime/model/result/threshold/waiver provenance，并拒绝 dirty source 或覆盖内容不同
+的同版本 record。binding 生成器显式读取 candidate、release tarball、registry
+tarball 与 SLSA provenance 文件；byte substitution、source-tree mismatch、version
+replay、provenance ref/workflow/commit mismatch、时间顺序错误和不同字节覆盖都会被拒绝。
 
 `--compare` 只接受有界、非符号链接、常规文件形式的 scorecard v2 JSON。v1 capture
 没有 measurement provenance，无法通过猜测安全升级，因此会被明确拒绝。

@@ -58,6 +58,28 @@
       "width": "targeted",
       "order": 40
     },
+    "conformance-evidence": {
+      "command": [
+        "node",
+        "scripts/tests/conformance-evidence.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 42
+    },
+    "conformance-binding": {
+      "command": [
+        "node",
+        "scripts/tests/conformance-binding.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 43
+    },
     "core-ab-structure": {
       "command": [
         "node",
@@ -508,6 +530,37 @@
         "runtime-canary"
       ],
       "reason": "Runtime canary changes require deterministic dual-scenario grading, workflow boundaries, and a report-only real-runtime observation.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "conformance-evidence-contract",
+      "patterns": [
+        "scripts/conformance-evidence.js",
+        "scripts/conformance-candidate.js",
+        "scripts/conformance-binding.js",
+        "scripts/lib/conformance-evidence.js",
+        "scripts/lib/release-artifact.js",
+        "scripts/tests/conformance-evidence.test.js",
+        "scripts/tests/conformance-binding.test.js",
+        "schemas/conformance-release-evidence.schema.json",
+        "schemas/conformance-candidate-attestation.schema.json",
+        "schemas/conformance-release-binding.schema.json",
+        "qa/conformance/releases/**"
+      ],
+      "risk_categories": [
+        "conformance-evidence-contract",
+        "release-evidence",
+        "measurement-semantics"
+      ],
+      "checks": [
+        "conformance-evidence",
+        "conformance-binding",
+        "scorecard-unit",
+        "argv-lint",
+        "distribution"
+      ],
+      "reason": "Conformance evidence changes must preserve bounded privacy-safe summaries, exact candidate and artifact identity, strict argv, replay/tamper rejection, scorecard provenance, and distributed behavior.",
       "requires_full": true,
       "auth_boundary": false
     },

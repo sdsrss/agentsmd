@@ -15,13 +15,18 @@ const { samplingAudit } = require('../sampling-audit');
 const { sparkline } = require('../sparkline');
 const { status } = require('../status');
 const { validateSchema } = require('./task-contract');
+const F = require('./fs-atomic');
+const { inspectReleaseArtifact } = require('./release-artifact');
+const {
+  externalConformanceSummary,
+  validateConformanceCandidateAttestation,
+  validateConformanceEvidencePair,
+  validateConformanceReleaseBinding,
+  validateConformanceReleaseEvidence,
+} = require('./conformance-evidence');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'schemas', 'scorecard.schema.json'), 'utf8'));
-const CONFORMANCE_EVIDENCE_SCHEMA = JSON.parse(fs.readFileSync(
-  path.join(ROOT, 'schemas', 'conformance-release-evidence.schema.json'),
-  'utf8',
-));
 const MAX_DAYS = 3650;
 const MAX_CAPTURE_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -145,20 +150,6 @@ function deepBounds(value, at = '$', depth = 0, errors = []) {
   return errors;
 }
 
-function validateConformanceReleaseEvidence(value) {
-  const errors = validateSchema(value, CONFORMANCE_EVIDENCE_SCHEMA, CONFORMANCE_EVIDENCE_SCHEMA);
-  deepBounds(value, '$', 0, errors);
-  if (value && value.decision) {
-    if (value.decision.verdict === 'waived' && !value.decision.waiver) {
-      errors.push('$.decision.waiver: waived evidence requires a release-only waiver');
-    }
-    if (value.decision.verdict !== 'waived' && value.decision.waiver !== null) {
-      errors.push('$.decision.waiver: non-waived evidence must use null');
-    }
-  }
-  return { valid: errors.length === 0, errors: [...new Set(errors)] };
-}
-
 function validateScorecard(value) {
   const errors = validateSchema(value, SCHEMA, SCHEMA);
   deepBounds(value, '$', 0, errors);
@@ -185,9 +176,9 @@ function ageDays(recordedMs, now) {
 function conformanceProvenance({
   kind = 'none', applicability = 'unavailable', reason = 'no-evidence-input',
   source = 'none', releaseVersion = 'unknown', releaseCommit = 'unknown',
-  currentCommit = 'unknown', inputsMatch = null,
+  currentCommit = 'unknown', inputsMatch = null, evidencePhase = null,
 } = {}) {
-  return {
+  const result = {
     kind,
     applicability,
     reason: boundedText(reason),
@@ -197,6 +188,8 @@ function conformanceProvenance({
     current_commit: boundedText(currentCommit),
     inputs_match: typeof inputsMatch === 'boolean' ? inputsMatch : null,
   };
+  if (evidencePhase) result.evidence_phase = boundedText(evidencePhase);
+  return result;
 }
 
 function emptyConformance(state = 'unavailable', provenance = conformanceProvenance()) {
@@ -236,15 +229,43 @@ function currentSourceIdentity(root) {
     const revision = git(['rev-parse', '--verify', 'HEAD']);
     const commit = String(revision.stdout || '').trim();
     if (revision.status !== 0 || !/^[a-f0-9]{40}$/.test(commit)) {
-      return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+      return { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null };
+    }
+    const treeRevision = git(['rev-parse', '--verify', 'HEAD^{tree}']);
+    const tree = String(treeRevision.stdout || '').trim();
+    if (treeRevision.status !== 0 || !/^[a-f0-9]{40}$/.test(tree)) {
+      return { state: 'unavailable', commit, tree: 'unknown', tracked_clean: null };
     }
     const diff = git(['diff-index', '--quiet', 'HEAD', '--'], ['ignore', 'ignore', 'ignore']);
     if (diff.status !== 0 && diff.status !== 1) {
-      return { state: 'unavailable', commit, tracked_clean: null };
+      return { state: 'unavailable', commit, tree, tracked_clean: null };
     }
-    return { state: 'measured', commit, tracked_clean: diff.status === 0 };
+    return { state: 'measured', commit, tree, tracked_clean: diff.status === 0 };
   } catch {
-    return { state: 'unavailable', commit: 'unknown', tracked_clean: null };
+    return { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null };
+  }
+}
+
+function currentConformanceArtifactIdentity(root, sourceIdentity) {
+  try {
+    const pluginFile = path.join(root, '.codex-plugin', 'plugin.json');
+    let hasPackagedSource = false;
+    try {
+      const stat = fs.lstatSync(pluginFile);
+      hasPackagedSource = stat.isFile() && !stat.isSymbolicLink();
+    } catch {}
+    if (hasPackagedSource || (sourceIdentity && sourceIdentity.state === 'measured')) {
+      const artifact = inspectReleaseArtifact(root);
+      if (/^[a-f0-9]{64}$/.test(String(artifact.deploySha256 || ''))) {
+        return { state: artifact.complete ? 'measured' : 'invalid', deploy_sha256: artifact.deploySha256 };
+      }
+      return { state: 'invalid', deploy_sha256: null };
+    }
+    const stat = fs.lstatSync(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return { state: 'invalid', deploy_sha256: null };
+    return { state: 'measured', deploy_sha256: F.sha256Tree(root) };
+  } catch {
+    return { state: 'unavailable', deploy_sha256: null };
   }
 }
 
@@ -535,7 +556,8 @@ function releaseEvidenceSummary({
 
 function conformanceSummary({
   captureRoot, releaseEvidenceRoot, now, expectedCaseIds, sourceIdentity,
-  inputIdentity, packageIdentity, thresholds,
+  inputIdentity, packageIdentity, thresholds, candidateEvidenceFile,
+  releaseBindingFile, artifactIdentity,
 }) {
   const expected = Array.isArray(expectedCaseIds)
     ? [...new Set(expectedCaseIds.filter((id) => typeof id === 'string' && id.length > 0))]
@@ -547,9 +569,15 @@ function conformanceSummary({
     captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
   });
   if (raw && raw.provenance.applicability === 'current') return raw;
+  const external = externalConformanceSummary({
+    candidateEvidenceFile, releaseBindingFile, now, expected, sourceIdentity,
+    inputIdentity, packageIdentity, artifactIdentity, freshDays: FRESH_DAYS,
+  });
+  if (external && external.provenance.applicability === 'current') return external;
   const release = releaseEvidenceSummary({
     releaseEvidenceRoot, now, expected, sourceIdentity, inputIdentity, packageIdentity,
   });
+  if (external) return external;
   if (release) return release;
   if (raw) return raw;
   return emptyConformance('unavailable', conformanceProvenance({ reason: 'no-evidence-input' }));
@@ -898,6 +926,10 @@ function actionsFor(card, rules) {
     add('high', 'conformance-evidence-unavailable', 'Configure or import a bounded conformance evidence source; run the declared full suite only when no valid evidence exists.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
   } else if (card.conformance.state === 'invalid') {
     add('high', 'conformance-evidence-invalid', 'Inspect and replace the invalid bounded conformance evidence record before relying on this dimension.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
+  } else if (card.conformance.provenance.evidence_phase === 'local-candidate'
+    && card.conformance.provenance.applicability === 'current'
+    && card.conformance.state === 'fresh') {
+    add('medium', 'conformance-candidate-unbound', 'Retain this exact candidate attestation and create a post-publication binding before treating it as published-release proof.', `Candidate ${card.conformance.provenance.release_version} matches the current deploy tree but has no release binding.`);
   } else if (card.conformance.provenance.applicability === 'historical') {
     add('medium', 'conformance-historical', 'Retain the historical release evidence; obtain a current-tree capture only when the current tree requires fresh proof.', `Release ${card.conformance.provenance.release_version} evidence is available with threshold verdict ${card.conformance.threshold_verdict}.`);
   } else if (card.conformance.provenance.applicability === 'mismatch') {
@@ -956,6 +988,10 @@ function buildScorecard(options = {}) {
     statusSource: statusSupplied ? 'supplied' : 'runtime-filesystem',
     doctorSource: doctorSupplied ? 'supplied' : 'runtime-filesystem',
   });
+  const conformanceSourceIdentity = options.sourceIdentity || currentSourceIdentity(root);
+  const candidateEvidenceFile = options.candidateEvidenceFile || null;
+  const conformanceArtifactIdentity = options.conformanceArtifactIdentity
+    || (candidateEvidenceFile ? currentConformanceArtifactIdentity(root, conformanceSourceIdentity) : null);
   const card = {
     schema_version: 2,
     generated_at: new Date(now).toISOString(),
@@ -971,10 +1007,13 @@ function buildScorecard(options = {}) {
       releaseEvidenceRoot: options.releaseEvidenceRoot || path.join(root, 'qa', 'conformance', 'releases'),
       now,
       expectedCaseIds: options.expectedConformanceCaseIds || expectedConformanceCaseIds(root),
-      sourceIdentity: options.sourceIdentity || currentSourceIdentity(root),
+      sourceIdentity: conformanceSourceIdentity,
       inputIdentity: options.conformanceInputIdentity || currentConformanceInputIdentity(root),
       packageIdentity: options.packageIdentity || currentPackageIdentity(root),
       thresholds: options.conformanceThresholds || currentConformanceThresholds(root),
+      candidateEvidenceFile,
+      releaseBindingFile: options.releaseBindingFile || null,
+      artifactIdentity: conformanceArtifactIdentity,
     }),
     false_blocks: {
       state: 'unmeasured',
@@ -1028,7 +1067,8 @@ function buildScorecard(options = {}) {
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
       'False-block rate is unmeasured until blocking events receive bounded human-reviewed outcome labels.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
-      'Conformance fresh requires a full capture whose source commit, tracked-clean state, cases hash, and thresholds hash match the current tree; historical release evidence remains explicit and never proves changed source.',
+      'Conformance fresh requires a matching current capture or an explicit candidate/binding whose package, inputs, clean source identity, and deterministic deploy tree match; packaged historical evidence never proves changed source.',
+      'A published binding verifies internal byte/hash and decoded SLSA payload consistency; file acquisition, npm signature audit, and Sigstore authenticity remain release-closure evidence outside this offline scorecard.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
       'Confirmed absent prompt files may contribute zero; missing files that contradict or cannot resolve the active surface, plus unreadable or invalid inputs, remain null and prevent a measured headroom claim.',
     ],
@@ -1114,7 +1154,7 @@ function formatScorecard(card) {
   ]);
   section('Conformance', [
     `state: ${card.conformance.state} · ${card.conformance.passed}/${card.conformance.total} pass · errors ${card.conformance.errors} · runs ${card.conformance.runs} · threshold ${card.conformance.threshold_verdict} · capture ${card.conformance.capture}`,
-    `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
+    `provenance: ${card.conformance.provenance.kind}/${card.conformance.provenance.applicability}${card.conformance.provenance.evidence_phase ? ` · phase ${card.conformance.provenance.evidence_phase}` : ''} · reason ${card.conformance.provenance.reason} · inputs ${card.conformance.provenance.inputs_match ?? 'n/a'} · release ${card.conformance.provenance.release_version}`,
   ]);
   section('False blocks', [
     `state: ${card.false_blocks.state} · blocking events ${card.false_blocks.blocking_events} · confirmed false blocks ${card.false_blocks.confirmed_false_blocks}`,
@@ -1159,7 +1199,10 @@ function formatScorecard(card) {
 function parseArgs(argv) {
   let parsed;
   try {
-    parsed = parseStrict(argv, { bools: ['json'], values: ['days', 'compare'] });
+    parsed = parseStrict(argv, {
+      bools: ['json'],
+      values: ['days', 'compare', 'conformance-candidate', 'conformance-binding'],
+    });
   } catch (error) {
     return { error: error.message };
   }
@@ -1170,7 +1213,21 @@ function parseArgs(argv) {
   if (compare !== undefined && (!compare || compare.length > 4096)) {
     return { error: 'invalid --compare value: expected a non-empty path no longer than 4096 characters' };
   }
-  return { days, json: parsed.bools.has('json'), compare: compare || null };
+  const candidateEvidenceFile = parsed.values['conformance-candidate'];
+  const releaseBindingFile = parsed.values['conformance-binding'];
+  if (candidateEvidenceFile !== undefined && (!candidateEvidenceFile || candidateEvidenceFile.length > 4096)) {
+    return { error: 'invalid --conformance-candidate value: expected a non-empty bounded path' };
+  }
+  if (releaseBindingFile !== undefined && (!releaseBindingFile || releaseBindingFile.length > 4096)) {
+    return { error: 'invalid --conformance-binding value: expected a non-empty bounded path' };
+  }
+  if (releaseBindingFile && !candidateEvidenceFile) {
+    return { error: '--conformance-binding requires --conformance-candidate' };
+  }
+  const result = { days, json: parsed.bools.has('json'), compare: compare || null };
+  if (candidateEvidenceFile) result.candidateEvidenceFile = candidateEvidenceFile;
+  if (releaseBindingFile) result.releaseBindingFile = releaseBindingFile;
+  return result;
 }
 
 module.exports = {
@@ -1186,6 +1243,9 @@ module.exports = {
   parseArgs,
   probeRegularFile,
   thresholdVerdict,
+  validateConformanceCandidateAttestation,
+  validateConformanceEvidencePair,
   validateConformanceReleaseEvidence,
+  validateConformanceReleaseBinding,
   validateScorecard,
 };

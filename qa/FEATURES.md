@@ -282,11 +282,18 @@ external runtime.
   populate current-tree freshness; later targeted, legacy, dirty-tree, or
   mismatched captures cannot replace it. Bounded release records preserve only
   allowlisted hashes, runtime/model totals, threshold verdicts, waiver scope,
-  and capture provenance. Packaged records remain explicit historical evidence
+  and capture provenance. A pre-publication candidate additionally binds the
+  clean Git commit/tree and deterministic standalone deploy-tree hash; a
+  post-publication record hashes the exact candidate bytes and cross-checks
+  GitHub/npm tarball bytes plus npm SLSA subject/ref/workflow/commit provenance.
+  Candidate-only, published-binding, packaged historical, mismatch, invalid,
+  and unavailable states remain distinct, and external evidence is never
+  fetched implicitly. Packaged v1 records remain explicit historical evidence
   when a source-tree identity is unavailable. Performance and conformance
   staleness, worktree residue, fallback use, prompt headroom, no-opportunity,
   and unmeasured false blocks remain explicit. Status: BASELINE; source/mismatch,
-  malformed/symlink/oversize, generator privacy, and installed-package fixtures.
+  dirty-tree/replay/tamper, malformed/symlink/oversize, generator privacy, and
+  installed-package fixtures.
 - Boundary 3: a fresh non-interactive home uses the Codex hook-trust bypass only
   after the caller explicitly attests that every active hook source was
   reviewed. Captures record that trust mode, and a completed child turn with no

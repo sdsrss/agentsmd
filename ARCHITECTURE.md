@@ -108,7 +108,8 @@ spec/AGENTS*.md 的 (HARD) 规则
           └─ ~/.codex/logs/agentsmd.jsonl   append-only 遥测（规则行 + 每 session 一条 version/surface/model 维度）
               └─ scripts/audit.js    bySection 聚合
                   ├─ 治理信号         rule-specific opportunity + outcome → operator review
-                  └─ scorecard        session_id join + provenance split + freshness/measurement limits
+                  └─ scorecard        session_id join + capture/candidate/published-binding provenance + freshness limits
+                      └─ lib/conformance-evidence.js  schema semantics + exact-byte pair validation + state normalization
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
@@ -194,7 +195,7 @@ agentsmd/
     lib/{hook-common,rule-hits,platform}.sh
     *.sh
   scripts/                   L2 管理脚本（含 install/uninstall/repair/verify 与 security-policy gate）
-  schemas/                   task/evidence、scorecard、conformance release evidence、runtime-canary 的有界 JSON Schema
+  schemas/                   task/evidence、scorecard、conformance candidate/binding、runtime-canary 的有界 JSON Schema
   qa/validation-map.json     路径→风险→检查的机器可读验证映射
   qa/runtime-canary.js       pinned/latest 隔离 canary 与机器可读证据
   automation/                weekly canary/governance、readiness、PR review recipes

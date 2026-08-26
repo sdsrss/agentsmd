@@ -11,6 +11,7 @@ const {
 
 const USAGE = [
   'Usage: agentsmd scorecard [--days=N] [--json] [--compare=CAPTURE]',
+  '  [--conformance-candidate=FILE] [--conformance-binding=FILE]',
   '',
   'Aggregate health, compatibility, quality, performance, memory, prompt-budget,',
   'automation, and measurement-limit evidence. This command is read-only and',
@@ -29,7 +30,11 @@ function main(argv) {
     return 2;
   }
   try {
-    let card = buildScorecard({ days: parsed.days });
+    let card = buildScorecard({
+      days: parsed.days,
+      candidateEvidenceFile: parsed.candidateEvidenceFile,
+      releaseBindingFile: parsed.releaseBindingFile,
+    });
     if (parsed.compare) {
       card = compareScorecards(card, loadComparison(parsed.compare), parsed.compare);
     }

@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -41,6 +42,10 @@ function write(file, content) {
 
 function jsonl(rows) {
   return `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`;
+}
+
+function digest(algorithm, value) {
+  return crypto.createHash(algorithm).update(value).digest('hex');
 }
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-scorecard.'));
@@ -432,6 +437,238 @@ try {
     assert(mismatch.recommended_actions.some((item) => item.code === 'conformance-mismatch'));
   });
 
+  test('candidate and published binding evidence remain distinct while matching the exact current artifact', () => {
+    const candidateFile = path.join(temp, 'external-evidence', 'candidate-v5.0.1.json');
+    const bindingFile = path.join(temp, 'external-evidence', 'binding-v5.0.1.json');
+    const sourceTree = 'd'.repeat(40);
+    const releaseCommit = 'e'.repeat(40);
+    const deploySha256 = 'f'.repeat(64);
+    const tarballSha256 = '1'.repeat(64);
+    const tarballSha512 = '2'.repeat(128);
+    const candidate = {
+      schema_version: 1,
+      kind: 'agentsmd-conformance-candidate-attestation',
+      attested_at: '2026-07-29T02:00:00.000Z',
+      subject: {
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        source_commit: FIXTURE_COMMIT,
+        source_tree: sourceTree,
+        source_tracked_clean: true,
+        deploy_sha256: deploySha256,
+        cases_sha256: FIXTURE_CASES_SHA256,
+        thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+      },
+      runs: [{
+        capture: 'conformance-20260729T010000Z',
+        recorded_at: '2026-07-29T01:00:00.000Z',
+        results_sha256: '3'.repeat(64),
+        codex_version: '0.145.0',
+        model: 'gpt-5.6-sol',
+        agentsmd_version: '5.0.1',
+        surface: 'standalone',
+        profile: 'full',
+        passed: 4,
+        total: 4,
+        errors: 0,
+        false_block_near_negatives: 2,
+        threshold_verdict: 'pass',
+      }],
+      decision: { verdict: 'pass', waiver: null },
+    };
+    const candidateText = `${JSON.stringify(candidate, null, 2)}\n`;
+    write(candidateFile, candidateText);
+    write(bindingFile, JSON.stringify({
+      schema_version: 1,
+      kind: 'agentsmd-conformance-release-binding',
+      verified_at: '2026-07-29T04:00:00.000Z',
+      candidate: {
+        sha256: digest('sha256', candidateText),
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        source_commit: FIXTURE_COMMIT,
+        source_tree: sourceTree,
+        deploy_sha256: deploySha256,
+        attested_at: '2026-07-29T02:00:00.000Z',
+      },
+      release: {
+        package: '@sdsrs/agentsmd',
+        version: '5.0.1',
+        commit: releaseCommit,
+        tree: sourceTree,
+        tag: 'v5.0.1',
+        published_at: '2026-07-29T03:00:00.000Z',
+      },
+      artifacts: {
+        registry_sha256: tarballSha256,
+        release_sha256: tarballSha256,
+        sha512: tarballSha512,
+      },
+      provenance: {
+        sha256: '4'.repeat(64),
+        subject: 'pkg:npm/%40sdsrs/agentsmd@5.0.1',
+        subject_sha512: tarballSha512,
+        repository: 'https://github.com/sdsrss/agentsmd',
+        ref: 'refs/tags/v5.0.1',
+        workflow: '.github/workflows/release.yml',
+        commit: releaseCommit,
+      },
+    }, null, 2));
+
+    const externalBase = {
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-external-captures'),
+      releaseEvidenceRoot: path.join(temp, 'missing-external-release-evidence'),
+      candidateEvidenceFile: candidateFile,
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: deploySha256 },
+    };
+    const localCandidate = buildScorecard({
+      ...externalBase,
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: sourceTree, tracked_clean: true,
+      },
+    });
+    assert.strictEqual(localCandidate.conformance.state, 'fresh');
+    assert.strictEqual(localCandidate.conformance.provenance.kind, 'release-evidence');
+    assert.strictEqual(localCandidate.conformance.provenance.applicability, 'current');
+    assert.strictEqual(localCandidate.conformance.provenance.evidence_phase, 'local-candidate');
+    assert.strictEqual(localCandidate.conformance.provenance.reason, 'candidate-and-artifact-match');
+    assert(localCandidate.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+
+    const published = buildScorecard({
+      ...externalBase,
+      releaseBindingFile: bindingFile,
+      sourceIdentity: {
+        state: 'measured', commit: releaseCommit, tree: sourceTree, tracked_clean: true,
+      },
+    });
+    assert.strictEqual(published.conformance.state, 'fresh');
+    assert.strictEqual(published.conformance.provenance.kind, 'release-evidence');
+    assert.strictEqual(published.conformance.provenance.applicability, 'current');
+    assert.strictEqual(published.conformance.provenance.evidence_phase, 'published-binding');
+    assert.strictEqual(published.conformance.provenance.reason, 'published-binding-and-artifact-match');
+    assert.strictEqual(published.conformance.provenance.release_commit, releaseCommit);
+    assert(!published.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+    assert.match(formatScorecard(published), /phase published-binding/u);
+  });
+
+  test('external evidence tamper, replay, dirty tree, and missing input never render current', () => {
+    const candidateFile = path.join(temp, 'external-negative', 'candidate-v5.0.1.json');
+    const candidate = {
+      schema_version: 1,
+      kind: 'agentsmd-conformance-candidate-attestation',
+      attested_at: '2026-07-29T02:00:00.000Z',
+      subject: {
+        package: '@sdsrs/agentsmd', version: '5.0.0', source_commit: FIXTURE_COMMIT,
+        source_tree: '5'.repeat(40), source_tracked_clean: true,
+        deploy_sha256: '6'.repeat(64), cases_sha256: FIXTURE_CASES_SHA256,
+        thresholds_sha256: FIXTURE_THRESHOLDS_SHA256,
+      },
+      runs: [{
+        capture: 'conformance-20260729T010000Z', recorded_at: '2026-07-29T01:00:00.000Z',
+        results_sha256: '7'.repeat(64), codex_version: '0.145.0', model: 'gpt-5.6-sol',
+        agentsmd_version: '5.0.0', surface: 'standalone', profile: 'full', passed: 4,
+        total: 4, errors: 0, false_block_near_negatives: 2, threshold_verdict: 'pass',
+      }],
+      decision: { verdict: 'pass', waiver: null },
+    };
+    write(candidateFile, JSON.stringify(candidate));
+    const common = {
+      ...scorecardOptions,
+      conformanceRoot: path.join(temp, 'missing-negative-captures'),
+      releaseEvidenceRoot: path.join(temp, 'missing-negative-release'),
+      candidateEvidenceFile: candidateFile,
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: '5'.repeat(40), tracked_clean: true,
+      },
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: '6'.repeat(64) },
+    };
+    const replay = buildScorecard(common);
+    assert.strictEqual(replay.conformance.state, 'stale');
+    assert.strictEqual(replay.conformance.provenance.applicability, 'mismatch');
+    assert.strictEqual(replay.conformance.provenance.reason, 'package-version-mismatch');
+
+    const dirty = buildScorecard({
+      ...common,
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.0.0' },
+      sourceIdentity: {
+        state: 'measured', commit: FIXTURE_COMMIT, tree: '5'.repeat(40), tracked_clean: false,
+      },
+    });
+    assert.strictEqual(dirty.conformance.state, 'stale');
+    assert.strictEqual(dirty.conformance.provenance.reason, 'current-tree-dirty');
+
+    const artifactMismatch = buildScorecard({
+      ...common,
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.0.0' },
+      conformanceArtifactIdentity: { state: 'measured', deploy_sha256: '8'.repeat(64) },
+    });
+    assert.strictEqual(artifactMismatch.conformance.state, 'stale');
+    assert.strictEqual(artifactMismatch.conformance.provenance.reason, 'deploy-tree-mismatch');
+
+    const missing = buildScorecard({
+      ...common,
+      candidateEvidenceFile: path.join(temp, 'does-not-exist.json'),
+    });
+    assert.strictEqual(missing.conformance.state, 'unavailable');
+    assert.strictEqual(missing.conformance.provenance.reason, 'candidate-evidence-unavailable');
+
+    const staleCandidate = structuredClone(candidate);
+    staleCandidate.subject.version = '5.0.1';
+    staleCandidate.runs[0].agentsmd_version = '5.0.1';
+    staleCandidate.runs[0].recorded_at = '2026-01-01T00:00:00.000Z';
+    staleCandidate.attested_at = '2026-01-01T01:00:00.000Z';
+    const staleFile = path.join(temp, 'external-negative', 'stale-candidate.json');
+    write(staleFile, JSON.stringify(staleCandidate));
+    const stale = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+    });
+    assert.strictEqual(stale.conformance.state, 'stale');
+    assert.strictEqual(stale.conformance.provenance.applicability, 'current');
+    assert(stale.recommended_actions.some((item) => item.code === 'conformance-stale'));
+    assert(!stale.recommended_actions.some((item) => item.code === 'conformance-candidate-unbound'));
+
+    const artifactUnavailable = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null },
+      conformanceArtifactIdentity: { state: 'unavailable', deploy_sha256: null },
+    });
+    assert.strictEqual(artifactUnavailable.conformance.provenance.applicability, 'historical');
+    assert.strictEqual(artifactUnavailable.conformance.provenance.reason, 'current-artifact-identity-unavailable');
+
+    const artifactInvalid = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      sourceIdentity: { state: 'unavailable', commit: 'unknown', tree: 'unknown', tracked_clean: null },
+      conformanceArtifactIdentity: { state: 'invalid', deploy_sha256: null },
+    });
+    assert.strictEqual(artifactInvalid.conformance.state, 'invalid');
+    assert.strictEqual(artifactInvalid.conformance.provenance.applicability, 'invalid');
+    assert.strictEqual(artifactInvalid.conformance.provenance.reason, 'current-artifact-identity-invalid');
+
+    const missingBinding = buildScorecard({
+      ...common,
+      candidateEvidenceFile: staleFile,
+      releaseBindingFile: path.join(temp, 'does-not-exist-binding.json'),
+    });
+    assert.strictEqual(missingBinding.conformance.state, 'unavailable');
+    assert.strictEqual(missingBinding.conformance.provenance.reason, 'release-binding-unavailable');
+
+    const linkedCandidate = path.join(temp, 'external-negative', 'linked-candidate.json');
+    fs.symlinkSync(staleFile, linkedCandidate);
+    const linked = buildScorecard({ ...common, candidateEvidenceFile: linkedCandidate });
+    assert.strictEqual(linked.conformance.state, 'invalid');
+    assert.strictEqual(linked.conformance.provenance.reason, 'invalid-candidate-evidence');
+
+    const oversizedCandidate = path.join(temp, 'external-negative', 'oversized-candidate.json');
+    write(oversizedCandidate, 'x'.repeat(1048577));
+    const oversized = buildScorecard({ ...common, candidateEvidenceFile: oversizedCandidate });
+    assert.strictEqual(oversized.conformance.state, 'invalid');
+    assert.strictEqual(oversized.conformance.provenance.reason, 'invalid-candidate-evidence');
+  });
+
   test('malformed, oversized, and symlinked release records remain invalid evidence', () => {
     const releaseExpectedCaseIds = Array.from({ length: 30 }, (_, index) => `invalid-case-${index + 1}`);
     const buildInvalid = (releaseEvidenceRoot) => buildScorecard({
@@ -678,14 +915,20 @@ try {
   });
 
   test('argv is strict and keeps days/json/compare independent', () => {
-    assert.deepStrictEqual(parseArgs(['--days=7', '--json', '--compare=old.json']), {
+    assert.deepStrictEqual(parseArgs([
+      '--days=7', '--json', '--compare=old.json',
+      '--conformance-candidate=candidate.json', '--conformance-binding=binding.json',
+    ]), {
       days: 7,
       json: true,
       compare: 'old.json',
+      candidateEvidenceFile: 'candidate.json',
+      releaseBindingFile: 'binding.json',
     });
     assert.strictEqual(parseArgs(['--days']).error.includes("requires '=value'"), true);
     assert.strictEqual(parseArgs(['--days=0']).error.includes('invalid --days'), true);
     assert.strictEqual(parseArgs(['--json=true']).error.includes('does not take a value'), true);
+    assert.strictEqual(parseArgs(['--conformance-binding=binding.json']).error.includes('requires --conformance-candidate'), true);
     assert.strictEqual(parseArgs(['old.json']).error.includes('Unknown argument'), true);
   });
 } finally {

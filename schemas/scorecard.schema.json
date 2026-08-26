@@ -231,7 +231,10 @@
         "release_version": { "$ref": "#/$defs/text" },
         "release_commit": { "$ref": "#/$defs/text" },
         "current_commit": { "$ref": "#/$defs/text" },
-        "inputs_match": { "$ref": "#/$defs/nullableBoolean" }
+        "inputs_match": { "$ref": "#/$defs/nullableBoolean" },
+        "evidence_phase": {
+          "enum": ["local-candidate", "published-binding"]
+        }
       }
     },
     "falseBlocks": {

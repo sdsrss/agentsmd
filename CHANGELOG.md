@@ -5,6 +5,14 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added a two-phase conformance evidence protocol. A clean pre-publication
+  candidate attestation binds the source tree, deterministic deploy tree,
+  conformance inputs, bounded results, and decision; a post-publication binding
+  links those exact bytes to identical GitHub/npm tarballs and npm SLSA
+  subject/ref/workflow/commit provenance. Scorecard accepts both only through
+  explicit bounded files, distinguishes local candidate from published binding,
+  and retains the packaged v1 record as historical evidence.
+
 ## v5.3.3 — 2026-08-20 — native sandbox proxy disposal classification (patch)
 
 - Fixed the Stop-hook disposal advisory so Codex-owned Linux sandbox proxy

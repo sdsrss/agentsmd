@@ -38,6 +38,7 @@ function stageSources(repo, stageRoot) {
     'validation-map.json',
     path.join('perf', 'baseline.json'),
     path.join('conformance', 'cases.json'),
+    path.join('conformance', 'thresholds.json'),
   ];
   for (const relative of qaFiles) {
     const source = path.join(repo, 'qa', relative);
@@ -153,6 +154,7 @@ function inspectReleaseArtifact(repo) {
       'qa/validation-map.json',
       'qa/perf/baseline.json',
       'qa/conformance/cases.json',
+      'qa/conformance/thresholds.json',
       'qa/conformance/releases',
       'automation/weekly-runtime-canary.md',
       'automation/weekly-governance-review.md',

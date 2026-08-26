@@ -39,12 +39,16 @@ Generate the operator report or versioned JSON capture:
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --json
 node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --compare=scorecard-previous.json
+node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --conformance-candidate=/absolute/candidate.json
+node "$AGENTSMD_ROOT/scripts/scorecard.js" --days=30 --conformance-candidate=/absolute/candidate.json --conformance-binding=/absolute/binding.json
 ```
 
 - Run from the project whose AGENTS.md prompt budget and worktree inventory should be measured.
 - Treat `test` and `qa` data classes as visible provenance, not field evidence.
 - Treat missing dimensions, stale captures, no-opportunity, insufficient opportunity, and unmeasured false blocks as gaps.
 - Read `conformance.provenance` before recommending a model run: packaged release evidence is historical, a source/input mismatch is not current-tree proof, and missing evidence calls for a bounded evidence source before an unconditional rerun.
+- Read `conformance.provenance.evidence_phase` when present: `local-candidate` matches a candidate artifact but is not publication proof; `published-binding` also binds the exact candidate to verified release/registry bytes and npm provenance. The command never fetches either file implicitly.
+- Treat a `published-binding` as offline consistency evidence, not an independent signature audit; release provenance authenticity and input acquisition remain separate release-closure checks.
 - Treat sampling calibration as a structural proxy and memory cite-recall as engagement only; neither proves semantic adherence.
 - Use `--compare` only with a prior JSON capture from this command. The reader rejects symlinks, oversized input, malformed JSON, unknown fields, and unsupported schema versions.
 - Read recommended actions as operator prompts. The command is read-only and never promotes/demotes rules, cleans worktrees, changes the spec, or runs external canaries.
