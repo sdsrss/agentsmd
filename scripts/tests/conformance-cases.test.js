@@ -368,7 +368,22 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
 t('project trust cleanup removes exact task tables and preserves every neighbor', () => {
   const helperPath = path.join(ROOT, 'qa', 'cleanup-project-trust.js');
   assert.ok(fs.existsSync(helperPath), 'project trust cleanup helper missing');
-  const { parseArgs, removeProjectTrustTables } = require(helperPath);
+  const { parseArgs, removeProjectTrustTables, sameCanonicalPath } = require(helperPath);
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/fixture', 'darwin'),
+    true,
+    'macOS /var and /private/var aliases must compare as the same sandbox',
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/other', 'darwin'),
+    false,
+    'macOS alias handling must not accept a different sandbox',
+  );
+  assert.strictEqual(
+    sameCanonicalPath('/var/folders/fixture', '/private/var/folders/fixture', 'linux'),
+    false,
+    'non-macOS platforms must not gain a path alias',
+  );
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance.'));
   try {
     const config = path.join(sandbox, 'config.toml');

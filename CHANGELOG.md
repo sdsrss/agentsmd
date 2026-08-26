@@ -73,7 +73,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   checked out on filesystems with different permission semantics.
 - Fixed reviewed conformance automation so it CAS-removes only exact
   trust-only tables created for its random throwaway case directories, while
-  preserving all neighboring and concurrent user-config bytes. The
+  preserving all neighboring and concurrent user-config bytes. macOS system
+  aliases under `/var` and `/private/var` are compared canonically without
+  accepting arbitrary aliases or symlinks. The
   outcome-first assertion now recognizes strict anchored English and Chinese
   affirmative openings while retaining its evidence-first near-negative and
   the existing 3/4 task-discipline threshold. Historical v5.3.0 evidence keeps

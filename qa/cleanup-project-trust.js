@@ -5,14 +5,20 @@ const path = require('path');
 const F = require('../scripts/lib/fs-atomic');
 const { parseStrict } = require('../scripts/lib/argv');
 const { maskMultilineStrings } = require('../scripts/lib/config-toml');
+const { platformCanonicalPath } = require('../scripts/lib/paths');
 
 const MAX_CONFIG_BYTES = 1024 * 1024;
 const SANDBOX_BASENAME_RE = /^agentsmd-conformance\.[A-Za-z0-9]+$/u;
 
+function sameCanonicalPath(left, right, platform = process.platform) {
+  return platformCanonicalPath(left, platform) === platformCanonicalPath(right, platform);
+}
+
 function validateSandbox(value) {
   const sandbox = path.resolve(value);
   const stat = fs.lstatSync(sandbox);
-  if (stat.isSymbolicLink() || !stat.isDirectory() || fs.realpathSync(sandbox) !== sandbox) {
+  if (stat.isSymbolicLink() || !stat.isDirectory()
+    || !sameCanonicalPath(fs.realpathSync(sandbox), sandbox)) {
     throw new Error('sandbox must be a real non-symlink directory');
   }
   if (!SANDBOX_BASENAME_RE.test(path.basename(sandbox))) {
@@ -60,7 +66,8 @@ function removeProjectTrustTables(configFile, sandboxValue, options = {}) {
     const project = tableHeader(maskedLines[index]);
     if (!project) continue;
     const resolvedProject = path.resolve(project);
-    if (path.dirname(resolvedProject) !== sandbox || !path.basename(resolvedProject).startsWith('case-')) continue;
+    if (!sameCanonicalPath(path.dirname(resolvedProject), sandbox)
+      || !path.basename(resolvedProject).startsWith('case-')) continue;
     if (project !== resolvedProject) throw new Error('task project trust path must be canonical');
 
     let end = index + 1;
@@ -117,4 +124,4 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { main, parseArgs, removeProjectTrustTables };
+module.exports = { main, parseArgs, removeProjectTrustTables, sameCanonicalPath };
