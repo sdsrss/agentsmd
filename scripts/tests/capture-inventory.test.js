@@ -189,24 +189,23 @@ test('index writer refuses a symlink with zero target and payload mutation', () 
   }
 }));
 
-test('current ignored capture root is observed without mutation or absolute-path disclosure', () => {
-  const captureRoot = path.join(ROOT, 'docs', 'qa-captures');
-  const before = fs.readdirSync(captureRoot).sort().map((name) => {
-    const stat = fs.lstatSync(path.join(captureRoot, name));
-    return [name, stat.size, stat.mtimeMs];
-  });
-  const report = C.inventoryCaptures(captureRoot, { now: new Date('2026-08-25T00:00:00.000Z') });
-  const after = fs.readdirSync(captureRoot).sort().map((name) => {
-    const stat = fs.lstatSync(path.join(captureRoot, name));
-    return [name, stat.size, stat.mtimeMs];
-  });
-  assert.deepStrictEqual(after, before);
-  assert.strictEqual(report.ok, true);
-  assert(report.summary.units > 30);
-  assert(report.summary.files >= 3129);
-  assert.strictEqual(report.summary.deletion_eligible, 0);
-  assert.strictEqual(report.privacy.state, 'degraded');
-  assert.strictEqual(JSON.stringify(report).includes(ROOT), false);
+test('missing ignored capture root fails closed without mutation or absolute-path disclosure', () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-capture-missing.'));
+  const captureRoot = path.join(parent, 'docs', 'qa-captures');
+  let observed;
+  try {
+    assert.throws(
+      () => C.inventoryCaptures(captureRoot),
+      (error) => {
+        observed = error;
+        return /capture root does not exist/u.test(error.message);
+      },
+    );
+    assert.strictEqual(fs.existsSync(captureRoot), false);
+    assert.strictEqual(observed.message.includes(parent), false);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 console.log(`\nRESULT: ${passed} passed, ${failed} failed`);

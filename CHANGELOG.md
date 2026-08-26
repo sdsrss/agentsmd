@@ -11,7 +11,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   It hashes strict evidence units, reports age/class/permission and malformed or
   unsafe entries, treats 90 days only as a human-review trigger, and grants no
   deletion eligibility. An explicit `--write` atomically refreshes only the
-  ignored `docs/qa-captures/index.json`; capture payloads are never pruned.
+  ignored `docs/qa-captures/index.json`; capture payloads are never pruned. A
+  clean checkout with no capture root now fails with a bounded diagnostic and
+  no absolute-path disclosure instead of making the test gate host-dependent.
 - Added a dependency-free JavaScript syntax compatibility gate. Every existing
   Node CI runtime now parses all `.js` files under `bin/`, `scripts/`,
   `hooks/lib/`, and `qa/` with its own `node --check`; discovery skips symlinks

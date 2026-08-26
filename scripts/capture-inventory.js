@@ -130,7 +130,15 @@ function retentionFor(classification, capturedAt, now) {
 
 function validateRoot(root) {
   const resolved = path.resolve(root);
-  const stat = fs.lstatSync(resolved);
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      throw new Error('capture root does not exist');
+    }
+    throw error;
+  }
   const canonical = platformCanonicalPath(resolved);
   if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(resolved) !== canonical) {
     throw new Error('capture root must be a canonical non-symlink directory');
