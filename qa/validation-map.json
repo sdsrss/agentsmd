@@ -351,6 +351,17 @@
       "width": "targeted",
       "order": 183
     },
+    "js-syntax": {
+      "command": [
+        "node",
+        "scripts/tests/js-syntax-check.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 184
+    },
     "argv-lint": {
       "command": [
         "node",
@@ -731,6 +742,24 @@
         "coverage-observe"
       ],
       "reason": "Coverage observation changes must preserve bounded capture parsing, subprocess deduplication, explicit measurement limits, and exact temporary-workspace cleanup.",
+      "requires_full": true,
+      "auth_boundary": false
+    },
+    {
+      "id": "js-syntax-compatibility",
+      "patterns": [
+        "scripts/js-syntax-check.js",
+        "scripts/tests/js-syntax-check.test.js"
+      ],
+      "risk_categories": [
+        "runtime-compatibility",
+        "static-analysis",
+        "tooling"
+      ],
+      "checks": [
+        "js-syntax"
+      ],
+      "reason": "The all-JavaScript syntax gate must keep bounded file discovery, symlink exclusion, parser timeouts, relative diagnostics, and current-runtime repository coverage.",
       "requires_full": true,
       "auth_boundary": false
     },

@@ -60,6 +60,14 @@ QA 工具，不属于 `agentsmd` 公共 CLI。`--run` 在任务自有临时目�
 文件数/单文件/总字节、生产文件数和未覆盖函数输出均有上限；成功或失败都只清理
 经过前缀、直接父目录与文件类型校验的临时工作区。
 
+**JavaScript 最低 runtime 语法门禁**：`scripts/js-syntax-check.js` 不依赖第三方
+parser，而是枚举同一组仓库 JavaScript 根并逐文件调用当前 `process.execPath
+--check`，不执行源文件。由于它属于既有 `npm test`，Node 18/20/22/24 与 macOS
+矩阵会分别用自己的解析器验证全部 JS，而不是用开发机的新 Node 代替最低版本。
+扫描跳过 symlink，限制文件数、单文件大小、单次解析时间、失败条数和诊断长度；JSON
+只保留 repo-relative 文件名。该门禁只证明语法可被对应 runtime 解析，不推断 promise
+正确性、不可达语义、精确行或分支覆盖率。
+
 **唯一豁免（spawn-with-fail-open）**：`hooks/session-start-check.sh` 以子进程方式 spawn `scripts/lib/surface-arbitration.js` 读取 surface 仲裁结果。它不是 import——三重防护（`command -v node`、文件可读探测、`platform_timeout`）保证缺失或超时只让 banner 变短，永不阻断用户，因此符合“L1 不依赖 L2 可用性”这一不变式的实质。豁免范围到此为止：`drift.test.js` 断言引用 `scripts/` 的 hook 集合恰好等于这一个文件，并断言这三重防护仍在——新增第二处会让 CI 变红。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
 
 **命令层为何使用 skills**：仓库把 `dir + SKILL.md(name+description frontmatter)` 作为命令元数据，并让每个 skill 路由到一个 L2 脚本；触发边界与 progressive disclosure 见 `spec/AGENTS-extended.md §E9`。runner resolver 与命令必须在同一 shell invocation 中执行，并只接受身份和版本匹配的 selected bundle、manifest deploy record 匹配的 standalone，或 package `bin.agentsmd` 匹配的 versioned CLI root；无可读 root 时输出结构化诊断并停止，CLI fallback 不导出 plugin context。

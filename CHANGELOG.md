@@ -5,6 +5,12 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+- Added a dependency-free JavaScript syntax compatibility gate. Every existing
+  Node CI runtime now parses all `.js` files under `bin/`, `scripts/`,
+  `hooks/lib/`, and `qa/` with its own `node --check`; discovery skips symlinks
+  and bounds file count/size, while failures retain bounded repo-relative
+  diagnostics. This is explicitly a syntax/minimum-runtime check, not semantic
+  promise, line, or branch analysis.
 - Added an observation-only V8 coverage collector for the repository's existing
   multi-process `npm test` chain. It propagates `NODE_V8_COVERAGE` through an
   isolated `CODEX_HOME`, deduplicates function and nested block ranges across

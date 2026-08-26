@@ -286,6 +286,27 @@
       "uncovered": false
     },
     {
+      "name": "JavaScript syntax compatibility",
+      "files": [
+        "scripts/js-syntax-check.js"
+      ],
+      "checks_include": [
+        "js-syntax",
+        "argv-lint",
+        "full-check"
+      ],
+      "categories_include": [
+        "runtime-compatibility",
+        "static-analysis",
+        "tooling",
+        "script"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": false,
+      "uncovered": false
+    },
+    {
       "name": "distributed automation recipe",
       "files": [
         "automation/weekly-runtime-canary.md"

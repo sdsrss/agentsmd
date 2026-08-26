@@ -218,6 +218,12 @@ external runtime.
   and exact executable-line plus semantic-branch coverage remain explicitly
   unmeasured. Status: LOCAL; R-08 deterministic fixtures and one current-tree
   full-suite observation.
+- JavaScript syntax compatibility: every `npm test` runtime parses all `.js`
+  files in the repository's executable/QA roots with its own `node --check`.
+  Discovery and diagnostics are bounded, symlinks are excluded, and invalid
+  syntax/timeout/spawn errors remain distinct without executing source. This
+  checks syntax and minimum-runtime parser compatibility only; it is not a
+  semantic linter. Status: LOCAL; R-08 RED-first fixtures and Node matrix wiring.
 - Misuse: nonexistent filters, unsafe run counts, stale tokens, and parser
   antipattern fixtures return an actionable non-zero result. Coverage capture
   symlinks, malformed/oversized JSON, source-incompatible ranges, unsafe output
