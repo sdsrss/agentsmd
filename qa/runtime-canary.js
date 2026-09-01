@@ -61,6 +61,52 @@ function bounded(value, fallback = 'unknown', max = 256) {
   return String(value == null || value === '' ? fallback : value).slice(0, max);
 }
 
+function buildUnverifiedReport({
+  channel,
+  capturedAt = new Date().toISOString(),
+  runtimePackage = 'unknown',
+  sourceCommit = 'unknown',
+} = {}) {
+  if (!['pinned', 'latest'].includes(channel)) {
+    throw new Error('unverified runtime canary channel must be pinned or latest');
+  }
+  return {
+    schema_version: 1,
+    kind: 'agentsmd-runtime-canary-availability',
+    captured_at: bounded(capturedAt),
+    channel,
+    state: 'unverified',
+    reason: 'automation-credential-unavailable',
+    model_called: false,
+    release_blocking: channel === 'pinned',
+    support_policy_effect: channel === 'pinned'
+      ? 'pinned-evidence-unverified'
+      : 'compatibility-unverified',
+    runtime_package: bounded(runtimePackage),
+    source_commit: bounded(sourceCommit),
+    limits: [
+      'This availability record is not runtime or model compatibility evidence.',
+      'No model call was attempted and no local subscription credential was copied into CI.',
+    ],
+  };
+}
+
+function writeUnverifiedReport(options = {}) {
+  const report = buildUnverifiedReport(options);
+  const capturedAt = report.captured_at;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(capturedAt)) {
+    throw new Error('unverified runtime canary capturedAt must be an ISO UTC timestamp');
+  }
+  const stamp = capturedAt.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const captureRoot = path.resolve(options.out || path.join(ROOT, 'docs', 'qa-captures'));
+  const captureDir = path.join(captureRoot, `runtime-canary-${report.channel}-unverified-${stamp}`);
+  fs.mkdirSync(captureRoot, { recursive: true });
+  fs.mkdirSync(captureDir);
+  const captureFile = path.join(captureDir, 'result.json');
+  fs.writeFileSync(captureFile, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
+  return { report, captureDir, captureFile };
+}
+
 function validateReport(report) {
   const errors = validateSchema(report, SCHEMA, SCHEMA);
   let raw = '';
@@ -387,9 +433,11 @@ if (require.main === module) process.exit(main());
 
 module.exports = {
   buildReport,
+  buildUnverifiedReport,
   main,
   parseArgs,
   runRuntimeCanary,
   safeCleanupTemp,
   validateReport,
+  writeUnverifiedReport,
 };
