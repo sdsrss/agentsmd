@@ -9,7 +9,7 @@
       "source": {
         "source": "npm",
         "package": "@sdsrs/agentsmd",
-        "version": "5.4.0 || 5.4.1"
+        "version": "5.4.1 || 5.4.2"
       },
       "policy": {
         "installation": "AVAILABLE",
