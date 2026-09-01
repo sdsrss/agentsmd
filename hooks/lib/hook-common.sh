@@ -619,13 +619,14 @@ hook_record_session_dimension() {
   rule_hits_session_dimension "$@"
 }
 
-# hook_record_failopen HOOK REASON — record a fail-open event (jq-missing /
-# bad-event / prereq-missing) so silently-skipped enforcement is visible to the
-# audit, not indistinguishable from "rule wasn't relevant". Rate-limited 1/60s
-# per (hook,reason).
+# hook_record_failopen HOOK REASON [SESSION_ID] — record a fail-open event
+# (jq-missing / bad-event / prereq-missing) so silently-skipped enforcement is
+# visible to the audit, not indistinguishable from "rule wasn't relevant". A
+# caller that already parsed the event passes its session ID; pre-parse failures
+# remain null. Rate-limited 1/60s per (hook,reason).
 hook_record_failopen() {
   [[ "${DISABLE_RULE_HITS_LOG:-0}" == "1" ]] && return 0
-  local hook="${1:-unknown}" reason="${2:-unspecified}"
+  local hook="${1:-unknown}" reason="${2:-unspecified}" session_id="${3:-}"
   local state_dir legacy_dir
   state_dir="$(hook_runtime_state_dir)"
   legacy_dir="$(hook_shared_state_dir)"
@@ -645,7 +646,7 @@ hook_record_failopen() {
   # shellcheck source=/dev/null
   source "$lib_dir/rule-hits.sh" 2>/dev/null || return 0
   local escaped="${reason//\"/\\\"}"
-  rule_hits_append "$hook" "fail-open" "{\"reason\":\"$escaped\"}" '§hooks-fail-open'
+  rule_hits_append "$hook" "fail-open" "{\"reason\":\"$escaped\"}" '§hooks-fail-open' "$session_id"
 }
 
 # hook_git_invocations_json SUBCMD_ALT CMD — print a JSON array containing every
