@@ -1,7 +1,10 @@
-# Weekly runtime canary
+# Manual runtime canary
 
-Purpose: observe pinned and latest Codex compatibility without changing the
-supported-runtime policy from a single canary result.
+Purpose: manually observe pinned and latest Codex compatibility when a dedicated
+automation credential is available, without changing the supported-runtime
+policy from a single canary result. The GitHub workflow is not scheduled: a
+missing credential emits bounded `unverified` evidence and makes zero model
+calls instead of creating a recurring failed run.
 
 ## Isolation and authority
 
@@ -9,6 +12,9 @@ supported-runtime policy from a single canary result.
   identity.
 - Use an isolated CODEX_HOME for install, status, doctor, hooks, telemetry, and
   every real-model turn. Never point the runner at an operator's live home.
+- Never copy a local ChatGPT subscription credential into CI. Local subscription
+  evaluation and GitHub-hosted automation have separate authentication
+  boundaries.
 - The positive fixture may mutate only its throwaway `canary.txt`; the
   near-negative fixture must leave its committed worktree unchanged.
 - Do not push, open an issue, edit the spec, publish, release, or deploy.
@@ -18,7 +24,15 @@ supported-runtime policy from a single canary result.
 
 ## Matrix
 
-Run both lanes with the same source commit:
+The GitHub workflow is `workflow_dispatch` only. Without its optional automation
+credential, both lanes retain a machine-readable availability record with
+`state: unverified`, `model_called: false`, and no compatibility claim. Pinned
+evidence remains release-blocking when required by a release decision; the
+manual availability workflow itself does not manufacture a failed compatibility
+observation.
+
+When a dedicated automation credential is available, run both lanes with the
+same source commit:
 
 ```bash
 node qa/runtime-canary.js --channel=pinned --codex=/path/to/codex-0.145.0 --out=artifacts/pinned

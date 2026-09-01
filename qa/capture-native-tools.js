@@ -135,6 +135,7 @@ function extractNativeTools(raw) {
         call_id: call.call_id || '',
         paired: Boolean(result),
         output: flattenOutput(result && result.output),
+        output_attribution: 'direct',
       });
       continue;
     }
@@ -147,16 +148,20 @@ function extractNativeTools(raw) {
         call_id: call.call_id || '',
         paired: Boolean(result),
         output: flattenOutput(result && result.output),
+        output_attribution: 'direct',
       });
       continue;
     }
-    for (const nested of nestedToolCalls(typeof call.input === 'string' ? call.input : '')) {
+    const nestedCalls = nestedToolCalls(typeof call.input === 'string' ? call.input : '');
+    const outputAttribution = nestedCalls.length === 1 ? 'wrapper-exact' : 'wrapper-shared';
+    for (const nested of nestedCalls) {
       captured.push({
         name: nested.name,
         arguments: nested.arguments,
         call_id: call.call_id || '',
         paired: Boolean(result),
         output: flattenOutput(result && result.output),
+        output_attribution: outputAttribution,
       });
     }
   }

@@ -1,8 +1,6 @@
-name: Weekly runtime canary
+name: Manual runtime canary
 
 on:
-  schedule:
-    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -31,11 +29,24 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
+      - name: Detect optional runtime credential
+        id: credential
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if test -n "${OPENAI_API_KEY:-}"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No automation credential is configured; this lane will retain unverified evidence without a model call."
+          fi
       - name: Install matrix Codex runtime
+        if: steps.credential.outputs.available == 'true'
         env:
           CODEX_PACKAGE: ${{ matrix.package }}
         run: npm install --global "$CODEX_PACKAGE"
       - name: Run isolated runtime canary
+        if: steps.credential.outputs.available == 'true'
         id: canary
         continue-on-error: true
         env:
@@ -46,6 +57,24 @@ jobs:
           node qa/runtime-canary.js \
             "--channel=$CANARY_CHANNEL" \
             "--out=artifacts/$CANARY_CHANNEL"
+      - name: Record unverified runtime evidence
+        if: steps.credential.outputs.available != 'true'
+        env:
+          CANARY_CHANNEL: ${{ matrix.channel }}
+          CANARY_OUT: artifacts/${{ matrix.channel }}
+          CODEX_PACKAGE: ${{ matrix.package }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          node -e '
+            const runtime = require("./qa/runtime-canary");
+            const result = runtime.writeUnverifiedReport({
+              channel: process.env.CANARY_CHANNEL,
+              out: process.env.CANARY_OUT,
+              runtimePackage: process.env.CODEX_PACKAGE,
+              sourceCommit: process.env.SOURCE_COMMIT,
+            });
+            process.stdout.write(`${JSON.stringify({ state: result.report.state, capture: result.captureDir })}\n`);
+          '
       - name: Retain machine-readable result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -55,10 +84,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Enforce pinned lane
-        if: always() && matrix.channel == 'pinned' && steps.canary.outcome == 'failure'
+        if: always() && matrix.channel == 'pinned' && steps.credential.outputs.available == 'true' && steps.canary.outcome == 'failure'
         run: |
           echo "Pinned runtime canary failed; inspect the retained JSON capture." >&2
           exit 1
       - name: Record latest lane without changing support policy
-        if: always() && matrix.channel == 'latest' && steps.canary.outcome == 'failure'
+        if: always() && matrix.channel == 'latest' && steps.credential.outputs.available == 'true' && steps.canary.outcome == 'failure'
         run: echo "Latest runtime failure is compatibility-report-only; inspect the retained JSON capture."

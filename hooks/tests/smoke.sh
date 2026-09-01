@@ -1461,6 +1461,16 @@ if command -v git >/dev/null 2>&1; then
   { is_empty "$OUT" && rows_have_no_observe "$NEW" '§8-secrets'; } && ok "non-commit git command → allow without opportunity" || bad "non-commit → no secret observe" "out=[$OUT] new=[$NEW]"
   B="$(clog_count)"; OUT="$(run_hook secrets-scan.sh "$(mk_sec 'git commit -m outside-repo' "$SANDBOX")")"; NEW="$(clog_new "$B")"
   { is_empty "$OUT" && rows_have_observe "$NEW" '§8-secrets' true false && ! rows_have_observe "$NEW" '§8-secrets' true true; } && ok "commit outside repo → eligible but unevaluated diff" || bad "secret diff fail → unevaluated observe" "out=[$OUT] new=[$NEW]"
+  # The hook runs in a separate process and cannot resolve shell-local variables
+  # from the pending Bash command. Classify that boundary before invoking Git,
+  # and bind both the observe and fail-open rows to the parsed session.
+  B="$(clog_count)"; OUT="$(run_hook secrets-scan.sh "$(mk_sec 'repo=/tmp/example; git -C "$repo" commit --allow-empty -m baseline' "$SECREPO")")"; NEW="$(clog_new "$B")"
+  { is_empty "$OUT" \
+    && rows_have_observe "$NEW" '§8-secrets' true false \
+    && printf '%s\n' "$NEW" | jq -e 'select(.event=="fail-open" and .spec_section=="§hooks-fail-open" and .extra.reason=="dynamic-repo-arg" and .session_id=="smokesecrets")' >/dev/null 2>&1 \
+    && ! printf '%s\n' "$NEW" | jq -e 'select(.extra.reason=="git-diff-failed")' >/dev/null 2>&1; } \
+    && ok "dynamic git -C variable → explicit session-bound fail-open" \
+    || bad "dynamic git -C variable must not become generic diff failure" "out=[$OUT] new=[$NEW]"
   # git -C <repo> from a NON-repo cwd (key.pem still staged in SECREPO): the gate
   # must fire AND scan the -C target repo, not the event cwd (P0-1 + P1-5).
   OUT="$(run_hook secrets-scan.sh "$(mk_sec "git -C $SECREPO commit -m viaC" "$SANDBOX")")"; is_block "$OUT" && ok "commit via 'git -C <repo>' from non-repo cwd → block (gate fires + scans right repo)" || bad "git -C commit staging secret → block" "$OUT"
@@ -1611,14 +1621,32 @@ else
   bad "blocking telemetry receives event_id" "$(cat "$TAGHOME/logs/agentsmd.jsonl" 2>/dev/null || echo missing)"
 fi
 
+FAILOPENHOME="$SANDBOX/failopen-test"; mkdir -p "$FAILOPENHOME"
+CODEX_HOME="$FAILOPENHOME" bash -c 'source hooks/lib/hook-common.sh; hook_record_failopen "test-hook" "post-parse" "sid-post-parse"; hook_record_failopen "test-hook" "pre-parse"'
+if jq -se 'length==2
+    and any(.[]; .event=="fail-open" and .extra.reason=="post-parse" and .session_id=="sid-post-parse")
+    and any(.[]; .event=="fail-open" and .extra.reason=="pre-parse" and .session_id==null)' "$FAILOPENHOME/logs/agentsmd.jsonl" >/dev/null 2>&1; then
+  ok "fail-open telemetry carries optional post-parse session id and preserves pre-parse null"
+else
+  bad "fail-open optional session attribution" "$(cat "$FAILOPENHOME/logs/agentsmd.jsonl" 2>/dev/null || true)"
+fi
+
 NOJQ="$SANDBOX/no-jq"
 mkdir -p "$NOJQ/bin" "$NOJQ/home"
-for c in bash mkdir rmdir rm sleep date tr stat mv; do ln -sf "$(command -v "$c")" "$NOJQ/bin/$c"; done
+for c in bash cat date dirname mkdir mv rm rmdir sleep stat tr; do ln -sf "$(command -v "$c")" "$NOJQ/bin/$c"; done
 PATH="$NOJQ/bin" CODEX_HOME="$NOJQ/home" bash -c 'source hooks/lib/rule-hits.sh; rule_hits_append "hook\\name" "fail-open" "{\"reason\":\"x\"}" "§hooks-fail-open" "sid\\one"'
 if node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null; then
   ok "telemetry jq-less fallback writes valid JSON"
 else
   bad "telemetry jq-less fallback writes valid JSON" "$(cat "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
+fi
+NOJQFAILOPEN="$SANDBOX/no-jq-failopen"
+mkdir -p "$NOJQFAILOPEN/home"
+PATH="$NOJQ/bin" CODEX_HOME="$NOJQFAILOPEN/home" bash -c 'source hooks/lib/hook-common.sh; hook_record_failopen "hook\\name" "fallback" "sid\\one"'
+if node -e 'const row=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(row.event!=="fail-open"||row.session_id!=="sid\\one"||row.extra.reason!=="fallback")process.exit(1);' "$NOJQFAILOPEN/home/logs/agentsmd.jsonl" 2>/dev/null; then
+  ok "fail-open optional session id survives jq-less JSON escaping"
+else
+  bad "fail-open jq-less session attribution" "$(cat "$NOJQFAILOPEN/home/logs/agentsmd.jsonl" 2>/dev/null || true)"
 fi
 if node -e 'const row=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (Object.hasOwn(row,"event_id")) process.exit(1);' "$NOJQ/home/logs/agentsmd.jsonl" 2>/dev/null; then
   ok "non-blocking jq-less telemetry omits event_id"

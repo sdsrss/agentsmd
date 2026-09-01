@@ -73,18 +73,24 @@ test('all four distributed recipes exist and preserve authorization/worktree bou
   assert.match(combined, /task-owned/i);
 });
 
-test('weekly runtime workflow runs pinned/latest in isolation and retains failure captures', () => {
+test('manual runtime workflow gates model calls on an optional credential and retains unverified captures', () => {
   const source = read('.github/workflows/runtime-canary.yml');
-  assert.match(source, /^\s*schedule\s*:/m);
+  assert.doesNotMatch(source, /^\s*schedule\s*:/m);
+  assert.match(source, /^\s*workflow_dispatch\s*:/m);
   assert.match(source, /channel:\s*pinned/);
   assert.match(source, /channel:\s*latest/);
   assert.match(source, /@openai\/codex@0\.145\.0/);
   assert.match(source, /@openai\/codex@latest/);
+  assert.match(source, /Detect optional runtime credential/);
+  assert.match(source, /credential\.outputs\.available == 'true'/);
+  assert.match(source, /credential\.outputs\.available != 'true'/);
+  assert.match(source, /writeUnverifiedReport/);
   assert.match(source, /qa\/runtime-canary\.js/);
   assert.match(source, /continue-on-error:\s*true/);
   assert.match(source, /if:\s*always\(\)/);
   assert.match(source, /actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(source, /matrix\.channel == 'pinned'/);
+  assert.match(source, /steps\.credential\.outputs\.available == 'true'.*steps\.canary\.outcome == 'failure'/s);
   assert.doesNotMatch(source, /\bissues:\s*write\b|\bcontents:\s*write\b|\bgit push\b/);
 });
 

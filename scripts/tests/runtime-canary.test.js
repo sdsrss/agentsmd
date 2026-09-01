@@ -24,8 +24,68 @@ function test(name, fn) {
 test('runtime matrix module exports strict parsing and report validation', () => {
   assert(fs.existsSync(CANARY), 'qa/runtime-canary.js is missing');
   const runtime = require(CANARY);
-  for (const name of ['buildReport', 'parseArgs', 'safeCleanupTemp', 'validateReport']) {
+  for (const name of ['buildReport', 'buildUnverifiedReport', 'parseArgs', 'safeCleanupTemp', 'validateReport', 'writeUnverifiedReport']) {
     assert.strictEqual(typeof runtime[name], 'function', `${name} export`);
+  }
+});
+
+test('missing automation credentials produce bounded unverified evidence without a model claim', () => {
+  const { buildUnverifiedReport } = require(CANARY);
+  const pinned = buildUnverifiedReport({
+    channel: 'pinned',
+    capturedAt: '2026-09-01T12:00:00.000Z',
+    runtimePackage: '@openai/codex@0.145.0',
+    sourceCommit: 'a'.repeat(40),
+  });
+  assert.deepStrictEqual(Object.keys(pinned).sort(), [
+    'captured_at',
+    'channel',
+    'kind',
+    'limits',
+    'model_called',
+    'reason',
+    'release_blocking',
+    'runtime_package',
+    'schema_version',
+    'source_commit',
+    'state',
+    'support_policy_effect',
+  ]);
+  assert.strictEqual(pinned.state, 'unverified');
+  assert.strictEqual(pinned.reason, 'automation-credential-unavailable');
+  assert.strictEqual(pinned.model_called, false);
+  assert.strictEqual(pinned.release_blocking, true);
+  assert.strictEqual(pinned.support_policy_effect, 'pinned-evidence-unverified');
+  assert.match(pinned.limits.join('\n'), /not runtime or model compatibility evidence/i);
+
+  const latest = buildUnverifiedReport({
+    channel: 'latest',
+    capturedAt: '2026-09-01T12:00:00.000Z',
+    runtimePackage: '@openai/codex@latest',
+    sourceCommit: 'b'.repeat(40),
+  });
+  assert.strictEqual(latest.release_blocking, false);
+  assert.strictEqual(latest.support_policy_effect, 'compatibility-unverified');
+  assert.throws(() => buildUnverifiedReport({ channel: 'other' }));
+});
+
+test('unverified evidence writer uses a task-owned timestamped directory', () => {
+  const { writeUnverifiedReport } = require(CANARY);
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-runtime-unverified-test-'));
+  try {
+    const result = writeUnverifiedReport({
+      channel: 'pinned',
+      capturedAt: '2026-09-01T12:00:00.000Z',
+      out: sandbox,
+      runtimePackage: '@openai/codex@0.145.0',
+      sourceCommit: 'c'.repeat(40),
+    });
+    assert.strictEqual(path.dirname(result.captureFile), result.captureDir);
+    assert.strictEqual(path.basename(result.captureDir), 'runtime-canary-pinned-unverified-20260901T120000Z');
+    assert.strictEqual(path.basename(result.captureFile), 'result.json');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(result.captureFile, 'utf8')), result.report);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });
 

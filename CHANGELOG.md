@@ -5,6 +5,28 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.4.2 — 2026-09-01 — manual runtime evidence and fail-open attribution (patch)
+
+- Changed the GitHub runtime canary from a weekly schedule to manual dispatch.
+  When no optional automation credential is configured, pinned and latest lanes
+  now retain bounded `unverified` availability records with
+  `model_called=false` instead of attempting a model call or manufacturing a
+  compatibility result. Local ChatGPT subscription authentication remains
+  separate from CI and is never copied into the workflow.
+- Fixed secret-scan handling for Git repository options that contain shell-local
+  variables, substitutions, globs, tilde, or brace expansion. Because the hook
+  executes in a separate process and cannot resolve those values, it now records
+  a session-bound `dynamic-repo-arg` fail-open observation instead of invoking
+  Git with a cooked literal and reporting the misleading `git-diff-failed`.
+- Added optional parsed-session attribution to fail-open telemetry while
+  preserving null session IDs for pre-parse failures, the existing per-reason
+  rate limit, and valid jq-less JSON escaping.
+- Fixed formal native-tool measurement so each nested goal-tool result has an
+  exact `functions.exec` wrapper. A shared outer result is now classified as
+  infrastructure-unmeasurable instead of being misattributed to sibling calls
+  and producing a false policy verdict; the committed cases, thresholds, and
+  known-fail set are unchanged.
+
 ## v5.4.1 — 2026-08-31 — Codex context and test orchestration efficiency (patch)
 
 - Reduced cross-session handoff restoration from two capsules and 6,000 bytes

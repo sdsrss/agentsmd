@@ -52,7 +52,7 @@ secret_failopen() {
   cleanup_index
   hook_observe "$HOOK" '§8-secrets' "$SID" true false \
     "$(jq -cn --arg r "$reason" '{reason:$r}' 2>/dev/null || echo null)"
-  hook_record_failopen "$HOOK" "$reason"
+  hook_record_failopen "$HOOK" "$reason" "$SID"
 }
 trap cleanup_index EXIT
 
@@ -69,7 +69,19 @@ scan_commit_invocation() {
   # line (they override all three config forms) and refuse an external diff driver.
   local -a diff_opts=(--no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/)
   while IFS= read -r repo_arg; do
-    [[ -n "$repo_arg" ]] && git_repo+=("$repo_arg")
+    [[ -n "$repo_arg" ]] || continue
+    # The hook receives the pending shell source but executes in a separate
+    # process, so it cannot resolve shell-local variables, substitutions,
+    # globs, tilde expansion, or brace expansion from a Git repository option.
+    # Running Git with the cooked literal produces a misleading generic diff
+    # error; preserve the opportunity as explicitly unevaluated instead.
+    case "$repo_arg" in
+      '~'*|*'$'*|*'`'*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|*'<('*|*'>('*)
+        secret_failopen "dynamic-repo-arg"
+        return 0
+        ;;
+    esac
+    git_repo+=("$repo_arg")
   done < <(printf '%s' "$invocation" | jq -r '.repoArgs[]' 2>/dev/null)
 
   mode="$(printf '%s' "$invocation" | jq -r '.commitContent.mode // "unsupported"' 2>/dev/null)"
