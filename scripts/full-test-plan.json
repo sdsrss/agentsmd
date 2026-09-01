@@ -1,0 +1,418 @@
+{
+  "schemaVersion": 1,
+  "steps": [
+    {
+      "id": "live-guard",
+      "argv": [
+        "node",
+        "scripts/tests/live-guard.test.js"
+      ]
+    },
+    {
+      "id": "init",
+      "argv": [
+        "node",
+        "scripts/tests/init.test.js"
+      ]
+    },
+    {
+      "id": "exception",
+      "argv": [
+        "node",
+        "scripts/tests/exception.test.js"
+      ]
+    },
+    {
+      "id": "conformance-cases",
+      "argv": [
+        "node",
+        "scripts/tests/conformance-cases.test.js"
+      ]
+    },
+    {
+      "id": "conformance-evidence",
+      "argv": [
+        "node",
+        "scripts/tests/conformance-evidence.test.js"
+      ]
+    },
+    {
+      "id": "conformance-binding",
+      "argv": [
+        "node",
+        "scripts/tests/conformance-binding.test.js"
+      ]
+    },
+    {
+      "id": "core-ab",
+      "argv": [
+        "node",
+        "scripts/tests/core-ab.test.js"
+      ]
+    },
+    {
+      "id": "analyze",
+      "argv": [
+        "node",
+        "scripts/tests/analyze.test.js"
+      ]
+    },
+    {
+      "id": "argv",
+      "argv": [
+        "node",
+        "scripts/tests/argv.test.js"
+      ]
+    },
+    {
+      "id": "install",
+      "argv": [
+        "node",
+        "scripts/tests/install.test.js"
+      ]
+    },
+    {
+      "id": "preflight",
+      "argv": [
+        "node",
+        "scripts/tests/preflight.test.js"
+      ]
+    },
+    {
+      "id": "lifecycle-lock",
+      "argv": [
+        "node",
+        "scripts/tests/lifecycle-lock.test.js"
+      ]
+    },
+    {
+      "id": "lifecycle-journal",
+      "argv": [
+        "node",
+        "scripts/tests/lifecycle-journal.test.js"
+      ]
+    },
+    {
+      "id": "fault-injection",
+      "argv": [
+        "node",
+        "scripts/tests/fault-injection.test.js"
+      ]
+    },
+    {
+      "id": "repair-classification",
+      "argv": [
+        "node",
+        "scripts/tests/repair-classification.test.js"
+      ]
+    },
+    {
+      "id": "repair",
+      "argv": [
+        "node",
+        "scripts/tests/repair.test.js"
+      ]
+    },
+    {
+      "id": "backup",
+      "argv": [
+        "node",
+        "scripts/tests/backup.test.js"
+      ]
+    },
+    {
+      "id": "audit",
+      "argv": [
+        "node",
+        "scripts/tests/audit.test.js"
+      ]
+    },
+    {
+      "id": "outcomes",
+      "argv": [
+        "node",
+        "scripts/tests/outcomes.test.js"
+      ]
+    },
+    {
+      "id": "sampling-audit",
+      "argv": [
+        "node",
+        "scripts/tests/sampling-audit.test.js"
+      ]
+    },
+    {
+      "id": "lesson-bypass-audit",
+      "argv": [
+        "node",
+        "scripts/tests/lesson-bypass-audit.test.js"
+      ]
+    },
+    {
+      "id": "sparkline",
+      "argv": [
+        "node",
+        "scripts/tests/sparkline.test.js"
+      ]
+    },
+    {
+      "id": "scorecard",
+      "argv": [
+        "node",
+        "scripts/tests/scorecard.test.js"
+      ]
+    },
+    {
+      "id": "spec-source",
+      "argv": [
+        "node",
+        "scripts/tests/spec-source.test.js"
+      ]
+    },
+    {
+      "id": "contributor-agents",
+      "argv": [
+        "node",
+        "scripts/tests/contributor-agents.test.js"
+      ]
+    },
+    {
+      "id": "drift",
+      "argv": [
+        "node",
+        "scripts/tests/drift.test.js"
+      ]
+    },
+    {
+      "id": "skill-routing",
+      "argv": [
+        "node",
+        "scripts/tests/skill-routing.test.js"
+      ]
+    },
+    {
+      "id": "task-contract",
+      "argv": [
+        "node",
+        "scripts/tests/task-contract.test.js"
+      ]
+    },
+    {
+      "id": "verify",
+      "argv": [
+        "node",
+        "scripts/tests/verify.test.js"
+      ]
+    },
+    {
+      "id": "full-test",
+      "argv": [
+        "node",
+        "scripts/tests/full-test.test.js"
+      ]
+    },
+    {
+      "id": "coverage-observe",
+      "argv": [
+        "node",
+        "scripts/tests/coverage-observe.test.js"
+      ]
+    },
+    {
+      "id": "js-syntax-check",
+      "argv": [
+        "node",
+        "scripts/tests/js-syntax-check.test.js"
+      ]
+    },
+    {
+      "id": "capture-inventory",
+      "argv": [
+        "node",
+        "scripts/tests/capture-inventory.test.js"
+      ]
+    },
+    {
+      "id": "command-parse-property",
+      "argv": [
+        "node",
+        "scripts/tests/command-parse-property.test.js"
+      ]
+    },
+    {
+      "id": "hook-contract",
+      "argv": [
+        "node",
+        "scripts/tests/hook-contract.test.js"
+      ]
+    },
+    {
+      "id": "event-journal",
+      "argv": [
+        "node",
+        "scripts/tests/event-journal.test.js"
+      ]
+    },
+    {
+      "id": "event-journal-runtime-canary",
+      "argv": [
+        "node",
+        "scripts/tests/event-journal-runtime-canary.test.js"
+      ]
+    },
+    {
+      "id": "session-dimension",
+      "argv": [
+        "node",
+        "scripts/tests/session-dimension.test.js"
+      ]
+    },
+    {
+      "id": "hook-registry",
+      "argv": [
+        "node",
+        "scripts/tests/hook-registry.test.js"
+      ]
+    },
+    {
+      "id": "platform-timeout",
+      "argv": [
+        "node",
+        "scripts/tests/platform-timeout.test.js"
+      ]
+    },
+    {
+      "id": "doctor-plugin",
+      "argv": [
+        "node",
+        "scripts/tests/doctor-plugin.test.js"
+      ]
+    },
+    {
+      "id": "plugin-surface",
+      "argv": [
+        "node",
+        "scripts/tests/plugin-surface.test.js"
+      ]
+    },
+    {
+      "id": "runtime-state",
+      "argv": [
+        "node",
+        "scripts/tests/runtime-state.test.js"
+      ]
+    },
+    {
+      "id": "protocol-v2",
+      "argv": [
+        "node",
+        "scripts/tests/protocol-v2.test.js"
+      ]
+    },
+    {
+      "id": "release-registry-pack",
+      "argv": [
+        "node",
+        "scripts/tests/release-registry-pack.test.js"
+      ]
+    },
+    {
+      "id": "session-exit-modern",
+      "argv": [
+        "node",
+        "scripts/tests/session-exit-modern.test.js"
+      ]
+    },
+    {
+      "id": "session-handoff",
+      "argv": [
+        "node",
+        "scripts/tests/session-handoff.test.js"
+      ]
+    },
+    {
+      "id": "session-summary-status",
+      "argv": [
+        "node",
+        "scripts/tests/session-summary-status.test.js"
+      ]
+    },
+    {
+      "id": "transcript-structure",
+      "argv": [
+        "node",
+        "scripts/tests/transcript-structure.test.js"
+      ]
+    },
+    {
+      "id": "version-sync",
+      "argv": [
+        "node",
+        "scripts/tests/version-sync.test.js"
+      ]
+    },
+    {
+      "id": "version-cascade-check",
+      "argv": [
+        "node",
+        "scripts/tests/version-cascade-check.test.js"
+      ]
+    },
+    {
+      "id": "security-policy-check",
+      "argv": [
+        "node",
+        "scripts/tests/security-policy-check.test.js"
+      ]
+    },
+    {
+      "id": "lint-argv",
+      "argv": [
+        "node",
+        "scripts/tests/lint-argv.test.js"
+      ]
+    },
+    {
+      "id": "safety-coverage",
+      "argv": [
+        "node",
+        "scripts/tests/safety-coverage.test.js"
+      ]
+    },
+    {
+      "id": "distribution",
+      "argv": [
+        "node",
+        "scripts/tests/distribution.test.js"
+      ]
+    },
+    {
+      "id": "perf-baseline",
+      "argv": [
+        "node",
+        "scripts/tests/perf-baseline.test.js"
+      ]
+    },
+    {
+      "id": "design-tokens",
+      "argv": [
+        "node",
+        "scripts/tests/design-tokens.test.js"
+      ]
+    },
+    {
+      "id": "design",
+      "argv": [
+        "node",
+        "scripts/tests/design.test.js"
+      ]
+    },
+    {
+      "id": "hook-smoke",
+      "argv": [
+        "bash",
+        "hooks/tests/smoke.sh"
+      ]
+    }
+  ]
+}

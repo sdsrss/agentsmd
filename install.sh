@@ -15,7 +15,7 @@ set -eu
 NAME="agentsmd"
 DEFAULT_REPO="sdsrss/agentsmd"
 # Synchronized by scripts/version-sync.js — must equal package.json version.
-INSTALLER_VERSION="5.4.0"
+INSTALLER_VERSION="5.4.1"
 DEFAULT_REF="v$INSTALLER_VERSION"
 
 ACTION="install"

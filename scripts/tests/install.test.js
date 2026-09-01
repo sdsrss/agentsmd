@@ -11,6 +11,9 @@ const path = require('path');
 const assert = require('assert');
 const cp = require('child_process');
 
+const SURFACE_ROOT_ENV = ['PLUGIN_ROOT', 'CLAUDE_PLUGIN_ROOT', 'AGENTSMD_PLUGIN_ROOT'];
+for (const name of SURFACE_ROOT_ENV) delete process.env[name];
+
 let PASS = 0, FAIL = 0;
 const t = (name, fn) => { try { fn(); PASS++; console.log('  ok   ' + name); } catch (e) { FAIL++; console.log('  FAIL ' + name + '\n     ' + e.message); } };
 
@@ -55,10 +58,15 @@ const countCmd = (content, pred) => {
 };
 const withSandbox = (fn) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-install-test.'));
-  const prev = process.env.CODEX_HOME;
+  const isolatedEnv = ['CODEX_HOME', ...SURFACE_ROOT_ENV];
+  const previous = new Map(isolatedEnv.map((name) => [name, process.env[name]]));
   process.env.CODEX_HOME = dir;
+  for (const name of isolatedEnv.slice(1)) delete process.env[name];
   try { fn(dir); } finally {
-    if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev;
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     fs.rmSync(dir, { recursive: true, force: true });
   }
 };
@@ -1071,6 +1079,10 @@ withSandbox((dir) => {
   const { install, uninstall } = loadModules();
   install('2026-07-02T00:00:00.000Z');
   t('install registers agentsmd-* skills', () => assert(fs.existsSync(path.join(skillsDir, 'agentsmd-audit', 'SKILL.md'))));
+  t('install copies the generated launcher inside every owned skill', () => assert.deepStrictEqual(
+    fs.readFileSync(path.join(skillsDir, 'agentsmd-audit', 'scripts', 'agentsmd-run.js')),
+    fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'agentsmd-audit', 'scripts', 'agentsmd-run.js')),
+  ));
   t('install preserves other tenant skills', () => assert(fs.existsSync(path.join(skillsDir, 'other-plugin-skill', 'SKILL.md'))));
   t('install copies scripts into the install dir', () => assert(fs.existsSync(path.join(dir, 'agentsmd', 'scripts', 'audit.js'))));
   const un = uninstall();

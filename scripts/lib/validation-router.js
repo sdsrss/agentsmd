@@ -3,6 +3,8 @@
 const cp = require('child_process');
 const { ArgvError, parseStrict } = require('./argv');
 
+const SURFACE_ROOT_ENV = ['PLUGIN_ROOT', 'CLAUDE_PLUGIN_ROOT', 'AGENTSMD_PLUGIN_ROOT'];
+
 function safeRepositoryPath(file) {
   return typeof file === 'string'
     && file.length >= 1
@@ -228,9 +230,11 @@ function collectChangedFiles(cwd, { since = null, spawnSync = cp.spawnSync } = {
   return [...new Set(files)].sort();
 }
 
-function executePlan(plan, { cwd = process.cwd(), spawnSync = cp.spawnSync } = {}) {
+function executePlan(plan, { cwd = process.cwd(), spawnSync = cp.spawnSync, env = process.env } = {}) {
   const results = [];
   let failed = false;
+  const childEnv = { ...env };
+  for (const name of SURFACE_ROOT_ENV) delete childEnv[name];
   for (const check of plan.checks) {
     if (failed) {
       results.push({ id: check.id, status: 'not-run-after-failure', command: check.command });
@@ -250,7 +254,7 @@ function executePlan(plan, { cwd = process.cwd(), spawnSync = cp.spawnSync } = {
     }
     const result = spawnSync(check.command[0], check.command.slice(1), {
       cwd,
-      env: process.env,
+      env: childEnv,
       stdio: 'inherit',
     });
     const passed = !result.error && !result.signal && result.status === 0;

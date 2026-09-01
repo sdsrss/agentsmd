@@ -21,7 +21,8 @@
 # Requires: codex >= MIN_CODEX_VERSION on PATH (or --codex), jq, a logged-in
 # Codex, and an agentsmd install in $CODEX_HOME. NOT part of npm test / CI.
 #
-# Usage: bash qa/codex-blackbox.sh [--codex <bin>] [--out <dir>] [--keep]
+# Usage: bash qa/codex-blackbox.sh [--codex <bin>] [--model <m>] [--out <dir>]
+#          [--reviewed-hooks] [--keep]
 # Captures (sanitized: $HOME → ~) land in --out (default docs/qa-captures/,
 # gitignored). Exit 0 = all probes passed.
 
@@ -31,6 +32,7 @@ MIN_CODEX_VERSION="0.142.0"
 CODEX_BIN="codex"
 OUT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docs/qa-captures"
 KEEP=0
+REVIEWED_HOOKS=0
 PROBE_TIMEOUT="${AGENTSMD_BB_TIMEOUT:-300}"
 MODEL=""
 
@@ -39,8 +41,9 @@ while [ "$#" -gt 0 ]; do
     --codex) CODEX_BIN="${2:?--codex requires a value}"; shift 2 ;;
     --model) MODEL="${2:?--model requires a value}"; shift 2 ;;
     --out) OUT_DIR="${2:?--out requires a value}"; shift 2 ;;
+    --reviewed-hooks) REVIEWED_HOOKS=1; shift ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -60,6 +63,19 @@ newest="$(printf '%s\n%s\n' "$MIN_CODEX_VERSION" "$CODEX_VERSION" | sort -V | ta
 if [ "$newest" != "$CODEX_VERSION" ] && [ "$CODEX_VERSION" != "$MIN_CODEX_VERSION" ]; then
   echo "UNSUPPORTED: codex $CODEX_VERSION < $MIN_CODEX_VERSION (native hooks require the hooks feature, [features] hooks = true, first stable in $MIN_CODEX_VERSION)" >&2
   exit 1
+fi
+
+HOOK_TRUST_ARGS=()
+HOOK_TRUST_MODE="persisted"
+if [ "$REVIEWED_HOOKS" -eq 1 ]; then
+  "$CODEX_BIN" exec --help 2>&1 | grep -q -- '--dangerously-bypass-hook-trust' \
+    || { echo "UNSUPPORTED: codex $CODEX_VERSION lacks --dangerously-bypass-hook-trust" >&2; exit 1; }
+  # Explicit opt-in only: this flag bypasses Codex's persisted trust prompt for
+  # every active hook source. The caller must first review the isolated home's
+  # hook configuration and referenced scripts; ordinary runs keep Codex's
+  # persisted trust behavior.
+  HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)
+  HOOK_TRUST_MODE="automation-bypass"
 fi
 
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
@@ -101,7 +117,9 @@ run_probe() {
   # qa tag: probe rows stay out of governance denominators (audit excludes the tag;
   # this harness reads rows by event/section and is tag-blind). R6-04.
   AGENTSMD_TELEMETRY_TAG=qa \
-  timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
+  timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec \
+    ${HOOK_TRUST_ARGS[@]+"${HOOK_TRUST_ARGS[@]}"} \
+    --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -o "$SBX/$probe.last" "$@" "$prompt" </dev/null >"$SBX/$probe.jsonl" 2>"$SBX/$probe.stderr"
   rc=$?
@@ -122,11 +140,22 @@ thread_of() { jq -r 'select(.type=="thread.started") | .thread_id // .id // empt
 # Context injected by SessionStart hooks lands in the ROLLOUT, not in the
 # `--json` event stream — assertions about injected context must look here.
 rollout_of() { grep -rl "$1" "$CODEX_HOME_DIR/sessions" 2>/dev/null | head -1; }
+# summary_of THREAD_ID → standalone-private runtime state first, then the
+# pre-migration shared-state location retained for upgrade compatibility.
+summary_of() {
+  local sid="$1" candidate
+  for candidate in \
+    "$CODEX_HOME_DIR/.agentsmd-state/runtime/session-summary-$sid.json" \
+    "$CODEX_HOME_DIR/.agentsmd-state/session-summary-$sid.json"; do
+    [ -r "$candidate" ] && { printf '%s' "$candidate"; return 0; }
+  done
+  return 1
+}
 # exec_calls PROBE → number of command-execution events the model produced.
 # (grep -c prints its own 0 on no-match; an || echo here would double-print.)
 exec_calls() { local n; n="$(grep -c '"type":"command_execution' "$SBX/$1.jsonl" 2>/dev/null)"; printf '%s' "${n:-0}"; }
 
-echo "== codex-blackbox (codex $CODEX_VERSION, agentsmd @ $CODEX_HOME_DIR) =="
+echo "== codex-blackbox (codex $CODEX_VERSION, hook-trust $HOOK_TRUST_MODE, agentsmd @ $CODEX_HOME_DIR) =="
 echo "   captures: $CAP"
 
 # ── P1: lifecycle + allow path + exact-once context ─────────────────────────
@@ -189,18 +218,20 @@ COMMITS_AFTER="$(git -C "$PROJ" rev-list --count HEAD)"
 git -C "$PROJ" reset -q -- qa-fixture.js && rm -f "$PROJ/qa-fixture.js"
 # Stop-side evidence: session-summary recorded the deny for this real session.
 P3_TID="$(thread_of p3)"
-P3_SUMMARY="$CODEX_HOME_DIR/.agentsmd-state/session-summary-$P3_TID.json"
-if [ -r "$P3_SUMMARY" ] && jq -e '.denies >= 1' "$P3_SUMMARY" >/dev/null 2>&1; then
+P3_SUMMARY="$(summary_of "$P3_TID")"
+if [ -n "$P3_SUMMARY" ] && jq -e '.denies >= 1' "$P3_SUMMARY" >/dev/null 2>&1; then
   ok "P3 Stop hook (session-summary) recorded the deny"
   sanitize < "$P3_SUMMARY" > "$CAP/p3.session-summary.json"
 else
-  bad "P3 session-summary deny record" "missing or denies<1: $P3_SUMMARY"
+  bad "P3 session-summary deny record" "missing in runtime/legacy state or denies<1 for $P3_TID"
 fi
 
 # ── P4: resume re-fires SessionStart ─────────────────────────────────────────
 before="$(telemetry_lines)"
 if AGENTSMD_TELEMETRY_TAG=qa \
-   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec --json --skip-git-repo-check -C "$PROJ" \
+   timeout "$PROBE_TIMEOUT" "$CODEX_BIN" exec \
+    ${HOOK_TRUST_ARGS[@]+"${HOOK_TRUST_ARGS[@]}"} \
+    --json --skip-git-repo-check -C "$PROJ" \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     resume --last 'Reply with exactly: OK' </dev/null >"$SBX/p4.jsonl" 2>"$SBX/p4.stderr"; then
   ok "P4 resume session completed (exit 0)"
@@ -225,6 +256,7 @@ RESUME_BANNERS="$(grep -c '\[agentsmd\] CODEX-CODING-SPEC' "$P4_ROLLOUT" 2>/dev/
 {
   echo "codex-blackbox capture $STAMP"
   echo "codex: $CODEX_VERSION (window: >= $MIN_CODEX_VERSION)"
+  echo "hook_trust: $HOOK_TRUST_MODE"
   echo "result: $PASS passed, $FAIL failed"
 } > "$CAP/SUMMARY.txt"
 echo

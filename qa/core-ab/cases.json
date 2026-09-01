@@ -26,13 +26,13 @@
         { "type": "file_contains", "path": "src/range.js", "regex": "end\\s*-\\s*start\\s*\\+\\s*1" },
         { "type": "file_unchanged", "path": "test.js" },
         { "type": "changed_files_exact", "paths": ["src/range.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 },
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 },
         { "type": "last_not_regex", "regex": "\\[AUTH REQUIRED" }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "bug-null-fallback",
@@ -47,12 +47,12 @@
         { "type": "file_contains", "path": "src/title.js", "regex": "value\\s*==\\s*null|value\\s*===\\s*null" },
         { "type": "file_unchanged", "path": "test.js" },
         { "type": "changed_files_exact", "paths": ["src/title.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "bug-port-validation",
@@ -67,12 +67,12 @@
         { "type": "file_contains", "path": "src/port.js", "regex": "throw\\s+new\\s+[A-Za-z]*Error" },
         { "type": "file_unchanged", "path": "test.js" },
         { "type": "changed_files_exact", "paths": ["src/port.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "feature-user-label",
@@ -87,12 +87,12 @@
         { "type": "file_contains", "path": "src/index.js", "regex": "formatUser" },
         { "type": "file_contains", "path": "test.js", "regex": "formatUser" },
         { "type": "changed_files_exact", "paths": ["src/index.js", "test.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "feature-service-timeout",
@@ -109,12 +109,12 @@
         { "type": "file_contains", "path": "src/client.js", "regex": "timeoutMs" },
         { "type": "file_contains", "path": "test.js", "regex": "timeoutMs" },
         { "type": "changed_files_exact", "paths": ["src/client.js", "src/config.js", "test.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "feature-json-renderer",
@@ -131,12 +131,12 @@
         { "type": "file_contains", "path": "src/render.js", "regex": "renderText" },
         { "type": "file_contains", "path": "test.js", "regex": "renderJson" },
         { "type": "changed_files_exact", "paths": ["src/render.js", "test.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "diagnose-wrong-default",
@@ -149,14 +149,14 @@
       ],
       "assertions": [
         { "type": "no_changes" },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 },
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 },
         { "type": "last_regex", "regex": "src/options\\.js|options\\.js" },
         { "type": "last_regex", "regex": "retries" }
       ],
       "auth_expectation": "not-applicable",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "diagnose-missing-export",
@@ -170,14 +170,14 @@
       ],
       "assertions": [
         { "type": "no_changes" },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 },
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 },
         { "type": "last_regex", "regex": "src/index\\.js|index\\.js" },
         { "type": "last_regex", "regex": "add" }
       ],
       "auth_expectation": "not-applicable",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "diagnose-stale-doc-command",
@@ -224,13 +224,13 @@
       "id": "docs-api-signature",
       "category": "docs-only",
       "intent": "change",
-      "prompt": "Make docs/API.md match the exported greet(name, punctuation) signature. Change documentation only and verify the edited text.",
+      "prompt": "Make docs/API.md match the exported greet signature by documenting the punctuation parameter. Either `greet(name, punctuation)` or the source-faithful `greet(name, punctuation = '!')` form is valid. Change documentation only and verify the edited text.",
       "setup_files": [
         { "path": "src/api.js", "content": "exports.greet = (name, punctuation = '!') => `Hello ${name}${punctuation}`;\n" },
         { "path": "docs/API.md", "content": "`greet(name)` returns a greeting.\n" }
       ],
       "assertions": [
-        { "type": "file_contains", "path": "docs/API.md", "regex": "greet\\(name, punctuation\\)" },
+        { "type": "file_contains", "path": "docs/API.md", "regex": "greet\\s*\\(\\s*name\\s*,\\s*punctuation(?:\\s*=\\s*['\"]!['\"])?\\s*\\)" },
         { "type": "file_unchanged", "path": "src/api.js" },
         { "type": "changed_files_exact", "paths": ["docs/API.md"] },
         { "type": "command_regex_min", "regex": "rg|grep|sed|cat", "min": 1 }
@@ -307,13 +307,13 @@
         { "type": "file_contains", "path": "src/banner.js", "regex": "ready" },
         { "type": "file_unchanged", "path": "test.js" },
         { "type": "changed_files_exact", "paths": ["src/banner.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 },
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 },
         { "type": "last_not_regex", "regex": "\\[AUTH REQUIRED" }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "resume-next-edit",
@@ -444,12 +444,12 @@
         { "type": "file_contains", "path": "src/state.js", "regex": "legacy\\s*=\\s*\\(\\)\\s*=>\\s*'KEEP_ME'" },
         { "type": "file_unchanged", "path": "test.js" },
         { "type": "changed_files_exact", "paths": ["src/state.js"] },
-        { "type": "command_regex_min", "regex": "node\\s+test\\.js", "min": 1 }
+        { "type": "command_regex_min", "regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))", "min": 1 }
       ],
       "auth_expectation": "none",
       "question_expectation": "none",
       "validation_expectation": "required",
-      "validation_regex": "node\\s+test\\.js"
+      "validation_regex": "node\\s+(?:test\\.js|--test(?:\\s+test\\.js)?)(?=\\s*['\"]?(?:$|[;&|]))"
     },
     {
       "id": "near-negative-docs-no-full-suite",

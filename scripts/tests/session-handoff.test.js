@@ -303,7 +303,7 @@ test('parallel sessions keep distinct capsules and restore output stays bounded'
   const fixture = makeFixture();
   try {
     for (let index = 0; index < 3; index += 1) {
-      const message = `Done: parallel session ${index} preserved ${'bounded context '.repeat(700)}`;
+      const message = `Done: parallel session ${index} preserved ${'bounded context '.repeat(30)}`;
       assert.strictEqual(runHelper('capture', event(fixture.repo, `parallel-${index}`, message), fixture).status, 0);
     }
     assert.strictEqual(handoffFiles(fixture.state).length, 3);
@@ -314,8 +314,26 @@ test('parallel sessions keep distinct capsules and restore output stays bounded'
       source: 'startup',
     }, fixture);
     assert.strictEqual(result.status, 0, result.stderr);
-    assert.ok(Buffer.byteLength(result.stdout, 'utf8') <= 6000);
-    assert.ok((result.stdout.match(/\[candidate /g) || []).length <= 2);
+    assert.ok(Buffer.byteLength(result.stdout, 'utf8') <= 3000);
+    assert.ok((result.stdout.match(/\[candidate /g) || []).length <= 1);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('startup clips a single oversized handoff to 3000 bytes', () => {
+  const fixture = makeFixture();
+  try {
+    const message = `Done: oversized restoration ${'bounded context '.repeat(700)}`;
+    assert.strictEqual(runHelper('capture', event(fixture.repo, 'oversized', message), fixture).status, 0);
+    const result = runHelper('restore', {
+      session_id: 'new-session',
+      cwd: fixture.repo,
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, fixture);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(Buffer.byteLength(result.stdout, 'utf8') <= 3000);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }

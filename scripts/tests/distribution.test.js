@@ -753,6 +753,8 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   assert(packedPaths.includes('spec/source/layout.json'), 'tarball is missing the canonical spec layout');
   assert(packedPaths.includes('spec/source/base/10-auth.md'), 'tarball is missing canonical shared fragments');
   assert(packedPaths.includes('scripts/spec-source.js'), 'tarball is missing the spec generator');
+  assert(packedPaths.includes('scripts/lib/skill-runner.js'), 'tarball is missing the canonical skill runner');
+  assert(packedPaths.includes('skills/agentsmd-verify/scripts/agentsmd-run.js'), 'tarball is missing generated skill launchers');
   assert(packedPaths.includes('qa/core-ab-eval.js'), 'tarball is missing the documented core A/B runner');
   assert(packedPaths.includes('qa/core-ab/cases.json'), 'tarball is missing the core A/B case library');
   assert(packedPaths.includes('qa/conformance/thresholds.json'), 'tarball is missing conformance thresholds');
@@ -968,6 +970,12 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
   const status = JSON.parse(installedCli(['status']));
   assert.strictEqual(status.installed, true);
   assert.strictEqual(status.agentsmdHooksRegistered, 19);
+  const installedSkillFile = path.join(codexHome, 'skills', 'agentsmd-status', 'SKILL.md');
+  const installedSkillResult = JSON.parse(cp.execFileSync(process.execPath, [
+    path.join(path.dirname(installedSkillFile), 'scripts', 'agentsmd-run.js'),
+    installedSkillFile,
+  ], { env, cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  assert.strictEqual(installedSkillResult.installed, true, 'installed skill launcher did not execute through the manifest-owned deploy');
   const deployedEvidence = path.join(
     codexHome, 'agentsmd', 'qa', 'conformance', 'releases', 'v5.3.0.json'
   );

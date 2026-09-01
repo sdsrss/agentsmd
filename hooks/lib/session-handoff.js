@@ -6,8 +6,8 @@
 // This is deliberately not a transcript summarizer. Stop provides the stable
 // last_assistant_message field; capture stores only a redacted, byte-bounded
 // completion capsule. SessionEnd marks the latest capsule final without reading
-// the unstable transcript wire format. SessionStart restores at most two recent
-// same-repository capsules as explicitly untrusted context.
+// the unstable transcript wire format. SessionStart restores one recent
+// same-repository capsule as explicitly untrusted context.
 
 const crypto = require('crypto');
 const cp = require('child_process');
@@ -17,8 +17,8 @@ const path = require('path');
 const SCHEMA_VERSION = 1;
 const MAX_EVENT_BYTES = 1 << 20;
 const MAX_STORED_BYTES = 12 * 1024;
-const MAX_RESTORE_BYTES = 6000;
-const MAX_CANDIDATES = 2;
+const MAX_RESTORE_BYTES = 3000;
+const MAX_CANDIDATES = 1;
 const MAX_REPO_CAPSULES = 20;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const FILE_PATTERN = /^session-handoff-([a-f0-9]{24})-([a-f0-9]{24})\.json$/;

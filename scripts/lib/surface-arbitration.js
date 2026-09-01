@@ -38,6 +38,7 @@ const PLUGIN_HOOK_SUPPORT = [
   'hooks/lib/event-journal.js',
   'hooks/lib/orchestrator-source.js',
   'hooks/lib/session-handoff.js',
+  'hooks/lib/transcript-structure.js',
 ];
 
 const STANDALONE_HOOK_SUPPORT = [

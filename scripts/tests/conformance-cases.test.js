@@ -259,6 +259,26 @@ t('runner exists and points at this library', () => {
   }
 });
 
+t('blackbox requires explicit reviewed hook trust for every Codex exec path', () => {
+  const runner = fs.readFileSync(path.join(ROOT, 'qa', 'codex-blackbox.sh'), 'utf8');
+  assert.ok(
+    runner.includes('--reviewed-hooks) REVIEWED_HOOKS=1'),
+    'blackbox must require an explicit reviewed-hooks opt-in',
+  );
+  assert.ok(
+    runner.includes('HOOK_TRUST_ARGS=(--dangerously-bypass-hook-trust)'),
+    'reviewed blackbox automation must bypass persisted hook trust explicitly',
+  );
+  const trustSpreads = runner.split('\n')
+    .filter((line) => line.includes('${HOOK_TRUST_ARGS[@]+"${HOOK_TRUST_ARGS[@]}"}'));
+  assert.strictEqual(trustSpreads.length, 2,
+    'both fresh-session and resume exec paths must receive reviewed hook trust');
+  const runtimeSummary = runner.indexOf('.agentsmd-state/runtime/session-summary-$sid.json');
+  const legacySummary = runner.indexOf('.agentsmd-state/session-summary-$sid.json');
+  assert.ok(runtimeSummary >= 0 && legacySummary > runtimeSummary,
+    'blackbox must prefer standalone-private summaries and retain the legacy fallback');
+});
+
 tBashMapfile('reviewed hook trust reaches Codex; missing child activation fails as infrastructure', () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conformance-contract-'));
   try {
