@@ -199,6 +199,42 @@ test('port-validation assertion accepts standard Error subclasses', () => {
   assert.match('throw new TypeError("Invalid port")', new RegExp(assertion.regex, 'iu'));
 });
 
+test('docs API signature accepts only the two source-equivalent documentation forms', () => {
+  const lib = JSON.parse(fs.readFileSync(CASES, 'utf8'));
+  const item = lib.cases.find((candidate) => candidate.id === 'docs-api-signature');
+  const assertion = item.assertions.find((candidate) => candidate.type === 'file_contains');
+  const signature = new RegExp(assertion.regex, 'iu');
+  assert.match(item.prompt, /Either `greet\(name, punctuation\)`/u);
+  assert.match(item.prompt, /`greet\(name, punctuation = '!'\)` form is valid/u);
+  assert.match('`greet(name, punctuation)` returns a greeting.', signature);
+  assert.match("`greet(name, punctuation = '!')` returns a greeting.", signature);
+  assert.match('`greet(name,punctuation="!")` returns a greeting.', signature);
+  assert.doesNotMatch('`greet(name)` returns a greeting.', signature);
+  assert.doesNotMatch("`greet(name, punctuation = '?')` returns a greeting.", signature);
+  assert.doesNotMatch('`greet(name, punctuation, extra)` returns a greeting.', signature);
+});
+
+test('test.js cases accept the direct and native test-runner command forms only', () => {
+  const lib = JSON.parse(fs.readFileSync(CASES, 'utf8'));
+  const cases = lib.cases.filter((item) => item.setup_files.some((file) => file.path === 'test.js')
+    && item.validation_expectation === 'required'
+    && item.validation_regex.includes('test'));
+  assert.strictEqual(cases.length, 10);
+  for (const item of cases) {
+    const assertion = item.assertions.find((candidate) => candidate.type === 'command_regex_min');
+    assert(assertion, item.id);
+    for (const source of [assertion.regex, item.validation_regex]) {
+      const command = new RegExp(source, 'iu');
+      assert.match('node test.js', command, item.id);
+      assert.match('node --test', command, item.id);
+      assert.match('node --test test.js', command, item.id);
+      assert.doesNotMatch('node --test other.js', command, item.id);
+      assert.doesNotMatch('node verify.js', command, item.id);
+      assert.doesNotMatch('node -e "require(\'./src\')"', command, item.id);
+    }
+  }
+});
+
 test('renderer prompt makes the unchanged index contract explicit', () => {
   const lib = JSON.parse(fs.readFileSync(CASES, 'utf8'));
   const item = lib.cases.find((candidate) => candidate.id === 'feature-json-renderer');

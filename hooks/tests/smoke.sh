@@ -13,6 +13,9 @@ trap cleanup EXIT
 export HOME="$SANDBOX"                 # redirect $HOME-based lookups into the sandbox
 export CODEX_HOME="$SANDBOX/.codex"    # hooks resolve ${CODEX_HOME:-$HOME/.codex}; pin it so an
                                        # inherited CODEX_HOME can't leak telemetry/state to a real dir
+# The verify skill exports its selected plugin bundle to the invoked command.
+# Keep this harness hermetic: plugin scenarios below opt in with explicit roots.
+unset PLUGIN_ROOT CLAUDE_PLUGIN_ROOT AGENTSMD_PLUGIN_ROOT
 
 PASS=0; FAIL=0
 # run_hook SCRIPT STDIN_JSON  → prints hook stdout.

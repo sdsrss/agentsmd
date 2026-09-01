@@ -12,6 +12,7 @@ const { parseSkillFrontmatter } = require('../lib/skill-frontmatter');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SKILLS = path.join(ROOT, 'skills');
+const CANONICAL_RUNNER = path.join(ROOT, 'scripts', 'lib', 'skill-runner.js');
 const PACKAGE_VERSION = require(path.join(ROOT, 'package.json')).version;
 const STOP = new Set(['agentsmd', 'the', 'and', 'for', 'from', 'into', 'not', 'use', 'when', 'with', 'read', 'only']);
 
@@ -43,6 +44,13 @@ function rank(prompt, descriptions) {
 
 const names = fs.readdirSync(SKILLS).filter((n) => n.startsWith('agentsmd-')).sort();
 const descriptions = Object.fromEntries(names.map((n) => [n, description(n)]));
+const totalSkillBytes = names.reduce((total, name) => (
+  total + fs.statSync(path.join(SKILLS, name, 'SKILL.md')).size
+), 0);
+assert(
+  totalSkillBytes <= 46832,
+  `model-visible skill entrypoints total ${totalSkillBytes} bytes; expected at least 50% below the 93665-byte baseline`,
+);
 
 const SCRIPT_BY_SKILL = {
   'agentsmd-analyze': 'analyze.js',
@@ -67,56 +75,68 @@ const SCRIPT_BY_SKILL = {
 assert.deepStrictEqual(Object.keys(SCRIPT_BY_SKILL).sort(), names, 'script routing inventory must cover every agentsmd skill');
 
 const skillDocs = {};
+const canonicalRunner = fs.readFileSync(CANONICAL_RUNNER);
+const generatedLauncher = require('../generate-skill-runners').renderLauncher(canonicalRunner);
 for (const name of names) {
   const raw = fs.readFileSync(path.join(SKILLS, name, 'SKILL.md'), 'utf8');
   skillDocs[name] = raw;
-  const script = SCRIPT_BY_SKILL[name];
-  assert(raw.includes('selected SKILL.md absolute path from the live skills list'), `${name}: selected absolute SKILL.md source missing`);
-  assert(raw.includes('same shell invocation'), `${name}: resolver/command shell-lifetime warning missing`);
-  assert(raw.includes('$(dirname "$SKILL_MD")/../..'), `${name}: candidate root must come from the selected skill path, not cwd`);
-  assert(raw.includes(`agentsmd_root_ok "$CANDIDATE_ROOT" "${script}" "selected-bundle"`), `${name}: candidate script identity probe missing`);
-  assert(raw.includes('${CODEX_HOME:-$HOME/.codex}/agentsmd'), `${name}: standalone fallback missing`);
-  assert(raw.includes('command -v agentsmd'), `${name}: versioned CLI fallback missing`);
-  assert(raw.includes('pkg.name!=="@sdsrs/agentsmd"'), `${name}: package identity check missing`);
-  assert(raw.includes('.agentsmd-state","manifest.json'), `${name}: standalone ownership manifest check missing`);
-  assert(raw.includes('pkg.bin.agentsmd'), `${name}: CLI entrypoint identity check missing`);
-  assert(raw.includes('agentsmd skill runner unavailable:'), `${name}: bounded locator diagnosis missing`);
-  assert(raw.includes('skill=%.512s candidate=%.512s standalone=%.512s cli=%.512s'), `${name}: locator diagnosis fields are not byte-bounded`);
-  assert(raw.includes(`node "$AGENTSMD_ROOT/scripts/${script}"`), `${name}: commands must execute through the resolved root`);
-  assert(!raw.includes('node "${CODEX_HOME:-$HOME/.codex}/agentsmd/scripts/'), `${name}: direct standalone-only command remains`);
-  assert(!raw.includes('else AGENTSMD_ROOT="${CODEX_HOME:-$HOME/.codex}/agentsmd"'), `${name}: silent unverified standalone fallback remains`);
+  const runner = path.join(SKILLS, name, 'scripts', 'agentsmd-run.js');
+  assert(raw.includes('selected `SKILL.md` absolute path from the live skills list'), `${name}: selected absolute SKILL.md source missing`);
+  assert(raw.includes('Define and call the adjacent launcher in the same shell'), `${name}: launcher shell-lifetime warning missing`);
+  assert(raw.includes('$(dirname "$SKILL_MD")/scripts/agentsmd-run.js'), `${name}: adjacent launcher path missing`);
+  assert(raw.includes('"$SKILL_MD" "$@"'), `${name}: selected skill identity/argv forwarding missing`);
+  assert(raw.includes('agentsmd_skill_run'), `${name}: documented commands do not use the compact launcher`);
+  assert(!raw.includes('AGENTSMD_ROOT'), `${name}: model-visible resolved-root state remains`);
+  assert(!raw.includes('pkg.name!=="@sdsrs/agentsmd"'), `${name}: package verifier leaked back into model-visible instructions`);
+  assert(!raw.includes('command -v agentsmd'), `${name}: CLI locator leaked back into model-visible instructions`);
+  assert.deepStrictEqual(fs.readFileSync(runner), generatedLauncher, `${name}: generated launcher drift; run node scripts/generate-skill-runners.js`);
 }
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+const runtimeInventory = require('../lib/skill-runner').SCRIPT_BY_SKILL;
+assert.deepStrictEqual(runtimeInventory, SCRIPT_BY_SKILL, 'generated runner inventory must match every skill script');
+
+function installLauncher(skillFile) {
+  const runner = path.join(path.dirname(skillFile), 'scripts', 'agentsmd-run.js');
+  fs.mkdirSync(path.dirname(runner), { recursive: true });
+  fs.writeFileSync(runner, generatedLauncher);
+  return runner;
 }
 
-function runDocumentedResolver(name, skillFile, codexHome, cwd, extraEnv = {}) {
-  const block = skillDocs[name].match(/```bash\n(SKILL_MD=.*?\nCANDIDATE_ROOT=.*?[\s\S]*?)\n```/);
-  assert(block, `${name}: resolver block missing`);
-  const script = block[1]
-    .replace(/^SKILL_MD=.*$/m, `SKILL_MD=${shellQuote(skillFile)}`)
-    + '\nprintf "%s\\n---plugin-root---\\n%s" "$AGENTSMD_ROOT" "${AGENTSMD_PLUGIN_ROOT-unset}"\n';
-  return cp.spawnSync('bash', ['-c', script], {
+function writeProbe(root, script) {
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'scripts', script), [
+    "'use strict';",
+    "const path = require('path');",
+    'process.stdout.write(JSON.stringify({',
+    "  root: path.resolve(__dirname, '..'),",
+    '  argv: process.argv.slice(2),',
+    '  plugin: process.env.AGENTSMD_PLUGIN_ROOT || null,',
+    '}));',
+    '',
+  ].join('\n'));
+}
+
+function runLauncher(skillFile, codexHome, cwd, extraEnv = {}, args = []) {
+  return cp.spawnSync(process.execPath, [
+    path.join(path.dirname(skillFile), 'scripts', 'agentsmd-run.js'),
+    skillFile,
+    ...args,
+  ], {
     cwd,
     env: { ...process.env, ...extraEnv, CODEX_HOME: codexHome },
     encoding: 'utf8',
   });
 }
 
-function resolveDocumentedRoot(name, skillFile, codexHome, cwd, extraEnv = {}) {
-  const result = runDocumentedResolver(name, skillFile, codexHome, cwd, extraEnv);
+function probe(result) {
   assert.strictEqual(result.status, 0, result.stderr);
-  return result.stdout.split('\n---plugin-root---\n')[0];
-}
-
-function resolvedPluginRoot(result) {
-  assert.strictEqual(result.status, 0, result.stderr);
-  return result.stdout.split('\n---plugin-root---\n')[1];
+  return JSON.parse(result.stdout);
 }
 
 function writePackageIdentity(root, { plugin = false, bin = false } = {}) {
   fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts', 'lib'), { recursive: true });
+  fs.copyFileSync(CANONICAL_RUNNER, path.join(root, 'scripts', 'lib', 'skill-runner.js'));
   fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
     name: '@sdsrs/agentsmd',
     version: PACKAGE_VERSION,
@@ -139,17 +159,12 @@ try {
     for (const [name, script] of Object.entries(SCRIPT_BY_SKILL)) {
       const skillFile = path.join(root, 'skills', name, 'SKILL.md');
       fs.mkdirSync(path.dirname(skillFile), { recursive: true });
-      fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
       fs.writeFileSync(skillFile, 'fixture\n');
-      fs.writeFileSync(path.join(root, 'scripts', script), 'fixture\n');
-      const result = runDocumentedResolver(name, skillFile, path.join(layoutRoot, 'codex'), layoutRoot);
-      assert.strictEqual(result.status, 0, result.stderr);
-      assert.strictEqual(result.stdout.split('\n---plugin-root---\n')[0], root, `${name}: ${layout} root`);
-      assert.strictEqual(
-        resolvedPluginRoot(result),
-        layout === 'plugin-cache' ? root : 'unset',
-        `${name}: ${layout} plugin context`,
-      );
+      installLauncher(skillFile);
+      writeProbe(root, script);
+      const result = probe(runLauncher(skillFile, path.join(layoutRoot, 'codex'), layoutRoot));
+      assert.strictEqual(result.root, root, `${name}: ${layout} root`);
+      assert.strictEqual(result.plugin, layout === 'plugin-cache' ? root : null, `${name}: ${layout} plugin context`);
     }
   }
 
@@ -166,9 +181,11 @@ try {
     const skillFile = path.join(codexHome, 'skills', name, 'SKILL.md');
     fs.mkdirSync(path.dirname(skillFile), { recursive: true });
     fs.writeFileSync(skillFile, 'fixture\n');
-    fs.mkdirSync(path.join(standaloneRoot, 'scripts'), { recursive: true });
-    fs.writeFileSync(path.join(standaloneRoot, 'scripts', script), 'fixture\n');
-    assert.strictEqual(resolveDocumentedRoot(name, skillFile, codexHome, layoutRoot), standaloneRoot, `${name}: standalone fallback`);
+    installLauncher(skillFile);
+    writeProbe(standaloneRoot, script);
+    const result = probe(runLauncher(skillFile, codexHome, layoutRoot));
+    assert.strictEqual(result.root, standaloneRoot, `${name}: standalone fallback`);
+    assert.strictEqual(result.plugin, null, `${name}: standalone fallback must not impersonate a plugin`);
   }
 
   const cliHome = path.join(layoutRoot, 'cli-home');
@@ -178,17 +195,17 @@ try {
   fs.mkdirSync(path.join(cliPackage, 'bin'), { recursive: true });
   fs.mkdirSync(cliBin, { recursive: true });
   fs.writeFileSync(path.join(cliPackage, 'bin', 'agentsmd.js'), 'fixture\n');
+  fs.chmodSync(path.join(cliPackage, 'bin', 'agentsmd.js'), 0o755);
   fs.symlinkSync(path.join(cliPackage, 'bin', 'agentsmd.js'), path.join(cliBin, 'agentsmd'));
   for (const [name, script] of Object.entries(SCRIPT_BY_SKILL)) {
     const skillFile = path.join(cliHome, 'skills', name, 'SKILL.md');
     fs.mkdirSync(path.dirname(skillFile), { recursive: true });
     fs.writeFileSync(skillFile, 'fixture\n');
-    fs.mkdirSync(path.join(cliPackage, 'scripts'), { recursive: true });
-    fs.writeFileSync(path.join(cliPackage, 'scripts', script), 'fixture\n');
-    const result = runDocumentedResolver(name, skillFile, cliHome, layoutRoot, { PATH: `${cliBin}:${process.env.PATH || ''}` });
-    assert.strictEqual(result.status, 0, result.stderr);
-    assert.strictEqual(result.stdout.split('\n---plugin-root---\n')[0], cliPackage, `${name}: global CLI package fallback`);
-    assert.strictEqual(resolvedPluginRoot(result), 'unset', `${name}: CLI fallback must not impersonate a selected plugin`);
+    installLauncher(skillFile);
+    writeProbe(cliPackage, script);
+    const result = probe(runLauncher(skillFile, cliHome, layoutRoot, { PATH: `${cliBin}:${process.env.PATH || ''}` }));
+    assert.strictEqual(result.root, cliPackage, `${name}: global CLI package fallback`);
+    assert.strictEqual(result.plugin, null, `${name}: CLI fallback must not impersonate a selected plugin`);
   }
 
   fs.writeFileSync(
@@ -196,15 +213,13 @@ try {
     'process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), plugin: process.env.AGENTSMD_PLUGIN_ROOT || null }))\n',
   );
   const cliDoctorSkill = path.join(cliHome, 'skills', 'agentsmd-doctor', 'SKILL.md');
-  const doctorBlock = skillDocs['agentsmd-doctor'].match(/```bash\n(SKILL_MD=.*?\nCANDIDATE_ROOT=.*?[\s\S]*?)\n```/);
-  assert(doctorBlock, 'agentsmd-doctor: resolver block missing');
-  const executed = cp.spawnSync('bash', ['-c', doctorBlock[1]
-    .replace(/^SKILL_MD=.*$/m, `SKILL_MD=${shellQuote(cliDoctorSkill)}`)
-    + '\nnode "$AGENTSMD_ROOT/scripts/doctor.js" --probe\n'], {
-    cwd: layoutRoot,
-    env: { ...process.env, CODEX_HOME: cliHome, PATH: `${cliBin}:${process.env.PATH || ''}` },
-    encoding: 'utf8',
-  });
+  const executed = runLauncher(
+    cliDoctorSkill,
+    cliHome,
+    layoutRoot,
+    { PATH: `${cliBin}:${process.env.PATH || ''}` },
+    ['--probe'],
+  );
   assert.strictEqual(executed.status, 0, executed.stderr);
   assert.deepStrictEqual(JSON.parse(executed.stdout), { argv: ['--probe'], plugin: null });
 
@@ -212,7 +227,8 @@ try {
   const missingSkill = path.join(missingHome, 'skills', 'agentsmd-doctor', 'SKILL.md');
   fs.mkdirSync(path.dirname(missingSkill), { recursive: true });
   fs.writeFileSync(missingSkill, 'fixture\n');
-  const missing = runDocumentedResolver('agentsmd-doctor', missingSkill, missingHome, layoutRoot, { PATH: '/usr/bin:/bin' });
+  installLauncher(missingSkill);
+  const missing = runLauncher(missingSkill, missingHome, layoutRoot, { PATH: '/usr/bin:/bin' });
   assert.strictEqual(missing.status, 1, missing.stderr);
   assert.match(missing.stderr, /^agentsmd skill runner unavailable:/);
   assert.match(missing.stderr, /unblock:/);
@@ -225,8 +241,9 @@ try {
   fs.mkdirSync(path.dirname(foreignSkill), { recursive: true });
   fs.mkdirSync(path.join(foreignHome, 'agentsmd', 'scripts'), { recursive: true });
   fs.writeFileSync(foreignSkill, 'fixture\n');
+  installLauncher(foreignSkill);
   fs.writeFileSync(path.join(foreignHome, 'agentsmd', 'scripts', 'doctor.js'), 'foreign fixture\n');
-  const foreign = runDocumentedResolver('agentsmd-doctor', foreignSkill, foreignHome, layoutRoot, { PATH: '/usr/bin:/bin' });
+  const foreign = runLauncher(foreignSkill, foreignHome, layoutRoot, { PATH: '/usr/bin:/bin' });
   assert.strictEqual(foreign.status, 1, 'an unowned script at the conventional standalone path must not become executable trust');
 
   const invalidVersionRoot = path.join(layoutRoot, 'invalid-version-root');
@@ -234,13 +251,84 @@ try {
   fs.mkdirSync(path.dirname(invalidVersionSkill), { recursive: true });
   fs.mkdirSync(path.join(invalidVersionRoot, 'scripts'), { recursive: true });
   fs.writeFileSync(invalidVersionSkill, 'fixture\n');
+  installLauncher(invalidVersionSkill);
   fs.writeFileSync(path.join(invalidVersionRoot, 'scripts', 'doctor.js'), 'fixture\n');
   fs.writeFileSync(path.join(invalidVersionRoot, 'package.json'), JSON.stringify({
     name: '@sdsrs/agentsmd',
     version: '5.2.0-01',
   }));
-  const invalidVersion = runDocumentedResolver('agentsmd-doctor', invalidVersionSkill, missingHome, layoutRoot);
+  const invalidVersion = runLauncher(invalidVersionSkill, missingHome, layoutRoot, { PATH: '/usr/bin:/bin' });
   assert.strictEqual(invalidVersion.status, 1, 'a non-SemVer package version must not satisfy runner identity');
+
+  const mismatchedPluginRoot = path.join(layoutRoot, 'mismatched-plugin');
+  const mismatchedPluginSkill = path.join(mismatchedPluginRoot, 'skills', 'agentsmd-doctor', 'SKILL.md');
+  writePackageIdentity(mismatchedPluginRoot, { plugin: true });
+  fs.writeFileSync(path.join(mismatchedPluginRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+    name: 'agentsmd', version: '0.0.0',
+  }));
+  fs.mkdirSync(path.dirname(mismatchedPluginSkill), { recursive: true });
+  fs.writeFileSync(mismatchedPluginSkill, 'fixture\n');
+  installLauncher(mismatchedPluginSkill);
+  writeProbe(mismatchedPluginRoot, 'doctor.js');
+  const mismatchedPlugin = runLauncher(mismatchedPluginSkill, missingHome, layoutRoot, { PATH: '/usr/bin:/bin' });
+  assert.strictEqual(mismatchedPlugin.status, 1, 'a plugin/package version mismatch must not execute the selected bundle');
+
+  const mismatchedStandaloneHome = path.join(layoutRoot, 'mismatched-standalone-home');
+  const mismatchedStandaloneRoot = path.join(mismatchedStandaloneHome, 'agentsmd');
+  const mismatchedStandaloneSkill = path.join(mismatchedStandaloneHome, 'skills', 'agentsmd-doctor', 'SKILL.md');
+  writePackageIdentity(mismatchedStandaloneRoot);
+  writeProbe(mismatchedStandaloneRoot, 'doctor.js');
+  fs.mkdirSync(path.dirname(mismatchedStandaloneSkill), { recursive: true });
+  fs.writeFileSync(mismatchedStandaloneSkill, 'fixture\n');
+  installLauncher(mismatchedStandaloneSkill);
+  fs.mkdirSync(path.join(mismatchedStandaloneHome, '.agentsmd-state'), { recursive: true });
+  fs.writeFileSync(path.join(mismatchedStandaloneHome, '.agentsmd-state', 'manifest.json'), JSON.stringify({
+    name: 'agentsmd',
+    version: PACKAGE_VERSION,
+    ownedArtifacts: { deploy: { path: path.join(layoutRoot, 'other-deploy'), sha256: 'a'.repeat(64) } },
+  }));
+  const mismatchedStandalone = runLauncher(
+    mismatchedStandaloneSkill,
+    mismatchedStandaloneHome,
+    layoutRoot,
+    { PATH: '/usr/bin:/bin' },
+  );
+  assert.strictEqual(mismatchedStandalone.status, 1, 'a mismatched standalone deploy manifest must not authorize execution');
+
+  const mismatchedCliHome = path.join(layoutRoot, 'mismatched-cli-home');
+  const mismatchedCliRoot = path.join(layoutRoot, 'mismatched-cli-package');
+  const mismatchedCliBin = path.join(layoutRoot, 'mismatched-cli-bin');
+  const mismatchedCliSkill = path.join(mismatchedCliHome, 'skills', 'agentsmd-doctor', 'SKILL.md');
+  writePackageIdentity(mismatchedCliRoot, { bin: true });
+  fs.mkdirSync(path.join(mismatchedCliRoot, 'bin'), { recursive: true });
+  fs.mkdirSync(mismatchedCliBin, { recursive: true });
+  fs.writeFileSync(path.join(mismatchedCliRoot, 'bin', 'agentsmd.js'), 'fixture\n', { mode: 0o755 });
+  const foreignCliEntry = path.join(mismatchedCliRoot, 'bin', 'foreign.js');
+  fs.writeFileSync(foreignCliEntry, 'fixture\n', { mode: 0o755 });
+  fs.symlinkSync(foreignCliEntry, path.join(mismatchedCliBin, 'agentsmd'));
+  fs.mkdirSync(path.dirname(mismatchedCliSkill), { recursive: true });
+  fs.writeFileSync(mismatchedCliSkill, 'fixture\n');
+  installLauncher(mismatchedCliSkill);
+  writeProbe(mismatchedCliRoot, 'doctor.js');
+  const mismatchedCli = runLauncher(
+    mismatchedCliSkill,
+    mismatchedCliHome,
+    layoutRoot,
+    { PATH: `${mismatchedCliBin}:/usr/bin:/bin` },
+  );
+  assert.strictEqual(mismatchedCli.status, 1, 'a CLI entrypoint realpath mismatch must not execute package scripts');
+
+  const symlinkHome = path.join(layoutRoot, 'symlink-home');
+  const symlinkSkill = path.join(symlinkHome, 'skills', 'agentsmd-doctor', 'SKILL.md');
+  fs.mkdirSync(path.dirname(symlinkSkill), { recursive: true });
+  const realSkill = path.join(layoutRoot, 'real-skill.md');
+  fs.writeFileSync(realSkill, 'fixture\n');
+  fs.symlinkSync(realSkill, symlinkSkill);
+  const symlinkRunnerDirectory = path.join(path.dirname(symlinkSkill), 'scripts');
+  fs.mkdirSync(symlinkRunnerDirectory, { recursive: true });
+  fs.writeFileSync(path.join(symlinkRunnerDirectory, 'agentsmd-run.js'), generatedLauncher);
+  const symlinkSelected = runLauncher(symlinkSkill, symlinkHome, layoutRoot, { PATH: '/usr/bin:/bin' });
+  assert.strictEqual(symlinkSelected.status, 1, 'a symlinked selected SKILL.md must fail before root resolution');
 } finally {
   fs.rmSync(layoutRoot, { recursive: true, force: true });
 }

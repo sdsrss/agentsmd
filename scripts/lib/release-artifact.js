@@ -145,6 +145,7 @@ function inspectReleaseArtifact(repo) {
       'hooks/lib/command-parse.js',
       'hooks/lib/orchestrator-source.js',
       'hooks/lib/session-handoff.js',
+      'hooks/lib/transcript-structure.js',
       'scripts/install.js',
       'scripts/repair.js',
       'scripts/doctor.js',

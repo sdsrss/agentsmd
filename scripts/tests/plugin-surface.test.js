@@ -650,10 +650,12 @@ withEnv(() => {
 
 for (const skill of ['agentsmd-status', 'agentsmd-doctor']) {
   const source = fs.readFileSync(path.join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
-  t(`${skill} exports plugin context only for the selected bundle`, () => {
-    assert.match(source, /AGENTSMD_ROOT_KIND="selected-bundle"/);
-    assert.match(source, /\[ "\$AGENTSMD_ROOT_KIND" = "selected-bundle" \].*export AGENTSMD_PLUGIN_ROOT="\$AGENTSMD_ROOT"/);
-    assert.doesNotMatch(source, /export AGENTSMD_PLUGIN_ROOT="\$CANDIDATE_ROOT"/);
+  const runtime = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'skill-runner.js'), 'utf8');
+  t(`${skill} keeps plugin-context export in the verified runner`, () => {
+    assert.doesNotMatch(source, /AGENTSMD_ROOT|export AGENTSMD_PLUGIN_ROOT/);
+    assert.match(runtime, /resolution\.selected\.kind === 'selected-bundle' && resolution\.selected\.plugin/);
+    assert.match(runtime, /env\.AGENTSMD_PLUGIN_ROOT = resolution\.selected\.root/);
+    assert.match(runtime, /delete env\.AGENTSMD_PLUGIN_ROOT/);
   });
 }
 

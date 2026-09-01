@@ -70,6 +70,7 @@ test('strict CLI parsing rejects malformed, unknown, and conflicting selectors',
 
 test('executor skips external/hard checks and stops before a wider check after local failure', () => {
   const calls = [];
+  const childEnvs = [];
   const plan = {
     checks: [
       {
@@ -112,9 +113,16 @@ test('executor skips external/hard checks and stops before a wider check after l
   };
   const result = executePlan(plan, {
     cwd: ROOT,
-    spawnSync(command, args) {
+    spawnSync(command, args, options) {
       calls.push([command, ...args]);
+      childEnvs.push(options.env);
       return { status: 1, signal: null, error: null };
+    },
+    env: {
+      PRESERVED_FIXTURE: 'yes',
+      PLUGIN_ROOT: '/caller/plugin',
+      CLAUDE_PLUGIN_ROOT: '/caller/compat-plugin',
+      AGENTSMD_PLUGIN_ROOT: '/caller/skill-plugin',
     },
   });
   assert.deepStrictEqual(calls, [['node', 'red.js']]);
@@ -125,6 +133,11 @@ test('executor skips external/hard checks and stops before a wider check after l
     'not-run-after-failure',
   ]);
   assert.strictEqual(result.exit_code, 1);
+  assert.strictEqual(childEnvs.length, 1);
+  assert.strictEqual(childEnvs[0].PRESERVED_FIXTURE, 'yes');
+  assert.strictEqual(childEnvs[0].PLUGIN_ROOT, undefined);
+  assert.strictEqual(childEnvs[0].CLAUDE_PLUGIN_ROOT, undefined);
+  assert.strictEqual(childEnvs[0].AGENTSMD_PLUGIN_ROOT, undefined);
 });
 
 test('force-full keeps changed-file context but cannot remove release checks', () => {

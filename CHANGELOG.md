@@ -5,6 +5,32 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.4.1 — 2026-08-31 — Codex context and test orchestration efficiency (patch)
+
+- Reduced cross-session handoff restoration from two capsules and 6,000 bytes
+  to one capsule and 3,000 bytes. The 30-run SessionStart comparison measured
+  wall p95 at 278.8 ms before and 274.2 ms after the change.
+- Moved the repeated skill-runner resolver out of all 17 model-visible
+  `SKILL.md` files into hash-verified generated launchers. The shipped skill
+  instruction total decreased from 93,665 to 38,149 bytes while preserving the
+  selected-bundle, manifest-owned standalone, and versioned-CLI resolution
+  order.
+- Consolidated Stop transcript extraction and four report scans into one
+  bounded Node analyzer. In the same task fixture, transcript-hook p95 moved
+  from 309.6 to 218.6 ms and Stop wall p95 from 293.9 to 237.5 ms, with the
+  fallback, eligibility, and fail-open contracts retained.
+- Replaced the 2,966-byte `npm test` shell chain with a schema-validated,
+  sequential, fail-fast manifest runner. It retains all 59 steps and the live
+  home guard, reports per-step timing, and emits the exact `--from` resume
+  command after a failure.
+- Fixed two deterministic false negatives in the paired core A/B case library.
+  The documentation-signature case now accepts either the parameter-only form
+  or the source-faithful exact `!` default, while retaining wrong-default and
+  wrong-arity negatives. All ten `test.js` cases now recognize the direct Node
+  invocation and the bounded native `node --test` equivalents, while rejecting
+  other test files and unrelated Node commands. Focused regression coverage
+  freezes both accepted forms and their near-negatives.
+
 ## v5.4.0 — 2026-08-26 — evidence integrity and engineering controls (minor)
 
 - Added a bounded, observation-first inventory for ignored local QA captures.
