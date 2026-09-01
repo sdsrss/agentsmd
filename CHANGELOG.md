@@ -21,6 +21,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 - Added optional parsed-session attribution to fail-open telemetry while
   preserving null session IDs for pre-parse failures, the existing per-reason
   rate limit, and valid jq-less JSON escaping.
+- Fixed formal native-tool measurement so each nested goal-tool result has an
+  exact `functions.exec` wrapper. A shared outer result is now classified as
+  infrastructure-unmeasurable instead of being misattributed to sibling calls
+  and producing a false policy verdict; the committed cases, thresholds, and
+  known-fail set are unchanged.
 
 ## v5.4.1 — 2026-08-31 — Codex context and test orchestration efficiency (patch)
 

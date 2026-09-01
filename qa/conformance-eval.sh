@@ -53,6 +53,7 @@ VALIDATE=0
 LIST=0
 REVIEWED_HOOKS=0
 PROBE_TIMEOUT="${AGENTSMD_CONF_TIMEOUT:-300}"
+NATIVE_TOOL_CAPTURE_PROTOCOL='Measurement capture protocol: invoke each native goal tool in its own functions.exec wrapper, assign that one nested result to a variable, and emit it with text(result). Do not combine multiple native goal tools in one functions.exec call. Follow every case tool-count and final-answer constraint unchanged.'
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -243,13 +244,26 @@ capture_native_tools() {
   : > "$SBX/$CID.native-tools.jsonl"
   transcript="$(find_session_transcript "$THREAD_ID")" || return 1
   node "$REPO_ROOT/qa/capture-native-tools.js" "$transcript" \
-    > "$SBX/$CID.native-tools.jsonl"
+    > "$SBX/$CID.native-tools.jsonl" || return 1
+  # functions.exec exposes one outer result. When one wrapper contains multiple
+  # nested native calls, assigning that shared output to each call would let a
+  # sibling satisfy another tool's output assertion. Keep the capture, but make
+  # the case infrastructure-unmeasurable instead of emitting a false policy
+  # verdict. The prompt protocol below asks for exact one-wrapper attribution.
+  if ! jq -e -s 'all(.[]; .output_attribution != "wrapper-shared")' \
+      "$SBX/$CID.native-tools.jsonl" >/dev/null 2>&1; then
+    echo "native tool output attribution is shared across a functions.exec wrapper" >> "$SBX/$CID.stderr"
+    return 1
+  fi
 }
 
 run_case_session() {
   local prompt category before rc
   prompt="$(case_field '.prompt')"
   category="$(case_field '.category')"
+  if [ "$category" = "native-continuity" ]; then
+    prompt="${prompt}"$'\n\n'"${NATIVE_TOOL_CAPTURE_PROTOCOL}"
+  fi
   before="$(telemetry_lines)"
   THREAD_ID=""
   : > "$SBX/$CID.jsonl"

@@ -136,10 +136,24 @@ t('native tool capture normalizes legacy and functions.exec transcript envelopes
   ];
   const captured = extractNativeTools(events.map((event) => JSON.stringify(event)).join('\n'));
   assert.deepStrictEqual(captured.map((item) => item.name), ['create_goal', 'create_goal', 'get_goal']);
+  assert.deepStrictEqual(captured.map((item) => item.output_attribution), ['direct', 'wrapper-exact', 'wrapper-exact']);
   assert.strictEqual(captured[1].arguments, '{"objective":"Wrapped goal"}');
   assert.ok(captured[1].paired && captured[1].output.includes('"status":"active"'));
   assert.strictEqual(captured[2].arguments, '{}');
   assert.ok(!captured.some((item) => item.name === 'update_goal'), 'string/comment text became a false native call');
+
+  const sharedWrapper = [
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call', name: 'exec', call_id: 'wrapped-shared',
+      input: 'await tools.create_goal({objective:"Shared goal"});\nawait tools.get_goal({});',
+    } },
+    { type: 'response_item', payload: {
+      type: 'custom_tool_call_output', call_id: 'wrapped-shared', output: 'Script completed\nOutput:\n',
+    } },
+  ];
+  const ambiguous = extractNativeTools(sharedWrapper.map((event) => JSON.stringify(event)).join('\n'));
+  assert.deepStrictEqual(ambiguous.map((item) => item.name), ['create_goal', 'get_goal']);
+  assert.deepStrictEqual(ambiguous.map((item) => item.output_attribution), ['wrapper-shared', 'wrapper-shared']);
 });
 
 t('assert vocabulary matches what conformance-eval.sh implements', () => {
@@ -226,6 +240,10 @@ t('runner exists and points at this library', () => {
   const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
   assert.ok(runner.includes('qa/conformance/cases.json'), 'runner default --cases path drifted');
   assert.ok(runner.includes('qa/capture-native-tools.js'), 'runner does not normalize native transcript envelopes');
+  assert.ok(runner.includes('NATIVE_TOOL_CAPTURE_PROTOCOL='),
+    'runner must tell native-continuity probes how to preserve per-tool output attribution');
+  assert.ok(runner.includes('wrapper-shared'),
+    'runner must reject a shared functions.exec output as unmeasurable instead of grading it');
   assert.ok(runner.includes('"$CODEX_BIN" -a never exec'),
     'runner must pin non-interactive approval instead of inheriting mutable user config');
   assert.ok(runner.includes('--sandbox workspace-write --add-dir "$PROJ/.git"'),
