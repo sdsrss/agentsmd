@@ -145,10 +145,10 @@ try {
       'false-block': { pass: 2, total: 2, errors: 0 },
     },
     cases: [
-      { id: 'auth', category: 'auth', verdict: 'pass' },
-      { id: 'auth-near', category: 'auth', verdict: 'pass' },
-      { id: 'false-one', category: 'false-block', verdict: 'pass' },
-      { id: 'false-two', category: 'false-block', verdict: 'pass' },
+      { id: 'auth', category: 'auth', kind: 'positive', verdict: 'pass' },
+      { id: 'auth-near', category: 'auth', kind: 'near-negative', verdict: 'pass' },
+      { id: 'false-one', category: 'false-block', kind: 'near-negative', verdict: 'pass' },
+      { id: 'false-two', category: 'false-block', kind: 'near-negative', verdict: 'pass' },
     ],
   }));
   write(path.join(captures, 'conformance-20260729T010000Z', 'results.json'), JSON.stringify({
@@ -201,6 +201,13 @@ try {
     now: NOW,
     days: 30,
     expectedConformanceCaseIds: ['auth', 'auth-near', 'false-one', 'false-two'],
+    conformanceCases: [
+      { id: 'auth', category: 'auth', kind: 'positive' },
+      { id: 'auth-near', category: 'auth', kind: 'near-negative' },
+      { id: 'false-one', category: 'false-block', kind: 'near-negative' },
+      { id: 'false-two', category: 'false-block', kind: 'near-negative' },
+    ],
+    conformanceThresholds: { auth: { min_pass: 2 }, 'false-block': { min_pass: 2 } },
     sourceIdentity: { state: 'measured', commit: FIXTURE_COMMIT, tracked_clean: true },
     conformanceInputIdentity: {
       cases_sha256: FIXTURE_CASES_SHA256,
@@ -227,6 +234,28 @@ try {
     ],
   };
   const card = buildScorecard(scorecardOptions);
+
+  test('raw scorecard inputs reject forged metadata, illegal verdicts and aggregate errors', () => {
+    const file = path.join(captures, 'conformance-20260728T000000Z', 'results.json');
+    const original = fs.readFileSync(file);
+    try {
+      for (const mutate of [
+        (r) => { r.cases[0].category = 'unrecognized'; },
+        (r) => { r.cases[0].kind = 'unrecognized'; },
+        (r) => { r.cases[0].verdict = 'not-a-verdict'; },
+        (r) => { r.categories.auth.errors = 1; },
+      ]) {
+        const result = JSON.parse(original);
+        mutate(result);
+        fs.writeFileSync(file, JSON.stringify(result));
+        const summary = buildScorecard({ ...scorecardOptions,
+          releaseEvidenceRoot: path.join(temp, 'no-release-evidence'),
+        }).conformance;
+        assert.strictEqual(summary.state, 'invalid');
+        assert.strictEqual(summary.threshold_verdict, 'unknown');
+      }
+    } finally { fs.writeFileSync(file, original); }
+  });
 
   test('scorecard is versioned, bounded, and schema-valid', () => {
     const result = validateScorecard(card);
@@ -555,7 +584,7 @@ try {
   });
 
   test('performance, prompt budget, automation, fallback, and residue stay explicit', () => {
-    assert.strictEqual(card.performance.state, 'fresh');
+    assert.strictEqual(card.performance.state, 'stale');
     assert.strictEqual(card.performance.concurrent_wall_ratio, 1.22);
     assert.deepStrictEqual(card.prompt_budget, {
       cap: 1000,
@@ -1150,6 +1179,62 @@ try {
       assert(index > cursor, `${label} is out of order`);
       cursor = index;
     }
+  });
+
+  test('reference performance age never proves current implementation applicability', () => {
+    const mismatched = buildScorecard({
+      ...scorecardOptions,
+      packageIdentity: { name: '@sdsrs/agentsmd', version: '5.4.2' },
+    });
+    assert.strictEqual(mismatched.performance.state, 'stale');
+    assert.deepStrictEqual(mismatched.performance.provenance, {
+      kind: 'reference-baseline', freshness: 'fresh', applicability: 'mismatch',
+      reason: 'package-version-mismatch', current_package_version: '5.4.2',
+    });
+    assert.strictEqual(mismatched.performance.agentsmd_version, '5.0.1');
+    assert.strictEqual(mismatched.performance.concurrent_wall_ratio, 1.22);
+    assert.strictEqual(card.performance.provenance.applicability, 'unverified');
+    assert.strictEqual(card.performance.provenance.reason, 'implementation-unbound');
+    assert.strictEqual(card.performance.provenance.freshness, 'fresh');
+    const text = formatScorecard(mismatched);
+    assert.match(text, /reference-baseline.*mismatch.*package-version-mismatch/u);
+    assert.match(text, /5[.]0[.]1.*5[.]4[.]2/u);
+    const action = mismatched.recommended_actions.find((item) => item.code === 'performance-reference-only');
+    assert(action);
+    assert.doesNotMatch(action.action, /refresh the versioned baseline/u);
+  });
+
+  test('performance unknown identity, old age, and invalid inputs retain separate evidence states', () => {
+    const unknown = buildScorecard({ ...scorecardOptions, packageIdentity: { name: 'unknown', version: 'unknown' } });
+    assert.strictEqual(unknown.performance.state, 'stale');
+    assert.strictEqual(unknown.performance.provenance.reason, 'package-identity-unavailable');
+    const old = buildScorecard({ ...scorecardOptions, now: NOW + 46 * 86400000 });
+    assert.strictEqual(old.performance.provenance.freshness, 'stale');
+    assert.strictEqual(old.performance.provenance.applicability, 'unverified');
+    const invalidPath = path.join(temp, 'invalid-perf.json');
+    for (const recorded of ['2026-07-30', '2026-02-30', 'not-a-date']) {
+      write(invalidPath, JSON.stringify({ schemaVersion: 2, recorded }));
+      assert.strictEqual(buildScorecard({ ...scorecardOptions, perfPath: invalidPath }).performance.state, 'invalid');
+    }
+    const missing = buildScorecard({ ...scorecardOptions, perfPath: path.join(temp, 'absent-perf.json') });
+    assert.strictEqual(missing.performance.state, 'unavailable');
+    const linkedPath = path.join(temp, 'linked-perf.json');
+    fs.symlinkSync(perfPath, linkedPath);
+    assert.strictEqual(buildScorecard({ ...scorecardOptions, perfPath: linkedPath }).performance.state, 'invalid');
+  });
+
+  test('reference provenance cannot be promoted to fresh and old scorecards remain readable', () => {
+    const misleading = structuredClone(card);
+    misleading.performance.state = 'fresh';
+    assert(validateScorecard(misleading).errors.some((error) => /performance.*reference/u.test(error)));
+    const legacy = structuredClone(card);
+    delete legacy.performance.provenance;
+    legacy.performance.state = 'fresh';
+    const file = path.join(temp, 'legacy-performance.json');
+    write(file, JSON.stringify(legacy));
+    assert.strictEqual(loadComparison(file).performance.state, 'fresh');
+    assert.strictEqual(validateScorecard(compareScorecards(card, loadComparison(file))).valid, true);
+    assert.match(formatScorecard(legacy), /legacy.*unverified/u);
   });
 
   test('comparison reads only a validated bounded capture and emits numeric deltas', () => {

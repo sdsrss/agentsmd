@@ -351,7 +351,7 @@
       "git_commit_setup": true,
       "assert": [
         { "type": "cmd_green", "cmd": "node verify.js" },
-        { "type": "cmd_green", "cmd": "grep -q legacyMarker app.js && ! grep -q normalize app.js" },
+        { "type": "task_orphan_import" },
         { "type": "cmd_green", "cmd": "test \"$(git diff --name-only)\" = app.js" },
         { "type": "exec_regex_min", "regex": "node .*verify\\.js", "min": 2 }
       ]

@@ -541,7 +541,11 @@ t('agentsmd install → status → uninstall round-trips against a sandbox CODEX
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
   assert.strictEqual(scorecard.schema_version, 2);
-  assert.strictEqual(scorecard.performance.state, 'fresh');
+  assert.strictEqual(scorecard.performance.state, 'stale');
+  assert.strictEqual(scorecard.performance.provenance.kind, 'reference-baseline');
+  assert.strictEqual(scorecard.performance.provenance.current_package_version, JSON.parse(read('package.json')).version);
+  assert.strictEqual(scorecard.performance.agentsmd_version, JSON.parse(read('qa/perf/baseline.json')).env.agentsmd);
+  assert.notStrictEqual(scorecard.performance.provenance.applicability, 'current');
   assert.strictEqual(scorecard.automation.recipes_present, 4);
   const outcomeList = JSON.parse(cli(['outcomes', 'list', '--days=30', '--json'], env));
   assert.deepStrictEqual(outcomeList, { days: 30, events: [] });
@@ -992,6 +996,11 @@ t('npm tarball excludes tests/state and linked bin completes install lifecycle (
     '--json',
   ], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
   assert.strictEqual(deployedScorecard.conformance.state, 'stale');
+  assert.strictEqual(deployedScorecard.performance.state, 'stale');
+  assert.strictEqual(deployedScorecard.performance.provenance.kind, 'reference-baseline');
+  assert.strictEqual(deployedScorecard.performance.provenance.current_package_version, JSON.parse(read('package.json')).version);
+  assert.strictEqual(deployedScorecard.performance.concurrent_wall_ratio,
+    JSON.parse(read('qa/perf/baseline.json')).concurrentWall.dualWarmPretoolUseRatio);
   assert.strictEqual(deployedScorecard.conformance.passed, 57);
   assert.strictEqual(deployedScorecard.conformance.total, 60);
   assert.strictEqual(deployedScorecard.conformance.threshold_verdict, 'waived');

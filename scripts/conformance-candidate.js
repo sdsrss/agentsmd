@@ -15,7 +15,7 @@ const SEMVER_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[
 const USAGE = [
   'Usage: node scripts/conformance-candidate.js --attested-at=ISO',
   '  --decision=pass|fail|waived --results=FILE[,FILE...]',
-  '  [--waiver-scope=CATEGORY] [--allow-legacy-source] [--out=FILE]',
+  '  [--waiver-scope=CATEGORY[,CATEGORY...]] [--allow-legacy-source] [--out=FILE]',
   '',
   'Reads bounded conformance results, verifies the clean current source and',
   'deterministic deploy tree, and emits a pre-publication candidate attestation.',

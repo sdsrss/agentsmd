@@ -43,7 +43,7 @@ const ASSERT_TYPES = new Set([
   'tele_block', 'tele_observe', 'no_tele_blocks',
   'exec_regex_min', 'exec_regex_absent', 'exec_regex_max',
   'native_tool_min', 'native_tool_max',
-  'commits_delta', 'commit_subject_regex', 'cmd_green', 'any_of',
+  'commits_delta', 'commit_subject_regex', 'cmd_green', 'any_of', 'task_orphan_import',
 ]);
 const NATIVE_CONTINUITY_IDS = new Set([
   'native-goal-explicit',
@@ -191,6 +191,172 @@ t('assert vocabulary matches what conformance-eval.sh implements', () => {
   }
 });
 
+t('unsupported wrapper execution is unmeasurable rather than a guessed or zero tool count', () => {
+  const capture = (input) => extractNativeTools([
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'fixture', input } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'fixture', output: 'Script completed' } },
+  ].map(JSON.stringify).join('\n'));
+  for (const input of [
+    'if (false) { await tools.update_goal({status:"complete"}); }',
+    'await tools["create_goal"]({objective:"fixture"});',
+    'for(let i=0;i<2;i++){await tools.create_goal({objective:"fixture"});}',
+    'const t = tools; await t.create_goal({objective:"fixture"});',
+    'const f = () => tools.create_goal({objective:"fixture"});',
+    'await tools.create_goal({objective: makeObjective()});',
+    'text(`goal: ${await tools.create_goal({objective:"fixture"})}`);',
+    'const tools = {}; await tools.get_goal({});',
+    'const if = {}; await tools.get_goal({});',
+    'await tools.get_goal({value: 1e999});',
+    'text("fake goal result");',
+  ]) assert.throws(() => capture(input), /unmeasurable|unsupported/u, input);
+  assert.strictEqual(capture('text(await tools.get_goal({}));')[0].name, 'get_goal');
+  assert.deepStrictEqual(capture('// No tool required.\n'), []);
+  assert.throws(() => capture(null), /unmeasurable/u);
+  const duplicate = [
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'duplicate', output: 'first' } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'duplicate', output: 'second' } },
+  ];
+  assert.throws(() => extractNativeTools(duplicate.map(JSON.stringify).join('\n')), /unmeasurable/u);
+});
+
+t('task orphan import assertion ignores prose but rejects stale imports and removed legacy bindings', () => {
+  const { gradeTaskOrphan } = require(path.join(ROOT, 'qa/grade-task-orphan.js'));
+  const render = '\nexports.render = (value) => String(value).trim();';
+  for (const source of [
+    "const { legacyMarker } = require('./helpers.js');" + render,
+    '// Replaces the normalize call.\nconst {\nlegacyMarker\n} = require("./helpers.js");' + render,
+    "const { legacyMarker } = require('./helpers.js');\nconst note = 'normalize';" + render,
+    "const note = 'normalize';\nconst { legacyMarker } = require('./helpers.js');" + render,
+  ]) assert.strictEqual(gradeTaskOrphan(source), true, source);
+  for (const source of [
+    "const { normalize, legacyMarker } = require('./helpers.js');" + render,
+    "const { normalize: unused, legacyMarker } = require('./helpers.js');" + render,
+    'const { "normalize": unused, legacyMarker } = require("./helpers.js");' + render,
+    '// legacyMarker\n' + render,
+    "const legacyMarker = 'not an import';" + render,
+    "if (false) { const { legacyMarker } = require('./helpers.js'); }" + render,
+    "const { legacyMarker } = require('./helpers.js').constructor;" + render,
+    "if (false) var { legacyMarker } = require('./helpers.js');" + render,
+  ]) assert.strictEqual(gradeTaskOrphan(source), false, source);
+});
+
+t('native wrapper comments terminate at every JavaScript line terminator', () => {
+  const { literalToolCalls } = require(path.join(ROOT, 'qa/native-wrapper-grammar.js'));
+  for (const newline of ['\n', '\r', '\u2028', '\u2029']) {
+    assert.strictEqual(literalToolCalls(`// fixture${newline}await tools.get_goal({});`).length, 1);
+  }
+});
+
+t('capture protocol covers ordinary tools as well as goal tools without relaxing assertions', () => {
+  const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
+  const protocol = runner.match(/^NATIVE_TOOL_CAPTURE_PROTOCOL='([^']+)'$/m)[1];
+  assert.match(protocol, /every nested tool call/);
+  assert.match(protocol, /exec_command/);
+  assert.match(protocol, /one.*functions\.exec/);
+  assert.match(protocol, /tool-count and final-answer constraint unchanged/);
+  const shared = extractNativeTools([
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'ordinary-shared',
+      input: 'await tools.exec_command({cmd:"pwd"}); await tools.exec_command({cmd:"true"});' } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'ordinary-shared', output: 'combined output' } },
+  ].map(JSON.stringify).join('\n'));
+  assert.deepStrictEqual(shared.map((item) => item.output_attribution), ['wrapper-shared', 'wrapper-shared']);
+});
+
+t('standalone context pins a manifest-owned matching spec and rejects unsafe or stale inputs', () => {
+  const { standaloneContext } = require(path.join(ROOT, 'qa', 'conformance-context.js'));
+  const crypto = require('crypto');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-context-'));
+  try {
+    const home = path.join(sandbox, 'isolated home');
+    fs.mkdirSync(path.join(home, '.agentsmd-state'), { recursive: true });
+    const extended = path.join(home, 'AGENTS-extended.md');
+    const manifestFile = path.join(home, '.agentsmd-state', 'manifest.json');
+    const bytes = '# CODEX-CODING-SPEC v5.4.3 — Extended\n';
+    const manifest = { version: '5.4.3', deliverySurface: 'standalone', ownedArtifacts: {
+      extended: { path: extended, sha256: crypto.createHash('sha256').update(bytes).digest('hex') },
+    } };
+    const writeManifest = () => fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+    fs.writeFileSync(extended, bytes);
+    writeManifest();
+    assert.match(standaloneContext(home), new RegExp(JSON.stringify(extended).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(standaloneContext(home), /only when.*requires/i);
+    assert.match(standaloneContext(home), /Do not.*~\/\.codex/);
+    fs.appendFileSync(extended, 'drift\n');
+    assert.throws(() => standaloneContext(home), /hash/);
+    fs.writeFileSync(extended, bytes);
+    manifest.version = '5.4.2'; writeManifest();
+    assert.throws(() => standaloneContext(home), /version/);
+    manifest.version = '5.4.3';
+    manifest.ownedArtifacts.extended.path = path.join(sandbox, 'other.md'); writeManifest();
+    assert.throws(() => standaloneContext(home), /path/);
+    manifest.ownedArtifacts.extended.path = extended; writeManifest();
+    fs.unlinkSync(extended);
+    assert.throws(() => standaloneContext(home), /ENOENT|missing/);
+    const other = path.join(sandbox, 'other.md'); fs.writeFileSync(other, bytes);
+    fs.symlinkSync(other, extended);
+    assert.throws(() => standaloneContext(home), /symlink|regular/);
+    fs.unlinkSync(extended); fs.writeFileSync(extended, bytes);
+    manifest.deliverySurface = 'plugin'; writeManifest();
+    assert.throws(() => standaloneContext(home), /standalone/);
+    assert.strictEqual(fs.readFileSync(other, 'utf8'), bytes);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+t('formal measurement receipts verify the actual owned deployment and remain stable only across identical source identities', () => {
+  const { installedReceipt, stableSource, sourceReceipt } = require('../lib/release-measurement');
+  const F = require('../lib/fs-atomic');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-measurement-'));
+  try {
+    const deploy = path.join(sandbox, 'agentsmd');
+    fs.mkdirSync(deploy); fs.writeFileSync(path.join(deploy, 'fixture'), 'original');
+    fs.mkdirSync(path.join(sandbox, '.agentsmd-state'));
+    const manifest = { version: '5.4.3', deliverySurface: 'standalone', profile: { materialized: 'full' },
+      ownedArtifacts: { deploy: { path: deploy, sha256: F.sha256Tree(deploy) } } };
+    const file = path.join(sandbox, '.agentsmd-state/manifest.json');
+    fs.writeFileSync(file, JSON.stringify(manifest));
+    assert.strictEqual(installedReceipt(sandbox).deploy_sha256, manifest.ownedArtifacts.deploy.sha256);
+    fs.writeFileSync(path.join(deploy, 'fixture'), 'changed');
+    assert.throws(() => installedReceipt(sandbox), /hash mismatch/u);
+    manifest.ownedArtifacts.deploy.path = path.join(sandbox, 'neighbor');
+    fs.writeFileSync(file, JSON.stringify(manifest));
+    assert.throws(() => installedReceipt(sandbox), /manifest-owned/u);
+    const measured = { state: 'measured', source_tree: 'a'.repeat(40) };
+    assert.deepStrictEqual(stableSource(measured, { ...measured }), measured);
+    assert.strictEqual(stableSource(measured, { ...measured, source_tree: 'b'.repeat(40) }).state, 'unverified');
+    assert.strictEqual(sourceReceipt(sandbox).state, 'unverified', 'non-repo cannot claim measured source');
+    const runner = fs.readFileSync(path.join(ROOT, 'qa/conformance-eval.sh'), 'utf8');
+    assert.match(runner, /--declaration\)/);
+    assert.strictEqual((runner.match(/qa\/conformance-receipt\.js/g) || []).length, 2, 'before and after receipts required');
+    assert.strictEqual((runner.match(/session_sha256:\$session_sha256/g) || []).length, 4, 'every result path retains session digest');
+    assert.match(runner, /THRESH_FAIL="\$MEASUREMENT_FAILED"/);
+  } finally { fs.rmSync(sandbox, { recursive: true, force: false }); }
+});
+
+t('infrastructure diagnostics distinguish unfinished turns, capture attribution, and goal cleanup', () => {
+  const runner = fs.readFileSync(path.join(ROOT, 'qa', 'conformance-eval.sh'), 'utf8');
+  const match = runner.match(/session_infrastructure_error\(\) \{\n[\s\S]*?\n\}/);
+  assert.ok(match, 'runner lacks evidence-specific infrastructure diagnostics');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-conf-infra-'));
+  try {
+    const events = path.join(sandbox, 'fixture.jsonl');
+    fs.writeFileSync(events, '');
+    const inspect = () => cp.spawnSync('bash', ['-c', `${match[0]}\ncase_field() { echo native-continuity; }\nsession_infrastructure_error`], {
+      env: { ...process.env, SBX: sandbox, CID: 'fixture' }, encoding: 'utf8',
+    }).stdout.trim();
+    assert.match(inspect(), /turn never completed/);
+    fs.writeFileSync(events, '{"type":"turn.completed"}\n');
+    assert.match(inspect(), /native transcript capture.*attribution/);
+    fs.writeFileSync(path.join(sandbox, 'fixture.native-transcript.ok'), '');
+    assert.match(inspect(), /goal cleanup/);
+    fs.writeFileSync(path.join(sandbox, 'fixture.native-goal-cleanup.ok'), '');
+    assert.strictEqual(inspect(), '');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 t('rule anchors resolve against hard-rules.json or spec/AGENTS.md headers', () => {
   for (const c of lib.cases) {
     assert.ok(anchors.has(c.rule), c.id + ': unresolvable rule anchor ' + c.rule);
@@ -309,11 +475,16 @@ tBashMapfile('reviewed hook trust reaches Codex; missing child activation fails 
     const configPath = path.join(home, 'config.toml');
     const initialConfig = 'model = "fixture"\n';
     fs.writeFileSync(configPath, initialConfig);
+    const extendedPath = path.join(home, 'AGENTS-extended.md');
+    const extendedBytes = '# CODEX-CODING-SPEC v5.3.0 — Extended\n';
+    fs.writeFileSync(extendedPath, extendedBytes);
     fs.writeFileSync(path.join(stateDir, 'manifest.json'), JSON.stringify({
       name: 'agentsmd',
       version: '5.3.0',
       deliverySurface: 'standalone',
       profile: { materialized: 'full' },
+      ownedArtifacts: { extended: { path: extendedPath,
+        sha256: require('crypto').createHash('sha256').update(extendedBytes).digest('hex') } },
     }));
 
     const casesPath = path.join(sandbox, 'cases.json');
@@ -342,6 +513,7 @@ for arg in "$@"; do
     exit 0
   fi
 done
+printf '%s\\n' "$arg" > "$CODEX_HOME/probe-prompt.txt"
 reviewed=0
 project=''
 last=''
@@ -387,6 +559,8 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     const reviewedResult = JSON.parse(fs.readFileSync(path.join(reviewedCapture, 'results.json'), 'utf8'));
     assert.strictEqual(reviewedResult.meta.hook_trust, 'automation-bypass');
     assert.strictEqual(reviewedResult.cases[0].verdict, 'pass');
+    assert.ok(fs.readFileSync(path.join(home, 'probe-prompt.txt'), 'utf8').includes(JSON.stringify(extendedPath)),
+      'actual probe prompt must pin the isolated standalone extended path');
     assert.strictEqual(fs.readFileSync(configPath, 'utf8'), initialConfig);
 
     const persistedOut = path.join(sandbox, 'persisted-out');
@@ -397,6 +571,28 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     const persistedResult = JSON.parse(fs.readFileSync(path.join(persistedCapture, 'results.json'), 'utf8'));
     assert.strictEqual(persistedResult.meta.hook_trust, 'persisted');
     assert.strictEqual(persistedResult.cases[0].verdict, 'error');
+
+    // Fail before a model invocation or sandbox creation when the selected
+    // standalone spec has drifted; do not fall back to another installation.
+    fs.unlinkSync(path.join(home, 'probe-prompt.txt'));
+    fs.appendFileSync(extendedPath, 'drift\n');
+    const staleOut = path.join(sandbox, 'stale-out');
+    const stale = run(staleOut, ['--reviewed-hooks']);
+    assert.strictEqual(stale.status, 1, stale.stdout + stale.stderr);
+    assert.match(stale.stderr, /extended spec hash/);
+    assert.strictEqual(fs.existsSync(path.join(home, 'probe-prompt.txt')), false);
+    assert.strictEqual(fs.existsSync(staleOut), false);
+    assert.strictEqual(fs.readFileSync(configPath, 'utf8'), initialConfig);
+
+    // A plugin surface continues to receive its SessionStart bundle routing;
+    // the standalone helper must not require or invent a plugin file path.
+    const manifestPath = path.join(stateDir, 'manifest.json');
+    const pluginManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    pluginManifest.deliverySurface = 'plugin';
+    fs.writeFileSync(manifestPath, JSON.stringify(pluginManifest));
+    const plugin = run(path.join(sandbox, 'plugin-out'), ['--reviewed-hooks']);
+    assert.strictEqual(plugin.status, 0, plugin.stdout + plugin.stderr);
+    assert.ok(!fs.readFileSync(path.join(home, 'probe-prompt.txt'), 'utf8').includes(extendedPath));
   } finally {
     assert.ok(path.basename(sandbox).startsWith('agentsmd-conformance-contract-'));
     fs.rmSync(sandbox, { recursive: true, force: true });

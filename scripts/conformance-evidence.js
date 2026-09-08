@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { parseStrict } = require('./lib/argv');
 const { platformCanonicalPath } = require('./lib/paths');
-const { thresholdVerdict, validateConformanceReleaseEvidence } = require('./lib/scorecard');
+const { validateConformanceReleaseEvidence } = require('./lib/conformance-evidence');
+const { evaluateConformanceResults, validateBehaviorWaiver } = require('./lib/conformance-results');
 
 const ROOT = path.resolve(__dirname, '..');
 const CAPTURE_ROOT = path.join(ROOT, 'docs', 'qa-captures');
@@ -16,7 +17,7 @@ const USAGE = [
   'Usage: node scripts/conformance-evidence.js --release-version=SEMVER',
   '  --release-commit=SHA --evaluated-commit=SHA --published-at=ISO',
   '  --decision=pass|fail|waived --results=FILE[,FILE...]',
-  '  [--waiver-scope=CATEGORY] [--allow-legacy-source] [--out=FILE]',
+  '  [--waiver-scope=CATEGORY[,CATEGORY...]] [--allow-legacy-source] [--out=FILE]',
   '',
   'Reads only bounded results.json files below docs/qa-captures and emits an',
   'allowlisted release summary. --out must be qa/conformance/releases/vVERSION.json.',
@@ -120,18 +121,6 @@ function parseArgs(argv) {
   };
 }
 
-function categorySummary(cases) {
-  const categories = {};
-  for (const item of cases) {
-    const bucket = categories[item.category] || { pass: 0, total: 0, errors: 0 };
-    if (item.verdict === 'error') bucket.errors += 1;
-    else bucket.total += 1;
-    if (item.verdict === 'pass') bucket.pass += 1;
-    categories[item.category] = bucket;
-  }
-  return categories;
-}
-
 function stampDate(stamp) {
   const match = String(stamp || '').match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
   if (!match) return null;
@@ -154,6 +143,7 @@ function buildEvidence(options) {
   const casesSha = sha256(casesInput.bytes);
   const thresholdsSha = sha256(thresholdsInput.bytes);
   const expectedSet = new Set(expectedIds);
+  const evaluations = [];
   const runs = options.results.map((raw) => {
     const file = boundedCaptureFile(raw);
     const input = readJsonBytes(file);
@@ -183,10 +173,9 @@ function buildEvidence(options) {
     if (recordedMs === null || recordedMs > Date.parse(options.publishedAt)) {
       throw new Error(`${raw}: invalid or post-publication capture stamp`);
     }
-    const categories = categorySummary(result.cases);
-    const passed = result.cases.filter((item) => item && item.verdict === 'pass').length;
-    const errors = result.cases.filter((item) => item && item.verdict === 'error').length;
-    const verdict = thresholdVerdict(categories, thresholdsInput.value, errors, passed, result.cases.length);
+    const evaluation = evaluateConformanceResults(result, casesInput.value.cases, thresholdsInput.value);
+    evaluations.push(evaluation);
+    const { passed, errors, threshold_verdict: verdict } = evaluation;
     if (verdict === 'unknown') throw new Error(`${raw}: threshold verdict is not measurable`);
     return {
       capture: path.basename(path.dirname(file)),
@@ -200,9 +189,7 @@ function buildEvidence(options) {
       passed,
       total: result.cases.length,
       errors,
-      false_block_near_negatives: result.cases.filter((item) => (
-        item && item.category === 'false-block' && item.kind !== 'positive' && item.verdict === 'pass'
-      )).length,
+      false_block_near_negatives: evaluation.false_block_near_negatives,
       threshold_verdict: verdict,
     };
   });
@@ -213,6 +200,7 @@ function buildEvidence(options) {
   if (options.decision === 'waived' && !hasThresholdFailure) {
     throw new Error('--decision=waived requires at least one failing run threshold');
   }
+  if (options.decision === 'waived') validateBehaviorWaiver(options.waiverScope, evaluations);
   const record = {
     schema_version: 1,
     kind: 'agentsmd-conformance-release-evidence',

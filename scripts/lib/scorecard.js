@@ -17,6 +17,7 @@ const { status } = require('../status');
 const { validateSchema } = require('./task-contract');
 const F = require('./fs-atomic');
 const { inspectReleaseArtifact } = require('./release-artifact');
+const { evaluateConformanceResults, thresholdVerdict } = require('./conformance-results');
 const {
   externalConformanceSummary,
   validateConformanceCandidateAttestation,
@@ -160,6 +161,11 @@ function deepBounds(value, at = '$', depth = 0, errors = []) {
 function validateScorecard(value) {
   const errors = validateSchema(value, SCHEMA, SCHEMA);
   deepBounds(value, '$', 0, errors);
+  const performance = value && value.performance;
+  if (performance && performance.provenance
+    && performance.provenance.kind === 'reference-baseline' && performance.state === 'fresh') {
+    errors.push('$.performance.state: reference baseline cannot prove a fresh current implementation');
+  }
   const falseBlocks = value && value.false_blocks;
   if (falseBlocks && Number.isInteger(falseBlocks.rate_denominator)) {
     if (falseBlocks.rate_denominator !== falseBlocks.true_blocks + falseBlocks.confirmed_false_blocks) {
@@ -397,28 +403,13 @@ function currentConformanceThresholds(root) {
   }
 }
 
-function thresholdVerdict(categories, thresholds, errors, passed, total) {
-  if (errors > 0) return 'fail';
-  if (passed === total) return 'pass';
-  if (!thresholds || typeof thresholds !== 'object' || Array.isArray(thresholds)) return 'unknown';
-  let measured = 0;
-  for (const [category, threshold] of Object.entries(thresholds)) {
-    if (!threshold || !Number.isInteger(threshold.min_pass)) continue;
-    const bucket = categories && categories[category];
-    if (!bucket || !Number.isInteger(bucket.pass) || !Number.isInteger(bucket.total) || bucket.total === 0) continue;
-    measured += 1;
-    if (bucket.pass < threshold.min_pass) return 'fail';
-  }
-  return measured > 0 ? 'pass' : 'unknown';
-}
-
 function commonText(values) {
   const bounded = values.map((value) => boundedText(value));
   return new Set(bounded).size === 1 ? bounded[0] : 'multiple';
 }
 
 function rawConformanceSummary({
-  captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
+  captureRoot, now, expected, canonicalCases, sourceIdentity, inputIdentity, thresholds,
 }) {
   const expectedSet = new Set(expected);
   let entries;
@@ -465,17 +456,12 @@ function rawConformanceSummary({
     if (!fullSuite) continue;
     const recordedMs = stampDate(result.meta.stamp);
     if (recordedMs === null || recordedMs > now) { invalidSeen = true; continue; }
-    const total = result.cases.length;
-    const passed = result.cases.filter((entry) => entry && entry.verdict === 'pass').length;
-    const errors = Object.values(result.categories || {})
-      .reduce((sum, bucket) => sum + (Number.isInteger(bucket && bucket.errors) ? bucket.errors : 0), 0);
+    let evaluation;
+    try { evaluation = evaluateConformanceResults(result, canonicalCases, thresholds); }
+    catch { invalidSeen = true; continue; }
+    const { total, passed, errors } = evaluation;
     const age = ageDays(recordedMs, now);
-    const falseBlock = result.cases.filter((entry) => (
-      entry
-      && entry.category === 'false-block'
-      && entry.kind !== 'positive'
-      && entry.verdict === 'pass'
-    )).length;
+    const falseBlock = evaluation.false_block_near_negatives;
     const captureHasSource = /^[a-f0-9]{40}$/.test(String(result.meta.source_commit || ''))
       && typeof result.meta.source_tracked_clean === 'boolean';
     const inputsMatch = Boolean(
@@ -519,7 +505,7 @@ function rawConformanceSummary({
       agentsmd_version: boundedText(result.meta.agentsmd),
       false_block_near_negatives: falseBlock,
       runs: 1,
-      threshold_verdict: thresholdVerdict(result.categories, thresholds, errors, passed, total),
+      threshold_verdict: evaluation.threshold_verdict,
       provenance: conformanceProvenance({
         kind: captureHasSource ? 'current-tree-capture' : 'legacy-capture',
         applicability,
@@ -655,7 +641,7 @@ function releaseEvidenceSummary({
 }
 
 function conformanceSummary({
-  captureRoot, releaseEvidenceRoot, now, expectedCaseIds, sourceIdentity,
+  captureRoot, releaseEvidenceRoot, now, expectedCaseIds, canonicalCases, sourceIdentity,
   inputIdentity, packageIdentity, thresholds, candidateEvidenceFile,
   releaseBindingFile, artifactIdentity,
 }) {
@@ -666,7 +652,7 @@ function conformanceSummary({
     return emptyConformance('unavailable', conformanceProvenance({ reason: 'case-library-unavailable' }));
   }
   const raw = rawConformanceSummary({
-    captureRoot, now, expected, sourceIdentity, inputIdentity, thresholds,
+    captureRoot, now, expected, canonicalCases, sourceIdentity, inputIdentity, thresholds,
   });
   if (raw && raw.provenance.applicability === 'current') return raw;
   const external = externalConformanceSummary({
@@ -684,18 +670,29 @@ function conformanceSummary({
 }
 
 function expectedConformanceCaseIds(root) {
+  return currentConformanceCases(root).map((row) => row.id);
+}
+
+function currentConformanceCases(root) {
   try {
     const library = safeJson(path.join(root, 'qa', 'conformance', 'cases.json'));
     if (!library || !Array.isArray(library.cases) || library.cases.length > 512) return [];
     const ids = library.cases.map((entry) => entry && entry.id);
     if (ids.some((id) => typeof id !== 'string' || id.length === 0) || new Set(ids).size !== ids.length) return [];
-    return ids;
+    return library.cases;
   } catch {
     return [];
   }
 }
 
-function performanceSummary(file, now) {
+function performanceSummary(file, now, packageIdentity) {
+  const currentVersion = boundedText(packageIdentity && packageIdentity.version);
+  const knownPackage = packageIdentity && packageIdentity.name === '@sdsrs/agentsmd'
+    && currentVersion !== 'unknown';
+  const provenance = (freshness, applicability, reason) => ({
+    kind: 'reference-baseline', freshness, applicability, reason,
+    current_package_version: currentVersion,
+  });
   const empty = (state = 'unavailable') => ({
     state,
     recorded_at: 'unknown',
@@ -706,6 +703,7 @@ function performanceSummary(file, now) {
     worst_timeout_fraction: null,
     agentsmd_version: 'unknown',
     codex_version: 'unknown',
+    provenance: provenance(state, 'unverified', `${state}-baseline`),
   });
   let value;
   try { value = safeJson(file); } catch (error) {
@@ -715,18 +713,26 @@ function performanceSummary(file, now) {
     return empty('invalid');
   }
   const recordedMs = Date.parse(`${value.recorded}T00:00:00.000Z`);
-  if (!Number.isFinite(recordedMs) || recordedMs > now) return empty('invalid');
+  if (!Number.isFinite(recordedMs) || recordedMs > now
+    || new Date(recordedMs).toISOString().slice(0, 10) !== value.recorded) return empty('invalid');
   const age = ageDays(recordedMs, now);
+  const recordedVersion = boundedText(value.env && value.env.agentsmd);
+  const mismatch = knownPackage && recordedVersion !== 'unknown' && recordedVersion !== currentVersion;
+  const reason = !knownPackage || recordedVersion === 'unknown' ? 'package-identity-unavailable'
+    : mismatch ? 'package-version-mismatch' : 'implementation-unbound';
   return {
-    state: age <= FRESH_DAYS ? 'fresh' : 'stale',
+    // The reference baseline has no source/deploy/input binding. Even matching
+    // package versions and recent dates cannot establish current-tree evidence.
+    state: 'stale',
     recorded_at: new Date(recordedMs).toISOString(),
     age_days: age,
     slo_verdict: boundedText(value.sloVerdict, 'unknown'),
     aggregate_process_ratio: finite(value.aggregateProcess && value.aggregateProcess.dualWarmPretoolUseRatio),
     concurrent_wall_ratio: finite(value.concurrentWall && value.concurrentWall.dualWarmPretoolUseRatio),
     worst_timeout_fraction: finite(value.worstHookP95FractionOfTimeout),
-    agentsmd_version: boundedText(value.env && value.env.agentsmd),
+    agentsmd_version: recordedVersion,
     codex_version: boundedText(value.env && value.env.codex),
+    provenance: provenance(age <= FRESH_DAYS ? 'fresh' : 'stale', mismatch ? 'mismatch' : 'unverified', reason),
   };
 }
 
@@ -1148,8 +1154,10 @@ function actionsFor(card, rules) {
   } else if (card.false_blocks.state === 'partial') {
     add('medium', 'false-block-outcomes-partial', 'Continue bounded field-event review; keep unreviewed and unmeasurable events outside the rate denominator.', `Denominator ${card.false_blocks.rate_denominator}; ${card.false_blocks.unreviewed_events} unreviewed and ${card.false_blocks.unmeasurable_events} unmeasurable event(s).`);
   }
-  if (card.performance.state !== 'fresh') {
-    add('high', 'performance-stale', 'Run the formal performance SLO on the reference machine and refresh the versioned baseline.', `Performance state is ${card.performance.state}.`);
+  if (card.performance.provenance && card.performance.state === 'stale') {
+    add('medium', 'performance-reference-only', 'Retain the reference baseline and existing thresholds. Locate separately bound current-implementation SLO evidence before deciding whether a new formal run is needed.', `Performance baseline is ${card.performance.provenance.freshness} by age; applicability ${card.performance.provenance.applicability} (${card.performance.provenance.reason}).`);
+  } else if (card.performance.state !== 'fresh') {
+    add('high', 'performance-stale', 'Inspect the missing or invalid reference input; preserve the historical baseline and thresholds. Current-implementation SLO evidence must be verified separately.', `Performance state is ${card.performance.state}.`);
   }
   if (card.automation.fallback_events || card.automation.fail_open_events) {
     const causes = card.automation.fail_open_causes;
@@ -1207,6 +1215,7 @@ function buildScorecard(options = {}) {
     doctorSource: doctorSupplied ? 'supplied' : 'runtime-filesystem',
   });
   const conformanceSourceIdentity = options.sourceIdentity || currentSourceIdentity(root);
+  const packageIdentity = options.packageIdentity || currentPackageIdentity(root);
   const candidateEvidenceFile = options.candidateEvidenceFile || null;
   const conformanceArtifactIdentity = options.conformanceArtifactIdentity
     || (candidateEvidenceFile ? currentConformanceArtifactIdentity(root, conformanceSourceIdentity) : null);
@@ -1225,9 +1234,10 @@ function buildScorecard(options = {}) {
       releaseEvidenceRoot: options.releaseEvidenceRoot || path.join(root, 'qa', 'conformance', 'releases'),
       now,
       expectedCaseIds: options.expectedConformanceCaseIds || expectedConformanceCaseIds(root),
+      canonicalCases: options.conformanceCases || currentConformanceCases(root),
       sourceIdentity: conformanceSourceIdentity,
       inputIdentity: options.conformanceInputIdentity || currentConformanceInputIdentity(root),
-      packageIdentity: options.packageIdentity || currentPackageIdentity(root),
+      packageIdentity,
       thresholds: options.conformanceThresholds || currentConformanceThresholds(root),
       candidateEvidenceFile,
       releaseBindingFile: options.releaseBindingFile || null,
@@ -1249,6 +1259,7 @@ function buildScorecard(options = {}) {
     performance: performanceSummary(
       options.perfPath || path.join(root, 'qa', 'perf', 'baseline.json'),
       now,
+      packageIdentity,
     ),
     memory: {
       state: memoryState,
@@ -1276,6 +1287,7 @@ function buildScorecard(options = {}) {
       'Raw rule hits measure enforcement activity, not rule value; this command never promotes or demotes rules.',
       'No-opportunity and insufficient-opportunity are missing denominators, not successful outcomes.',
       'Sampling preflight and planning classifications are structural proxies and are not semantic proof.',
+      'Performance reference-baseline freshness measures age only; it has no implementation binding and never proves current-tree SLO success, even at the same package version. Preserve historical baselines and thresholds.',
       'Memory cite-recall measures later file-name engagement; citation is not adherence or correctness.',
       'Field false-block rate uses only reviewed external true/false outcomes; self, test, QA, unknown, unreviewed, and unmeasurable events stay outside its denominator.',
       'Test and QA rows remain visible in data_classes but are excluded from field governance and runtime splits.',
@@ -1385,6 +1397,9 @@ function formatScorecard(card) {
   ]);
   section('Performance', [
     `state: ${card.performance.state} · SLO ${card.performance.slo_verdict} · aggregate ratio ${card.performance.aggregate_process_ratio ?? 'n/a'} · concurrent-wall ratio ${card.performance.concurrent_wall_ratio ?? 'n/a'}`,
+    card.performance.provenance
+      ? `provenance: ${card.performance.provenance.kind}/${card.performance.provenance.applicability} · reason ${card.performance.provenance.reason} · age ${card.performance.age_days ?? 'unknown'} days (${card.performance.provenance.freshness}) · recorded package ${card.performance.agentsmd_version} · current package ${card.performance.provenance.current_package_version}`
+      : 'provenance: legacy capture; current implementation applicability unverified',
   ]);
   section('Memory', [
     `state: ${card.memory.state} · applied ${card.memory.applied} · bypassed ${card.memory.bypassed} · unmeasurable ${card.memory.unmeasurable} · cite-recall ${pct(card.memory.cite_recall)}`,

@@ -250,6 +250,7 @@ t('--slo end-to-end: structural report shape; exit code stays in the contract {0
     assert.ok(out.slo.criteria.every((c) => typeof c.pass === 'boolean'), 'each criterion carries a verdict');
     assert.ok(out.env && typeof out.env.cpu === 'string' && out.env.agentsmd, 'env fingerprint labels the run');
     assert.strictEqual(typeof out.slo.inconclusive, 'boolean');
+    assert.ok(out.source && ['measured', 'unverified'].includes(out.source.state), 'source applicability is separate from numeric SLO');
     assert.deepStrictEqual(fs.readdirSync(tmp), [], '--slo must remove its internal sandbox before exiting');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

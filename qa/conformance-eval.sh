@@ -28,7 +28,7 @@
 #
 # Usage: bash qa/conformance-eval.sh [--codex <bin>] [--model <m>] [--out <dir>]
 #          [--only <id[,id…]>] [--category <c>] [--reviewed-hooks]
-#          [--keep] [--validate] [--list]
+#          [--declaration <file>] [--keep] [--validate] [--list]
 # Structural validation of the case library (no model calls): --validate, and
 # scripts/tests/conformance-cases.test.js in the npm test chain.
 # Captures (sanitized: $HOME → ~) land in --out (default docs/qa-captures/,
@@ -52,8 +52,9 @@ KEEP=0
 VALIDATE=0
 LIST=0
 REVIEWED_HOOKS=0
+DECLARATION=""
 PROBE_TIMEOUT="${AGENTSMD_CONF_TIMEOUT:-300}"
-NATIVE_TOOL_CAPTURE_PROTOCOL='Measurement capture protocol: invoke each native goal tool in its own functions.exec wrapper, assign that one nested result to a variable, and emit it with text(result). Do not combine multiple native goal tools in one functions.exec call. Follow every case tool-count and final-answer constraint unchanged.'
+NATIVE_TOOL_CAPTURE_PROTOCOL='Measurement capture protocol: invoke every nested tool call, including exec_command and goal tools, in one separate functions.exec wrapper using text(await tools.NAME({...})); with literal JSON-compatible arguments. Do not use control flow, computed tool names, aliases, templates or multiple calls in a wrapper. Direct tool calls remain allowed. Follow every case tool-count and final-answer constraint unchanged.'
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -64,6 +65,7 @@ while [ "$#" -gt 0 ]; do
     --only) ONLY="${2:?--only requires a value}"; shift 2 ;;
     --category) CATEGORY="${2:?--category requires a value}"; shift 2 ;;
     --reviewed-hooks) REVIEWED_HOOKS=1; shift ;;
+    --declaration) DECLARATION="${2:?--declaration requires a value}"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --validate) VALIDATE=1; shift ;;
     --list) LIST=1; shift ;;
@@ -114,6 +116,12 @@ TELEMETRY="$CODEX_HOME_DIR/logs/agentsmd.jsonl"
 AGENTSMD_VERSION="$(jq -r '.version // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
 AGENTSMD_SURFACE="$(jq -r '.deliverySurface // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
 AGENTSMD_PROFILE="$(jq -r '.profile.materialized // "unknown"' "$CODEX_HOME_DIR/.agentsmd-state/manifest.json" 2>/dev/null || echo unknown)"
+TEST_CONTEXT=""
+if [ "$AGENTSMD_SURFACE" = "standalone" ]; then
+  # Resolve the selected installation, not the login shell's ~/.codex. Keep
+  # plugin SessionStart routing unchanged; never invent a plugin bundle path.
+  TEST_CONTEXT="$(node "$REPO_ROOT/qa/conformance-context.js" "$CODEX_HOME_DIR")" || exit 1
+fi
 RESOLVED_MODEL="$MODEL"
 if [ -z "$RESOLVED_MODEL" ] && [ -r "$CODEX_HOME_DIR/config.toml" ]; then
   # Capture only the first top-level model value. Never copy the config file or
@@ -122,6 +130,14 @@ if [ -z "$RESOLVED_MODEL" ] && [ -r "$CODEX_HOME_DIR/config.toml" ]; then
     "$CODEX_HOME_DIR/config.toml" | head -1)"
 fi
 [ -n "$RESOLVED_MODEL" ] || RESOLVED_MODEL="config-default"
+MEASUREMENT_BEFORE='{}'
+MEASUREMENT='{}'
+MEASUREMENT_FAILED=0
+RUN_ID="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
+if [ -n "$DECLARATION" ]; then
+  [ -n "$MODEL" ] || { echo 'FAIL: formal declaration requires an explicit --model' >&2; exit 1; }
+  MEASUREMENT_BEFORE="$(node "$REPO_ROOT/qa/conformance-receipt.js" "$CODEX_HOME_DIR" "$DECLARATION" "$CODEX_VERSION" "$MODEL")" || exit 1
+fi
 file_sha256() {
   node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex"))' "$1"
 }
@@ -250,9 +266,9 @@ capture_native_tools() {
   # sibling satisfy another tool's output assertion. Keep the capture, but make
   # the case infrastructure-unmeasurable instead of emitting a false policy
   # verdict. The prompt protocol below asks for exact one-wrapper attribution.
-  if ! jq -e -s 'all(.[]; .output_attribution != "wrapper-shared")' \
+  if ! jq -e -s 'all(.[]; .paired == true and .output_attribution != "wrapper-shared")' \
       "$SBX/$CID.native-tools.jsonl" >/dev/null 2>&1; then
-    echo "native tool output attribution is shared across a functions.exec wrapper" >> "$SBX/$CID.stderr"
+    echo "native tool output pairing is missing or attribution is shared across a functions.exec wrapper" >> "$SBX/$CID.stderr"
     return 1
   fi
 }
@@ -261,6 +277,9 @@ run_case_session() {
   local prompt category before rc
   prompt="$(case_field '.prompt')"
   category="$(case_field '.category')"
+  if [ -n "$TEST_CONTEXT" ]; then
+    prompt="${prompt}"$'\n\n'"${TEST_CONTEXT}"
+  fi
   if [ "$category" = "native-continuity" ]; then
     prompt="${prompt}"$'\n\n'"${NATIVE_TOOL_CAPTURE_PROTOCOL}"
   fi
@@ -336,6 +355,20 @@ session_turn_completed() {
   fi
 }
 
+# Keep provider completion distinct from measurement eligibility. A completed
+# turn can still lack unambiguous capture or verified goal cleanup.
+session_infrastructure_error() {
+  if ! grep -q '"type":"turn.completed"' "$SBX/$CID.jsonl" 2>/dev/null; then
+    printf 'turn never completed\n'
+  elif [ "$(case_field '.category')" = "native-continuity" ]; then
+    if [ ! -f "$SBX/$CID.native-transcript.ok" ]; then
+      printf 'native transcript capture unavailable or output attribution ambiguous\n'
+    elif [ ! -f "$SBX/$CID.native-goal-cleanup.ok" ]; then
+      printf 'native goal cleanup verification missing\n'
+    fi
+  fi
+}
+
 # A completed model turn without a hook row for its exact thread cannot measure
 # installed-hook behavior. Treat that as a global runner/runtime infrastructure
 # failure and stop before spending the remaining case budget.
@@ -351,6 +384,14 @@ check_one() {
   a="$1"
   type="$(jq -r '.type' <<<"$a")"
   case "$type" in
+    task_orphan_import)
+      node - "$REPO_ROOT" "$PROJ/app.js" <<'NODE' && return 0
+const fs = require('fs');
+const path = require('path');
+const { gradeTaskOrphan } = require(path.join(process.argv[2], 'qa/grade-task-orphan'));
+process.exitCode = gradeTaskOrphan(fs.readFileSync(process.argv[3], 'utf8')) ? 0 : 1;
+NODE
+      echo 'task_orphan_import failed: preserve legacyMarker import and remove normalize binding' >> "$SBX/$CID.why"; return 1 ;;
     file_exists|file_absent)
       local p; p="$(jq -r '.path' <<<"$a")"
       [ "${p#/}" = "$p" ] && p="$PROJ/$p"
@@ -468,20 +509,23 @@ for id in "${CASE_IDS[@]}"; do
     printf '%s\n' "$TRUST_CLEANUP_ERROR" > "$SBX/$id.why"
     jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
           --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --arg session_sha256 "$(printf '%s' "$THREAD_ID" | sha256sum | cut -d' ' -f1)" \
           --rawfile why "$SBX/$id.why" \
-      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, session_sha256:$session_sha256, why:($why | split("\n") | map(select(length>0)))}' \
       >> "$SBX/results.rows"
     break
   fi
   if ! session_turn_completed; then
     ERR=$((ERR+1)); verdict=error
-    printf '  ERR  %-24s turn never completed (infra): %s\n' "$id" \
+    infra_reason="$(session_infrastructure_error)"
+    printf '  ERR  %-24s %s (infra): %s\n' "$id" "$infra_reason" \
       "$(jq -r 'select(.type=="turn.failed") | .error.message' "$SBX/$id.jsonl" 2>/dev/null | head -c 120)"
-    printf 'turn never completed after retry\n' > "$SBX/$id.why"
+    printf '%s after retry\n' "$infra_reason" > "$SBX/$id.why"
     jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
           --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --arg session_sha256 "$(printf '%s' "$THREAD_ID" | sha256sum | cut -d' ' -f1)" \
           --rawfile why "$SBX/$id.why" \
-      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, session_sha256:$session_sha256, why:($why | split("\n") | map(select(length>0)))}' \
       >> "$SBX/results.rows"
     continue
   fi
@@ -491,8 +535,9 @@ for id in "${CASE_IDS[@]}"; do
     printf 'native hook activation missing for child session (hook trust or wiring unavailable)\n' > "$SBX/$id.why"
     jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
           --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --arg session_sha256 "$(printf '%s' "$THREAD_ID" | sha256sum | cut -d' ' -f1)" \
           --rawfile why "$SBX/$id.why" \
-      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+      '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, session_sha256:$session_sha256, why:($why | split("\n") | map(select(length>0)))}' \
       >> "$SBX/results.rows"
     break
   fi
@@ -505,42 +550,55 @@ for id in "${CASE_IDS[@]}"; do
   fi
   jq -cn --arg id "$id" --arg cat "$(case_field '.category')" --arg rule "$(case_field '.rule')" \
         --arg kind "$(case_field '.kind')" --arg v "$verdict" \
+          --arg session_sha256 "$(printf '%s' "$THREAD_ID" | sha256sum | cut -d' ' -f1)" \
         --rawfile why "$SBX/$id.why" \
-    '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, why:($why | split("\n") | map(select(length>0)))}' \
+    '{id:$id, category:$cat, rule:$rule, kind:$kind, verdict:$v, session_sha256:$session_sha256, why:($why | split("\n") | map(select(length>0)))}' \
     >> "$SBX/results.rows"
 done
 
 # ── results.json + thresholds ────────────────────────────────────────────────
+if [ -n "$DECLARATION" ]; then
+  MEASUREMENT_AFTER="$(node "$REPO_ROOT/qa/conformance-receipt.js" "$CODEX_HOME_DIR" "$DECLARATION" "$CODEX_VERSION" "$MODEL")" || MEASUREMENT_FAILED=1
+  [ "$MEASUREMENT_AFTER" = "$MEASUREMENT_BEFORE" ] || MEASUREMENT_FAILED=1
+  [ "$MEASUREMENT_FAILED" -eq 0 ] || echo 'MEASUREMENT INVALID: source, deployment or declaration changed during the run' >&2
+  MEASUREMENT="$(jq -cn --argjson before "$MEASUREMENT_BEFORE" --arg run_id "$RUN_ID" --argjson failed "$MEASUREMENT_FAILED" '$before + {run_id:$run_id,stable:($failed==0)}')"
+fi
 jq -s --arg codex "$CODEX_VERSION" --arg model "$RESOLVED_MODEL" \
       --arg agentsmd "$AGENTSMD_VERSION" --arg surface "$AGENTSMD_SURFACE" \
       --arg profile "$AGENTSMD_PROFILE" --arg cases_sha256 "$CASES_SHA256" \
       --arg thresholds_sha256 "$THRESHOLDS_SHA256" --arg hook_trust "$HOOK_TRUST_MODE" \
       --arg source_commit "$SOURCE_COMMIT" --argjson source_tracked_clean "$SOURCE_TRACKED_CLEAN" \
-      --arg stamp "$STAMP" \
+      --arg stamp "$STAMP" --argjson measurement "$MEASUREMENT" \
   '{meta: {stamp:$stamp, codex:$codex, model:$model, agentsmd:$agentsmd,
       surface:$surface, profile:$profile, cases_sha256:$cases_sha256,
       thresholds_sha256:$thresholds_sha256, hook_trust:$hook_trust,
       source_commit:$source_commit, source_tracked_clean:$source_tracked_clean,
-      cases:(length)},
+      cases:(length), measurement:$measurement},
     categories: (group_by(.category) | map({key: .[0].category,
       value: {pass: (map(select(.verdict=="pass")) | length),
               total: (map(select(.verdict != "error")) | length),
               errors: (map(select(.verdict == "error")) | length)}}) | from_entries),
     cases: .}' "$SBX/results.rows" > "$CAP/results.json"
 
-THRESH_FAIL=0; THRESH_MODE=none
+THRESH_FAIL="$MEASUREMENT_FAILED"; THRESH_MODE=none
 if [ -r "$THRESHOLDS_FILE" ] && [ -z "$ONLY" ] && [ -z "$CATEGORY" ]; then
   THRESH_MODE=enforced
-  while IFS=$'\t' read -r cat min got total; do
-    if [ "$got" -lt "$min" ]; then
-      echo "  THRESHOLD $cat: pass $got/$total < min_pass $min (baseline regression)"
-      THRESH_FAIL=1
-    fi
-  done < <(jq -r --slurpfile r "$CAP/results.json" \
-    'to_entries[] | select(.value | type == "object" and has("min_pass")) | .key as $c
-     | ($r[0].categories[$c] // {pass:0,total:0}) as $g
-     | select($g.total > 0)
-     | "\($c)\t\(.value.min_pass)\t\($g.pass)\t\($g.total)"' "$THRESHOLDS_FILE")
+  node - "$REPO_ROOT" "$CAP/results.json" "$CASES_FILE" "$THRESHOLDS_FILE" <<'NODE' || THRESH_FAIL=1
+const fs = require('fs');
+const path = require('path');
+const [root, resultFile, casesFile, thresholdsFile] = process.argv.slice(2);
+const { evaluateConformanceResults } = require(path.join(root, 'scripts/lib/conformance-results'));
+try {
+  const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+  const result = evaluateConformanceResults(read(resultFile), read(casesFile).cases, read(thresholdsFile));
+  console.log(`  THRESHOLD ${result.threshold_verdict}: ${result.passed}/${result.total}, ${result.errors} infra-errors`);
+  for (const row of result.unexpectedFailures) console.log(`  UNREGISTERED FAILURE ${row.id}`);
+  process.exitCode = result.threshold_verdict === 'pass' ? 0 : 1;
+} catch (error) {
+  console.error(`  INVALID RESULT: ${error.message}`);
+  process.exitCode = 1;
+}
+NODE
 elif [ -r "$THRESHOLDS_FILE" ]; then
   THRESH_MODE="skipped (partial selection)"
 fi
@@ -556,11 +614,11 @@ fi
 } > "$CAP/SUMMARY.txt"
 echo
 echo "RESULT: $PASS passed, $FAIL failed, $ERR infra-errors  (thresholds: $THRESH_MODE, captures: $CAP)"
-# Exit semantics: with thresholds enforced, category rates vs baseline decide —
-# a documented known-fail baseline case does not by itself red the run. Without
+# Exit semantics: full runs require canonical results, category minima, and exact
+# known-failure scope. A registered failure alone need not red the run. Without
 # thresholds (or on partial selection) every graded case must pass.
 if [ "$THRESH_MODE" = "enforced" ]; then
   [ "$ERR" -eq 0 ] && [ "$THRESH_FAIL" -eq 0 ]
 else
-  [ "$FAIL" -eq 0 ] && [ "$ERR" -eq 0 ]
+  [ "$FAIL" -eq 0 ] && [ "$ERR" -eq 0 ] && [ "$MEASUREMENT_FAILED" -eq 0 ]
 fi

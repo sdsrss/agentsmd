@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const cp = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -84,12 +85,12 @@ try {
     return file;
   }
 
-  const first = writeRun('20260820T010000Z', ['discipline-outcome-first']);
+  const first = writeRun('20260820T010000Z', ['discipline-task-orphan']);
   const second = writeRun('20260820T020000Z', [
     'discipline-task-orphan',
     'discipline-outcome-first',
   ]);
-  const legacy = writeRun('20260820T030000Z', ['discipline-outcome-first'], { source: false });
+  const legacy = writeRun('20260820T030000Z', ['discipline-task-orphan'], { source: false });
   const base = {
     releaseVersion: fixtureVersion,
     releaseCommit: RELEASE_COMMIT,
@@ -101,6 +102,81 @@ try {
     allowLegacySource: false,
     out: null,
   };
+
+  function withMutatedRun(mutate, check) {
+    const original = fs.readFileSync(first);
+    const result = JSON.parse(original);
+    mutate(result);
+    fs.writeFileSync(first, JSON.stringify(result));
+    try { check(); } finally { fs.writeFileSync(first, original); }
+  }
+
+  test('raw results reject category/kind spoofing, invalid verdicts and aggregate contradictions', () => {
+    for (const mutate of [
+      (r) => { r.cases[0].category = 'unrecognized'; },
+      (r) => { r.cases[0].kind = 'unrecognized'; },
+      (r) => { r.cases[0].verdict = 'not-a-verdict'; },
+      (r) => { r.categories = {}; },
+      (r) => { r.meta.cases = 0; },
+    ]) {
+      withMutatedRun(mutate, () => assert.throws(() => buildEvidence({
+        ...base, results: [first], decision: 'pass', waiverScope: null,
+      }), /canonical|verdict|aggregate|count/u));
+    }
+  });
+
+  test('only the exact known failure may use the category tolerance', () => {
+    withMutatedRun((r) => {
+      for (const row of r.cases) row.verdict = row.id === 'discipline-preserve-dead-code' ? 'fail' : 'pass';
+    }, () => {
+      assert.throws(() => buildEvidence({
+        ...base, results: [first], decision: 'pass', waiverScope: null,
+      }), /contradicts/u);
+      assert.strictEqual(buildEvidence({ ...base, results: [first] }).runs[0].threshold_verdict, 'fail');
+    });
+  });
+
+  test('waivers must cover actual failing categories and cannot waive infrastructure errors', () => {
+    assert.throws(() => buildEvidence({ ...base, waiverScope: 'nonexistent-category' }), /scope/u);
+    withMutatedRun((r) => { r.cases[0].verdict = 'fail'; }, () => {
+      assert.throws(() => buildEvidence(base), /scope/u);
+      assert.strictEqual(buildEvidence({ ...base, waiverScope: 'auth,task-discipline' }).decision.verdict, 'waived');
+    });
+    withMutatedRun((r) => { r.cases[0].verdict = 'error'; }, () => {
+      assert.throws(() => buildEvidence({ ...base, waiverScope: 'auth,task-discipline' }), /infrastructure/u);
+      assert.strictEqual(buildEvidence({ ...base, decision: 'fail', waiverScope: null }).decision.verdict, 'fail');
+    });
+  });
+
+  test('imported summaries reject contradictory decisions and pass/error totals', () => {
+    const historical = JSON.parse(fs.readFileSync(RELEASE_FILE, 'utf8'));
+    for (const mutate of [
+      (r) => { r.decision = { verdict: 'pass', waiver: null }; },
+      (r) => { r.runs[0].passed = r.runs[0].total; r.runs[0].errors = 1; },
+      (r) => { r.runs[0].errors = 1; r.runs[0].threshold_verdict = 'pass'; },
+      (r) => { r.runs[0].false_block_near_negatives = r.runs[0].passed + 1; },
+    ]) {
+      const record = structuredClone(historical);
+      mutate(record);
+      const validation = validateConformanceReleaseEvidence(record);
+      assert.strictEqual(validation.valid, false, 'contradictory historical summary was accepted');
+    }
+  });
+
+  test('runner uses the same canonical verdict as the evidence builder without model calls', () => {
+    const runner = fs.readFileSync(path.join(ROOT, 'qa/conformance-eval.sh'), 'utf8');
+    const match = runner.match(/node - "\$REPO_ROOT" "\$CAP\/results.json" "\$CASES_FILE" "\$THRESHOLDS_FILE" <<'NODE' \|\| THRESH_FAIL=1\n([\s\S]*?)\nNODE/u);
+    assert(match, 'runner must invoke the shared result evaluator with its repository root');
+    const run = () => cp.spawnSync(process.execPath, ['-', ROOT, first, CASES_FILE, THRESHOLDS_FILE], {
+      input: match[1], encoding: 'utf8', env: { ...process.env, CODEX_HOME: outsideRoot },
+    });
+    assert.strictEqual(run().status, 0, 'registered known failure remains tolerated');
+    for (const mutate of [
+      (r) => { r.cases.find((row) => row.id === 'discipline-preserve-dead-code').verdict = 'fail'; },
+      (r) => { r.cases[0].verdict = 'error'; },
+      (r) => { r.categories = {}; },
+    ]) withMutatedRun(mutate, () => assert.strictEqual(run().status, 1));
+  });
 
   test('builder emits only bounded aggregate fields and preserves the two-run waiver', () => {
     const record = buildEvidence(base);

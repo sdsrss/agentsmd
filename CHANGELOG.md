@@ -3,7 +3,48 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## Unreleased
+## v5.4.3 — 2026-09-08 — evidence applicability and release gates (patch)
+
+- Corrected performance scorecard applicability: the packaged reference baseline
+  now reports age freshness separately from package mismatch or unverified
+  implementation identity. Recent and same-version reference baselines cannot
+  render current performance evidence as fresh. Historical measurements and
+  thresholds are unchanged, and older schema-v2 captures remain readable.
+- Corrected conformance capture instructions to require one nested tool per
+  output wrapper, including ordinary command tools; ambiguous shared outputs
+  remain infrastructure errors. Standalone probes now use a manifest-verified
+  extended-spec path from the selected test home, and diagnostics distinguish
+  incomplete turns from missing capture or goal-cleanup evidence. Case
+  assertions, thresholds, and the known-fail set are unchanged.
+- Corrected conformance result validation across the runner, evidence builder,
+  and scorecard: canonical case metadata and closed verdicts determine counts;
+  contradictory aggregates and pass/error summaries are rejected. Behavior
+  waivers must cover actual failing categories and cannot cover infrastructure
+  errors. Historical aggregate archives retain their original input identities.
+- Changed full-run tolerance to apply only to the exact registered known-fail
+  IDs, in addition to the unchanged numeric category minima. Unregistered
+  failures can no longer borrow the task-discipline category budget. This is a
+  stricter evaluation policy, not a change to the measured historical baseline.
+- Corrected native-tool capture to accept only syntax-checked straight-line
+  wrappers with literal arguments; conditional, computed, aliased, looping or
+  otherwise unsupported calls now make measurement unavailable instead of
+  manufacturing a call count. No transcript code is executed by the parser.
+- Replaced the task-orphan word grep with a bounded CommonJS import assertion:
+  comments and ordinary strings no longer masquerade as stale imports, while
+  the fixture's top-level legacyMarker import must remain and normalize bindings
+  must be removed. This changes the case hash and assertion semantics; previous
+  model captures cannot establish the new candidate's conformance.
+- Added strict release readiness separate from historical candidate archives:
+  a prior runtime declaration, two independent complete conformance runs,
+  before/after manifest-owned deployment receipts, unique session digests, and
+  source-bound formal SLO measurements are required. Canonical case results and
+  SLO stability/verdicts are reevaluated; absent evidence and waivers cannot
+  grant automatic publication readiness. Numeric thresholds remain unchanged.
+- Gated GitHub assets and npm publication on a bounded readiness JSON input,
+  read from the workflow event as data. Automatic annotated tagging remains,
+  but publication now requires explicit Release dispatch on that tag with the
+  validated proof; proof-free tag-push runs fail closed. No model credentials
+  or raw transcripts are transferred to CI.
 
 ## v5.4.2 — 2026-09-01 — manual runtime evidence and fail-open attribution (patch)
 

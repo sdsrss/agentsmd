@@ -399,7 +399,16 @@ field telemetry, keeps `self`, `test`, `qa`, `external`, and `unknown`
 provenance separate, and reports health, runtime compatibility, full-suite
 conformance freshness, false-block measurement state, bypasses, evidence
 discipline, performance, memory engagement, prompt budget, automation, operator
-actions, and measurement limits. Missing joins retain an additive attribution:
+actions, and measurement limits. Performance keeps the historical reference
+baseline separate from current implementation evidence: `performance.provenance`
+reports its age freshness, package mismatch or unverified applicability, and the
+reason. A recent baseline, including one with the same package version, remains
+`state=stale` because it has no source/deploy/input binding. Existing baseline
+numbers and thresholds are preserved; locate current SLO evidence before deciding
+to run another measurement. Older v2 captures without this provenance remain
+readable, with applicability explicitly unverified.
+
+Missing joins retain an additive attribution:
 sessions are split into before, straddling, after, or no-reference buckets
 relative to the first observed dimension in the retained window, and their
 `self`/`external`/`unknown`/`mixed` provenance is counted separately. Invalid or
@@ -439,6 +448,25 @@ mismatched evidence never becomes current-tree green. Missing evidence first
 recommends configuring or importing a bounded evidence source instead of
 unconditionally spending another model run.
 
+New full runs validate every case ID, category, kind, and verdict against the
+canonical library and reject contradictory supplied aggregates. Passing requires
+the numeric category minima **and** no unregistered case failures: only exact
+IDs in `baseline.known_fail` may use existing tolerance. Numeric thresholds and
+historical baseline measurements are not rewritten by this policy. A behavior
+waiver uses a comma-separated list of actual failing categories, must cover all
+of them, and cannot waive infrastructure errors. Historical aggregate-only
+archives remain readable with count/decision consistency checks; they do not
+retroactively prove case-level waiver scope or independent release readiness.
+
+Native conformance capture accepts syntax-checked straight-line wrappers with
+literal arguments, such as `text(await tools.get_goal({}));`. Control flow,
+computed names, aliases, templates, ambiguous shared outputs and missing output
+pairing cannot establish a measured verdict. The capture parser never executes
+transcript code. The task-orphan fixture uses a bounded top-level CommonJS
+destructuring-import assertion, with explicit statement separators; comments
+and ordinary strings are not evidence of an import. These are fixture-specific
+checks, not a general JavaScript semantic analyzer.
+
 For a new release, the evidence protocol is two-phase. A pre-publication
 candidate attestation binds the clean source commit/tree, deterministic
 standalone deploy-tree hash, package/version, conformance inputs, bounded run
@@ -453,6 +481,49 @@ The legacy packaged v1 record remains readable as historical evidence.
 The offline binding validates byte/hash and decoded SLSA payload consistency;
 release closure must still obtain those inputs from the declared release and
 registry sources and run the separate npm signature/Sigstore authenticity gate.
+
+Publication additionally requires a strict readiness proof; a valid historical
+candidate archive alone is not release-ready. Freeze a clean candidate first,
+then create a declaration with `scripts/release-readiness.js --mode=declare`
+and explicit `--codex-version=VERSION --model=MODEL`. The current measured
+surface is `standalone` with the `full` profile. Install that exact candidate
+into an isolated release home, never the live `CODEX_HOME`, and pass the same
+declaration to each of two full conformance runs using
+`qa/conformance-eval.sh --declaration FILE --model MODEL`. Run the formal
+`node scripts/perf-baseline.js --slo --json` after declaration and before
+building the candidate attestation. Save all outputs in ignored capture space.
+
+The runner checks the actual manifest-owned deployment and clean source before
+and after each run. Readiness requires two independent run identities, unique
+session digests for every case, exact canonical inputs, the declared runtime,
+and source-bound complete, stable, passing SLO measurements. It reevaluates case
+and SLO verdicts without lowering thresholds; infrastructure failures, missing
+measurements, unknown runtime dimensions and waivers cannot become automatic
+publication readiness. A historical baseline runtime mismatch is reported
+separately from the new declared two-run applicability. Generic candidate
+archives retain their existing one-to-eight-run format.
+
+Build and verify the bounded proof with explicit local files:
+
+```bash
+node scripts/release-readiness.js --mode=build --declaration=FILE --candidate=FILE --results=FIRST,SECOND --slo=FILE
+node scripts/release-readiness.js --mode=verify --proof=FILE
+```
+
+The proof is an allowlisted maintainer measurement attestation, at most 48,000
+bytes, not cryptographic proof of model-provider execution. It includes hashed
+session identities, never raw transcripts or credentials. Do not commit it into
+the source tree it identifies. Verification accepts an identical merged source
+tree and deployment even when the merge commit differs from the candidate.
+
+After integration, the release-tag workflow still creates and verifies the
+annotated version tag, but no longer dispatches publication without evidence.
+Explicitly run the Release workflow **on that tag**, supplying the validated
+JSON as its required `readiness_json` input. The readiness job reads GitHub's
+event file as data, without shell interpolation. Both GitHub release assets
+and npm publication depend on its success; a tag-push run without proof fails
+closed. Normal CI, npm signatures/provenance, and the post-publication
+marketplace verification remain separate required stages.
 
 Release closure can inspect the legacy generator and the two new protocol
 stages with:

@@ -163,6 +163,137 @@ try {
     assert.strictEqual(JSON.stringify(candidate).includes('why'), false);
   });
 
+  test('strict readiness is separate from single-run historical candidate validity', () => {
+    const { validateReadiness } = require('../lib/release-readiness');
+    assert.strictEqual(validateConformanceCandidateAttestation(candidate).valid, true);
+    assert.strictEqual(validateReadiness(candidate, { identity }).ready, false);
+  });
+
+  function readinessFixture() {
+    const { buildReadiness } = require('../lib/release-readiness');
+    const { HOOK_REGISTRY } = require('../lib/hook-registry');
+    const sloBytes = fs.readFileSync(path.join(ROOT, 'qa/perf/slo.json'));
+    const config = JSON.parse(sloBytes);
+    const declaration = { schema_version: 1, kind: 'agentsmd-release-declaration',
+      declared_at: '2026-08-25T00:00:00.000Z', subject: identity,
+      runtime: { codex_version: '0.147.0', model: 'gpt-5.6-sol', surface: 'standalone', profile: 'full' } };
+    const nextCandidate = structuredClone(candidate);
+    const results = [0, 1].map((index) => {
+      const rawResult = JSON.parse(fs.readFileSync(resultFile));
+      rawResult.meta.stamp = `20260825T010${index}00Z`;
+      rawResult.meta.measurement = { run_id: sha256(`run-${index}`), declaration_sha256: sha256(JSON.stringify(declaration)), deploy_sha256: DEPLOY_SHA256, stable: true };
+      rawResult.cases.forEach((row) => { row.session_sha256 = sha256(`${index}/${row.id}`); });
+      const bytes = Buffer.from(JSON.stringify(rawResult));
+      nextCandidate.runs[index] = { ...candidate.runs[0], capture: `conformance-${rawResult.meta.stamp}`,
+        recorded_at: `2026-08-25T01:0${index}:00.000Z`, results_sha256: sha256(bytes) };
+      return bytes;
+    });
+    const surfaces = {};
+    for (const name of ['single', 'dual-warm']) {
+      const copies = name === 'single' ? ['repo'] : ['standalone', 'plugin'];
+      const rows = copies.flatMap((copy) => HOOK_REGISTRY.map((hook) => ({
+        hook: hook.displayName, event: hook.hookEvent, copy, p95_ms: 1, timeout_budget_ms: hook.timeout * 1000,
+      })));
+      const byEventP95 = {};
+      for (const row of rows) byEventP95[row.event] = (byEventP95[row.event] || 0) + row.p95_ms;
+      const byEventWall = Object.fromEntries(Object.keys(byEventP95).map((event) => [event, { p95_ms: name === 'single' ? 10 : 12 }]));
+      surfaces[name] = { results: rows, byEventP95, byEventWall,
+        roundEventP95: Array.from({ length: config.baseline_rounds }, () => ({ ...byEventP95 })),
+        roundEventWallP95: Array.from({ length: config.baseline_rounds }, () => Object.fromEntries(Object.entries(byEventWall).map(([key, row]) => [key, row.p95_ms]))),
+      };
+    }
+    const performance = { source: { state: 'measured', ...identity, slo_sha256: sha256(sloBytes) },
+      env: { generatedAt: '2026-08-25T01:30:00.000Z' }, runs: config.baseline_runs, rounds: config.baseline_rounds,
+      slo: { pass: true, inconclusive: false }, surfaces };
+    const ctx = { identity, casesBytes: caseBytes, thresholdsBytes: thresholdBytes, sloBytes, now: Date.parse('2026-08-25T03:00:00Z') };
+    const input = { declaration, candidate: nextCandidate, results, performance };
+    return { proof: buildReadiness(input, ctx), ctx, input };
+  }
+
+  test('strict readiness accepts independently identified declared runs and recomputed full SLO', () => {
+    const { validateReadiness, MAX_PROOF_BYTES } = require('../lib/release-readiness');
+    const { proof, ctx } = readinessFixture();
+    const verdict = validateReadiness(proof, ctx);
+    assert.strictEqual(verdict.ready, true, verdict.errors.join('\n'));
+    assert.strictEqual(verdict.historical_baseline_applicability, 'mismatch');
+    assert.strictEqual(JSON.stringify(proof).includes(PRIVATE_MARKER), false);
+    assert(Buffer.byteLength(JSON.stringify(proof)) < MAX_PROOF_BYTES);
+    assert.strictEqual(validateReadiness(proof, { ...ctx, identity: { ...identity, source_commit: RELEASE_COMMIT } }).ready, true, 'identical merged tree is allowed');
+  });
+
+  test('strict readiness refuses replay, runtime uncertainty, missing receipts and incomplete SLO', () => {
+    const { validateReadiness } = require('../lib/release-readiness');
+    const { proof, ctx } = readinessFixture();
+    for (const mutate of [
+      (p) => { p.runs.pop(); },
+      (p) => { p.runs[1].measurement.run_id = p.runs[0].measurement.run_id; },
+      (p) => { p.runs[1].results_sha256 = p.runs[0].results_sha256; },
+      (p) => { p.runs[1].cases[0].session_sha256 = p.runs[0].cases[0].session_sha256; },
+      (p) => { p.runs[0].meta.model = 'unknown'; },
+      (p) => { p.runs[0].meta.model = 'different-model'; },
+      (p) => { p.runs[0].meta.stamp = '20250101T000000Z'; p.candidate.runs[0].capture = 'conformance-20250101T000000Z'; },
+      (p) => { p.declaration.declared_at = p.candidate.attested_at; },
+      (p) => { p.runs[0].measurement.stable = false; },
+      (p) => { p.runs[0].measurement.deploy_sha256 = '0'.repeat(64); },
+      (p) => { delete p.runs[0].cases[0].session_sha256; },
+      (p) => { p.runs[0].cases[0].verdict = 'error'; },
+      (p) => { p.runs[0].cases[0].verdict = 'fail'; },
+      (p) => { p.candidate.runs[0].passed -= 1; },
+      (p) => { p.performance.source.state = 'unverified'; },
+      (p) => { p.performance.source.source_tree = '0'.repeat(40); },
+      (p) => { p.performance.pass = false; },
+      (p) => { p.performance.inconclusive = true; },
+      (p) => { p.performance.runs = 1; },
+      (p) => { p.performance.surfaces.single.results.pop(); },
+      (p) => { p.performance.surfaces.single.roundEventP95.pop(); },
+      (p) => { p.performance.surfaces.single.byEventP95.PreToolUse = 0; },
+      (p) => { p.performance.surfaces.single.roundEventP95[1].PreToolUse *= 10; },
+      (p) => { p.performance.surfaces['dual-warm'].byEventWall.PreToolUse.p95_ms *= 10; },
+      (p) => { p.performance.surfaces['dual-warm'].roundEventWallP95.forEach((round) => { round.PreToolUse = 12000; }); },
+      (p) => { p.performance.surfaces.single.roundEventP95.forEach((round) => { round.PreToolUse = 1; }); },
+      (p) => { p.raw_transcript = PRIVATE_MARKER; },
+    ]) {
+      const changed = structuredClone(proof); mutate(changed);
+      assert.strictEqual(validateReadiness(changed, ctx).ready, false, mutate.toString());
+    }
+    assert.strictEqual(validateReadiness(proof, { ...ctx, identity: { ...identity, deploy_sha256: '0'.repeat(64) } }).ready, false);
+  });
+
+  test('readiness argv is mode-specific and missing CI proof exits before source inspection', () => {
+    const { parseArgs, main } = require('../release-readiness');
+    assert.strictEqual(parseArgs(['--mode=verify', '--proof-env']).proofEnv, true);
+    for (const args of [[], ['--mode=build'], ['--mode=declare', '--model=x'], ['--mode=verify', '--proof'], ['--mode=verify', '--proof=x', '--proof-env'], ['--mode=verify', '--proof=x', '--model=x'], ['--mode=verify', '--proof-env', '--proof-event']]) {
+      assert.throws(() => parseArgs(args));
+    }
+    const prior = process.env.AGENTSMD_READINESS_JSON;
+    try { delete process.env.AGENTSMD_READINESS_JSON; assert.strictEqual(main(['--mode=verify', '--proof-env']), 1); }
+    finally { if (prior !== undefined) process.env.AGENTSMD_READINESS_JSON = prior; }
+  });
+
+  test('readiness CLI validates file and hosted event inputs as data without printing submitted proof', () => {
+    const { main } = require('../release-readiness');
+    const { proof, ctx } = readinessFixture();
+    const proofFile = path.join(temp, 'readiness.json'), eventFile = path.join(temp, 'event.json');
+    fs.writeFileSync(proofFile, JSON.stringify(proof));
+    fs.writeFileSync(eventFile, JSON.stringify({ inputs: { readiness_json: JSON.stringify(proof) } }));
+    const previous = process.env.GITHUB_EVENT_PATH, originalLog = console.log;
+    const messages = [];
+    try {
+      console.log = (message) => messages.push(message);
+      process.env.GITHUB_EVENT_PATH = eventFile;
+      assert.strictEqual(main(['--mode=verify', `--proof=${proofFile}`], () => ctx), 0);
+      assert.strictEqual(main(['--mode=verify', '--proof-event'], () => ctx), 0);
+      assert(messages.every((message) => JSON.parse(message).ready === true && message.length < 512));
+      fs.writeFileSync(eventFile, JSON.stringify({ inputs: { readiness_json: null } }));
+      let contextCalls = 0;
+      assert.strictEqual(main(['--mode=verify', '--proof-event'], () => { contextCalls += 1; return ctx; }), 1);
+      assert.strictEqual(contextCalls, 0, 'missing proof must fail before source inspection');
+    } finally {
+      console.log = originalLog;
+      if (previous === undefined) delete process.env.GITHUB_EVENT_PATH; else process.env.GITHUB_EVENT_PATH = previous;
+    }
+  });
+
   test('candidate builder rejects dirty identity and capture/version replay', () => {
     assert.throws(() => buildCandidateAttestation({
       ...candidateOptions,
@@ -172,6 +303,18 @@ try {
       ...candidateOptions,
       identity: { ...identity, version: '99.98.0' },
     }), /agentsmd version/u);
+  });
+
+  test('candidate imports enforce the same count and infrastructure invariants as release archives', () => {
+    for (const mutate of [
+      (r) => { r.runs[0].errors = 1; },
+      (r) => { r.runs[0].false_block_near_negatives = r.runs[0].passed + 1; },
+      (r) => { r.runs[0].threshold_verdict = 'fail'; },
+    ]) {
+      const record = structuredClone(candidate);
+      mutate(record);
+      assert.strictEqual(validateConformanceCandidateAttestation(record).valid, false);
+    }
   });
 
   test('release binding cross-links candidate, release and registry bytes, and SLSA provenance', () => {

@@ -363,7 +363,13 @@ agentsmd outcomes review --event=EVENT_ID --outcome=false-block --reason=benign-
 遥测，分开呈现 `self`、`test`、`qa`、`external` 与 `unknown` 来源，并汇总
 health、runtime compatibility、完整 conformance 新鲜度、false-block 测量状态、
 bypass、evidence discipline、performance、memory engagement、prompt budget、
-automation、operator actions 与 measurement limits。missing join 还会保留可加性的
+automation、operator actions 与 measurement limits。性能维度将历史参考基线与当前实现
+证据分开：`performance.provenance` 显示时间新鲜度、包版本不匹配或尚未验证的适用性及
+原因。即使日期较新、包版本相同，基线仍因缺少 source/deploy/input 绑定而保持
+`state=stale`。原始基线数值和阈值保持不变；先寻找当前 SLO 证据，再决定是否新增测量。
+不含该 provenance 的旧 v2 capture 仍可读取，其当前实现适用性明确为未验证。
+
+missing join 还会保留可加性的
 归因对象：相对于保留窗口内第一条 observed dimension，session 被严格分成之前、跨越、
 之后和无参照四个桶，并分别统计 `self`、`external`、`unknown`、`mixed` 来源。无效或
 缺失 session identity 是 unjoinable input，不计作 missing join。这个顺序只覆盖保留
