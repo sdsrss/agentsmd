@@ -278,7 +278,7 @@ t('standalone context pins a manifest-owned matching spec and rejects unsafe or 
     const writeManifest = () => fs.writeFileSync(manifestFile, JSON.stringify(manifest));
     fs.writeFileSync(extended, bytes);
     writeManifest();
-    assert.match(standaloneContext(home), new RegExp(JSON.stringify(extended).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(standaloneContext(home), new RegExp(JSON.stringify(fs.realpathSync(extended)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(standaloneContext(home), /only when.*requires/i);
     assert.match(standaloneContext(home), /Do not.*~\/\.codex/);
     fs.appendFileSync(extended, 'drift\n');
