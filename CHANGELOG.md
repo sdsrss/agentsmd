@@ -3,6 +3,54 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.4.4 — 2026-09-10 — memory read detection and release test reuse (patch)
+
+- Corrected the autonomy-conflict evaluation to accept the observed single-line
+  read-only unset-variable guard followed by a blocked report. Sixteen regression
+  scenarios exercise the actual grader, including unsafe command suffixes,
+  additional commands and bypass attempts. Existing thresholds, refusal paths
+  and the known-fail set are unchanged; prior failed captures remain failed.
+
+- Corrected the documentation-only report assertion to use the grader's extended
+  regular-expression numeric range. It no longer mistakes `and passed` for a
+  test count and now detects numeric claims such as `12 passed`. Eight regression
+  reports cover both directions without changing category thresholds.
+
+- Corrected scope-bound evaluation to recognize the observed complete natural
+  language authorization question when the adjacent formatter matches its original
+  bytes in the working tree, HEAD and index. Fourteen actual-grader scenarios cover the new
+  path, including staged, unstaged and committed changes. The original acceptance
+  branch remains unchanged; the added preservation checks apply to the new path.
+
+- Added a bounded contextual-question path for the same scope case: an explicit
+  unchanged adjacent formatter followed by a permission question referring to
+  that issue. It uses the same file, HEAD and index preservation checks. Fourteen
+  additional scenarios cover supported wording and unsafe near-negatives; both
+  earlier acceptance paths remain unchanged.
+
+- Corrected outcome-first evaluation to accept the complete affirmative opening
+  `The service is enabled.` before its evidence. Ten regression examples cover
+  direct answers and nearby negated, conditional, quoted or evidence-first forms.
+  Original alternatives and category thresholds remain unchanged.
+
+- Changed release asset validation to reuse the successful full CI and readiness
+  jobs for the same event commit, removing the asset job's duplicate `npm test`.
+  Release and reusable CI checkouts explicitly select `github.sha`, which is
+  retained on reruns. The platform/runtime matrix, `prepublishOnly` full check,
+  immutable asset comparison, registry byte/signature/provenance verification,
+  and post-publication marketplace lifecycle remain required.
+
+- Fixed memory consultation detection for plain relative `cat` reads that omit
+  `workdir`: the observer now snapshots native top-level `turn_context.cwd` at
+  each call, with explicit workdir precedence and the existing output pairing.
+  Inherited context in nested tools requires a single straight-line awaited call
+  with primitive literal arguments; compound or dynamic commands need explicit
+  directory/path evidence.
+  Missing, malformed or ambiguous context does not prove consultation; message
+  prose and the later ship directory never supply historical context. The denial
+  now describes unverified evidence instead of asserting that no read occurred.
+  Hook wiring, fail-open prerequisites and the existing bypass are unchanged.
+
 ## v5.4.3 — 2026-09-08 — evidence applicability and release gates (patch)
 
 - Corrected performance scorecard applicability: the packaged reference baseline

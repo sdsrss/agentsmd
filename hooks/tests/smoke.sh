@@ -1224,6 +1224,11 @@ run_hook session-start-check.sh '{"session_id":"sessBBBBB","hook_event_name":"Se
 { [[ -f "$CODEX_HOME/.agentsmd-state/session-start-sessAAAAA.ref" && -f "$CODEX_HOME/.agentsmd-state/session-start-sessBBBBB.ref" ]]; } && ok "per-session refs coexist (parallel sessions don't clobber one baseline)" || bad "per-session refs coexist" "one ref missing"
 
 echo "== memory-read-check.sh =="
+if node "$HOOKS_DIR/tests/memory-read-context.test.js"; then
+  ok "memory reads bind to native call-time context with safe counterexamples"
+else
+  bad "memory read call-time context fixtures" "see fixture failures above"
+fi
 PROJ="$SANDBOX/proj"; mkdir -p "$PROJ/memory"
 git -C "$PROJ" init -q
 printf '%s\n' '- [auth](memory/auth.md) — login flow' > "$PROJ/MEMORY.md"
