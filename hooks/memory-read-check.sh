@@ -136,11 +136,21 @@ const MAX_LINE_BYTES = 1 << 20;
 const transcript = process.argv[1];
 let fd;
 try { fd = fs.openSync(transcript, "r"); } catch { process.exit(2); }
-let carry = "", droppingOversize = false;
+let carry = "", droppingOversize = false, contextWorkdir = null;
+const validWorkdir = (value) => typeof value === "string" && value.length <= 4096
+  && !value.includes("\0") && path.isAbsolute(value) ? value : null;
 const processLine = (line) => {
-  if (!line || Buffer.byteLength(line) > MAX_LINE_BYTES) return;
+  if (!line) return;
+  if (Buffer.byteLength(line) > MAX_LINE_BYTES) { contextWorkdir = null; return; }
   let o;
-  try { o = JSON.parse(line); } catch { return; }
+  try { o = JSON.parse(line); } catch { contextWorkdir = null; return; }
+  // Only native top-level turn metadata supplies an omitted invocation cwd.
+  // Never infer historical cwd from the ship event, message prose or outputs.
+  if (o && o.type === "turn_context") {
+    contextWorkdir = validWorkdir(o.payload && o.payload.cwd);
+    return;
+  }
+  if (o && o.type === "session_meta") { contextWorkdir = null; return; }
   const p = o && o.payload != null ? o.payload : o;
   if (!p || typeof p !== "object") return;
   const type = p.type || o.type;
@@ -152,7 +162,7 @@ const processLine = (line) => {
       const source = JSON.stringify(args == null ? "" : args);
       if (/MEMORY\.md|[\\/]memory[\\/]/.test(source)) {
         if (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value);
-        pending.set(callId, { name, arguments: args });
+        pending.set(callId, { name, arguments: args, workdir: contextWorkdir });
       }
     }
     return;
@@ -181,7 +191,7 @@ try {
       if (!droppingOversize) processLine(line);
       droppingOversize = false;
     }
-    if (Buffer.byteLength(carry) > MAX_LINE_BYTES) { carry = ""; droppingOversize = true; }
+    if (Buffer.byteLength(carry) > MAX_LINE_BYTES) { carry = ""; droppingOversize = true; contextWorkdir = null; }
   }
   if (!droppingOversize && carry) processLine(carry.replace(/\r$/, ""));
 } catch { fs.closeSync(fd); process.exit(2); }
@@ -197,12 +207,38 @@ const consulted = process.argv.slice(2).filter((memory) => {
     .replace(/\/{2,}/g, "/");
   const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pathMentioned = (source, target) => new RegExp(`(^|[\\s\"\x27=])${escapeRe(normalize(target))}($|[\\s\"\x27])`).test(normalize(source));
-  const commandReads = (source, target, workdir) => {
+  // New implicit-cwd evidence is deliberately narrower than the legacy reader
+  // observer: plain cat with literal path arguments, no options or shell flow.
+  const literalCatPaths = (source) => {
+    if (/[\r\n;|&<>$\x60\\#()]/.test(source)) return null;
+    const words = [], word = /(?:[^\s"\x27]+|"[^"]*"|\x27[^\x27]*\x27)(?=\s|$)/gy;
+    for (let i = 0; i < source.length;) {
+      if (/\s/.test(source[i])) { i += 1; continue; }
+      word.lastIndex = i;
+      const match = word.exec(source);
+      if (!match) return null;
+      const value = match[0];
+      words.push(value[0] === "\"" || value[0] === "\x27" ? value.slice(1, -1) : value);
+      i = word.lastIndex;
+    }
+    if (!/^(?:\/(?:usr\/)?bin\/)?cat$/.test(words.shift() || "")) return null;
+    if (words[0] === "--") words.shift();
+    return words.length && words.every((value) => value && !value.startsWith("-")) ? words : null;
+  };
+  const commandReads = (source, target, workdir, inherited) => {
     if (typeof source !== "string") return false;
     const mentioned = (segment) => {
       if (pathMentioned(segment, target)) return true;
       if (typeof workdir !== "string" || !path.isAbsolute(workdir)) return false;
+      // A shell may change its cwd inside this invocation. Without executing
+      // shell syntax, require absolute reads when any directory change appears.
+      if (/(?:^|[\s;&|()])(?:cd|pushd|popd)\b/.test(source)) return false;
+      if (/(?:^|\s)(?:--chdir(?:=|\s)|-C\S*)/.test(source)) return false;
       const relative = path.relative(normalize(workdir), normalize(target));
+      if (inherited) {
+        const paths = literalCatPaths(source);
+        return paths !== null && paths.some((value) => normalize(value) === relative);
+      }
       return relative !== "" && !path.isAbsolute(relative) && pathMentioned(segment, relative);
     };
     return source.split(/\r?\n|;|&&|\|\||\|/).some((segment) => {
@@ -214,10 +250,12 @@ const consulted = process.argv.slice(2).filter((memory) => {
     if (!value || typeof value !== "object") return false;
     return [value.path, value.file_path].some((v) => typeof v === "string" && normalize(v) === normalize(target));
   };
-  const orchestratedCommands = (source) => {
+  const orchestratedCommands = (source, defaultWorkdir) => {
     const found = [];
     const marker = "tools.exec_command(";
     if (typeof source !== "string") return found;
+    // Template interpolation is not part of this literal-only observer.
+    if (source.includes("\x60")) return found;
     const readString = (start) => {
       const quote = source[start];
       if (quote !== "\"" && quote !== "\x27") return null;
@@ -266,7 +304,8 @@ const consulted = process.argv.slice(2).filter((memory) => {
       }
       return null;
     };
-    const fieldValue = (field, wanted) => {
+    const fieldValue = (field) => {
+      if (!field.trim()) return { key: "", value: null, literal: true };
       let i = 0;
       while (/\s/.test(field[i] || "")) i += 1;
       let key = "";
@@ -274,6 +313,7 @@ const consulted = process.argv.slice(2).filter((memory) => {
         const quote = field[i++];
         while (i < field.length && field[i] !== quote) key += field[i++];
         if (field[i] !== quote) return null;
+        if (key.includes("\\")) return null;
         i += 1;
       } else {
         const match = field.slice(i).match(/^[A-Za-z_$][A-Za-z0-9_$]*/);
@@ -281,13 +321,16 @@ const consulted = process.argv.slice(2).filter((memory) => {
         key = match[0]; i += key.length;
       }
       while (/\s/.test(field[i] || "")) i += 1;
-      if (field[i++] !== ":" || !wanted.has(key)) return null;
+      if (field[i++] !== ":") return null;
       while (/\s/.test(field[i] || "")) i += 1;
       const localSource = source;
       source = field;
       const parsed = readString(i);
       source = localSource;
-      return parsed ? parsed.value : null;
+      // Do not credit a string prefix of a dynamic expression as a literal.
+      const stringLiteral = parsed && !field.slice(parsed.end).trim();
+      const primitiveLiteral = /^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)$/.test(field.slice(i).trim());
+      return { key, value: stringLiteral ? parsed.value : null, literal: Boolean(stringLiteral || primitiveLiteral) };
     };
     for (let i = 0; i < source.length;) {
       if (source[i] === "\"" || source[i] === "\x27") { const s = readString(i); i = s ? s.end : source.length; continue; }
@@ -297,34 +340,46 @@ const consulted = process.argv.slice(2).filter((memory) => {
       if (source[start] !== "{") { i += marker.length; continue; }
       const parsed = objectFields(start);
       if (!parsed) break;
-      let command = null, workdir = null;
+      // Inherit native cwd only for a single straight-line awaited wrapper.
+      // Other JavaScript may merely mention a call or conditionally skip it.
+      const prefix = source.slice(0, i).trim();
+      const suffix = source.slice(parsed.end).trim();
+      const directWrapper = prefix === "await" && /^\)\s*;?$/.test(suffix);
+      const textWrapper = /^text\(\s*await$/.test(prefix) && /^\)\s*\)\s*;?$/.test(suffix);
+      let command = null, workdir = directWrapper || textWrapper ? defaultWorkdir : null, literalFields = true;
+      let inherited = true, primitiveFields = true;
       for (const field of parsed.fields) {
-        const commandValue = fieldValue(field, new Set(["cmd", "command"]));
-        if (typeof commandValue === "string") command = commandValue;
-        const workdirValue = fieldValue(field, new Set(["workdir"]));
-        if (typeof workdirValue === "string") workdir = workdirValue;
+        const value = fieldValue(field);
+        if (!value) { literalFields = false; continue; }
+        if (!value.literal) primitiveFields = false;
+        if (["cmd", "command"].includes(value.key)) command = value.value;
+        if (value.key === "workdir") { workdir = validWorkdir(value.value); inherited = false; }
       }
-      if (command !== null) found.push({ source: command, workdir });
+      // Spreads, computed keys and shorthand may supply/replace workdir.
+      if (command !== null) found.push({ source: command,
+        workdir: literalFields && (!inherited || primitiveFields) ? workdir : null, inherited });
       i = parsed.end;
     }
     return found;
   };
-  const commandFields = (value, name) => {
+  const commandFields = (value, name, defaultWorkdir) => {
     if (typeof value === "string") {
-      return name === "exec" ? orchestratedCommands(value) : [{ source: value, workdir: null }];
+      return name === "exec" ? orchestratedCommands(value, defaultWorkdir) : [{ source: value, workdir: defaultWorkdir, inherited: true }];
     }
     if (!value || typeof value !== "object") return [];
     return [value.cmd, value.command, value.source]
       .filter((v) => typeof v === "string")
-      .map((source) => ({ source, workdir: typeof value.workdir === "string" ? value.workdir : null }));
+      .map((source) => ({ source, workdir: Object.prototype.hasOwnProperty.call(value, "workdir")
+        ? validWorkdir(value.workdir) : defaultWorkdir,
+        inherited: !Object.prototype.hasOwnProperty.call(value, "workdir") }));
   };
   const wasRead = (target) => {
     for (const [callId, call] of calls) {
       if (!outputs.has(callId)) continue;
       if (call.name === "read_file" && exactPathField(call.arguments, target)) return true;
       if ((call.name === "exec_command" || call.name === "exec")
-          && commandFields(call.arguments, call.name)
-            .some(({ source, workdir }) => commandReads(source, target, workdir))) return true;
+          && commandFields(call.arguments, call.name, call.workdir)
+            .some(({ source, workdir, inherited }) => commandReads(source, target, workdir, inherited))) return true;
     }
     return false;
   };
@@ -371,7 +426,7 @@ CONSULTED=$?
 # exit 2 is its own read-failure signal; any OTHER status is node dying
 # independently of this parent (OOM/SIGKILL/SIGSEGV/SIGTERM → 137/139/143), a
 # tool malfunction that must never fail-CLOSED onto a git push — the layer's
-# prime invariant. Only a clean exit 1 is evidence the file was not opened.
+# prime invariant. A clean exit 1 means consultation evidence was not verified.
 if [[ "$CONSULTED" -ne 0 && "$CONSULTED" -ne 1 ]]; then
   for MEM in "${MEMORIES[@]}"; do memory_unevaluated "transcript-read-failed" "$MEM"; done
   hook_record_failopen "$HOOK" "transcript-read-failed"
@@ -399,6 +454,6 @@ MEM="$UNREAD"
 MEMDIR="$(dirname "$MEM")"
 hook_record "$HOOK" "block" "$(jq -cn --arg m "$MEM" '{memory:$m}')" '§7-memory-read' "$SID"
 hook_block \
-  "Blocked: shipping before consulting the project memory index under ${MEMDIR} ( spec §7, HARD at ship )." \
-  "§7 (HARD): a project memory index exists under ${MEMDIR} but was not opened this session, and you are about to ship. Open the index file there first (it routes to lessons that may change this push), or append [allow-unread-memory] if it is genuinely irrelevant here." \
+  "Blocked: cannot verify consultation evidence for the project memory under ${MEMDIR} ( spec §7, HARD at ship )." \
+  "§7 (HARD): a project memory index exists under ${MEMDIR}, but this observer cannot bind successful index and linked-lesson reads to that directory. Read them with absolute paths or an explicit tool workdir before shipping; append [allow-unread-memory] only if the memory is genuinely irrelevant here." \
   "PreToolUse"

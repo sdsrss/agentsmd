@@ -3,6 +3,26 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.4.4 — 2026-09-10 — memory read detection and release test reuse (patch)
+
+- Changed release asset validation to reuse the successful full CI and readiness
+  jobs for the same event commit, removing the asset job's duplicate `npm test`.
+  Release and reusable CI checkouts explicitly select `github.sha`, which is
+  retained on reruns. The platform/runtime matrix, `prepublishOnly` full check,
+  immutable asset comparison, registry byte/signature/provenance verification,
+  and post-publication marketplace lifecycle remain required.
+
+- Fixed memory consultation detection for plain relative `cat` reads that omit
+  `workdir`: the observer now snapshots native top-level `turn_context.cwd` at
+  each call, with explicit workdir precedence and the existing output pairing.
+  Inherited context in nested tools requires a single straight-line awaited call
+  with primitive literal arguments; compound or dynamic commands need explicit
+  directory/path evidence.
+  Missing, malformed or ambiguous context does not prove consultation; message
+  prose and the later ship directory never supply historical context. The denial
+  now describes unverified evidence instead of asserting that no read occurred.
+  Hook wiring, fail-open prerequisites and the existing bypass are unchanged.
+
 ## v5.4.3 — 2026-09-08 — evidence applicability and release gates (patch)
 
 - Corrected performance scorecard applicability: the packaged reference baseline

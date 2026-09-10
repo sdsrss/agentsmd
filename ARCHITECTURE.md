@@ -107,6 +107,16 @@ review，年龄本身永不产生删除资格。默认命令只读；`--write` �
 消息扫描优先使用 `last_assistant_message`，fallback 每次写
 `event:"compat-fallback"`。
 
+**记忆读取观察边界**：相对路径读取省略工具 `workdir` 时，memory observer 只使用
+调用发生前最近一个顶层 `turn_context.payload.cwd`，并在调用处保存，不用后续
+输出时的目录或 ship 事件目录反推。新增推断仅覆盖 `cat [--] <literal paths>`，
+嵌套工具仅覆盖单次 `await tools.exec_command(...)` / `text(await ...)` 与无副作用
+原始字面参数；复杂命令需显式 `workdir` 或绝对路径。显式 `workdir` 优先；非法
+上下文、无法解释的参数和 shell 目录变化不提供相对路径证据。沿用工具调用与
+非空、未检测到错误的输出配对；这不是原生终态执行认证。未识别到证据不等于
+文件从未读过。该兼容形状来自 Codex 0.153.4 的脱敏转录观察，
+回归 fixture 证明检测器行为，不证明其他 runtime 版本，也不认证任意 JSONL。
+
 **命令解析边界**：`hooks/lib/command-parse.js` 是有界 lexer/parser，不执行 shell
 展开。安全分析保留 pipeline 连接，支持消费者 subshell、`|` 后换行和 Bash `|&`；
 动态 alias/function、运行时生成命令词和超过 3 层的任意递归仍显式 fail-open，不以

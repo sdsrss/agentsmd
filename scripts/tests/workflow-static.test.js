@@ -3,6 +3,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
@@ -150,6 +152,132 @@ test('Release fails closed on missing readiness before asset creation and regist
   assert.doesNotMatch(source, /\$\{\{\s*(?:inputs|github\.event\.inputs)\.readiness_json\s*\}\}/);
   const readinessJob = source.slice(source.indexOf('  readiness:'), source.indexOf('  release-assets:'));
   assert.doesNotMatch(readinessJob, /continue-on-error|if:\s*always|OPENAI_API_KEY|NPM_TOKEN|contents: write/);
+});
+
+
+// These source checks protect GitHub's documented default success-only needs
+// semantics. They do not emulate the hosted scheduler or prove hosted latency.
+function workflowJob(source, name) {
+  const match = source.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`, 'm'));
+  assert(match, `missing workflow job ${name}`);
+  return match[1];
+}
+
+function releaseShell(name) {
+  const source = read('.github/workflows/release.yml');
+  const start = source.indexOf(`      - name: ${name}\n`);
+  assert(start >= 0, `missing release step ${name}`);
+  const step = source.slice(start).split(/\n      - /)[0];
+  const body = (step + '\n').match(/        run: \|\n((?:          [^\n]*\n|\n)*)/);
+  assert(body, `missing shell for ${name}`);
+  return body[1].replace(/^          /gm, '');
+}
+
+test('asset stage reuses strict CI/readiness gates and has no duplicate suite', () => {
+  const release = read('.github/workflows/release.yml');
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(workflowJob(release, 'ci'), /uses: \.\/\.github\/workflows\/ci\.yml/);
+  assert.match(ci, /^  workflow_call:/m);
+  for (const source of [release, ci]) {
+    // Any conditional, softened failure, or redirected checkout needs review.
+    assert.doesNotMatch(source, /^\s*(?:if|continue-on-error|repository):/m);
+    const checkouts = [...source.matchAll(/uses: actions\/checkout@[^\n]+\n([\s\S]*?)(?=      - |\n  [a-z]|$(?![\s\S]))/g)];
+    assert.strictEqual(checkouts.length, 4);
+    for (const [, checkout] of checkouts) {
+      assert.match(checkout, /^        with:\n          ref: \$\{\{ github\.sha \}\}/m);
+    }
+  }
+  assert.match(workflowJob(release, 'release-assets'), /^    needs: \[ci, readiness\]$/m);
+  assert.match(workflowJob(release, 'npm-publish'), /^    needs: release-assets$/m);
+  assert.match(workflowJob(release, 'plugin-marketplace-smoke'), /^    needs: npm-publish$/m);
+  assert.doesNotMatch(workflowJob(release, 'release-assets'), /npm (?:test|run (?:check|test[:\w-]*))/);
+  assert.match(workflowJob(ci, 'test'), /node-version: \[18, 20, 22, 24\]/);
+  for (const job of ['test', 'macos-hooks']) {
+    assert.match(workflowJob(ci, job), /- run: npm test\n/);
+    assert.match(workflowJob(ci, job), /- run: npm run test:phase4\n/);
+  }
+  assert.match(workflowJob(ci, 'macos-hooks'), /runs-on: macos-latest/);
+  assert.match(workflowJob(ci, 'shellcheck'), /run: shellcheck/);
+  assert.match(workflowJob(ci, 'user-journey'), /run: bash qa\/user-journey\.sh/);
+});
+
+test('publication retains full prepublish checks, byte/signature/provenance and marketplace checks', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run check');
+  assert.match(pkg.scripts.check, /npm test/);
+  const source = read('.github/workflows/release.yml');
+  const publish = workflowJob(source, 'npm-publish');
+  assert.match(publish, /npm publish --provenance --access public/);
+  assert.doesNotMatch(releaseShell('Publish with provenance (idempotent)'), /--ignore-scripts|NPM_CONFIG_IGNORE_SCRIPTS/i);
+  for (const marker of ['REGISTRY_SHA', 'RELEASE_SHA', 'npm audit signatures',
+    'resolvedDependencies', '.digest.gitCommit == $commit', '.digest.sha512 == $sha512']) {
+    assert(publish.includes(marker), `missing ${marker}`);
+  }
+  assert.match(workflowJob(source, 'plugin-marketplace-smoke'), /bash qa\/plugin-marketplace-e2e\.sh/);
+});
+
+test('actual asset shell creates once, verifies reruns, and rejects broken existing assets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-release-shell-'));
+  try {
+    const bin = path.join(root, 'bin');
+    const home = path.join(root, 'home');
+    fs.mkdirSync(bin); fs.mkdirSync(home);
+    // macOS ships shasum; release runners ship sha256sum. Keep the real hash
+    // verification available in both phase4 matrix platforms.
+    const hashTool = spawnSync('sha256sum', ['--version'], { encoding: 'utf8' });
+    if (hashTool.error && hashTool.error.code === 'ENOENT') {
+      fs.writeFileSync(path.join(bin, 'sha256sum'), '#!/bin/sh\nexec shasum -a 256 "$@"\n', { mode: 0o755 });
+    }
+    // A local service double; all hashing and workflow control flow are real.
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/bash
+set -euo pipefail
+case "$1 $2" in
+  'release view') test "$SCENARIO" != new ;;
+  'release download')
+    test "$SCENARIO" != download-failed || exit 1
+    while [ "$1" != --dir ]; do shift; done
+    destination="$2"
+    cp "$ASSET" "$ASSET.sha256" "$destination/"
+    if [ "$SCENARIO" = corrupt ]; then
+      echo corrupted > "$destination/$ASSET"
+    elif [ "$SCENARIO" = mismatch ]; then
+      echo different > "$destination/$ASSET"
+      (cd "$destination"; sha256sum "$ASSET" > "$ASSET.sha256")
+    elif [ "$SCENARIO" = missing-checksum ]; then
+      rm "$destination/$ASSET.sha256"
+    fi
+    ;;
+  'release create') echo create >> "$CALL_LOG" ;;
+  *) exit 97 ;;
+esac
+`, { mode: 0o755 });
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    const asset = 'agentsmd-1.2.3.tgz';
+    fs.writeFileSync(path.join(root, asset), 'fixture archive bytes\n');
+    const sha = require('crypto').createHash('sha256').update(fs.readFileSync(path.join(root, asset))).digest('hex');
+    fs.writeFileSync(path.join(root, `${asset}.sha256`), `${sha}  ${asset}\n`);
+    const log = path.join(root, 'calls');
+    const env = { ...process.env, HOME: home, CODEX_HOME: home,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`, RUNNER_TEMP: root,
+      ASSET: asset, CALL_LOG: log, GITHUB_REF_NAME: 'v1.2.3' };
+    delete env.GH_TOKEN; delete env.GITHUB_TOKEN; delete env.NODE_AUTH_TOKEN;
+    const execute = (script, extra = {}) => spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
+      cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 10000,
+    });
+    const version = releaseShell('Assert tag matches package version');
+    assert.strictEqual(execute(version).status, 0);
+    assert.notStrictEqual(execute(version, { GITHUB_REF_NAME: 'v9.9.9' }).status, 0);
+    const script = releaseShell('Create or verify release assets');
+    for (const scenario of ['new', 'same', 'same', 'corrupt', 'mismatch', 'download-failed', 'missing-checksum']) {
+      const result = execute(script, { SCENARIO: scenario });
+      assert(!result.error, String(result.error));
+      assert.strictEqual(result.status === 0, ['new', 'same'].includes(scenario), `${scenario}: ${result.stderr}`);
+      assert.strictEqual(fs.readFileSync(log, 'utf8'), 'create\n', `${scenario}: unexpected mutation`);
+      assert.strictEqual(fs.readFileSync(path.join(root, asset), 'utf8'), 'fixture archive bytes\n');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('merged version PR automation creates a verified annotated tag without proof-free publication dispatch', () => {
