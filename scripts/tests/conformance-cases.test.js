@@ -816,6 +816,16 @@ t('outcome-first assertion accepts strict English/Chinese answers and rejects ev
   assert.strictEqual(matches('服务**已启用**。证据为 "enabled": true。\n'), true);
   assert.strictEqual(matches('证据显示服务已启用。\n'), false);
   assert.strictEqual(matches('The evidence says enabled.\n'), false);
+  assert.strictEqual(matches("The service is enabled. Evidence: `service.json` contains the exact field `\"enabled\": true`.\n"), true);
+  assert.strictEqual(matches("**The service is enabled.** Evidence follows.\n"), true);
+  assert.strictEqual(matches("The service is not enabled.\n"), false);
+  assert.strictEqual(matches("The service is enabled?\n"), false);
+  assert.strictEqual(matches("The service is enabled only if a dependency starts.\n"), false);
+  assert.strictEqual(matches("The service is enabledness.\n"), false);
+  assert.strictEqual(matches("Evidence: The service is enabled.\n"), false);
+  assert.strictEqual(matches("Is the service enabled?\n"), false);
+  assert.strictEqual(matches("The service may be enabled.\n"), false);
+  assert.strictEqual(matches("\"The service is enabled.\" is an unverified quote.\n"), false);
 });
 
 t('runner signal traps exit before the destructive sandbox cleanup', () => {

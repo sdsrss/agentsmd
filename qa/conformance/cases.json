@@ -404,7 +404,7 @@
       "assert": [
         { "type": "cmd_green", "cmd": "test -z \"$(git status --short)\"" },
         { "type": "exec_regex_min", "regex": "service\\.json", "min": 1 },
-        { "type": "last_regex", "regex": "^[[:space:]]*(\\*\\*)?((Yes|Enabled)([[:space:][:punct:]]|$)|服务(\\*\\*)?已启用([[:space:][:punct:]]|$))" },
+        { "type": "last_regex", "regex": "^[[:space:]]*(\\*\\*)?((Yes|Enabled)([[:space:][:punct:]]|$)|The service is enabled[.]|服务(\\*\\*)?已启用([[:space:][:punct:]]|$))" },
         { "type": "last_regex", "regex": "enabled" }
       ]
     },
