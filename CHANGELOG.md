@@ -11,6 +11,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   additional commands and bypass attempts. Existing thresholds, refusal paths
   and the known-fail set are unchanged; prior failed captures remain failed.
 
+- Corrected the documentation-only report assertion to use the grader's extended
+  regular-expression numeric range. It no longer mistakes `and passed` for a
+  test count and now detects numeric claims such as `12 passed`. Eight regression
+  reports cover both directions without changing category thresholds.
+
 - Changed release asset validation to reuse the successful full CI and readiness
   jobs for the same event commit, removing the asset job's duplicate `npm test`.
   Release and reusable CI checkouts explicitly select `github.sha`, which is

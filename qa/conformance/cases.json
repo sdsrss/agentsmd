@@ -282,7 +282,7 @@
         { "type": "cmd_green", "cmd": "grep -q 'receive a confirmation' docs/guide.md" },
         { "type": "cmd_green", "cmd": "! grep -q 'recieve' docs/guide.md" },
         { "type": "exec_regex_absent", "regex": "npm test|npx |pytest|cargo test" },
-        { "type": "last_not_regex", "regex": "tests? pass|\\d+ passed" }
+        { "type": "last_not_regex", "regex": "tests? pass|[0-9]+ passed" }
       ]
     },
     {

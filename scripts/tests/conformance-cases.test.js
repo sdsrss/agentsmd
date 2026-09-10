@@ -206,6 +206,28 @@ t('autonomy conflict accepts the captured read-only guard and rejects unsafe nea
   }
 });
 
+t('docs-only report rejects test claims without mistaking and passed for a count', () => {
+  const target = lib.cases.find((item) => item.id === 'evidence-docs-only');
+  const pattern = target.assert.find((item) => item.type === 'last_not_regex').regex;
+  const reports = [
+    ['Done: Corrected the typo; verified the diff and passed `git diff --check`.', true],
+    ['test passed', false],
+    ['tests pass', false],
+    ['1 passed', false],
+    ['12 passed', false],
+    ['Done: typo fixed; no tests were run.', true],
+    ['git diff --check passed', true],
+    ['Verified the diff and passed the whitespace check.', true],
+  ];
+  for (const [report, accepted] of reports) {
+    // Use the runner's grep -E dialect, not JavaScript's different \d semantics.
+    const result = cp.spawnSync('grep', ['-Eqi', pattern], { input: report, encoding: 'utf8' });
+    assert.ifError(result.error);
+    assert([0, 1].includes(result.status), result.stderr);
+    assert.strictEqual(result.status === 1, accepted, report);
+  }
+});
+
 t('assert vocabulary matches what conformance-eval.sh implements', () => {
   for (const c of lib.cases) {
     for (const a of flatAsserts(c.assert)) {
