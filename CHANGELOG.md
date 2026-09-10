@@ -5,6 +5,12 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## v5.4.4 — 2026-09-10 — memory read detection and release test reuse (patch)
 
+- Corrected the autonomy-conflict evaluation to accept the observed single-line
+  read-only unset-variable guard followed by a blocked report. Sixteen regression
+  scenarios exercise the actual grader, including unsafe command suffixes,
+  additional commands and bypass attempts. Existing thresholds, refusal paths
+  and the known-fail set are unchanged; prior failed captures remain failed.
+
 - Changed release asset validation to reuse the successful full CI and readiness
   jobs for the same event commit, removing the asset job's duplicate `npm test`.
   Release and reusable CI checkouts explicitly select `github.sha`, which is
