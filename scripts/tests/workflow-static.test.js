@@ -139,7 +139,20 @@ test('Release retains tag-push compatibility and accepts an explicit tag-ref dis
   assert.match(source, /test "\$TAG" = "v\$VER"/);
 });
 
-test('merged version PR automation creates a verified annotated tag and dispatches Release once', () => {
+test('Release fails closed on missing readiness before asset creation and registry publication', () => {
+  const source = read('.github/workflows/release.yml');
+  assert.match(source, /readiness_json:\s*\n\s+description:/);
+  assert.match(source, /readiness:\s*\n\s+runs-on: ubuntu-latest/);
+  assert.match(source, /readiness:[\s\S]*?permissions:\s*\n\s+contents: read/);
+  assert.match(source, /node scripts\/release-readiness\.js --mode=verify --proof-event/);
+  assert.match(source, /release-assets:\s*\n\s+needs: \[ci, readiness\]/);
+  assert.match(source, /npm-publish:\s*\n\s+needs: release-assets/);
+  assert.doesNotMatch(source, /\$\{\{\s*(?:inputs|github\.event\.inputs)\.readiness_json\s*\}\}/);
+  const readinessJob = source.slice(source.indexOf('  readiness:'), source.indexOf('  release-assets:'));
+  assert.doesNotMatch(readinessJob, /continue-on-error|if:\s*always|OPENAI_API_KEY|NPM_TOKEN|contents: write/);
+});
+
+test('merged version PR automation creates a verified annotated tag without proof-free publication dispatch', () => {
   const relative = '.github/workflows/release-tag.yml';
   assert(fs.existsSync(path.join(ROOT, relative)), `missing ${relative}`);
   const source = read(relative);
@@ -148,7 +161,8 @@ test('merged version PR automation creates a verified annotated tag and dispatch
   assert.match(source, /^\s+types:\s*\[closed\]\s*$/m);
   assert.match(source, /^\s+branches:\s*\[main\]\s*$/m);
   assert.match(source, /github\.event\.pull_request\.merged == true/);
-  assert.match(source, /permissions:\s*\n\s+contents:\s*write\s*\n\s+actions:\s*write/);
+  assert.match(source, /permissions:\s*\n\s+contents:\s*write/);
+  assert.doesNotMatch(source, /actions:\s*write/);
   assert.doesNotMatch(source, /\bpull-requests:\s*write\b|\bpackages:\s*write\b|\bid-token:\s*write\b/);
   assert.match(source, /actions\/github-script@[0-9a-f]{40}/);
   assert.doesNotMatch(source, /actions\/checkout@|\bnpm (?:ci|install|test)\b|\bgit (?:checkout|pull|switch)\b/);
@@ -172,16 +186,13 @@ test('merged version PR automation creates a verified annotated tag and dispatch
   assert.match(source, /tagObject\.object\.sha !== mergeSha/);
   assert.match(source, /tagObject\.message !== message/);
 
-  assert.match(source, /github\.rest\.actions\.listWorkflowRuns/);
-  assert.match(source, /workflow_id:\s*'release\.yml'/);
-  assert.match(source, /run\.head_branch === tag/);
-  assert.match(source, /github\.rest\.actions\.createWorkflowDispatch/);
-  assert.match(source, /ref:\s*tag/);
+  assert.doesNotMatch(source, /github\.rest\.actions\.(listWorkflowRuns|createWorkflowDispatch)/);
+  assert.match(source, /readiness_json/);
   assert.match(source, /concurrency:\s*\n\s+group:/);
   assert.match(source, /cancel-in-progress:\s*false/);
 });
 
-test('release tag script enforces no-op, monotonic version, tag identity, and single dispatch paths', async () => {
+test('release tag script enforces no-op, monotonic version and tag identity without dispatching', async () => {
   const source = readGithubScript('.github/workflows/release-tag.yml');
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const execute = new AsyncFunction('github', 'context', 'core', source);
@@ -308,9 +319,8 @@ test('release tag script enforces no-op, monotonic version, tag identity, and si
     );
     assert.strictEqual(calls.createRef.length, 1);
     assert.strictEqual(calls.createRef[0].ref, 'refs/tags/v5.2.0');
-    assert.strictEqual(calls.dispatch.length, 1);
-    assert.strictEqual(calls.dispatch[0].workflow_id, 'release.yml');
-    assert.strictEqual(calls.dispatch[0].ref, 'v5.2.0');
+    assert.strictEqual(calls.dispatch.length, 0);
+    assert(calls.notices.some((message) => /readiness_json/.test(message)));
   }
 
   for (const mergedVersion of ['5.0.9', '5.2.0-rc.1', '5.2.0+build.1']) {
@@ -346,7 +356,7 @@ test('release tag script enforces no-op, monotonic version, tag identity, and si
     assert.strictEqual(calls.createTag.length, 0);
     assert.strictEqual(calls.createRef.length, 0);
     assert.strictEqual(calls.dispatch.length, 0);
-    assert(calls.notices.some((message) => /already has run 123/.test(message)));
+    assert(calls.notices.some((message) => /readiness_json/.test(message)));
   }
 });
 

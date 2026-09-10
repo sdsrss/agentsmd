@@ -37,6 +37,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const REG = require('./lib/hook-registry');
+const { sourceReceipt, stableSource } = require('./lib/release-measurement');
 const { ArgvError, printHelpAndExit, parseStrict, parsePositiveInt } = require('./lib/argv');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -331,6 +332,7 @@ function evaluateSlo(single, dualWarm, slo) {
 }
 
 function runSlo({ runs, rounds, event, sandbox }) {
+  const sourceBefore = sourceReceipt(REPO_ROOT);
   const slo = loadSloConfig();
   const measure = (surface) => {
     const all = [];
@@ -360,6 +362,7 @@ function runSlo({ runs, rounds, event, sandbox }) {
   return {
     schemaVersion: OUTPUT_SCHEMA_VERSION,
     mode: 'slo', runs, rounds, env: envFingerprint(),
+    source: stableSource(sourceBefore, sourceReceipt(REPO_ROOT)),
     slo: { ...graded, inconclusive }, stability,
     surfaces: { single, 'dual-warm': dualWarm },
   };

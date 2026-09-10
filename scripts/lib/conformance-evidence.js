@@ -73,19 +73,21 @@ function validateDecision(value, errors) {
   if (value.decision.verdict === 'waived' && !hasFailure) {
     errors.push('$.decision.verdict: waived requires at least one failing run threshold');
   }
+  for (const [index, run] of runs.entries()) {
+    if (!run) continue;
+    if (run.passed + run.errors > run.total || run.false_block_near_negatives > run.passed) {
+      errors.push(`$.runs[${index}]: pass/error/near-negative counts contradict total`);
+    }
+    if (run.errors > 0 && (run.threshold_verdict === 'pass' || value.decision.verdict === 'waived')) {
+      errors.push(`$.runs[${index}]: infrastructure errors cannot pass or be behavior-waived`);
+    }
+  }
 }
 
 function validateConformanceReleaseEvidence(value) {
   const errors = validateSchema(value, RELEASE_SCHEMA, RELEASE_SCHEMA);
   deepBounds(value, '$', 0, errors);
-  if (value && value.decision) {
-    if (value.decision.verdict === 'waived' && !value.decision.waiver) {
-      errors.push('$.decision.waiver: waived evidence requires a release-only waiver');
-    }
-    if (value.decision.verdict !== 'waived' && value.decision.waiver !== null) {
-      errors.push('$.decision.waiver: non-waived evidence must use null');
-    }
-  }
+  validateDecision(value, errors);
   return { valid: errors.length === 0, errors: [...new Set(errors)] };
 }
 

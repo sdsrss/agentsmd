@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: release-tag-${{ github.event.pull_request.number }}
@@ -22,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Create annotated version tag and dispatch Release
+      - name: Create annotated version tag and require explicit readiness dispatch
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -170,24 +169,4 @@ jobs:
               core.notice(`created annotated tag ${tag} at ${mergeSha}`);
             }
 
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner,
-              repo,
-              workflow_id: 'release.yml',
-              per_page: 100,
-            });
-            const prior = runs.data.workflow_runs.find(
-              (run) => run.head_branch === tag && run.head_sha === mergeSha,
-            );
-            if (prior) {
-              core.notice(`Release already has run ${prior.id} for ${tag} at ${mergeSha}`);
-              return;
-            }
-
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: 'release.yml',
-              ref: tag,
-            });
-            core.notice(`dispatched Release for ${tag} at ${mergeSha}`);
+            core.notice(`Tag ${tag} is verified at ${mergeSha}. Dispatch release.yml on this tag with the validated readiness_json input; no proof-free publication is started.`);

@@ -10,9 +10,15 @@ on:
     tags:
       - 'v*'
   # Tags created with GITHUB_TOKEN do not recursively trigger push workflows.
-  # release-tag.yml therefore dispatches this workflow with the annotated tag
-  # as the ref; the existing tag/package assertions still gate publication.
+  # After release-tag.yml creates the annotated tag, a maintainer dispatches
+  # this workflow with the bounded local readiness proof. Tag pushes without
+  # proof remain fail-closed; neither assets nor npm publication may proceed.
   workflow_dispatch:
+    inputs:
+      readiness_json:
+        description: Bounded JSON emitted by scripts/release-readiness.js (no raw transcripts)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -25,8 +31,23 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - name: Verify declared conformance and SLO evidence against this source tree
+        run: node scripts/release-readiness.js --mode=verify --proof-event
+
   release-assets:
-    needs: ci
+    needs: [ci, readiness]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

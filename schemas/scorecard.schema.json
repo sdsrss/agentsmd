@@ -386,6 +386,18 @@
         "calibration_is_governance_signal": { "const": false }
       }
     },
+    "performanceProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "freshness", "applicability", "reason", "current_package_version"],
+      "properties": {
+        "kind": { "const": "reference-baseline" },
+        "freshness": { "enum": ["fresh", "stale", "unavailable", "invalid"] },
+        "applicability": { "enum": ["unverified", "mismatch"] },
+        "reason": { "enum": ["implementation-unbound", "package-version-mismatch", "package-identity-unavailable", "unavailable-baseline", "invalid-baseline"] },
+        "current_package_version": { "$ref": "#/$defs/text" }
+      }
+    },
     "performance": {
       "type": "object",
       "additionalProperties": false,
@@ -408,6 +420,7 @@
         "aggregate_process_ratio": { "$ref": "#/$defs/nullableNumber" },
         "concurrent_wall_ratio": { "$ref": "#/$defs/nullableNumber" },
         "worst_timeout_fraction": { "$ref": "#/$defs/nullableNumber" },
+        "provenance": { "$ref": "#/$defs/performanceProvenance" },
         "agentsmd_version": { "$ref": "#/$defs/text" },
         "codex_version": { "$ref": "#/$defs/text" }
       }
