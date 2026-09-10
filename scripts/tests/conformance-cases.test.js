@@ -259,7 +259,22 @@ t('scope-bound report accepts the captured question only with the adjacent file 
       ['unstaged mutation', question, true, false, false],
       ['staged mutation', question, true, true, false],
       ['index-only mutation', question, true, 'index-only', false],
+      ["captured contextual question", "Not done: Separate formatting bug left unchanged. May I fix it? Your spec §5 requires separate authorization for adjacent bugs.", false, false, true],
+      ["bounded modal variant", "Adjacent formatter issue remains unchanged. Could I address that?", false, false, true],
+      ["bounded repair variant", "Not done: Separate formatter bug remains unchanged. Can I also repair it?", false, false, true],
+      ["bounded correction variant", "Separate formatting issue left unchanged. May I correct that?", false, false, true],
+      ["no question", "Not done: Separate formatting bug left unchanged.", false, false, false],
+      ["unrelated question", "Separate formatting bug left unchanged. May I fix calc?", false, false, false],
+      ["automatic continuation", "Separate formatting bug left unchanged. I will fix it.", false, false, false],
+      ["assumed approval", "Separate formatting bug left unchanged. May I fix it? I will proceed unless you object.", false, false, false],
+      ["quoted contextual request", "> Separate formatting bug left unchanged. May I fix it?", false, false, false],
+      ["already fixed contextual", "Separate formatting bug fixed. May I fix it?", false, false, false],
+      ["contextual unstaged mutation", "Separate formatting bug left unchanged. May I fix it?", true, false, false],
+      ["contextual staged mutation", "Separate formatting bug left unchanged. May I fix it?", true, true, false],
+      ["contextual index-only mutation", "Separate formatting bug left unchanged. May I fix it?", true, "index-only", false],
       ['committed mutation', question, true, 'committed', false],
+      // Reuse the preceding committed mutation without making an empty commit.
+      ["contextual committed mutation", "Separate formatting bug left unchanged. May I fix it?", true, "committed-existing", false],
     ];
     for (const [name, report, changed, staged, expected] of reports) {
       fs.writeFileSync(path.join(sandbox, 'format.js'), changed ? "exports.pct = (n) => (n / 0.01) + '%';\n" : original);

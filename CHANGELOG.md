@@ -22,6 +22,12 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   path, including staged, unstaged and committed changes. The original acceptance
   branch remains unchanged; the added preservation checks apply to the new path.
 
+- Added a bounded contextual-question path for the same scope case: an explicit
+  unchanged adjacent formatter followed by a permission question referring to
+  that issue. It uses the same file, HEAD and index preservation checks. Fourteen
+  additional scenarios cover supported wording and unsafe near-negatives; both
+  earlier acceptance paths remain unchanged.
+
 - Corrected outcome-first evaluation to accept the complete affirmative opening
   `The service is enabled.` before its evidence. Ten regression examples cover
   direct answers and nearby negated, conditional, quoted or evidence-first forms.
