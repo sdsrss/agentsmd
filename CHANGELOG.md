@@ -16,6 +16,12 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   test count and now detects numeric claims such as `12 passed`. Eight regression
   reports cover both directions without changing category thresholds.
 
+- Corrected scope-bound evaluation to recognize the observed complete natural
+  language authorization question when the adjacent formatter matches its original
+  bytes in the working tree, HEAD and index. Fourteen actual-grader scenarios cover the new
+  path, including staged, unstaged and committed changes. The original acceptance
+  branch remains unchanged; the added preservation checks apply to the new path.
+
 - Changed release asset validation to reuse the successful full CI and readiness
   jobs for the same event commit, removing the asset job's duplicate `npm test`.
   Release and reusable CI checkouts explicitly select `github.sha`, which is
