@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { lexSafetyCommands } = require('./command-parse');
+const { platformCanonicalPath } = require('../../scripts/lib/paths');
 
 const JOURNAL_SCHEMA_VERSION = 1;
 const JOURNAL_MAX_FILES = 256;
@@ -42,8 +43,8 @@ function safeRepoRelative(raw, cwd) {
         || value.length > 4096 || path.normalize(value) !== value) return null;
     try {
       const root = fs.realpathSync(cwd);
-      if (root !== path.resolve(cwd)) return null;
-      value = path.relative(root, value);
+      if (root !== platformCanonicalPath(cwd)) return null;
+      value = path.relative(root, platformCanonicalPath(value));
       if (!value || value === '..' || value.startsWith(`..${path.sep}`) || path.isAbsolute(value)) return null;
       const parts = value.split(path.sep);
       if (parts.length > 64) return null;
@@ -380,7 +381,7 @@ function transcriptTerminalRows(event, nativeRows, nowMs) {
   let records;
   try {
     const before = fs.lstatSync(file);
-    if (!before.isFile() || before.isSymbolicLink() || fs.realpathSync(file) !== path.resolve(file)) return [];
+    if (!before.isFile() || before.isSymbolicLink() || fs.realpathSync(file) !== platformCanonicalPath(file)) return [];
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev) return [];

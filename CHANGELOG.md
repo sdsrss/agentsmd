@@ -18,7 +18,8 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   transcript provenance separately, reject special files before opening, and
   keep zero-mutation consumption observations outside violation denominators.
   Attribute canonical absolute patch paths only inside the current repository,
-  rejecting traversal, outside paths and symlink components.
+  rejecting traversal, outside paths and symlink components. Accept the macOS
+  system `/var` to `/private/var` alias for both patch and transcript paths.
 - Align Extended AUTONOMOUS wording with core §5: reuse existing authorization
   for the exact operation and scope; operations without that grant stay blocked.
 - Add an explicit read-only capture inventory `--root` and concrete import-first

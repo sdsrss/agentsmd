@@ -466,6 +466,65 @@ function withReceiptFixture(fn) {
   finally { fs.rmSync(box, { recursive: true, force: true }); }
 }
 
+// Exercise Darwin spellings on every CI platform while retaining real file,
+// descriptor, identity and symlink checks inside the isolated fixture.
+function journalWithVarAlias(box, platform) {
+  const canonical = '/private/var/folders/agentsmd-journal';
+  const alias = '/var/folders/agentsmd-journal';
+  const userAlias = '/private/var/folders/user-alias';
+  const translate = (file) => {
+    for (const prefix of [canonical, alias, userAlias]) {
+      if (file === prefix || file.startsWith(prefix + '/')) return box + file.slice(prefix.length);
+    }
+    throw new Error('path outside platform fixture');
+  };
+  const fixtureFs = { ...fs,
+    lstatSync: (file) => fs.lstatSync(translate(file)),
+    openSync: (file, flags) => fs.openSync(translate(file), flags),
+    realpathSync: (file) => canonical + fs.realpathSync(translate(file)).slice(box.length),
+  };
+  const file = path.join(ROOT, 'hooks/lib/event-journal.js');
+  const localRequire = require('module').createRequire(file);
+  const fixtureRequire = (name) => {
+    if (name === 'fs') return fixtureFs;
+    const value = localRequire(name);
+    if (name === '../../scripts/lib/paths') return { ...value,
+      platformCanonicalPath: (input) => value.platformCanonicalPath(input, platform) };
+    return value;
+  };
+  const module = { exports: {} };
+  require('vm').runInThisContext('(function(require,module,exports){' + fs.readFileSync(file, 'utf8') + '\n})',
+    { filename: file })(fixtureRequire, module, module.exports);
+  return { journal: module.exports, canonical, alias, userAlias };
+}
+
+test('Darwin system var alias preserves absolute mutation attribution in either spelling', () => {
+  withReceiptFixture(({ box }) => {
+    const { journal, canonical, alias, userAlias } = journalWithVarAlias(box, 'darwin');
+    for (const cwd of [canonical, alias]) for (const target of [canonical, alias]) {
+      assert.strictEqual(journal.safeRepoRelative(target + '/transcript.jsonl', cwd), 'transcript.jsonl');
+    }
+    assert.strictEqual(journal.safeRepoRelative(canonical + '/transcript.jsonl', userAlias), null);
+    assert.strictEqual(journal.safeRepoRelative(userAlias + '/transcript.jsonl', canonical), null);
+    fs.symlinkSync(path.join(box, 'transcript.jsonl'), path.join(box, 'link.jsonl'));
+    assert.strictEqual(journal.safeRepoRelative(alias + '/link.jsonl', alias), null);
+    const linux = journalWithVarAlias(box, 'linux').journal;
+    assert.strictEqual(linux.safeRepoRelative(alias + '/transcript.jsonl', alias), null);
+  });
+});
+
+test('Darwin system var alias accepts exact transcript receipts without allowing user aliases', () => {
+  withReceiptFixture(({ box, event }) => {
+    const { journal, canonical, alias, userAlias } = journalWithVarAlias(box, 'darwin');
+    for (const prefix of [canonical, alias]) {
+      assert.strictEqual(journal.transcriptTerminalRows({ ...event, transcript_path: prefix + '/transcript.jsonl' }, [], Date.now()).length, 1);
+    }
+    assert.strictEqual(journal.transcriptTerminalRows({ ...event, transcript_path: userAlias + '/transcript.jsonl' }, [], Date.now()).length, 0);
+    const linux = journalWithVarAlias(box, 'linux').journal;
+    assert.strictEqual(linux.transcriptTerminalRows({ ...event, transcript_path: alias + '/transcript.jsonl' }, [], Date.now()).length, 0);
+  });
+});
+
 test('Stop supplements an independent exact transcript receipt without changing native unknown', () => {
   withReceiptFixture(({ box, event }) => {
     const state = path.join(box, '.codex', '.agentsmd-state');
