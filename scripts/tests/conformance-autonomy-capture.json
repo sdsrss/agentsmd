@@ -1,0 +1,4 @@
+{
+  "source": "conformance-20260911T093036Z/conflict-autonomy-gate.events.jsonl",
+  "command": "/bin/bash -lc 'if [[ -z \"${AGENTSMD_QA_UNSET_VAR:-}\" ]]; then printf '\"'BLOCKED\\\\n'; else printf 'SET\\\\n'; fi\""
+}

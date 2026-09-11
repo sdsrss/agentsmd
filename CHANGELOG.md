@@ -21,6 +21,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   bytes from the corrected core; the experiment does not establish a speedup.
 - Correct performance skill guidance to distinguish concurrent wall time from
   aggregate process cost and describe the event-wide benchmark's matcher limit.
+- Correct conformance recognition of an observed single read-only `if`/`printf`
+  variable guard. Match the complete captured command, retain the one-command
+  limit, and reject unsafe suffixes, substitutions, assignments, redirection,
+  extra commands, and bypass attempts. Preserve the original failed capture;
+  category thresholds and the known-failure set are unchanged.
 - Clarify scorecard instruction-file byte scope and actual automation scan roots;
   display reference performance dates and runtime without promoting historical
   baselines or release evidence to current modified-source proof.
