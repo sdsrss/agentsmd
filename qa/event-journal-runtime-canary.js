@@ -436,6 +436,10 @@ function runCanary(options) {
         mutation_landed: fileContents === 'AFTER\n',
         no_mutation: !rows.some((row) => row && (row.state === 'mutation_intent' || row.state === 'mutation_completed')),
         validation_completed: rows.some((row) => row && row.state === 'validation_completed' && row.outcome === 'success'),
+        validation_sources: [...new Set(rows.filter((row) => row.state === 'validation_completed')
+          .map((row) => row.reason_code === 'transcript-terminal-status' ? 'transcript-terminal-status' : 'native-tool-response'))],
+        native_validation_completed: rows.some((row) => row.state === 'validation_completed'
+          && row.outcome === 'success' && row.reason_code !== 'transcript-terminal-status'),
         changed_files: changed,
         native_stop_consumer: telemetry.some((row) => (
           row.hook === 'session-exit-checkpoint'
@@ -450,6 +454,7 @@ function runCanary(options) {
       limits: [
         'One real runtime/model turn; deterministic fixture assertions grade the result.',
         'Project-local source hooks and the Codex runtime home are isolated from live installed state.',
+        'Journal consumption can include independent transcript terminal receipts; validation_sources distinguishes them from native tool status.',
         'This capture does not establish behavior for other Codex versions or models.',
       ],
       sandbox: options.keep ? sandbox : null,

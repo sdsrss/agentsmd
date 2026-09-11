@@ -242,6 +242,8 @@ Stop-time observers queue advisories. Those advisories appear on the next `UserP
 
 ## Native hook coverage
 
+Validation requires a real terminal result. When native Bash output contains only stdout, Stop can use an independently paired terminal receipt from the current session transcript for supported literal calls. Missing or ambiguous evidence remains unknown. Receipt provenance stays distinct from native tool status, and no-mutation observations do not enter the violation denominator.
+
 agentsmd registers 19 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, and `SessionEnd`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
 
 | Hook | Event | Detectable responsibility |

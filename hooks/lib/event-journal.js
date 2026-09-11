@@ -32,21 +32,44 @@ function journalDir(stateDir, sessionId) {
   return path.join(stateDir, `event-journal-${safeKey(sessionId, 'global')}.d`);
 }
 
-function safeRepoRelative(raw) {
+function safeRepoRelative(raw, cwd) {
   if (typeof raw !== 'string') return null;
-  const value = raw.trim().replace(/\\/g, '/');
-  if (!value || value.includes('\0') || value.startsWith('/') || /^[A-Za-z]:\//.test(value)) return null;
+  if (path.isAbsolute(raw.trim()) && (raw !== raw.trim() || (path.sep === '/' && raw.includes('\\')))) return null;
+  let value = raw.trim().replace(/\\/g, '/');
+  if (!value || value.includes('\0')) return null;
+  if (value.startsWith('/') || /^[A-Za-z]:\//.test(value)) {
+    if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || !path.isAbsolute(value)
+        || value.length > 4096 || path.normalize(value) !== value) return null;
+    try {
+      const root = fs.realpathSync(cwd);
+      if (root !== path.resolve(cwd)) return null;
+      value = path.relative(root, value);
+      if (!value || value === '..' || value.startsWith(`..${path.sep}`) || path.isAbsolute(value)) return null;
+      const parts = value.split(path.sep);
+      if (parts.length > 64) return null;
+      let current = root;
+      for (const [index, part] of parts.entries()) {
+        current = path.join(current, part);
+        let stat;
+        try { stat = fs.lstatSync(current); } catch (error) { if (error.code === 'ENOENT') break; throw error; }
+        if (stat.isSymbolicLink() || (index < parts.length - 1 && !stat.isDirectory())) return null;
+      }
+      value = value.replace(/\\/g, '/');
+    } catch { return null; }
+  }
   const normalized = path.posix.normalize(value);
   if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')) return null;
   return normalized.slice(0, 512);
 }
 
-function patchFiles(command) {
+function patchFiles(command, cwd) {
   if (typeof command !== 'string') return [];
   const files = [];
   const pattern = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm;
+  let scanned = 0;
   for (const match of command.matchAll(pattern)) {
-    const relative = safeRepoRelative(match[1]);
+    if (scanned++ >= 64) break;
+    const relative = safeRepoRelative(match[1], cwd);
     if (relative) files.push(relative);
   }
   return [...new Set(files)].slice(0, 64);
@@ -57,7 +80,7 @@ function mutationFiles(event) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
   const files = [];
   for (const key of ['path', 'file_path']) {
-    const relative = safeRepoRelative(input[key]);
+    const relative = safeRepoRelative(input[key], event.cwd);
     if (relative) files.push(relative);
   }
   return [...new Set(files)].slice(0, 64);
@@ -193,7 +216,7 @@ function classifyPost(event) {
       state: 'mutation_completed',
       ...result,
       validation_type: null,
-      repo_relative_files: patchFiles(command),
+      repo_relative_files: patchFiles(command, event.cwd),
     };
   }
   if (toolName !== 'Bash') return null;
@@ -249,7 +272,13 @@ function readRows(stateDir, sessionId) {
   }
   const rank = (row) => row.state === 'mutation_completed' ? 2
     : row.state === 'validation_completed' ? 1 : 0;
-  return rows.sort((a, b) => (a.observed_at_ms - b.observed_at_ms)
+  const receiptIds = new Set();
+  return rows.filter((row) => {
+    if (row.reason_code !== 'transcript-terminal-status') return true;
+    if (receiptIds.has(row.event_id)) return false;
+    receiptIds.add(row.event_id);
+    return true;
+  }).sort((a, b) => (a.observed_at_ms - b.observed_at_ms)
     || (rank(a) - rank(b))
     || String(a.event_id).localeCompare(String(b.event_id)));
 }
@@ -324,7 +353,7 @@ function processEvent(mode, event, options = {}) {
       exit_code: null,
       validation_type: null,
       repo_relative_files: base.tool_name === 'apply_patch'
-        ? patchFiles(commandFrom(event))
+        ? patchFiles(commandFrom(event), event.cwd)
         : mutationFiles(event),
       preflight_observed: earlier.some((row) => row.state === 'preflight_observed' && row.outcome === 'success'),
       plan_observed: earlier.some((row) => row.state === 'plan_observed' && row.outcome === 'success'),
@@ -339,15 +368,156 @@ function processEvent(mode, event, options = {}) {
   return writeRow(stateDir, { ...base, ...classified }, options);
 }
 
-function summarizeJournal(stateDir, sessionId, turnId) {
-  const rows = readRows(stateDir, sessionId).filter((row) => row.turn_id === turnId);
+// The native Bash payload can omit status. At Stop, the exact runtime-supplied
+// transcript can independently prove a completed check. Never join its call_id
+// to a native tool_use_id: these are different namespaces in Codex 0.154.0.
+function transcriptTerminalRows(event, nativeRows, nowMs) {
+  const { singleAwaitedCommand, singleAwaitedPatch } = require('./orchestrator-source');
+  const file = event.transcript_path;
+  if (typeof file !== 'string' || !path.isAbsolute(file)) return [];
+  const cap = 1 << 19;
+  let fd;
+  let records;
+  try {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.isSymbolicLink() || fs.realpathSync(file) !== path.resolve(file)) return [];
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev) return [];
+    const head = Buffer.alloc(Math.min(stat.size, 65536));
+    fs.readSync(fd, head, 0, head.length, 0);
+    const end = head.indexOf(10);
+    if (end < 0) return [];
+    const meta = JSON.parse(head.subarray(0, end).toString('utf8'));
+    if (meta.type !== 'session_meta' || meta.payload?.id !== event.session_id) return [];
+    const start = Math.max(0, stat.size - cap);
+    const tail = Buffer.alloc(stat.size - start);
+    fs.readSync(fd, tail, 0, tail.length, start);
+    const lines = tail.toString('utf8').split(/\r?\n/u);
+    if (start > 0) lines.shift();
+    records = lines.filter(Boolean).map((line) => JSON.parse(line));
+    // An append or replacement during the read is not a stable receipt.
+    const after = fs.fstatSync(fd);
+    const current = fs.lstatSync(file);
+    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs
+        || current.isSymbolicLink() || current.ino !== stat.ino || current.dev !== stat.dev
+        || current.size !== stat.size || current.mtimeMs !== stat.mtimeMs) return [];
+  } catch { return []; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+
+  let boundary = -1;
+  for (let i = 0; i < records.length; i += 1) {
+    if (records[i].type === 'event_msg' && records[i].payload?.type === 'task_started') boundary = i;
+  }
+  if (boundary < 0 || records[boundary].payload.turn_id !== event.turn_id) return [];
+  const calls = new Map();
+  const outputs = new Map();
+  const turnOf = (payload) => payload.internal_chat_message_metadata_passthrough?.turn_id;
+  for (let i = boundary + 1; i < records.length; i += 1) {
+    const record = records[i];
+    const p = record.payload;
+    if (record.type === 'turn_context' && p?.turn_id && p.turn_id !== event.turn_id) return [];
+    if (record.type !== 'response_item' || !p) continue;
+    const call = ['custom_tool_call', 'function_call'].includes(p.type);
+    const output = ['custom_tool_call_output', 'function_call_output'].includes(p.type);
+    if (!call && !output) continue;
+    if (turnOf(p) !== event.turn_id || typeof p.call_id !== 'string' || !p.call_id) return [];
+    const map = call ? calls : outputs;
+    if (map.has(p.call_id)) return [];
+    const at = Date.parse(record.timestamp);
+    const created = p.internal_chat_message_metadata_passthrough.create_time * 1000;
+    if (!Number.isFinite(at) || !Number.isFinite(created) || at > nowMs || created > nowMs) return [];
+    map.set(p.call_id, { p, index: i, at, started: Math.min(at, created) });
+  }
+  if (calls.size !== outputs.size) return [];
+  let barrier = Math.max(0, ...nativeRows.filter((row) =>
+    row.state === 'mutation_intent' || row.state === 'mutation_completed'
+  ).map((row) => row.observed_at_ms));
+  const candidates = [];
+  for (const [id, call] of calls) {
+    const output = outputs.get(id);
+    if (!output || output.index <= call.index || output.at < call.at) return [];
+    const p = call.p;
+    let command = null;
+    let result;
+    let patch = false;
+    if (p.name === 'exec' && p.type === 'custom_tool_call') {
+      command = singleAwaitedCommand(p.input);
+      patch = singleAwaitedPatch(p.input) !== null;
+      if (command === null && !patch) return [];
+      const blocks = output.p.output;
+      if (!Array.isArray(blocks) || blocks.length !== 2 || blocks.some((block) =>
+        block?.type !== 'input_text' || typeof block.text !== 'string'
+      ) || !/^Script completed\r?\nWall time \d+(?:\.\d+)? seconds\r?\nOutput:\r?\n$/u.test(blocks[0].text)) return [];
+      try { result = JSON.parse(blocks[1].text); } catch { return []; }
+    } else if (p.name === 'exec_command' && p.type === 'function_call') {
+      let args;
+      try { args = JSON.parse(p.arguments); } catch { return []; }
+      if (!args || typeof args.cmd !== 'string') return [];
+      command = args.cmd;
+      try { result = typeof output.p.output === 'string' ? JSON.parse(output.p.output) : output.p.output; }
+      catch { return []; }
+    } else if (p.name === 'apply_patch') patch = true;
+    else return [];
+    if (patch) { barrier = Math.max(barrier, output.at); continue; }
+    const terminal = validationOutcome(result);
+    if (!terminal || typeof result.output !== 'string' || !Number.isFinite(result.wall_time_seconds)
+        || result.wall_time_seconds < 0 || result.session_id != null) return [];
+    const type = validationCommand(command);
+    // A non-check command can leave background work running after its shell
+    // exits. Do not certify the turn through an unclassified command.
+    if (!type) {
+      // The persisted near-negative canary reads its file before checking it.
+      // Only this literal, foreground read is covered; no expansions, flags,
+      // redirections, pipelines, compound commands or background work.
+      if (/^cat[ \t]+(?:--[ \t]+)?(?!-)[\w./-]+(?:[ \t]+(?!-)[\w./-]+)*[ \t]*$/u.test(command)) continue;
+      return [];
+    }
+    const identity = crypto.createHash('sha256').update(JSON.stringify([p, output.p])).digest('hex');
+    candidates.push({ id, identity, at: call.started, terminal, type });
+  }
+  return candidates.filter((item) => item.at > barrier).map((item) => ({
+    schema_version: JOURNAL_SCHEMA_VERSION,
+    observed_at_ms: Math.floor(item.at),
+    event_id: crypto.createHash('sha256').update(JSON.stringify([event.session_id, event.turn_id, item.id, item.identity])).digest('hex'),
+    surface: nativeRows[0]?.surface || 'unknown',
+    session_id: event.session_id,
+    turn_id: event.turn_id,
+    tool_use_id: `transcript:${item.id}`,
+    hook_event_name: 'Stop',
+    tool_name: 'exec_command',
+    state: 'validation_completed',
+    ...item.terminal,
+    validation_type: item.type,
+    repo_relative_files: [],
+    reason_code: 'transcript-terminal-status',
+  }));
+}
+
+function supplementTranscriptValidations(stateDir, event, options = {}) {
+  const rows = readRows(stateDir, event.session_id).filter((row) => row.turn_id === event.turn_id);
+  const receipts = transcriptTerminalRows(event, rows, options.nowMs ?? Date.now());
+  for (const row of receipts) {
+    if (rows.some((old) => old.event_id === row.event_id)) continue;
+    writeRow(stateDir, row, { nonce: row.event_id });
+  }
+  return receipts.map((row) => row.event_id);
+}
+
+function summarizeJournal(stateDir, sessionId, turnId, options = {}) {
+  // History is retained, but derived receipts must be re-established at every
+  // Stop. A later barrier, damaged transcript or conflicting output revokes
+  // their applicability without rewriting the original observation.
+  const activeReceipts = new Set(options.transcriptReceiptIds || []);
+  const rows = readRows(stateDir, sessionId).filter((row) => row.turn_id === turnId
+    && (row.reason_code !== 'transcript-terminal-status' || activeReceipts.has(row.event_id)));
   const successfulMutations = rows.filter((row) => row.state === 'mutation_completed' && row.outcome === 'success');
   const firstMutationIndex = rows.findIndex((row) => row.state === 'mutation_intent' || row.state === 'mutation_completed');
   let latestMutationIndex = -1;
   rows.forEach((row, index) => {
     if (row.state === 'mutation_completed' && row.outcome === 'success') latestMutationIndex = index;
   });
-  const freshValidation = latestMutationIndex >= 0 && rows.slice(latestMutationIndex + 1)
+  const freshValidation = rows.slice(latestMutationIndex + 1)
     .some((row) => row.state === 'validation_completed' && row.outcome === 'success');
   const preMutationRows = firstMutationIndex < 0 ? rows : rows.slice(0, firstMutationIndex);
   const intentRows = rows.filter((row) => row.state === 'mutation_intent');
@@ -359,7 +529,9 @@ function summarizeJournal(stateDir, sessionId, turnId) {
     validations: rows.filter((row) => row.state === 'validation_completed').length,
     failed_validations: rows.filter((row) => row.state === 'validation_completed' && row.outcome === 'failure').length,
     fresh_validation: freshValidation,
-    fresh_validation_unknown: latestMutationIndex >= 0 && rows.slice(latestMutationIndex + 1)
+    validation_sources: [...new Set(rows.filter((row) => row.state === 'validation_completed')
+      .map((row) => row.reason_code === 'transcript-terminal-status' ? 'transcript-terminal-status' : 'native-tool-response'))],
+    fresh_validation_unknown: rows.slice(latestMutationIndex + 1)
       .some((row) => row.state === 'validation_observed' && row.outcome === 'unknown'),
     preflight_before_mutation: preMutationRows.some((row) => row.state === 'preflight_observed' && row.outcome === 'success')
       || intentRows.some((row) => row.preflight_observed === true),
@@ -419,4 +591,6 @@ module.exports = {
   validationOutcome,
   safeRepoRelative,
   summarizeJournal,
+  supplementTranscriptValidations,
+  transcriptTerminalRows,
 };

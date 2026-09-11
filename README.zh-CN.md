@@ -218,6 +218,8 @@ Stop observers 会把提示放入队列，在下一次 `UserPromptSubmit` 呈现
 
 ## 原生 Hook 覆盖
 
+验证需要真实终态。原生 Bash 响应只有 stdout 时，Stop 可从当前会话 transcript 为受支持的 literal 调用取得独立配对的终态回执；证据缺失或有歧义仍保持 unknown。回执来源与 native tool status 分开记录，零修改观察不进入违规统计分母。
+
 agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop` 和 `SessionEnd` 上注册 19 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
 
 | Hook | Event | 可检测职责 |

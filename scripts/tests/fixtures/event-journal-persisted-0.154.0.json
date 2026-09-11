@@ -1,0 +1,108 @@
+{
+  "runtime": "Codex 0.154.0",
+  "source": "Isolated persisted Codex 0.154.0 canary. Tool-record shape and session_meta identity observed; session and turn identifiers sanitized.",
+  "session_id": "sanitized-persisted-session",
+  "turn_id": "sanitized-persisted-turn",
+  "records": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "sanitized-persisted-session"
+      }
+    },
+    {
+      "timestamp": "2026-09-11T03:55:54.948Z",
+      "ordinal": 1,
+      "type": "event_msg",
+      "payload": {
+        "type": "task_started",
+        "turn_id": "sanitized-persisted-turn",
+        "started_at": 1789098954,
+        "model_context_window": 258400,
+        "collaboration_mode_kind": "default"
+      }
+    },
+    {
+      "timestamp": "2026-09-11T03:56:02.555Z",
+      "ordinal": 12,
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call",
+        "id": "ctc_0024ef248ad7de53016aa37bd1585087d2ab06bae74a2cd6fa",
+        "status": "completed",
+        "call_id": "call_0mQnICR6sxRwNv17vFYM8LiD",
+        "name": "exec",
+        "input": "text(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: canary.txt\\n@@\\n-BEFORE\\n+AFTER\\n*** End Patch\"));\n",
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "sanitized-persisted-turn",
+          "create_time": 1789098959.39352
+        }
+      }
+    },
+    {
+      "timestamp": "2026-09-11T03:56:03.018Z",
+      "ordinal": 15,
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call_output",
+        "id": "ctco_01a08e9b-b04a-7c51-9410-07a6250880e1",
+        "call_id": "call_0mQnICR6sxRwNv17vFYM8LiD",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.4 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{}"
+          }
+        ],
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "sanitized-persisted-turn",
+          "create_time": 1789098963.018067
+        }
+      }
+    },
+    {
+      "timestamp": "2026-09-11T03:56:05.934Z",
+      "ordinal": 17,
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call",
+        "id": "ctc_0024ef248ad7de53016aa37bd5296487d29ed6338c44f281ac",
+        "status": "completed",
+        "call_id": "call_fibtltihyym8mUk8CHppzyos",
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"npm test\",max_output_tokens:1000}));\n",
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "sanitized-persisted-turn",
+          "create_time": 1789098963.375554
+        }
+      }
+    },
+    {
+      "timestamp": "2026-09-11T03:56:06.236Z",
+      "ordinal": 20,
+      "type": "response_item",
+      "payload": {
+        "type": "custom_tool_call_output",
+        "id": "ctco_01a08e9b-bcdc-7380-b383-32a3743ecdd9",
+        "call_id": "call_fibtltihyym8mUk8CHppzyos",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.3 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"e4a049\",\"wall_time_seconds\":0.000007133,\"exit_code\":0,\"original_token_count\":13,\"output\":\"npm notice run test\\nnpm notice run node verify.js\\n\"}"
+          }
+        ],
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "sanitized-persisted-turn",
+          "create_time": 1789098966.2361138
+        }
+      }
+    }
+  ]
+}

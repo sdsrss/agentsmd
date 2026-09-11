@@ -455,6 +455,205 @@ test('Stop native consumer and transcript fallback produce the same unvalidated 
   }
 });
 
+const persistedFixture = require('./fixtures/event-journal-persisted-0.154.0.json');
+function withReceiptFixture(fn) {
+  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-terminal-receipt-')));
+  const file = path.join(box, 'transcript.jsonl');
+  const records = structuredClone(persistedFixture.records);
+  const event = { session_id: persistedFixture.session_id, turn_id: persistedFixture.turn_id, transcript_path: file };
+  const write = () => fs.writeFileSync(file, records.map(JSON.stringify).join('\n') + '\n');
+  try { write(); fn({ box, file, records, event, write }); }
+  finally { fs.rmSync(box, { recursive: true, force: true }); }
+}
+
+test('Stop supplements an independent exact transcript receipt without changing native unknown', () => {
+  withReceiptFixture(({ box, event }) => {
+    const state = path.join(box, '.codex', '.agentsmd-state');
+    JOURNAL.processEvent('post', { ...event, tool_use_id: 'native-unrelated-id', tool_name: 'Bash',
+      tool_input: { command: 'npm test' }, tool_response: 'PASS' }, { stateDir: state, nowMs: 1 });
+    const first = runStop(event, box);
+    assert.strictEqual(first.status, 0, first.stderr);
+    const rows = JOURNAL.readRows(state, event.session_id);
+    assert.strictEqual(rows.filter(r => r.state === 'validation_observed' && r.outcome === 'unknown').length, 1);
+    const receipt = rows.find(r => r.state === 'validation_completed');
+    assert.strictEqual(receipt.exit_code, 0);
+    assert.strictEqual(receipt.reason_code, 'transcript-terminal-status');
+    assert.strictEqual(receipt.surface, 'unknown');
+    assert.match(receipt.tool_use_id, /^transcript:call_/);
+    assert.ok(receipt.observed_at_ms < Date.now(), 'original call time, not Stop write time');
+    assert.strictEqual(runStop(event, box).status, 0);
+    assert.strictEqual(JOURNAL.readRows(state, event.session_id).length, rows.length, 'repeat Stop must deduplicate');
+    const log = fs.readFileSync(path.join(box, '.codex/logs/agentsmd.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+    const observe = log.find(row => row.event === 'observe');
+    assert.strictEqual(observe.eligible, false);
+    assert.strictEqual(observe.evaluated, false);
+    assert.strictEqual(observe.extra.mutations, 0);
+    assert.deepStrictEqual(observe.extra.validation_sources, ['transcript-terminal-status']);
+  });
+});
+
+for (const [name, mutate] of [
+  ['wrong session', x => { x.event.session_id = 'another-session'; }],
+  ['wrong turn', x => { x.event.turn_id = 'another-turn'; }],
+  ['missing session header', x => { x.records.shift(); }],
+  ['missing turn boundary', x => { x.records.splice(1, 1); }],
+  ['later turn boundary', x => { x.records.push({ type: 'event_msg', payload: { type: 'task_started', turn_id: 'later' } }); }],
+  ['duplicate call', x => { x.records.splice(5, 0, structuredClone(x.records[4])); }],
+  ['duplicate output', x => { x.records.push(structuredClone(x.records[5])); }],
+  ['output before call', x => { [x.records[4], x.records[5]] = [x.records[5], x.records[4]]; }],
+  ['cross-turn output', x => { x.records[5].payload.internal_chat_message_metadata_passthrough.turn_id = 'other'; }],
+  ['missing output', x => { x.records.pop(); }],
+  ['stdout-only envelope', x => { x.records[5].payload.output[1].text = JSON.stringify('exit_code: 0'); }],
+  ['nested status spoof', x => { x.records[5].payload.output[1].text = JSON.stringify({ output: '{"exit_code":0}', wall_time_seconds: 0.1 }); }],
+  ['running result', x => { x.records[5].payload.output[1].text = JSON.stringify({ output: 'PASS', exit_code: 0, session_id: 7, wall_time_seconds: 0.1 }); }],
+  ['conflicting status', x => { x.records[5].payload.output[1].text = JSON.stringify({ output: 'PASS', exit_code: 0, exitCode: 1, wall_time_seconds: 0.1 }); }],
+  ['extra output blocks', x => { x.records[5].payload.output.push({ type: 'input_text', text: '{}' }); }],
+  ['outer running header', x => { x.records[5].payload.output[0].text = 'Script running with cell ID 123'; }],
+  ['multiple calls', x => { x.records[4].payload.input += 'text(await tools.exec_command({cmd:"true"}));'; }],
+  ['unemitted child', x => { x.records[4].payload.input = 'await tools.exec_command({cmd:"npm test"});'; }],
+  ['only child stdout emitted', x => { x.records[4].payload.input = 'text((await tools.exec_command({cmd:"npm test"})).output);'; }],
+  ['unknown wrapper', x => { x.records[2].payload.input = 'const x = tools.apply_patch("patch");'; }],
+  ['invalid timestamp', x => { x.records[4].timestamp = 'invalid'; }],
+  ['future timestamp', x => { x.records[4].timestamp = '2999-01-01T00:00:00.000Z'; }],
+  ['check started before mutation ended', x => { x.records[4].payload.internal_chat_message_metadata_passthrough.create_time = 1; }],
+]) {
+  test(`transcript terminal evidence rejects ${name}`, () => {
+    withReceiptFixture(x => {
+      mutate(x); x.write();
+      assert.deepStrictEqual(JOURNAL.transcriptTerminalRows(x.event, [], Date.now()), []);
+    });
+  });
+}
+
+test('terminal failure is retained even when its stdout claims success', () => {
+  withReceiptFixture(x => {
+    x.records[5].payload.output[1].text = JSON.stringify({ output: '{"exit_code":0}', exit_code: 1, wall_time_seconds: 0.1 });
+    x.write();
+    const rows = JOURNAL.transcriptTerminalRows(x.event, [], Date.now());
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].outcome, 'failure');
+    assert.strictEqual(rows[0].exit_code, 1);
+  });
+});
+
+test('native modification after the transcript check cannot be validated by later receipt writing', () => {
+  withReceiptFixture(x => {
+    const rows = JOURNAL.transcriptTerminalRows(x.event, [{ state: 'mutation_completed', observed_at_ms: Date.now() - 1 }], Date.now());
+    assert.deepStrictEqual(rows, []);
+  });
+});
+
+test('bounded transcript receipt refuses symlinks and a truncated current turn', () => {
+  withReceiptFixture(x => {
+    const link = path.join(x.box, 'link.jsonl'); fs.symlinkSync(x.file, link);
+    assert.deepStrictEqual(JOURNAL.transcriptTerminalRows({ ...x.event, transcript_path: link }, [], Date.now()), []);
+    x.records.splice(2, 0, { type: 'event_msg', payload: { type: 'notice', text: 'x'.repeat(1 << 19) } });
+    x.write();
+    assert.deepStrictEqual(JOURNAL.transcriptTerminalRows(x.event, [], Date.now()), []);
+  });
+});
+
+test('derived receipts lose applicability after transcript changes without erasing history', () => {
+  withReceiptFixture(x => {
+    let ids = JOURNAL.supplementTranscriptValidations(x.box, x.event);
+    assert.strictEqual(JOURNAL.summarizeJournal(x.box, x.event.session_id, x.event.turn_id, { transcriptReceiptIds: ids }).fresh_validation, true);
+    const old = JOURNAL.readRows(x.box, x.event.session_id);
+    const call = structuredClone(x.records[4]), output = structuredClone(x.records[5]);
+    call.payload.call_id = output.payload.call_id = 'later-call';
+    call.payload.input = 'text(await tools.exec_command({cmd:"sleep 1 &"}));';
+    x.records.push(call, output); x.write();
+    ids = JOURNAL.supplementTranscriptValidations(x.box, x.event);
+    assert.deepStrictEqual(ids, []);
+    assert.strictEqual(JOURNAL.summarizeJournal(x.box, x.event.session_id, x.event.turn_id, { transcriptReceiptIds: ids }).fresh_validation, false);
+    assert.deepStrictEqual(JOURNAL.readRows(x.box, x.event.session_id), old);
+    assert.strictEqual(JOURNAL.summarizeJournal(x.box, x.event.session_id, x.event.turn_id).fresh_validation, false);
+    fs.writeFileSync(x.file, 'damaged');
+    assert.deepStrictEqual(JOURNAL.supplementTranscriptValidations(x.box, x.event), []);
+  });
+});
+
+test('terminal transcript rejects directories and FIFOs before opening them', () => {
+  withReceiptFixture(x => {
+    assert.deepStrictEqual(JOURNAL.transcriptTerminalRows({ ...x.event, transcript_path: x.box }, [], Date.now()), []);
+    if (process.platform === 'win32') return;
+    const fifo = path.join(x.box, 'pipe');
+    assert.strictEqual(cp.spawnSync('mkfifo', [fifo]).status, 0);
+    const result = cp.spawnSync(process.execPath, ['-e',
+      'const j=require(process.argv[1]);process.stdout.write(JSON.stringify(j.transcriptTerminalRows(JSON.parse(process.argv[2]),[],Date.now())))',
+      path.join(ROOT, 'hooks/lib/event-journal.js'), JSON.stringify({ ...x.event, transcript_path: fifo })], { encoding: 'utf8', timeout: 2000 });
+    assert.strictEqual(result.status, 0, result.error?.message);
+    assert.strictEqual(result.stdout, '[]');
+  });
+});
+
+test('changed terminal content cannot reactivate an older successful receipt', () => {
+  withReceiptFixture(x => {
+    const original = JOURNAL.supplementTranscriptValidations(x.box, x.event);
+    x.records[5].payload.output[1].text = JSON.stringify({ output: 'FAIL', exit_code: 1, wall_time_seconds: 0.1 });
+    x.write();
+    const current = JOURNAL.supplementTranscriptValidations(x.box, x.event);
+    assert.notDeepStrictEqual(current, original);
+    const summary = JOURNAL.summarizeJournal(x.box, x.event.session_id, x.event.turn_id, { transcriptReceiptIds: current });
+    assert.strictEqual(summary.fresh_validation, false);
+    assert.strictEqual(summary.failed_validations, 1);
+    assert.strictEqual(JOURNAL.readRows(x.box, x.event.session_id).length, 2, 'history remains');
+  });
+});
+
+test('concurrent Stop receipt writers count each independent receipt once', async () => {
+  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-receipt-parallel-')));
+  try {
+    const file = path.join(box, 'transcript.jsonl');
+    fs.writeFileSync(file, persistedFixture.records.map(JSON.stringify).join('\n') + '\n');
+    const event = { session_id: persistedFixture.session_id, turn_id: persistedFixture.turn_id, transcript_path: file };
+    await Promise.all(Array.from({ length: 6 }, () => new Promise((resolve, reject) => {
+      const child = cp.spawn(process.execPath, ['-e', 'require(process.argv[1]).supplementTranscriptValidations(process.argv[2],JSON.parse(process.argv[3]))',
+        path.join(ROOT, 'hooks/lib/event-journal.js'), box, JSON.stringify(event)]);
+      child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error('receipt writer exited '+code)));
+    })));
+    assert.strictEqual(JOURNAL.readRows(box, event.session_id).length, 1);
+  } finally { fs.rmSync(box, { recursive: true, force: true }); }
+});
+
+test('absolute mutation paths are attributed only inside the canonical current repository', () => {
+  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-patch-path-')));
+  try {
+    fs.mkdirSync(path.join(box, 'repo')); fs.mkdirSync(path.join(box, 'outside'));
+    const root = path.join(box, 'repo');
+    fs.writeFileSync(path.join(root, 'canary.txt'), 'BEFORE');
+    fs.symlinkSync(path.join(box, 'outside'), path.join(root, 'link'));
+    fs.symlinkSync(root, path.join(box, 'alias'));
+    assert.strictEqual(JOURNAL.safeRepoRelative(path.join(root, 'canary.txt'), root), 'canary.txt');
+    assert.strictEqual(JOURNAL.safeRepoRelative(path.join(root, 'new/file.txt'), root), 'new/file.txt');
+    for (const target of [path.join(box, 'outside/file.txt'), path.join(box, 'repo-lookalike/file.txt'),
+      path.join(root, 'link/file.txt'), root + '/x/../canary.txt']) {
+      assert.strictEqual(JOURNAL.safeRepoRelative(target, root), null, target);
+    }
+    assert.strictEqual(JOURNAL.safeRepoRelative(path.join(root, 'canary.txt')), null);
+    assert.strictEqual(JOURNAL.safeRepoRelative(root + '\\canary.txt', root), null);
+    assert.strictEqual(JOURNAL.safeRepoRelative(path.join(root, 'canary.txt') + ' ', root), null);
+    assert.strictEqual(JOURNAL.safeRepoRelative(path.join(root, 'canary.txt'), path.join(box, 'alias')), null);
+    assert.strictEqual(JOURNAL.safeRepoRelative('canary.txt', root), 'canary.txt');
+    const event = { session_id: 'path', turn_id: 'path-turn', tool_use_id: 'patch', cwd: root,
+      tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n*** Update File: '+path.join(root, 'canary.txt')+'\n@@\n-BEFORE\n+AFTER\n*** End Patch' }, tool_response: {} };
+    const pre = JOURNAL.processEvent('pre', event, { stateDir: box });
+    const post = JOURNAL.processEvent('post', event, { stateDir: box });
+    assert.deepStrictEqual(pre.repo_relative_files, ['canary.txt']);
+    assert.deepStrictEqual(post.repo_relative_files, ['canary.txt']);
+  } finally { fs.rmSync(box, { recursive: true, force: true }); }
+});
+
+for (const [command, accepted] of [['cat canary.txt', true], ['cat -- canary.txt', true], ['cat canary.txt &', false], ['cat canary.txt > other.txt', false], ['cat canary.txt; true', false], ['cat $(touch other.txt)', false]]) {
+  test('transcript literal read boundary: '+command, () => {
+    withReceiptFixture(x => {
+      x.records[2].payload.input = 'text(await tools.exec_command({cmd:'+JSON.stringify(command)+'}));';
+      x.records[3].payload.output[1].text = JSON.stringify({ output: 'BEFORE', exit_code: 0, wall_time_seconds: 0.1 });
+      x.write();
+      assert.strictEqual(JOURNAL.transcriptTerminalRows(x.event, [], Date.now()).length, accepted ? 1 : 0);
+    });
+  });
+}
+
 Promise.all(pending).then(() => {
   console.log(`\nRESULT: ${passed} passed, ${failed} failed`);
   process.exitCode = failed === 0 ? 0 : 1;

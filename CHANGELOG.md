@@ -10,6 +10,15 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   stay unknown, including JSON-looking output; unknown checkpoints do not count
   as violations. Reject printed/deferred checks, no-op modes, mutating flags,
   and outer-wrapper success. Native canary matchers now follow the hook registry.
+- Recover independently paired terminal receipts at Stop from the exact current
+  session transcript when native Bash supplies only stdout. Bound reads and
+  require session/turn identity, unique call/output pairs, literal awaited calls,
+  terminal child envelopes, and original execution order. Preserve native unknown
+  and historical receipts; re-establish applicability at every Stop. Report
+  transcript provenance separately, reject special files before opening, and
+  keep zero-mutation consumption observations outside violation denominators.
+  Attribute canonical absolute patch paths only inside the current repository,
+  rejecting traversal, outside paths and symlink components.
 - Align Extended AUTONOMOUS wording with core §5: reuse existing authorization
   for the exact operation and scope; operations without that grant stay blocked.
 - Add an explicit read-only capture inventory `--root` and concrete import-first

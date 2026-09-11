@@ -48,12 +48,17 @@ LEGACY_FLAG="$LEGACY_STATE_DIR/unvalidated-$SKEY.flag"
 
 RESULT=""
 EVIDENCE_SOURCE=""
+VALIDATION_SOURCES='[]'
+TRANSCRIPT="$(hook_json_field "$EVENT" '.transcript_path')"
 if [[ -n "$TURN_ID" && -r "$LIB_DIR/event-journal.js" ]]; then
   SUMMARY="$(node -e '
 const journal=require(process.argv[1]);
-const summary=journal.summarizeJournal(process.argv[2],process.argv[3],process.argv[4]);
+const transcriptReceiptIds=journal.supplementTranscriptValidations(process.argv[2],{
+  session_id:process.argv[3],turn_id:process.argv[4],transcript_path:process.argv[5]
+});
+const summary=journal.summarizeJournal(process.argv[2],process.argv[3],process.argv[4],{transcriptReceiptIds});
 process.stdout.write(JSON.stringify(summary));
-' "$LIB_DIR/event-journal.js" "$STATE_DIR" "$SID" "$TURN_ID" 2>/dev/null)" || SUMMARY=""
+' "$LIB_DIR/event-journal.js" "$STATE_DIR" "$SID" "$TURN_ID" "$TRANSCRIPT" 2>/dev/null)" || SUMMARY=""
   if [[ -n "$SUMMARY" ]] && printf '%s' "$SUMMARY" | jq -e \
       '.source=="native-event-journal" and (.mutations|type)=="number" and (.fresh_validation|type)=="boolean"' \
       >/dev/null 2>&1; then
@@ -61,6 +66,7 @@ process.stdout.write(JSON.stringify(summary));
     NATIVE_VAL="$(printf '%s' "$SUMMARY" | jq -r 'if .fresh_validation then 1 elif .fresh_validation_unknown then "unknown" else 0 end')"
     RESULT="$NATIVE_MUT $NATIVE_VAL"
     EVIDENCE_SOURCE="native-event-journal"
+    VALIDATION_SOURCES="$(printf '%s' "$SUMMARY" | jq -c '.validation_sources')"
   else
     hook_record_failopen "$HOOK" "native-journal-read-failed"
   fi
@@ -154,10 +160,13 @@ MUT="${RESULT%% *}"; VAL="${RESULT##* }"
 if [[ "$MUT" -gt 0 && "$VAL" == "unknown" ]]; then
   hook_record_failopen "$HOOK" "validation-terminal-status-unavailable" "$SID"
 fi
-if [[ "$MUT" -gt 0 && "$VAL" != "unknown" ]]; then
-  hook_observe "$HOOK" '§7-session-exit' "$SID" true true \
+if [[ "$MUT" -gt 0 && "$VAL" != "unknown" ]] \
+    || [[ "$MUT" -eq 0 && "$EVIDENCE_SOURCE" == "native-event-journal" ]]; then
+  ELIGIBLE=false; [[ "$MUT" -gt 0 ]] && ELIGIBLE=true
+  hook_observe "$HOOK" '§7-session-exit' "$SID" "$ELIGIBLE" "$ELIGIBLE" \
     "$(jq -cn --argjson m "$MUT" --arg v "$VAL" --arg source "$EVIDENCE_SOURCE" \
-      '{mutations:$m,validated:($v=="1"),source:$source}' 2>/dev/null || echo null)"
+      --argjson validation_sources "$VALIDATION_SOURCES" \
+      '{mutations:$m,validated:(if $v=="unknown" then null else $v=="1" end),source:$source,validation_sources:$validation_sources}' 2>/dev/null || echo null)"
 fi
 
 if [[ "$MUT" -gt 0 && "$VAL" != "1" ]]; then

@@ -173,4 +173,15 @@ function singleAwaitedCommand(source) {
   return typeof command === 'string' ? command : null;
 }
 
-module.exports = { extractOrchestratorActions, singleAwaitedCommand };
+function singleAwaitedPatch(source) {
+  if (typeof source !== 'string' || source.length > 32768) return null;
+  const prefix = /^\s*text\(\s*await\s+tools\.apply_patch\s*\(/u.exec(source);
+  if (!prefix) return null;
+  const call = readBalancedCall(source, prefix[0].length - 1);
+  if (!call || !/^\s*\)\s*;?\s*$/u.test(source.slice(call.end))) return null;
+  const start = skipTrivia(call.body, 0);
+  const literal = readQuoted(call.body, start);
+  return literal && skipTrivia(call.body, literal.end) === call.body.length ? literal.value : null;
+}
+
+module.exports = { extractOrchestratorActions, singleAwaitedCommand, singleAwaitedPatch };
