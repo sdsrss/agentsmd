@@ -2,7 +2,7 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
-## Unreleased — audit-driven consistency corrections
+## v5.5.1 — 2026-09-11 — audit-driven consistency corrections
 
 Core uses the configured `CODEX_HOME` for Extended lookup, preserves an
 unrevoked operation-scoped grant across this task/session, and distinguishes
@@ -12,6 +12,12 @@ stale, or affected by changes; it retains core's memory/final-report archival
 choice. Report completeness obligations are unchanged. Observer notes describe
 relative-order and local numeric-fingerprint limits. Local regression evidence
 does not substitute for selected real-model conformance before release.
+
+The repeated L3 authorization explanation is removed with its canonical §2/§5
+boundaries retained. The exact pre-version candidate passed 24/24 current-core
+and 24/24 candidate-core representative cells, followed by the fixed four-cell
+authorization guard, on Codex 0.154.0 / gpt-6-astra. Its 125-byte saving is a
+text-size result; paired measurements do not establish a latency improvement.
 
 ## v5.5.0 — 2026-09-11 — autonomous authorization clarification
 

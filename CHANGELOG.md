@@ -3,7 +3,7 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## Unreleased
+## v5.5.1 — 2026-09-11 — prompt consistency and observer corrections (patch)
 
 - Fix report-order advisories that inferred missing sections from permitted
   short reports. Check the relative order of present labels; task-level
@@ -14,6 +14,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 - Align Extended lookup with `CODEX_HOME`, preserve unrevoked task/session
   authorization, and treat continuation messages as state-review triggers.
   Keep the final-report fallback for dead-end archival.
+- Remove the duplicate L3 authorization explanation while retaining the Level/Auth
+  boundary. A paired evaluation passed all 48 representative cells (24 current-core
+  and 24 candidate-core) and all four authorization-guard cells on Codex 0.154.0 /
+  gpt-6-astra. This recovers 125
+  bytes from the corrected core; the experiment does not establish a speedup.
 - Correct performance skill guidance to distinguish concurrent wall time from
   aggregate process cost and describe the event-wide benchmark's matcher limit.
 - Clarify scorecard instruction-file byte scope and actual automation scan roots;
