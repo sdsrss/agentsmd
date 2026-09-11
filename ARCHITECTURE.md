@@ -141,6 +141,10 @@ predecessor ID，所以恢复内容始终标成 untrusted recency candidates，�
 Stop native consumer、privacy allowlist 与零 unvalidated flag；capture 只证明记录
 的 runtime/model/surface 组合。
 
+验证命令分类与 Stop 转录兼容路径共用有界 literal-command 识别器：单个检查或全部为检查的 `&&` 链才有资格；打印命令、条件分支、管道、空跑和写入选项不提供通过证据。原生结构化退出码必须为一致的整数；外层 `exec` 成功不能证明子命令成功，兼容路径只接受单个 `text(await tools.exec_command({...}))` 与其明确输出的终态执行 envelope。未覆盖的复杂编排仍不能认证。
+
+2026-09-11 的 Codex 0.154.0 / gpt-6-astra 隔离 canary 观察到 Bash `tool_response` 只有 stdout，没有退出码；脱敏 fixture 位于 `scripts/tests/fixtures/event-journal-codex-0.154.0.json`。此形状记录 `validation_observed` / `unknown`，不计为成功或违规，保留 `validation=unknown` checkpoint 并记录缺失终态的诊断。该 canary 的完整通过条件未满足（也缺少 mutation intent），不能用静态 fixture 代替原生完整闭环。官方 [hooks 文档](https://learn.chatgpt.com/docs/hooks) 将响应定义为 tool-specific JSON，不保证统一退出码字段。
+
 Phase 4 的 `qa/runtime-canary.js` 在这条单场景证据之上增加 pinned/latest
 matrix、positive/near-negative 双场景、隔离 install/status/doctor、结构
 contract 与 5-run 信息性性能趋势。每个 Codex 场景使用自己的临时

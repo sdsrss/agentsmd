@@ -58,7 +58,7 @@ process.stdout.write(JSON.stringify(summary));
       '.source=="native-event-journal" and (.mutations|type)=="number" and (.fresh_validation|type)=="boolean"' \
       >/dev/null 2>&1; then
     NATIVE_MUT="$(printf '%s' "$SUMMARY" | jq -r '.mutations')"
-    NATIVE_VAL="$(printf '%s' "$SUMMARY" | jq -r 'if .fresh_validation then 1 else 0 end')"
+    NATIVE_VAL="$(printf '%s' "$SUMMARY" | jq -r 'if .fresh_validation then 1 elif .fresh_validation_unknown then "unknown" else 0 end')"
     RESULT="$NATIVE_MUT $NATIVE_VAL"
     EVIDENCE_SOURCE="native-event-journal"
   else
@@ -74,7 +74,8 @@ if [[ -z "$RESULT" ]]; then
   # turn: count mutations and later validation. Prints "MUT VAL".
   RESULT="$(node -e '
 const fs=require("fs");
-const {extractOrchestratorActions}=require(process.argv[2]);
+const {extractOrchestratorActions,singleAwaitedCommand}=require(process.argv[2]);
+const {validationCommand,validationOutcome}=require(process.argv[3]);
 const p=process.argv[1];
 const CAP=1<<19;
 let lines;
@@ -88,26 +89,17 @@ for(let i=lines.length-1;i>=0;i--){
   const t=o&&o.type,pl=o&&o.payload!=null?o.payload:o,role=pl&&(pl.role||pl.author);
   if(t==="user_message"||((t==="message"||t==="response_item")&&role==="user")){start=i+1;break;}
 }
-const VAL=/\b(npm\s+(test|run\b[^\n]*\b(test|lint|check|typecheck|build))|yarn\s+(test|lint)|pnpm\s+(test|lint)|python\s+-m\s+pytest|pytest|jest|vitest|mocha|cargo\s+(test|build|check|clippy)|go\s+test|tsc\b|eslint|biome\s+(?:check|lint)\b|ruff\s+(?:check\b|format\b[^\n]*--check\b)|clippy|make\s+(test|check)|(?:node|bash|sh)\s+[^\n;]*(?:\/tests?\/|\.test\.(?:[cm]?[jt]s|tsx?)\b|(?:smoke|test)\.sh\b))/i;
 const MUT=/((?:npx\s+)?prettier\b[^\n]*(?:--write|-w\b)|eslint\b[^\n]*--fix\b|biome\b[^\n]*(?:--write|--fix)\b|gofmt\b[^\n]*-w\b|rustfmt\b|cargo\s+fmt\b|sed\b[^\n]*\s-i(?:\s|$)|perl\b[^\n]*\s-pi\b|npm\s+run\s+(?:format|fmt)\b)/i;
 const RUFF_MUT=/\bruff\s+format\b/i;
 const RUFF_CHECK=/\bruff\s+format\b[^\n]*--check\b/i;
 const parseValue=(value)=>{if(!value||typeof value!=="string")return value;try{return JSON.parse(value);}catch{return value;}};
-const outputFailed=(value)=>{
-  value=parseValue(value);
-  if(value&&typeof value==="object"){
-    for(const key of ["exit_code","exitCode"]){if(Number.isFinite(Number(value[key]))&&Number(value[key])!==0)return true;}
-    return Object.values(value).some(outputFailed);
-  }
-  return typeof value==="string"&&/(?:\b(?:Process\s+)?exited\s+(?:with\s+code\s+)?[1-9][0-9]*\b|\bexit[_ ]?code\s*[:=]?\s*[1-9][0-9]*\b|Script failed|tool_error)/i.test(value);
-};
 const execOutputs=new Map();
 for(let i=start;i<lines.length;i++){
   let o;try{o=JSON.parse(lines[i]);}catch{continue;}
   const pl=o&&o.payload!=null?o.payload:o,type=pl&&(pl.type||o.type),callId=pl&&(pl.call_id||pl.id);
   if((type==="custom_tool_call_output"||type==="function_call_output")&&callId){
     const out=pl.output!=null?pl.output:pl.content;
-    execOutputs.set(callId,{present:out!=null,failed:outputFailed(out)});
+    execOutputs.set(callId,parseValue(out));
   }
 }
 let mut=0,val=0;
@@ -124,7 +116,13 @@ for(let i=start;i<lines.length;i++){
       if(action.name==="apply_patch"){mut++;val=0;continue;}
       const cmd=typeof action.command==="string"?action.command:"";
       if(MUT.test(cmd)||(RUFF_MUT.test(cmd)&&!RUFF_CHECK.test(cmd))){mut++;val=0;}
-      if(mut>0&&outer&&outer.present&&!outer.failed&&VAL.test(cmd))val=1;
+
+    }
+    const cmd=singleAwaitedCommand(source);
+    const child=outer&&typeof outer.output==="string"&&Number.isFinite(outer.wall_time_seconds)?validationOutcome(outer):null;
+    if(mut>0&&cmd&&validationCommand(cmd)){
+      if(child&&child.outcome==="success")val=1;
+      else if(!child&&val!==1)val="unknown";
     }
     continue;
   }
@@ -135,13 +133,17 @@ for(let i=start;i<lines.length;i++){
     // JSON metadata may contain words such as "test" but execute nothing.
     const raw=a&&typeof a==="object"?(a.cmd!==undefined?a.cmd:a.command):null;
     const cmd=typeof raw==="string"?raw
-      :(Array.isArray(raw)&&raw.every(x=>typeof x==="string")?raw.join(" "):"");
+      :(Array.isArray(raw)&&raw.every(x=>typeof x==="string")?raw.map(x=>JSON.stringify(x)).join(" "):"");
     if(MUT.test(cmd)||(RUFF_MUT.test(cmd)&&!RUFF_CHECK.test(cmd))){mut++;val=0;}
-    if(mut>0&&VAL.test(cmd))val=1;
+    const result=validationOutcome(execOutputs.get(pl.call_id||pl.id));
+    if(mut>0&&validationCommand(cmd)){
+      if(result&&result.outcome==="success")val=1;
+      else if(!result&&val!==1)val="unknown";
+    }
   }
 }
 process.stdout.write(mut+" "+val);
-' "$TRANSCRIPT" "$LIB_DIR/orchestrator-source.js" 2>/dev/null)" || exit 0
+' "$TRANSCRIPT" "$LIB_DIR/orchestrator-source.js" "$LIB_DIR/event-journal.js" 2>/dev/null)" || exit 0
   EVIDENCE_SOURCE="transcript-fallback"
   hook_record "$HOOK" "compat-fallback" \
     '{"from":"native-event-journal","to":"transcript","bounded_bytes":524288}' '' "$SID"
@@ -149,23 +151,26 @@ fi
 
 MUT="${RESULT%% *}"; VAL="${RESULT##* }"
 [[ "$MUT" =~ ^[0-9]+$ ]] || exit 0
-if [[ "$MUT" -gt 0 ]]; then
+if [[ "$MUT" -gt 0 && "$VAL" == "unknown" ]]; then
+  hook_record_failopen "$HOOK" "validation-terminal-status-unavailable" "$SID"
+fi
+if [[ "$MUT" -gt 0 && "$VAL" != "unknown" ]]; then
   hook_observe "$HOOK" '§7-session-exit' "$SID" true true \
     "$(jq -cn --argjson m "$MUT" --arg v "$VAL" --arg source "$EVIDENCE_SOURCE" \
       '{mutations:$m,validated:($v=="1"),source:$source}' 2>/dev/null || echo null)"
 fi
 
-if [[ "$MUT" -gt 0 && "$VAL" == "0" ]]; then
+if [[ "$MUT" -gt 0 && "$VAL" != "1" ]]; then
   # Mutated without validating. Record telemetry ONCE per streak — only on the
   # absent→present transition — so the ledger gets one row per unvalidated streak,
   # not one per turn (which would flood §7-session-exit with mid-work edits).
-  if [[ ! -f "$FLAG" && ( "$LEGACY_FLAG" == "$FLAG" || ! -f "$LEGACY_FLAG" ) ]]; then
+  if [[ "$VAL" != "unknown" && ! -f "$FLAG" && ( "$LEGACY_FLAG" == "$FLAG" || ! -f "$LEGACY_FLAG" ) ]]; then
     hook_record "$HOOK" "advisory" \
       "$(jq -cn --argjson n "$MUT" --arg cwd "$CWD" '{mutations:$n,cwd:$cwd}' 2>/dev/null || echo null)" \
       '§7-session-exit' "$SID"
   fi
   mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
-  printf 'mutations=%s\ncwd=%s\n' "$MUT" "$CWD" > "$FLAG" 2>/dev/null || true
+  printf 'mutations=%s\ncwd=%s\nvalidation=%s\n' "$MUT" "$CWD" "$VAL" > "$FLAG" 2>/dev/null || true
 else
   # Validated this turn (or nothing mutated) → clear any outstanding flag.
   rm -f "$FLAG" 2>/dev/null || true

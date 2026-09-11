@@ -84,6 +84,53 @@ for (const testCase of CASES.cases) {
   });
 }
 
+const validationCases = [
+  ['project validator', 'node verify.js', { exit_code: 0 }, true],
+  ['syntax check', 'node --check calc.js', { exit_code: 0 }, true],
+  ['Python assertion', 'python3 -c "assert 2 + 2 == 4"', { exit_code: 0 }, true],
+  ['Python test module', 'python3 -m pytest', { exit_code: 0 }, true],
+  ['check chain', 'node tests/a.test.js && bash hooks/tests/smoke.sh', { exit_code: 0 }, true],
+  ['shell wrapper', 'bash -lc "npm test"', { exit_code: 0 }, true],
+  ['env wrapper', 'env MODE=test npm test', { exit_code: 0 }, true],
+  ['absolute executable', '/usr/bin/node --check calc.js', { exit_code: 0 }, true],
+  ['quoted marker', 'printf "%s\\n" "npm test"', { exit_code: 0 }, false],
+  ['comment marker', 'echo done # npm test', { exit_code: 0 }, false],
+  ['dead branch', 'if false; then npm test; fi', { exit_code: 0 }, false],
+  ['short circuit', 'true || npm test', { exit_code: 0 }, false],
+  ['masked failure', 'npm test; true', { exit_code: 0 }, false],
+  ['pipeline', 'npm test | cat', { exit_code: 0 }, false],
+  ['background', 'npm test &', { exit_code: 0 }, false],
+  ['deferred function', 'check() { npm test; }', { exit_code: 0 }, false],
+  ['here document data', 'cat <<EOF\nnpm test\nEOF', { exit_code: 0 }, false],
+  ['Python printed assertion', 'python3 -c "print(\'assert True\')"', { exit_code: 0 }, false],
+  ['Python optimized assertion', 'python3 -O -c "assert False"', { exit_code: 0 }, false],
+  ['Python env optimization', 'PYTHONOPTIMIZE=1 python3 -c "assert False"', { exit_code: 0 }, false],
+  ['Python env wrapper optimization', 'env PYTHONOPTIMIZE=1 python3 -c "assert False"', { exit_code: 0 }, false],
+  ['make dry run', 'make test -n', { exit_code: 0 }, false],
+  ['npm skipped scripts', 'npm test --ignore-scripts', { exit_code: 0 }, false],
+  ['typecheck config only', 'tsc --showConfig', { exit_code: 0 }, false],
+  ['lint config only', 'eslint --print-config calc.js', { exit_code: 0 }, false],
+  ['mutating equal option', 'biome check --write=true .', { exit_code: 0 }, false],
+  ['dynamic command', '$RUNNER test', { exit_code: 0 }, false],
+  ['failed check', 'npm test', { exit_code: 1 }, false],
+  ['null exit', 'npm test', { exit_code: null }, false],
+  ['boolean exit', 'npm test', { exit_code: false }, false],
+  ['empty response', 'npm test', {}, false],
+  ['running response', 'npm test', { session_id: 123, output: 'Process running' }, false],
+  ['output spoof', 'npm test', { output: 'exit_code: 0' }, false],
+  ['nested output spoof', 'npm test', { output: { exit_code: 0 } }, false],
+  ['conflicting statuses', 'npm test', { exit_code: 0, exitCode: 1 }, false],
+  ['terminal envelope', 'npm test', JSON.stringify({ exit_code: 0, output: 'PASS' }), false, true],
+];
+for (const [name, command, response, expected] of validationCases) {
+  test(`validation evidence: ${name}`, () => {
+    const event = eventFrom({ mode: 'post', tool_name: 'Bash', tool_use_id: 'check', command });
+    event.tool_response = response;
+    const result = JOURNAL.classifyPost(event);
+    assert.strictEqual(result?.state === 'validation_completed' && result?.outcome === 'success', expected);
+  });
+}
+
 test('persisted rows are privacy-bounded and contain only repo-relative paths', () => {
   const { rows } = runCase(CASES.cases.find((item) => item.id === 'mutation-then-validation'));
   const serialized = JSON.stringify(rows);
@@ -202,6 +249,30 @@ test('Pre/Post wrapper hooks persist bounded rows and honor their kill switches'
   }
 });
 
+test('sanitized Codex 0.154.0 stdout-only response stays unknown and outside violation telemetry', () => {
+  const fixture = require('./fixtures/event-journal-codex-0.154.0.json');
+  const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-validation-unknown-')));
+  const stateDir = path.join(box, '.codex/.agentsmd-state');
+  try {
+    const event = fixture.event;
+    JOURNAL.processEvent('post', { ...event, tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' }, tool_response: { exit_code: 0 } }, { stateDir, nowMs: 1 });
+    const row = JOURNAL.processEvent('post', event, { stateDir, nowMs: 2 });
+    assert.strictEqual(JOURNAL.classifyPost({ ...event, tool_response: '{"exit_code":0}' }).outcome, 'unknown');
+    assert.strictEqual(row.state, 'validation_observed');
+    assert.strictEqual(row.outcome, 'unknown');
+    const summary = JOURNAL.summarizeJournal(stateDir, event.session_id, event.turn_id);
+    assert.strictEqual(summary.fresh_validation, false);
+    assert.strictEqual(summary.fresh_validation_unknown, true);
+    assert.strictEqual(summary.validations, 0);
+    assert.strictEqual(runStop({ ...event, cwd: box, hook_event_name: 'Stop' }, box).status, 0);
+    const flag = fs.readFileSync(path.join(stateDir, 'unvalidated-sanitized-session.flag'), 'utf8');
+    assert.match(flag, /validation=unknown/);
+    const log = fs.readFileSync(path.join(box, '.codex/logs/agentsmd.jsonl'), 'utf8');
+    assert.match(log, /validation-terminal-status-unavailable/);
+    assert.doesNotMatch(log, /"event":"advisory"/);
+  } finally { fs.rmSync(box, { recursive: true, force: true }); }
+});
+
 test('concurrent atomic writes lose and duplicate zero events across sessions', async () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-journal-concurrent-'));
   try {
@@ -280,6 +351,56 @@ function runStop(event, sandbox) {
     input: JSON.stringify(event),
     encoding: 'utf8',
     env: { ...process.env, HOME: sandbox, CODEX_HOME: path.join(sandbox, '.codex') },
+  });
+}
+
+for (const [name, command, response, nativeExpected, expected = nativeExpected] of validationCases) {
+  test(`Stop fallback validation: ${name}`, () => {
+    const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-validation-parity-')));
+    try {
+      const transcript = path.join(box, 'events.jsonl');
+      fs.writeFileSync(transcript, [
+        { type: 'user_message', payload: { role: 'user' } },
+        { type: 'custom_tool_call', payload: { name: 'apply_patch', call_id: 'edit' } },
+        { type: 'function_call', payload: { name: 'exec_command', call_id: 'check', arguments: JSON.stringify({ cmd: command }) } },
+        { type: 'function_call_output', payload: { call_id: 'check', output: response } },
+      ].map(JSON.stringify).join('\n') + '\n');
+      const result = runStop({ session_id: 'parity', cwd: box, transcript_path: transcript }, box);
+      assert.strictEqual(result.status, 0, result.stderr);
+      assert.strictEqual(fs.existsSync(path.join(box, '.codex/.agentsmd-state/unvalidated-parity.flag')), !expected);
+      if (['empty response', 'running response', 'null exit', 'output spoof'].includes(name)) {
+        assert.match(fs.readFileSync(path.join(box, '.codex/.agentsmd-state/unvalidated-parity.flag'), 'utf8'), /validation=unknown/);
+        const log = fs.readFileSync(path.join(box, '.codex/logs/agentsmd.jsonl'), 'utf8');
+        assert.match(log, /validation-terminal-status-unavailable/);
+        assert.doesNotMatch(log, /"event":"advisory"|"event":"observe"/);
+      }
+    } finally { fs.rmSync(box, { recursive: true, force: true }); }
+  });
+}
+
+for (const [name, source, expected, response = { exit_code: 0, wall_time_seconds: 0.1, output: "PASS" }] of [
+  ['one awaited wrapper', 'text(await tools.exec_command({cmd: "node verify.js", max_output_tokens: 1000}));', true],
+  ['unemitted awaited wrapper', 'await tools.exec_command({cmd: "npm test"});', false],
+  ['outer-only success', 'text(await tools.exec_command({cmd: "npm test"}));', false, { exit_code: 0 }],
+  ['failed child', 'text(await tools.exec_command({cmd: "npm test"}));', false, { exit_code: 1, wall_time_seconds: 0.1, output: "FAIL" }],
+  ['conditional wrapper', 'if (false) { text(await tools.exec_command({cmd: "npm test"})); }', false],
+  ['unawaited wrapper', 'tools.exec_command({cmd: "npm test"});', false],
+  ['multiple wrappers', 'text(await tools.exec_command({cmd: "npm test"})); text(await tools.exec_command({cmd: "true"}));', false],
+  ['dynamic argument', 'text(await tools.exec_command({cmd: "npm test", workdir: getPath()}));', false],
+]) {
+  test(`Stop wrapper execution evidence: ${name}`, () => {
+    const box = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-validation-wrapper-')));
+    try {
+      const transcript = path.join(box, 'events.jsonl');
+      fs.writeFileSync(transcript, [
+        { type: 'user_message', payload: { role: 'user' } },
+        { type: 'custom_tool_call', payload: { name: 'apply_patch' } },
+        { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'wrapper', input: source } },
+        { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'wrapper', output: response } },
+      ].map(JSON.stringify).join('\n') + '\n');
+      assert.strictEqual(runStop({ session_id: 'wrapper', cwd: box, transcript_path: transcript }, box).status, 0);
+      assert.strictEqual(fs.existsSync(path.join(box, '.codex/.agentsmd-state/unvalidated-wrapper.flag')), !expected);
+    } finally { fs.rmSync(box, { recursive: true, force: true }); }
   });
 }
 

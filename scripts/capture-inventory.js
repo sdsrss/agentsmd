@@ -29,9 +29,10 @@ const DEFAULT_LIMITS = Object.freeze({
   maxOutputBytes: 4 * 1024 * 1024,
 });
 const USAGE = [
-  'Usage: node scripts/capture-inventory.js [--json] [--write]',
+  'Usage: node scripts/capture-inventory.js [--json] [--write] [--root=DIR]',
   '',
-  'Inventory bounded local evidence below docs/qa-captures.',
+  'Inventory bounded local evidence below docs/qa-captures or an explicit absolute --root.',
+  '--root is read-only and cannot be combined with --write; no evidence is auto-imported.',
   '--write atomically refreshes only docs/qa-captures/index.json.',
   'The command never deletes or rewrites capture payloads.',
 ].join('\n');
@@ -41,8 +42,12 @@ function sortStrings(values) {
 }
 
 function parseArgs(argv) {
-  const parsed = parseStrict(argv, { bools: ['json', 'write'], values: [] });
-  return { json: parsed.bools.has('json'), write: parsed.bools.has('write') };
+  const parsed = parseStrict(argv, { bools: ['json', 'write'], values: ['root'] });
+  const root = parsed.values.root;
+  if (root !== undefined && (!root.trim() || !path.isAbsolute(root))) throw new ArgvError('--root requires an absolute directory');
+  if (argv.filter((arg) => arg === '--root' || arg.startsWith('--root=')).length > 1) throw new ArgvError('Duplicate --root');
+  if (root !== undefined && parsed.bools.has('write')) throw new ArgvError('--root is read-only; --write uses only the default capture root');
+  return { json: parsed.bools.has('json'), write: parsed.bools.has('write'), ...(root === undefined ? {} : { root }) };
 }
 
 function modeString(mode) {
@@ -353,7 +358,7 @@ function inventoryCaptures(root = CAPTURE_ROOT, options = {}) {
   const report = {
     schema_version: 1,
     generated_at: now.toISOString(),
-    root: 'docs/qa-captures',
+    root: options.externalRoot ? 'explicit-external-root' : 'docs/qa-captures',
     ok: summary.symlinks === 0 && summary.special_files === 0,
     summary,
     privacy: {
@@ -376,7 +381,7 @@ function inventoryCaptures(root = CAPTURE_ROOT, options = {}) {
       max_path_chars: limits.maxPathChars,
       max_output_bytes: limits.maxOutputBytes,
     },
-    measurement_boundary: 'local ignored capture inventory only; no payload deletion, archive verification, model call, or release proof is performed',
+    measurement_boundary: 'bounded local capture inventory only; no payload deletion, archive verification, model call, or release proof is performed',
   };
   const outputBytes = Buffer.byteLength(`${JSON.stringify(report)}\n`);
   if (outputBytes > limits.maxOutputBytes) throw new Error(`capture index output exceeds ${limits.maxOutputBytes} bytes`);
@@ -413,7 +418,8 @@ function renderHuman(report, wrote = false) {
     `deletion eligible: ${report.summary.deletion_eligible}`,
     `privacy: ${report.privacy.state} (root mode ${report.privacy.root_mode})`,
     `warnings: ${report.warnings.length}`,
-    `index: ${wrote ? 'docs/qa-captures/index.json refreshed' : 'not written (use --write)'}`,
+    `root: ${report.root}`,
+    `index: ${report.root === 'explicit-external-root' ? 'not written (external root is read-only)' : wrote ? 'docs/qa-captures/index.json refreshed' : 'not written (use --write)'}`,
     `boundary: ${report.measurement_boundary}`,
   ].join('\n');
 }
@@ -429,11 +435,14 @@ function main(argv = process.argv.slice(2)) {
     return 2;
   }
   try {
-    const report = options.write ? writeIndex(CAPTURE_ROOT) : inventoryCaptures(CAPTURE_ROOT);
+    const report = options.write ? writeIndex(CAPTURE_ROOT) : inventoryCaptures(options.root || CAPTURE_ROOT, { externalRoot: Boolean(options.root) });
     console.log(options.json ? JSON.stringify(report, null, 2) : renderHuman(report, options.write));
     return report.ok ? 0 : 1;
   } catch (error) {
-    console.error(`agentsmd capture inventory failed: ${error.message}`);
+    const detail = options.root
+      ? String(error.message).split(path.resolve(options.root)).join('<evidence-root>').split(options.root).join('<evidence-root>')
+      : error.message;
+    console.error(`agentsmd capture inventory failed: ${detail}`);
     return 1;
   }
 }

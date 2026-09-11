@@ -314,7 +314,7 @@ for checkpoint_dir in "${STATE_READ_DIRS[@]}"; do
   done < <(find "$checkpoint_dir" -maxdepth 1 -type f -name 'unvalidated-*.flag' -mtime +7 2>/dev/null)
 done
 if [[ "$CP_FOUND" -gt 0 ]]; then
-  CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits left unvalidated${CP_CWD:+ in $CP_CWD} (no test/lint/typecheck/build ran after the last mutation). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
+  CHECKPOINT=$'\n'"[agentsmd §7] Expired session state records edits without confirmed successful validation${CP_CWD:+ in $CP_CWD} (a check may have run without a detectable terminal result). If that work was reported done, re-verify — \"ran\" ≠ \"verified\" (§7 session-exit)."
 fi
 
 # Stale-deploy check — OFFLINE by construction (two local file reads, no network,

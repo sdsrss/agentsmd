@@ -1247,4 +1247,6 @@ function main() {
   process.stdout.write(JSON.stringify(matches));
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { lexSafetyCommands };

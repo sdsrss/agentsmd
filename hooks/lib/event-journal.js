@@ -7,12 +7,12 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { lexSafetyCommands } = require('./command-parse');
 
 const JOURNAL_SCHEMA_VERSION = 1;
 const JOURNAL_MAX_FILES = 256;
 const JOURNAL_ROW_MAX_BYTES = 16 * 1024;
 
-const VALIDATION_RE = /\b(npm\s+(?:test|run\b[^\n;|&]*\b(?:test|lint|check|typecheck|build))|yarn\s+(?:test|lint)|pnpm\s+(?:test|lint)|python\s+-m\s+pytest|pytest|jest|vitest|mocha|cargo\s+(?:test|build|check|clippy)|go\s+test|tsc\b|eslint|shellcheck|biome\s+(?:check|lint)\b|ruff\s+(?:check\b|format\b[^\n;|&]*--check\b)|clippy|make\s+(?:test|check)|(?:node|bash|sh)\s+[^\n;|&]*(?:\/tests?\/|\.test\.(?:[cm]?[jt]s|tsx?)\b|(?:smoke|test)\.sh\b))/i;
 const MUTATION_RE = /((?:npx\s+)?prettier\b[^\n]*(?:--write|-w\b)|eslint\b[^\n]*--fix\b|biome\b[^\n]*(?:--write|--fix)\b|gofmt\b[^\n]*-w\b|rustfmt\b|cargo\s+fmt\b|sed\b[^\n]*\s-i(?:\s|$)|perl\b[^\n]*\s-pi\b|npm\s+run\s+(?:format|fmt)\b)/i;
 const RUFF_MUTATION_RE = /\bruff\s+format\b/i;
 const RUFF_CHECK_RE = /\bruff\s+format\b[^\n]*--check\b/i;
@@ -103,6 +103,84 @@ function validationType(command) {
   return 'test';
 }
 
+// Single literal commands, or an AND-chain containing only checks. Reuse the
+// safety lexer's raw/cooked tokens; reject all unconsumed control syntax.
+function validationCommand(command, depth = 0) {
+  if (typeof command !== 'string' || command.length > 16384 || depth > 2) return null;
+  const commands = lexSafetyCommands(command);
+  if (!commands.length || commands.length > 16) return null;
+  let cursor = 0;
+  const types = [];
+  for (let index = 0; index < commands.length; index += 1) {
+    const words = commands[index].words;
+    for (const word of words) {
+      while (/\s/.test(command[cursor] || '')) cursor += 1;
+      if (word.expands || !command.startsWith(word.raw, cursor)) return null;
+      cursor += word.raw.length;
+    }
+    while (/\s/.test(command[cursor] || '')) cursor += 1;
+    if (index < commands.length - 1) {
+      if (!command.startsWith('&&', cursor)) return null;
+      cursor += 2;
+    } else if (cursor !== command.length) return null;
+    let argv = words.map((word) => word.value);
+    if (path.basename(argv[0]) === 'env') argv = argv.slice(1);
+    let pythonOptimize = process.env.PYTHONOPTIMIZE || '';
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[0] || '')) {
+      if (argv[0].startsWith('PYTHONOPTIMIZE=')) {
+        pythonOptimize = argv[0].slice(15);
+        if (pythonOptimize && pythonOptimize !== '0') return null;
+      }
+      if (/^(?:NODE_OPTIONS|npm_config_ignore_scripts|NPM_CONFIG_IGNORE_SCRIPTS)=/.test(argv[0])) return null;
+      argv = argv.slice(1);
+    }
+    if (argv[0] === 'command') argv = argv.slice(argv[1] === '--' ? 2 : 1);
+    if (argv[0] === 'npx') argv = argv.slice(argv[1] === '--no-install' ? 2 : 1);
+    if (!argv.length) return null;
+    const name = path.basename(argv[0]);
+    const args = argv.slice(1);
+    if (args.some((arg) => ['--help', '--version', '--fix', '--write', '-w', '--dry-run',
+      '--ignore-scripts', '--showConfig', '--print-config', '--collect-only', '--no-run',
+      '--listTests', '--list-tests', '--listFilesOnly'].includes(arg.split('=')[0]))) return null;
+    if (name === 'make' && args.some((arg) => /^-[^-]*[nqt]/u.test(arg)
+      || ['--just-print', '--dry-run', '--recon', '--question', '--touch'].includes(arg.split('=')[0]))) return null;
+    const script = (value) => typeof value === 'string' && /(?:^|\/)(?:tests?\/[^\n]+|[^/]+\.test\.[cm]?[jt]sx?|(?:verify|validate|check|test|smoke)(?:[-.][\w-]+)?\.(?:[cm]?[jt]s|py|sh))$/u.test(value);
+    let type = null;
+    if (['bash', 'sh'].includes(name) && ['-c', '-lc'].includes(args[0]) && args.length === 2) {
+      type = validationCommand(args[1], depth + 1);
+    } else if (['node', 'bash', 'sh'].includes(name) && script(args[0])) type = 'test';
+    else if (name === 'node' && ['--check', '-c'].includes(args[0]) && args.length === 2 && !args[1].startsWith('-')) type = 'syntax';
+    else if (/^python(?:[23](?:\.\d+)?)?$/u.test(name)) {
+      if (args[0] === '-m' && ['pytest', 'unittest'].includes(args[1])) type = 'test';
+      else if (script(args[0])) type = 'test';
+      else if ((!pythonOptimize || pythonOptimize === '0') && args.length === 2 && args[0] === '-c' && /^assert\s+[^;\r\n]+$/u.test(args[1])) type = 'test';
+    } else if (['npm', 'yarn', 'pnpm'].includes(name)) {
+      const task = args[0] === 'run' ? args[1] : args[0];
+      if (/^(?:test|lint|check|typecheck|build)(?::[\w-]+)?$/u.test(task || '')) type = validationType(`${name} ${args.join(' ')}`);
+    } else if (['pytest', 'jest', 'vitest', 'mocha', 'tsc', 'eslint', 'shellcheck', 'clippy'].includes(name)) type = validationType(name);
+    else if (name === 'cargo' && ['test', 'build', 'check', 'clippy'].includes(args[0])) type = validationType(`${name} ${args[0]}`);
+    else if (name === 'go' && args[0] === 'test') type = 'test';
+    else if (name === 'make' && ['test', 'check'].includes(args[0])) type = validationType(`${name} ${args[0]}`);
+    else if (name === 'biome' && ['check', 'lint'].includes(args[0])) type = 'lint';
+    else if (name === 'ruff' && (args[0] === 'check' || args[0] === 'format' && args.includes('--check'))) type = 'lint';
+    if (!type) return null;
+    types.push(type);
+  }
+  return types.length === 1 ? types[0] : 'test';
+}
+
+// Execution envelopes supply status. Arbitrary stdout and nested user data do
+// not. Unknown/nonterminal responses cannot establish fresh validation.
+function validationOutcome(response) {
+  // Native Bash strings are stdout, even when they happen to be JSON.
+  // Decode transcript transport envelopes only at the fallback boundary.
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return null;
+  const values = ['exit_code', 'exitCode'].filter((key) => Object.hasOwn(response, key)).map((key) => response[key]);
+  if (!values.length || values.some((value) => !Number.isInteger(value)) || new Set(values).size !== 1 || response.signal) return null;
+  const exitCode = values[0];
+  return { exit_code: exitCode, outcome: exitCode === 0 ? 'success' : 'failure' };
+}
+
 function classifyPost(event) {
   const toolName = String(event.tool_name || '');
   const command = commandFrom(event);
@@ -122,11 +200,15 @@ function classifyPost(event) {
   if (PREFLIGHT_RE.test(command)) {
     return { state: 'preflight_observed', ...result, validation_type: null, repo_relative_files: [] };
   }
-  if (VALIDATION_RE.test(command)) {
+  const checkType = validationCommand(command);
+  if (checkType) {
+    const completion = validationOutcome(event.tool_response);
+    if (!completion) return { state: 'validation_observed', outcome: 'unknown', exit_code: null,
+      validation_type: checkType, repo_relative_files: [], reason_code: 'terminal-status-unavailable' };
     return {
       state: 'validation_completed',
-      ...result,
-      validation_type: validationType(command),
+      ...completion,
+      validation_type: checkType,
       repo_relative_files: [],
     };
   }
@@ -277,6 +359,8 @@ function summarizeJournal(stateDir, sessionId, turnId) {
     validations: rows.filter((row) => row.state === 'validation_completed').length,
     failed_validations: rows.filter((row) => row.state === 'validation_completed' && row.outcome === 'failure').length,
     fresh_validation: freshValidation,
+    fresh_validation_unknown: latestMutationIndex >= 0 && rows.slice(latestMutationIndex + 1)
+      .some((row) => row.state === 'validation_observed' && row.outcome === 'unknown'),
     preflight_before_mutation: preMutationRows.some((row) => row.state === 'preflight_observed' && row.outcome === 'success')
       || intentRows.some((row) => row.preflight_observed === true),
     plan_before_mutation: preMutationRows.some((row) => row.state === 'plan_observed' && row.outcome === 'success')
@@ -331,6 +415,8 @@ module.exports = {
   processEvent,
   readRows,
   responseOutcome,
+  validationCommand,
+  validationOutcome,
   safeRepoRelative,
   summarizeJournal,
 };

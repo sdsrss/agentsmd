@@ -3,6 +3,24 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.0 — 2026-09-11 — automation evidence and validation routing (minor)
+
+- Require terminal evidence for validation and share bounded command recognition
+  between native hooks and transcript fallback. Stdout-only native responses
+  stay unknown, including JSON-looking output; unknown checkpoints do not count
+  as violations. Reject printed/deferred checks, no-op modes, mutating flags,
+  and outer-wrapper success. Native canary matchers now follow the hook registry.
+- Align Extended AUTONOMOUS wording with core §5: reuse existing authorization
+  for the exact operation and scope; operations without that grant stay blocked.
+- Add an explicit read-only capture inventory `--root` and concrete import-first
+  scorecard guidance. Preserve historical evidence and performance baselines.
+- Ignore root-level `tmp/` task scratch without hiding nested fixture directories.
+
+- Bind validation routing to the caller's Git root and its own validation map.
+  Missing maps report uncovered checks without guessing a package command;
+  invalid or symlinked maps cannot fall back to the agentsmd package's tests.
+  Subdirectory invocations collect changes and execute checks at the same root.
+
 ## v5.4.4 — 2026-09-10 — memory read detection and release test reuse (patch)
 
 - Corrected the autonomy-conflict evaluation to accept the observed single-line

@@ -884,7 +884,8 @@ NEW="$(clog_new "$B")"; FLAGF="$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null 
 printf '%s\n' \
   '{"type":"user_message","payload":{"role":"user"}}' \
   '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
-  '{"type":"function_call","payload":{"name":"exec_command","arguments":"{\"command\":[\"bash\",\"-lc\",\"npm test\"]}"}}' \
+  '{"type":"function_call","payload":{"name":"exec_command","call_id":"validation-1","arguments":"{\"command\":[\"bash\",\"-lc\",\"npm test\"]}"}}' \
+  '{"type":"function_call_output","payload":{"call_id":"validation-1","output":{"exit_code":0}}}' \
   > "$SEC_TR"
 B="$(clog_count)"; OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"; NEW="$(clog_new "$B")"
 { is_empty "$OUT" && [[ -z "$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null)" ]] && rows_have_observe "$NEW" '§7-session-exit' true true; } \
@@ -904,7 +905,8 @@ rm -f "$SECST_DIR"/unvalidated-*.flag
 printf '%s\n' \
   '{"type":"user_message","payload":{"role":"user"}}' \
   '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
-  '{"type":"function_call","payload":{"name":"exec_command","arguments":"{\"cmd\":\"node scripts/tests/foo.test.js && bash hooks/tests/smoke.sh\"}"}}' \
+  '{"type":"function_call","payload":{"name":"exec_command","call_id":"validation-2","arguments":"{\"cmd\":\"node scripts/tests/foo.test.js && bash hooks/tests/smoke.sh\"}"}}' \
+  '{"type":"function_call_output","payload":{"call_id":"validation-2","output":{"exit_code":0}}}' \
   > "$SEC_TR"
 OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
 { is_empty "$OUT" && [[ -z "$(ls "$SECST_DIR"/unvalidated-*.flag 2>/dev/null)" ]]; } \
@@ -942,7 +944,8 @@ OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
 rm -f "$SECST_DIR"/unvalidated-*.flag
 printf '%s\n' \
   '{"type":"user_message","payload":{"role":"user"}}' \
-  '{"type":"function_call","payload":{"name":"exec_command","arguments":"{\"cmd\":\"npm test\"}"}}' \
+  '{"type":"function_call","payload":{"name":"exec_command","call_id":"validation-3","arguments":"{\"cmd\":\"npm test\"}"}}' \
+  '{"type":"function_call_output","payload":{"call_id":"validation-3","output":{"exit_code":0}}}' \
   '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
   > "$SEC_TR"
 OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
@@ -953,7 +956,8 @@ rm -f "$SECST_DIR"/unvalidated-*.flag
 printf '%s\n' \
   '{"type":"user_message","payload":{"role":"user"}}' \
   '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
-  '{"type":"function_call","payload":{"name":"exec_command","arguments":"{\"cmd\":\"npm test\"}"}}' \
+  '{"type":"function_call","payload":{"name":"exec_command","call_id":"validation-4","arguments":"{\"cmd\":\"npm test\"}"}}' \
+  '{"type":"function_call_output","payload":{"call_id":"validation-4","output":{"exit_code":0}}}' \
   '{"type":"custom_tool_call","payload":{"name":"apply_patch","arguments":"*** Begin Patch"}}' \
   > "$SEC_TR"
 OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_TR")")"
@@ -985,11 +989,11 @@ B="$(clog_count)"; OUT="$(run_hook session-exit-checkpoint.sh "$(SECJSON "$SEC_T
 printf 'mutations=2\ncwd=/home/u/proj\n' > "$SECST_DIR/unvalidated-priorsess.flag"
 OUT="$(run_hook session-start-check.sh '{"session_id":"freshsess","hook_event_name":"SessionStart","source":"startup"}')"
 AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-{ ! printf '%s' "$AC" | grep -qi 'edits left unvalidated' && [[ -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart preserves fresh other-session checkpoint" || bad "SessionStart preserves fresh prior checkpoint" "ac=[$AC]"
+{ ! printf '%s' "$AC" | grep -qi 'Expired session state' && [[ -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart preserves fresh other-session checkpoint" || bad "SessionStart preserves fresh prior checkpoint" "ac=[$AC]"
 node -e 'const fs=require("fs"),d=new Date("2020-01-01T00:00:00Z");fs.utimesSync(process.argv[1],d,d);' "$SECST_DIR/unvalidated-priorsess.flag"
 OUT="$(run_hook session-start-check.sh '{"session_id":"laterfresh","hook_event_name":"SessionStart","source":"startup"}')"
 AC="$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-{ printf '%s' "$AC" | grep -q 'Expired session state records edits left unvalidated' && [[ ! -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart surfaces + consumes expired checkpoint" || bad "SessionStart surfaces expired checkpoint" "ac=[$AC]"
+{ printf '%s' "$AC" | grep -q 'Expired session state records edits without confirmed successful validation' && [[ ! -f "$SECST_DIR/unvalidated-priorsess.flag" ]]; } && ok "SessionStart surfaces + consumes expired checkpoint" || bad "SessionStart surfaces expired checkpoint" "ac=[$AC]"
 rm -f "$SECST_DIR"/unvalidated-*.flag
 
 echo "== session-summary.sh (Stop → operator-visible status, never SessionStart injection) =="

@@ -60,13 +60,39 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-test('strict argv is observation-first and exposes only JSON/write controls', () => {
+test('strict argv permits an explicit read-only evidence root', () => {
   assert.deepStrictEqual(C.parseArgs([]), { json: false, write: false });
   assert.deepStrictEqual(C.parseArgs(['--json']), { json: true, write: false });
   assert.deepStrictEqual(C.parseArgs(['--write']), { json: false, write: true });
-  assert.throws(() => C.parseArgs(['--root=/tmp']), /Unknown option|Unknown flag/u);
+  assert.deepStrictEqual(C.parseArgs(['--root=/tmp/evidence', '--json']), { json: true, write: false, root: '/tmp/evidence' });
+  assert.throws(() => C.parseArgs(['--root=relative']), /absolute directory/u);
+  assert.throws(() => C.parseArgs(['--root=']), /absolute directory|non-empty|requires/u);
+  assert.throws(() => C.parseArgs(['--root=/tmp/evidence', '--root=/tmp/other']), /Duplicate/u);
+  assert.throws(() => C.parseArgs(['--root=/tmp/evidence', '--write']), /read-only/u);
   assert.throws(() => C.parseArgs(['extra']), /Unknown argument/u);
 });
+
+test('external-root CLI inventories existing captures with zero payload/index writes', () => withFixture((root) => {
+  const before = C.inventoryCaptures(root, { now: new Date('2026-04-15T00:00:00.000Z') });
+  const result = cp.spawnSync(process.execPath, [path.join(ROOT, 'scripts/capture-inventory.js'), '--json', `--root=${root}`], { encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.strictEqual(report.root, 'explicit-external-root');
+  assert.strictEqual(report.summary.units, before.summary.units);
+  assert.strictEqual(result.stdout.includes(root), false);
+  assert.strictEqual(fs.existsSync(path.join(root, 'index.json')), false);
+  const refused = cp.spawnSync(process.execPath, [path.join(ROOT, 'scripts/capture-inventory.js'), `--root=${root}`, '--write'], { encoding: 'utf8' });
+  assert.strictEqual(refused.status, 2);
+  assert.deepStrictEqual(C.inventoryCaptures(root, { now: new Date('2026-04-15T00:00:00.000Z') }), before);
+}));
+
+test('external-root filesystem failures do not expose absolute paths', () => withFixture((root) => {
+  const invalid = path.join(root, 'notes.txt', 'child');
+  const result = cp.spawnSync(process.execPath, [path.join(ROOT, 'scripts/capture-inventory.js'), `--root=${invalid}`], { encoding: 'utf8' });
+  assert.strictEqual(result.status, 1);
+  assert.strictEqual((result.stdout + result.stderr).includes(root), false);
+  assert.match(result.stderr, /ENOTDIR/);
+}));
 
 test('known units are classified conservatively with deterministic hashes and review-only aging', () => withFixture((root) => {
   const now = new Date('2026-04-15T00:00:00.000Z');

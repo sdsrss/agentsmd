@@ -16,6 +16,7 @@ const { ArgvError, parseStrict } = require('../scripts/lib/argv');
 const ROOT = path.join(__dirname, '..');
 const PACKAGE = require('../package.json');
 const JOURNAL = require('../hooks/lib/event-journal');
+const { HOOK_REGISTRY } = require('../scripts/lib/hook-registry');
 const USAGE = `Usage: node qa/event-journal-runtime-canary.js [options]
 
 Run one real Codex turn against isolated project-local event-journal hooks.
@@ -221,7 +222,7 @@ function writeFixture(sandbox, scenario = 'positive') {
     description: 'agentsmd isolated native event-journal runtime canary',
     hooks: {
       PreToolUse: [{
-        matcher: 'apply_patch',
+        matcher: HOOK_REGISTRY.find((entry) => entry.displayName === 'pre-mutation-journal').matcher,
         hooks: [{
           type: 'command',
           command: hookCommand(hookHome, path.join(ROOT, 'hooks', 'pre-mutation-journal.sh')),
@@ -229,7 +230,7 @@ function writeFixture(sandbox, scenario = 'positive') {
         }],
       }],
       PostToolUse: [{
-        matcher: 'Bash|apply_patch',
+        matcher: HOOK_REGISTRY.find((entry) => entry.displayName === 'post-tool-journal').matcher,
         hooks: [{
           type: 'command',
           command: hookCommand(hookHome, path.join(ROOT, 'hooks', 'post-tool-journal.sh')),

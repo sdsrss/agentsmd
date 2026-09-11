@@ -25,3 +25,6 @@ tasks/
 
 # subagent-driven-development scratch
 .superpowers/
+
+# Root-level disposable task fixtures; keep nested fixture tmp directories visible.
+/tmp/
