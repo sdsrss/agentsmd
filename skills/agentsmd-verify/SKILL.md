@@ -1,6 +1,6 @@
 ---
 name: agentsmd-verify
-description: Select and run change-aware validation (变更感知验证) with deterministic reasons and full-gate widening. Use for changed-file test planning or execution. Not for external canaries, release, deploy, or authorization.
+description: Select and run change-aware validation (变更感知验证) from a project's qa/validation-map.json. Use for mapped-project test planning or execution. Not for guessing checks in unmapped projects, external canaries, release, deploy, or authorization.
 ---
 
 # agentsmd-verify
@@ -20,6 +20,11 @@ Inspect the deterministic plan before executing it:
 agentsmd_skill_run --changed --explain
 agentsmd_skill_run --since=HEAD~1 --explain --json
 ```
+
+The map belongs to the caller's Git project; checks run from that Git root even
+when invoked in a subdirectory. Without a project map, report the uncovered risk
+and select native checks from that project's instructions. Do not run this
+package's checks in another project or assume `npm run check` exists.
 
 Run the selected local checks only after reviewing changed files, widening, and boundaries:
 

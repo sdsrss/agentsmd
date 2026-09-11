@@ -198,5 +198,20 @@ test('destructive cleanup removes only its exact temp fixture and preserves a si
   }
 });
 
+test('native fixture uses the deployed registry matchers', () => {
+  const os = require('os');
+  const canary = require(CANARY_PATH);
+  const { HOOK_REGISTRY } = require(path.join(ROOT, 'scripts/lib/hook-registry'));
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-event-journal-runtime-'));
+  try {
+    const { project } = canary.writeFixture(box);
+    const manifest = JSON.parse(fs.readFileSync(path.join(project, '.codex/hooks.json'), 'utf8'));
+    for (const name of ['pre-mutation-journal', 'post-tool-journal']) {
+      const entry = HOOK_REGISTRY.find((item) => item.displayName === name);
+      assert.strictEqual(manifest.hooks[entry.hookEvent][0].matcher, entry.matcher);
+    }
+  } finally { canary.safeCleanupTemp(box); }
+});
+
 console.log(`\nRESULT: ${passed} passed, ${failed} failed`);
 process.exitCode = failed === 0 ? 0 : 1;

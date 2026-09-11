@@ -242,6 +242,8 @@ Stop-time observers queue advisories. Those advisories appear on the next `UserP
 
 ## Native hook coverage
 
+Validation requires a real terminal result. When native Bash output contains only stdout, Stop can use an independently paired terminal receipt from the current session transcript for supported literal calls. Missing or ambiguous evidence remains unknown. Receipt provenance stays distinct from native tool status, and no-mutation observations do not enter the violation denominator.
+
 agentsmd registers 19 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, and `SessionEnd`. Blocking hooks are narrow mechanical gates; semantic rules remain agent/operator responsibilities.
 
 | Hook | Event | Detectable responsibility |
@@ -367,8 +369,14 @@ agentsmd verify --changed
 agentsmd verify --full
 ```
 
-`verify` reads the versioned `qa/validation-map.json`, unions checks for every
-changed path, deduplicates them, and explains each selection. Shared, exported,
+`verify` reads `qa/validation-map.json` from the caller's Git root and runs checks
+from that root, including when invoked in a subdirectory. Missing maps report an
+uncovered risk and execute no checks (`--explain` exits 0; execution exits 1).
+Use the project's instructions to select native checks when no map is present;
+the package's own map is never a fallback. Maps must be regular non-symlink JSON
+files up to 256 KiB, with a non-symlink `qa/` directory and the existing schema.
+The router unions checks for every changed path, deduplicates them, and explains
+each selection. In the agentsmd repository's map, shared, exported,
 configuration, unknown, and release surfaces widen to `npm run check`; a release
 path cannot remove that full gate. Unknown paths remain an explicit uncovered
 risk even after the full gate. External-service canaries and AUTH-boundary
@@ -478,6 +486,19 @@ binding is rendered as `published-binding`. Explicit input files must be bounded
 regular non-symlink files; the scorecard never fetches network evidence
 implicitly, and missing/offline evidence remains unavailable or historical.
 The legacy packaged v1 record remains readable as historical evidence.
+
+To locate evidence already stored outside the checkout, run
+`npm run captures:inventory -- --root=/absolute/evidence-dir --json` from a
+source checkout. The explicit root is read-only, cannot be combined with
+`--write`, and retains the existing file/count/depth/byte limits and symlink
+checks. No home-directory search or evidence import runs implicitly. Inspect
+candidate and binding files, then supply the exact files with
+`agentsmd scorecard --conformance-candidate=/absolute/candidate.json --conformance-binding=/absolute/binding.json`.
+Inventory hashes locate evidence; they do not establish freshness or publication.
+A formal SLO capture remains separate from the packaged reference baseline;
+check its source/deploy identity, `slo.pass`, and `slo.inconclusive` before deciding
+whether a new measurement is needed.
+
 The offline binding validates byte/hash and decoded SLSA payload consistency;
 release closure must still obtain those inputs from the declared release and
 registry sources and run the separate npm signature/Sigstore authenticity gate.

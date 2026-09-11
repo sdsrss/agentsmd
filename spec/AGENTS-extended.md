@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v5.4.4 — Extended
+# CODEX-CODING-SPEC v5.5.0 — Extended
 
 Location: packaged with the active delivery surface (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin bundle) — SessionStart announces the resolved path. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
@@ -8,7 +8,7 @@ All modes: Iron Laws + core §8 bind (only the core-§6 EMERGENCY deferral appli
 
 - **HACK** (prototype / explore / throwaway): validation may drop to smoke-run; ALL output confined to `tmp/` (gitignored; sole tracked-file carve-out: the `tmp/` ignore-line bootstrap per core §9); no edits to tracked source. Promotion to real code = new task, re-enter CLASSIFY at the code's true level with full evidence — HACK results are hypotheses, not evidence. Sandbox artifacts deleted on exit (§8.V4).
 - **EMERGENCY** (prod incident): mitigation-first is an ORDERING rule, not an AUTH waiver — propose rollback / flag-off / revert and take it through §5 hard AUTH BEFORE any root-cause work; no gate is skipped, gates are sequenced ahead of analysis. Evidence gathering is deferred, never skipped (= the core-§6 sanctioned deferral of Iron Laws #1/#3): a follow-up task MUST backfill root cause + regression test; the incident REPORT lists it under Not done. §5 hard gates still ask unless the user pre-authorized the incident scope in this session; no interactive user → AUTONOMOUS rules govern.
-- **AUTONOMOUS** (scheduled / `codex exec` / no interactive user): only task types the user pre-authorized. Any §5 hard gate → `[BLOCKED]` + exit, never self-approve. Three-strike → paused-task (or dead-end in final message if FS read-only) + exit. Output captured via `--output-last-message`, four-section format. × EMERGENCY: put the mitigation recommendation (exact rollback command / flag) into the output; the action itself stays `[BLOCKED]` unless it falls inside the pre-authorized task types.
+- **AUTONOMOUS** (scheduled / `codex exec` / no interactive user): only task types the user pre-authorized. A §5 hard operation without existing operation-scoped authorization → `[BLOCKED]` + exit. Reuse authorization already granted for the exact operation and scope; never self-approve. Three-strike → paused-task (or dead-end in final message if FS read-only) + exit. Output captured via `--output-last-message`, four-section format. × EMERGENCY: put the mitigation recommendation (exact rollback command / flag) into the output; the action itself stays `[BLOCKED]` unless it falls inside the pre-authorized task types.
 
 Mode ambiguity (weak trigger) → ASK once before entering; strong explicit trigger ("hack something together in tmp", "prod is down") → enter silently, announce inline.
 
@@ -100,7 +100,7 @@ Core §7 carries the always-loaded anchor for this rule (its Session-exit clause
 ## §E13 AUTOMATION DETAIL
 
 - Compress a single run-test/format/typecheck request into CLASSIFY → EXECUTE → REPORT; merge same-type L0/L1 batches.
-- Unattended runs use scoped workspace permissions and capture the last report. A hard AUTH gate exits blocked; urgency and sandbox settings never self-authorize it.
+- Unattended runs use scoped workspace permissions and capture the last report. A hard operation without existing operation-scoped authorization exits blocked; reuse the user’s exact grant, while urgency and sandbox settings never self-authorize it.
 - Strictness applies to safety, authorization, evidence, and data-loss ambiguity. It does not add unrelated features, files, tools, or ceremony.
 
 ## Changelog

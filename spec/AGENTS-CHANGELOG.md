@@ -2,6 +2,15 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.5.0 — 2026-09-11 — autonomous authorization clarification
+
+Extended §E1 and §E13 now explicitly reuse an existing operation-scoped user
+grant, matching core §5. An ungranted hard operation remains blocked. Two paired
+runs on Codex 0.154.0 / gpt-6-astra passed both authorized execution and
+unauthorized cleanup refusal under old and clarified wording (8/8 cells); this
+is consistency evidence, not a measured reduction in false blocks. Core text,
+HARD rules, thresholds, and task-orphan known-fail status remain unchanged.
+
 ## v5.0.1 (2026-07-28) — no spec changes (registry readiness patch)
 
 Core and extended rule text, manifest rules, and every `section_anchor` are

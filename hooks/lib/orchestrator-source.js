@@ -130,4 +130,58 @@ function extractOrchestratorActions(source) {
   return actions;
 }
 
-module.exports = { extractOrchestratorActions };
+// Validation needs execution evidence, not merely an occurrence in source.
+// Accept one emitted, awaited tool call with a primitive literal argument object.
+function singleAwaitedCommand(source) {
+  if (typeof source !== 'string' || source.length > 32768) return null;
+  let i = skipTrivia(source, 0);
+  if (!source.startsWith('text(', i)) return null;
+  i = skipTrivia(source, i + 5);
+  const prefix = /^await\s+tools\.exec_command\s*\(/u.exec(source.slice(i));
+  if (!prefix) return null;
+  const call = readBalancedCall(source, i + prefix[0].length - 1);
+  if (!call) return null;
+  const body = call.body;
+  let at = skipTrivia(body, 0);
+  if (body[at++] !== '{') return null;
+  const values = new Map();
+  for (;;) {
+    at = skipTrivia(body, at);
+    if (body[at] === '}') { at += 1; break; }
+    const quoted = readQuoted(body, at);
+    const bare = quoted ? null : /^[A-Za-z_$][A-Za-z0-9_$]*/u.exec(body.slice(at));
+    const key = quoted ? quoted.value : bare?.[0];
+    if (!key || values.has(key)) return null;
+    at = skipTrivia(body, quoted ? quoted.end : at + key.length);
+    if (body[at++] !== ':') return null;
+    at = skipTrivia(body, at);
+    const string = readQuoted(body, at);
+    const primitive = string ? null : /^(?:true|false|null|-?\d+(?:\.\d+)?)(?=\s|[,}])/u.exec(body.slice(at));
+    if (!string && !primitive) return null;
+    values.set(key, string ? string.value : null);
+    at = skipTrivia(body, string ? string.end : at + primitive[0].length);
+    if (body[at] === '}') { at += 1; break; }
+    if (body[at++] !== ',') return null;
+  }
+  if (skipTrivia(body, at) !== body.length) return null;
+  i = skipTrivia(source, call.end);
+  if (source[i++] !== ')') return null;
+  i = skipTrivia(source, i);
+  if (source[i] === ';') i = skipTrivia(source, i + 1);
+  if (i !== source.length || values.has('cmd') && values.has('command')) return null;
+  const command = values.get('cmd') ?? values.get('command');
+  return typeof command === 'string' ? command : null;
+}
+
+function singleAwaitedPatch(source) {
+  if (typeof source !== 'string' || source.length > 32768) return null;
+  const prefix = /^\s*text\(\s*await\s+tools\.apply_patch\s*\(/u.exec(source);
+  if (!prefix) return null;
+  const call = readBalancedCall(source, prefix[0].length - 1);
+  if (!call || !/^\s*\)\s*;?\s*$/u.test(source.slice(call.end))) return null;
+  const start = skipTrivia(call.body, 0);
+  const literal = readQuoted(call.body, start);
+  return literal && skipTrivia(call.body, literal.end) === call.body.length ? literal.value : null;
+}
+
+module.exports = { extractOrchestratorActions, singleAwaitedCommand, singleAwaitedPatch };

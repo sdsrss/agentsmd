@@ -218,6 +218,8 @@ Stop observers 会把提示放入队列，在下一次 `UserPromptSubmit` 呈现
 
 ## 原生 Hook 覆盖
 
+验证需要真实终态。原生 Bash 响应只有 stdout 时，Stop 可从当前会话 transcript 为受支持的 literal 调用取得独立配对的终态回执；证据缺失或有歧义仍保持 unknown。回执来源与 native tool status 分开记录，零修改观察不进入违规统计分母。
+
 agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop` 和 `SessionEnd` 上注册 19 个 hooks。阻断型 hook 只处理边界明确的机械检查；语义规则仍由 agent/operator 负责。
 
 | Hook | Event | 可检测职责 |
@@ -334,8 +336,13 @@ agentsmd verify --changed
 agentsmd verify --full
 ```
 
-`verify` 读取版本化的 `qa/validation-map.json`，合并所有变更路径所需的
-检查、去重，并解释每个选择原因。共享、导出、配置、未知和 release
+`verify` 从调用者的 Git 根目录读取 `qa/validation-map.json`，并从该根目录
+执行检查，子目录调用也相同。没有映射时只报告未覆盖风险，不执行检查
+（`--explain` 退出 0，执行模式退出 1）；按项目说明选择原生检查，
+不会回退到 agentsmd 包内映射。映射须为不超过 256 KiB 的普通非符号链接
+JSON 文件，`qa/` 目录也不得是符号链接，并须满足现有映射格式。
+路由器合并所有变更路径所需的检查、去重，并解释选择原因。
+在 agentsmd 仓库的映射中，共享、导出、配置、未知和 release
 surface 会自动扩大到 `npm run check`；release 路径不能移除 full gate。
 未知路径即使完成 full gate，仍会保留明确的未覆盖风险。真实外部服务
 canary 和 AUTH boundary 操作只报告，路由器不会执行。本地检查按
@@ -408,6 +415,16 @@ evidence 路径，也能呈现精确的历史发布结果与 waiver。historical
 匹配 binding 后显示为 `published-binding`。外部输入必须是有界、非符号链接的普通
 文件；scorecard 不会隐式访问网络，离线或缺失证据保持 unavailable/historical。
 旧版 package 中的 v1 record 继续作为历史证据读取。
+
+已有证据保存在仓库外时，可在源码 checkout 中运行
+`npm run captures:inventory -- --root=/absolute/evidence-dir --json`。
+显式 root 仅供读取，不能与 `--write` 同用，并沿用文件数量、深度、字节上限及
+符号链接检查。工具不会自动搜索 home 目录或导入证据。定位后检查 candidate/binding，
+再用 `agentsmd scorecard --conformance-candidate=/absolute/candidate.json --conformance-binding=/absolute/binding.json`
+传入精确文件。清单哈希用于定位，不证明 freshness 或发布状态。
+正式 SLO capture 与随包参考 baseline 保持分离；先核对 source/deploy 身份、
+`slo.pass` 和 `slo.inconclusive`，再决定是否需要新测量。
+
 离线 binding 校验的是 byte/hash 与已解码 SLSA payload 的一致性；release closure
 仍须从声明的 release/registry 来源取得这些输入，并单独执行 npm signature/Sigstore
 真实性 gate。

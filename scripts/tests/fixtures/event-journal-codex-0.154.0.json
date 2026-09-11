@@ -1,0 +1,21 @@
+{
+  "runtime": "Codex 0.154.0",
+  "model": "gpt-6-astra",
+  "observed_at": "2026-09-11",
+  "source": "isolated native canary; stdout-only tool_response",
+  "event": {
+    "session_id": "sanitized-session",
+    "turn_id": "sanitized-turn",
+    "transcript_path": null,
+    "cwd": "/workspace/fixture",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm test"
+    },
+    "tool_response": "npm notice run test\nnpm notice run node verify.js\n",
+    "tool_use_id": "sanitized-tool"
+  }
+}

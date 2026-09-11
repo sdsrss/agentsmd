@@ -1133,7 +1133,7 @@ function actionsFor(card, rules) {
     }
   }
   if (card.conformance.state === 'unavailable') {
-    add('high', 'conformance-evidence-unavailable', 'Configure or import a bounded conformance evidence source; run the declared full suite only when no valid evidence exists.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
+    add('high', 'conformance-evidence-unavailable', 'Locate existing evidence first: in a source checkout use npm run captures:inventory -- --root=/absolute/evidence-dir. Inspect candidate/binding records, then pass --conformance-candidate=FILE and --conformance-binding=FILE to agentsmd scorecard; run a model suite only when applicable evidence is absent.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
   } else if (card.conformance.state === 'invalid') {
     add('high', 'conformance-evidence-invalid', 'Inspect and replace the invalid bounded conformance evidence record before relying on this dimension.', `Conformance evidence reason is ${card.conformance.provenance.reason}.`);
   } else if (card.conformance.provenance.evidence_phase === 'local-candidate'

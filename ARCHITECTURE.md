@@ -141,6 +141,14 @@ predecessor ID，所以恢复内容始终标成 untrusted recency candidates，�
 Stop native consumer、privacy allowlist 与零 unvalidated flag；capture 只证明记录
 的 runtime/model/surface 组合。
 
+验证命令分类与 Stop 转录兼容路径共用有界 literal-command 识别器：单个检查或全部为检查的 `&&` 链才有资格；打印命令、条件分支、管道、空跑和写入选项不提供通过证据。原生结构化退出码必须为一致的整数；外层 `exec` 成功不能证明子命令成功，兼容路径只接受单个 `text(await tools.exec_command({...}))` 与其明确输出的终态执行 envelope。未覆盖的复杂编排仍不能认证。
+
+2026-09-11 的 Codex 0.154.0 / gpt-6-astra 隔离 canary 观察到 Bash `tool_response` 只有 stdout，没有退出码；脱敏 fixture 位于 `scripts/tests/fixtures/event-journal-codex-0.154.0.json`。此形状仍记录 `validation_observed` / `unknown`，不从 stdout 推断成功。初次 ephemeral capture 的完整 grader 失败；绝对补丁路径还使目标归因断言失败，不能据此断言 runtime 没有发送 intent。归因现仅将 canonical cwd 内的规范绝对路径转换为相对路径；拒绝越界、路径 traversal 和符号链接分量，限制最多 64 个目标与每个目标 64 层。官方 [hooks 文档](https://learn.chatgpt.com/docs/hooks) 将响应定义为 tool-specific JSON，不保证统一退出码字段，且 transcript 格式不是稳定 hook API。
+
+持久化 canary 提供了 Stop 前落盘的独立子调用终态。Stop 仅从事件给定的 canonical 普通文件读取最多 64 KiB header 与 512 KiB tail，核对 session metadata、完整当前 turn 边界、逐调用 turn metadata、唯一 call/output 配对和原始执行顺序。已确认的单个 awaited/emitted wrapper 只解析第二个输出块中的执行 envelope；外层完成头本身不是成功证据。明确无展开/重定向的前台 literal `cat` 读取可先于检查；其他未分类命令、复杂编排、运行中结果、缺失/冲突/跨轮次或截断证据保持未知，不搜索其他会话，也不把 native UUID 与 transcript call ID 猜配。
+
+派生回执使用 `transcript:` 调用命名空间及 `reason_code: transcript-terminal-status`，保留原 native unknown；时间采用原调用时间，不能因 Stop 补写而变成修改后的验证。每次 Stop 重新计算当前适用的 receipt ID；过期或读取失败不再认可旧回执，但保留历史。并发回执按身份去重。零修改轮次记录消费观察，`eligible=false/evaluated=false`，不扩大违规分母。canary 的 `validation_sources` 与 `native_validation_completed` 分开报告来源；完整 grader 的 mutation/validation/consumer/privacy/checkpoint 条件不变。
+
 Phase 4 的 `qa/runtime-canary.js` 在这条单场景证据之上增加 pinned/latest
 matrix、positive/near-negative 双场景、隔离 install/status/doctor、结构
 contract 与 5-run 信息性性能趋势。每个 Codex 场景使用自己的临时
