@@ -22,8 +22,8 @@ agentsmd_skill_run --event=PreToolUse # all registered PreToolUse hooks
 agentsmd_skill_run --runs=3 --json
 ```
 
-- **`latency added per event firing`** (sum of ON medians) is the number that matters: the 5 PreToolUse:Bash hooks fire on every Bash call; the 7 Stop hooks fire once per turn.
+- Report **concurrent event wall time** separately from **aggregate process cost** (the sum of separately measured ON medians). The registry has 5 PreToolUse:Bash hooks and 8 Stop hooks; the event-wide benchmark also includes the PreToolUse edit-journal entry, so it is not an exact Bash-matcher measurement.
 - Hooks run against a synthetic non-triggering `echo` Bash event (the common per-call case, not the block path), in an isolated sandbox `CODEX_HOME` — measuring never writes to the live `~/.codex` (§8.V3) and cleans up after itself (§8.V4).
-- Numbers are a **lower bound**: direct `bash hook` spawns, not Codex's harness IPC round-trip.
+- Synthetic measurements exclude Codex's harness IPC, model time, and real long-transcript or blocking paths. Do not turn aggregate cost or an event-wide group into measured end-to-end user latency.
 
 Operator/dev tool, read-only on the live env. From the repo instead of an install: `node scripts/perf-baseline.js`.

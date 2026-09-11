@@ -32,7 +32,7 @@ Gate order — a red item stops the pipeline until fixed, waived by user, or `[B
 5. Secrets scan on the outgoing diff (grep for key/token/password patterns) — hit → core §8 procedure.
 6. Released-artifact rule (core §2): user-visible default change → documented in release notes, L3 evidence attached.
 7. Rollback path stated in one line (revert commit / previous tag / flag-off).
-8. **Authorization reuse**: push/publish/merge remain §5-hard operations, but explicit ship intent in the current user request is their operation-scoped authorization; do not emit a redundant confirmation prompt. Without that explicit intent, emit `[AUTH REQUIRED]` immediately before the first external mutation. Scheduled/CI release still needs prior user authorization that names its repository/package/environment scope.
+8. **Authorization reuse**: push/publish/merge remain §5-hard operations; reuse explicit ship intent already granted in this task/session unless revoked. A status question or “continue” does not erase that grant. Without a grant covering the exact operation and scope, emit `[AUTH REQUIRED]` immediately before the first external mutation. Scheduled/CI release still needs prior user authorization naming its repository/package/environment scope.
 9. **Release closure**: ensure the released commit is integrated into and pushed on the default branch; create/push the intended tag and publish/verify the artifact; then delete the merged task/release branch locally and remotely and finish on a clean default branch. Retain a release branch only when repository policy or the user requires it. Update live `CODEX_HOME` only when explicitly requested, then run doctor/status.
 
 ## §E4 L3 EVIDENCE
@@ -44,7 +44,7 @@ Gate order — a red item stops the pipeline until fixed, waived by user, or `[B
 
 ## §E5 THREE-STRIKE / DEBUG DETAIL
 
-- **Dead-end record** (in `tasks/<slug>.md`, written at strike 3): signature (verbatim error + `file:line` locus — the grep anchor for core §3 recurrence checks) · hypothesis · evidence for / against · why abandoned. Must survive the session: core §7 exit archival distills it into `memory/` + one `MEMORY.md` line — a dead-end that exists only in a gitignored task file does not count as remembered.
+- **Dead-end record** (in `tasks/<slug>.md`, written at strike 3): signature (verbatim error + `file:line` locus — the grep anchor for core §3 recurrence checks) · hypothesis · evidence for / against · why abandoned. Follow core §7 exit archival: opted-in repository memory or the final report, including the read-only fallback. A gitignored task file alone is not durable archival.
 - **Same-signature escalation**: detection = core §3's git-log recurrence check (runs without this file loaded); the same L1 bugfix signature (same error, same locus) recurring 3× within a project → stop treating as L1; open an L2 root-cause task (core Iron Law #3 now binds).
 - After a three-strike re-analysis, the FIRST step is re-verifying the assumption ranked most confident — repeated failure usually means the "certain" assumption is the wrong one.
 
@@ -68,7 +68,7 @@ Core §7 carries the always-loaded anchor for this rule (its Session-exit clause
 
 - **Not a turn boundary**: `<system-reminder>` / hook `additionalContext` injections · mid-turn tool results · PostToolUse flushes · a single Edit that "feels done". Running one tool call then stopping with planned steps unrun is a silent yield.
 - **Legitimate yields**: `[AUTH REQUIRED]` (core §5 hard) · direction genuinely ambiguous (ASK) · user steering/cancellation · an asynchronous tool or approved monitor still running · external rate limit/service outage/dependency wait · context pressure. Record landed changes, validation state, remaining work, and the exact resume command in `tasks/<slug>.md` or the report.
-- **The evasion**: a silent mid-cycle yield followed by a next-turn "done" claim asserts completion for steps that never ran = Iron Law #2 (no done without fresh evidence), not a reporting nicety. Tell — the next user message is `继续 / next / 怎么停了 / why did you stop`: a prior silent yield is confirmed; re-run VALIDATE before any "done".
+- **The evasion**: a silent mid-cycle yield followed by a next-turn "done" claim asserts completion for steps that never ran = Iron Law #2 (no done without fresh evidence). A message such as `继续 / next / 怎么停了 / why did you stop` triggers state review, not a violation verdict: check the prior terminal evidence, intervening changes, and remaining work. Resume the pending step; repeat validation only when evidence is missing, stale, or affected by changes. Never infer completion from the turn boundary.
 
 ## §E9 REASONING & ROUTING DETAIL
 

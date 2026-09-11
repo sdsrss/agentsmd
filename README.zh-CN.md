@@ -244,6 +244,10 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit`�
 | `session-handoff-capture` | Stop | 为同仓库未来的新会话保存私有、脱敏、字节受限的完成态胶囊 |
 | `session-handoff-finalize` | SessionEnd | 只封存匹配会话的胶囊，不读取 transcript，也不调用模型 |
 
+报告观察器检查实际出现的标签的相对顺序，不从文本推断任务级别或缺段违规。
+提交消息、Stop 与历史词汇扫描共用窄范围的统计术语及相邻时延倍率例外；
+数字形式不证明基准已经执行。其他语境判断和报告完整性仍由 agent 遵守规范。
+
 ## 自动记忆与跨会话连续性
 
 agentsmd 把记忆分成三个互补层，而不是把不同性质的信息都塞进同一个文件：
@@ -424,6 +428,12 @@ evidence 路径，也能呈现精确的历史发布结果与 waiver。historical
 传入精确文件。清单哈希用于定位，不证明 freshness 或发布状态。
 正式 SLO capture 与随包参考 baseline 保持分离；先核对 source/deploy 身份、
 `slo.pass` 和 `slo.inconclusive`，再决定是否需要新测量。
+
+Prompt budget 是指令文件字节估算，不是模型 token 用量或完整有效上下文；
+system/developer 消息、工具、skills、Extended、memory 与 transcript 不计入该总和。
+全局 override 选择和自定义 fallback 发现仍需另外核验。measurement limits 会列出
+实际 automation 扫描目录；安装包里没有 workflow 定义，不代表源码仓库缺少自动化
+或执行失败。性能部分展示历史参考记录的日期与 runtime，不以它替代当前绑定的 SLO。
 
 离线 binding 校验的是 byte/hash 与已解码 SLSA payload 的一致性；release closure
 仍须从声明的 release/registry 来源取得这些输入，并单独执行 npm signature/Sigstore

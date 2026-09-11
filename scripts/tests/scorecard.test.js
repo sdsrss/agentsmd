@@ -1159,6 +1159,15 @@ try {
 
   test('human report preserves the roadmap section order and measurement limits', () => {
     const text = formatScorecard(card);
+    assert.match(text, /instruction-file byte estimate, not model token usage/);
+    assert.match(text, /reference recorded: .*Codex/);
+    assert.match(text, /reference SLO/);
+    assert.ok(card.measurement_limits.includes(`Automation recipe scan root: ${path.resolve(scorecardOptions.automationRoot)}`));
+    assert.ok(card.measurement_limits.includes(`Automation workflow scan root: ${path.resolve(scorecardOptions.workflowsRoot)}`));
+    const longRoot = path.join(temp, 'a'.repeat(450));
+    const longCard = buildScorecard({ ...scorecardOptions, workflowsRoot: longRoot });
+    assert.ok(validateScorecard(longCard).valid);
+    assert.ok(longCard.measurement_limits.some((line) => line.startsWith('Automation workflow scan root:') && line.endsWith('[truncated]')));
     const labels = [
       'Health',
       'Compatibility',

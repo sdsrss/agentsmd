@@ -1,7 +1,7 @@
 # CODEX-CODING-SPEC v5.5.0 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
-**Extended**: standalone uses `~/.codex/AGENTS-extended.md`; plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
+**Extended**: standalone uses `$CODEX_HOME/AGENTS-extended.md` (`CODEX_HOME` defaults to `~/.codex`); plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
 **Skills**: select from live `/skills`; read the matching `SKILL.md` before execution. Discovery/routing detail → §4/§E9.
 
 ## §0 SPINE
@@ -71,18 +71,17 @@ recursively orchestrating. Keep concurrency to the smallest useful fan-out.
 Search exact symbols with `rg`; enter unfamiliar modules via exports; verify versioned facts locally or in primary docs; route past decisions through memory. Narrowest skill, reuse existing tooling; MCP/routing metadata per §5/§E6. Detail → §E9.
 ## §5 AUTH (semantic gates — sandbox/approval config does not replace these)
 
-`sandbox_mode` / `approval_policy` gate *mechanics*; this section gates *semantics*. Even under `approval_policy = "never"` / `--yolo`, these require authorization; emit `[AUTH REQUIRED]` and block only when the current user request has not already granted operation-scoped authorization:
+`sandbox_mode` / `approval_policy` gate *mechanics*; this section gates *semantics*. Even under `approval_policy = "never"` / `--yolo`, these require authorization. Reuse an unrevoked grant from this task/session; emit `[AUTH REQUIRED]` and block only when no grant covers the exact operation and scope:
 
 **Hard (ask, block)**: delete file/dir outside safe-paths · DB migration / schema change · CI config · prod deploy state/config · infra state/config · prod-dependency add/remove/major-bump · `.env` / secrets / config schema · `~/.codex/config.toml` / hooks / rules / MCP config · global/shared/security-sensitive LLM routing metadata · auth/payment/crypto code · breaking public-API Δ · `git push` to shared branch / merge / publish / release (run §E3 first).
 
 **Scoped = named**: a category-level request (“clean up artifacts”) covers only unambiguous members (untracked scratch, ignored output); tracked-file deletion still asks.
 
-**Explicit ship pre-authorization**: a current user request directly ordering `commit + push/merge/publish/release` (including “提交代码并发版”) authorizes the standard §E3 closure for the current repository/package: commit · push · integrate default branch · tag · publish the declared package · verify · delete the merged task branch (local+remote). Live `CODEX_HOME`, production deploy, a different repo/package/registry/environment, or any unrelated Hard operation is included only when named. Generic “finish/继续” is not ship authorization; scope expansion re-ASKs.
+**Explicit ship pre-authorization**: a user instruction in this task/session directly ordering `commit + push/merge/publish/release` (including “提交代码并发版”) authorizes the standard §E3 closure for the current repository/package: commit · push · integrate default branch · tag · publish the declared package · verify · delete the merged task branch (local+remote). Live `CODEX_HOME`, production deploy, a different repo/package/registry/environment, or any unrelated Hard operation is included only when named. “finish/继续” creates no new grant and revokes none; scope expansion re-ASKs.
 
 **Soft (proceed, surface diff/plan first)**: dev-only deps · deletes inside `tmp/` `scripts/` build-output · multiple safe choices with real tradeoffs (state pick + why in REPORT).
 
 **None**: reads, analysis, planning, local verification, and scoped reversible local edits requested by the user when no Hard item applies. L3 alone is not an authorization gate.
-
 **L3 boundary**: See §2 Level/Auth separation. Load extended and state blast radius; request AUTH only before a §5-hard operation. Otherwise the user's scoped request authorizes reversible local implementation. Missing extended blocks L3 implementation, not read-only analysis.
 
 **Scope-bound**: files outside the grant → re-ASK. Mid-task adjacent-bug discovery → pause, announce, individual re-ASK ("feels obvious" ≠ safe). Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
@@ -149,7 +148,7 @@ Secret in diff/log → stop, placeholder, suggest rotation. User instruction wea
 
 L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four independent labels, including empty values. **Order (HARD)**: `Done → Not done → Failed → Uncertain`. These labels and the §0 bracket signals are untranslatable protocol tokens — keep them English in every reply language; the narrative follows §1 Language.
 
-**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
+**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” and statistical terms such as “robust regression” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
 
 ## §11 AUTOMATION DEFAULTS
 

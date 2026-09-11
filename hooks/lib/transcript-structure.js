@@ -29,48 +29,81 @@ function labelPosition(message, label) {
   return match ? match.index : -1;
 }
 
+// A local numeric fingerprint, not proof that a benchmark was executed. Keep
+// the timing pair adjacent to its ratio so other sentences/metrics cannot lend
+// it evidence. Unknown formats remain subject to the normal vocabulary rule.
+const TIMING_PAIR_END = /(?:^|[ \t(:])(\d+(?:\.\d+)?)[ \t]*(ns|us|µs|μs|ms|s|sec|min)[ \t]*(?:→|->|to)[ \t]*(\d+(?:\.\d+)?)[ \t]*(ns|us|µs|μs|ms|s|sec|min)(?:[ \t]+across[ \t]+\d+[ \t]+runs)?(?:[ \t]*[,(:][ \t]*|[ \t]+)$/iu;
+const TIME_SCALE = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, 'μs': 1e-6, ms: 1e-3, s: 1, sec: 1, min: 60 };
+
+function hasTimingBaseline(text, match) {
+  const start = Math.max(0, match.index - 512);
+  // A bounded slice must not manufacture a numeric start by dropping a sign
+  // or leading digit. Only the real text start may satisfy the ^ alternative.
+  const prefix = (start > 0 ? '\u0000' : '') + text.slice(start, match.index);
+  const pair = TIMING_PAIR_END.exec(prefix);
+  if (!pair) return false;
+  const before = Number(pair[1]) * TIME_SCALE[pair[2].toLowerCase()];
+  const after = Number(pair[3]) * TIME_SCALE[pair[4].toLowerCase()];
+  const claimed = Number.parseInt(match[0], 10);
+  const ratio = before / after;
+  return [before, after, claimed, ratio].every(Number.isFinite)
+    && after > 0 && before > after && claimed > 1
+    && Math.abs(ratio - claimed) <= 1e-9 * claimed;
+}
+
+function firstBannedPattern(text, patterns) {
+  for (const pattern of patterns) {
+    let expression;
+    try { expression = new RegExp(pattern, 'giu'); } catch { continue; }
+    for (const match of text.matchAll(expression)) {
+      if (pattern === '\\brobust(ly|ness)?\\b'
+          && /^robust[ \t]+(?:regression|statistics|estimators?|estimation)\b/iu.test(text.slice(match.index, match.index + 96))) continue;
+      if (pattern === '\\b[0-9]+x faster\\b' && hasTimingBaseline(text, match)) continue;
+      return pattern;
+    }
+  }
+  return null;
+}
+
+function reportOrder(message) {
+  const positions = {
+    done: labelPosition(message, 'Done'),
+    notDone: labelPosition(message, 'Not done'),
+    failed: labelPosition(message, 'Failed'),
+    uncertain: labelPosition(message, 'Uncertain'),
+  };
+  const present = Object.values(positions).filter((position) => position >= 0);
+  // Text does not establish L2/L3 applicability. Check relative order only;
+  // missing sections cannot be classified as violations without task evidence.
+  return {
+    positions,
+    eligible: present.length >= 2,
+    violation: present.some((position, index) => index > 0 && position < present[index - 1]),
+  };
+}
+
 function analyze(message, patternsFile) {
   const source = String(message || '');
   const scanText = source.replace(/```[\s\S]*?```/g, '');
   const patternSet = readPatterns(patternsFile);
-  let bannedVocabulary = null;
-  for (const pattern of patternSet.patterns) {
-    try {
-      if (new RegExp(pattern, 'iu').test(scanText)) {
-        bannedVocabulary = pattern;
-        break;
-      }
-    } catch {
-      // Keep malformed operator patterns non-blocking, matching grep's
-      // advisory-only failure behavior. Static tests own pattern validity.
-    }
-  }
-
-  const positions = {
-    done: labelPosition(source, 'Done'),
-    notDone: labelPosition(source, 'Not done'),
-    failed: labelPosition(source, 'Failed'),
-    uncertain: labelPosition(source, 'Uncertain'),
-  };
-  const orderEligible = positions.done >= 0;
-  const ordered = positions.notDone >= positions.done
-    && positions.failed >= positions.notDone
-    && positions.uncertain >= positions.failed;
+  const bannedVocabulary = firstBannedPattern(scanText, patternSet.patterns);
+  const order = reportOrder(source);
+  const { positions } = order;
   const fixEvidenceEligible = FIX_CLAIM_RE.test(scanText);
   const honestyEligible = positions.uncertain >= 0;
   const uncertainTail = honestyEligible ? source.slice(positions.uncertain) : '';
-  const vocabularyEligible = orderEligible || bannedVocabulary !== null || VALUE_CLAIM_RE.test(scanText);
+  const vocabularyEligible = positions.done >= 0 || bannedVocabulary !== null || VALUE_CLAIM_RE.test(scanText);
 
   return {
     issues: {
       bannedVocabulary,
-      fourSectionOrder: orderEligible && !ordered,
+      fourSectionOrder: order.violation,
       ironLaw2: fixEvidenceEligible && !EVIDENCE_RE.test(scanText),
       uncertainHedge: honestyEligible && HEDGE_RE.test(uncertainTail) && !BECAUSE_RE.test(uncertainTail),
     },
     eligible: {
       vocabulary: vocabularyEligible,
-      order: orderEligible,
+      order: order.eligible,
       fixEvidence: fixEvidenceEligible,
       honesty: honestyEligible,
     },
@@ -174,7 +207,24 @@ function formatEventTsv(result) {
 if (require.main === module) {
   const flags = new Set(process.argv.slice(3));
   let result;
-  if (flags.has('--event')) {
+  if (flags.has('--commits')) {
+    try {
+      const invocations = JSON.parse(readStdin());
+      const patternSet = readPatterns(process.argv[2] || '');
+      if (!Array.isArray(invocations) || !patternSet.readable) throw new Error('unreadable commit input');
+      let hit = null;
+      for (const invocation of invocations) {
+        if (!Array.isArray(invocation.messages) || !invocation.messages.every((message) => typeof message === 'string')) {
+          throw new Error('invalid commit messages');
+        }
+        // Each -m starts a paragraph. Preserve those newlines and never merge
+        // different commits; unlike Stop, commit fences are not stripped.
+        hit = firstBannedPattern(invocation.messages.join('\n'), patternSet.patterns);
+        if (hit) break;
+      }
+      process.stdout.write(hit || '-');
+    } catch { process.exit(1); }
+  } else if (flags.has('--event')) {
     let event;
     try { event = JSON.parse(readStdin()); } catch { process.exit(1); }
     result = analyzeEvent(event, process.argv[2] || '');
@@ -191,6 +241,8 @@ module.exports = {
   formatEventTsv,
   formatTsv,
   labelPosition,
+  firstBannedPattern,
+  reportOrder,
   readPatterns,
   transcriptLastAssistantMessage,
 };

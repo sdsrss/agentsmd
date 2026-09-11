@@ -359,7 +359,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": "2026-08-25",
-      "note": "Stop transcript-structure scan checks section presence + order in four-section reports.",
+      "note": "Stop scans the relative order of protocol labels present in the report. Text alone cannot establish task level or a missing-section violation; completeness remains self-enforced. Single-label reports provide no order opportunity.",
       "added_at": "2026-07-03"
     },
     {
@@ -390,7 +390,7 @@
       "added_version": "v1.4.0",
       "confidence": "high",
       "last_demote_review": "2026-08-25",
-      "note": "Hook enforces banned-vocab subset on git commit messages; Stop scan covers assistant prose; self-enforced elsewhere. Shares the §10-V telemetry bucket with §6-bugfix-anchor by design — a §10-V hit is governed as one merged banned-vocab signal, not attributed per-rule.",
+      "note": "Commit, Stop, and retrospective scans share vocabulary matching with narrow statistical-term and adjacent numeric timing-ratio exceptions. A timing fingerprint does not prove execution or measurement truth. Other wording remains self-enforced. Shares the §10-V telemetry bucket with §6-bugfix-anchor; hits are a merged signal, not per-rule attribution.",
       "added_at": "2026-07-03"
     },
     {

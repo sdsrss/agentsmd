@@ -29,6 +29,7 @@
 const fs = require('fs');
 const path = require('path');
 const P = require('./lib/paths');
+const { firstBannedPattern, reportOrder } = require('../hooks/lib/transcript-structure');
 // Same self/external classifier the telemetry side uses — one definition of
 // "agentsmd's own sandbox" across the loop. R6-04 found ~50 QA sandboxes posing
 // as field data in the telemetry ledger; transcripts carry the identical
@@ -65,32 +66,21 @@ function stripFenced(text) { return String(text).replace(/```[\s\S]*?```/g, '');
 // One §10-V hit per turn (the hook breaks on first match) — returns the matched
 // pattern or null.
 function scanVocab(text, patterns) {
-  const s = stripFenced(text);
-  for (const pat of patterns) {
-    let re; try { re = new RegExp(pat, 'i'); } catch { continue; }
-    if (re.test(s)) return pat;
-  }
-  return null;
+  return firstBannedPattern(stripFenced(text), patterns);
 }
 
-// Mirror order_pos: first line-anchored position of a section label (or -1).
+// Retain the existing exported offset convention (including a preceding
+// newline); report decisions use the shared observer below.
 function labelPos(text, label) {
   const re = new RegExp('(^|\\n)[\\s>*-]*(?:\\*\\*)?' + label + '(?:\\*\\*)?[\\s]*:', 'i');
   const m = re.exec(text);
   return m ? m.index : -1;
 }
 
-// Four-section completeness/order (Done → Not done → Failed → Uncertain). Only
-// judged whenever a literal `Done:` label makes the turn a structured report,
-// exactly like transcript-structure-scan.sh.
+// Share the live observer's relative-order check; text alone does not prove
+// which task-level completeness requirement applies.
 function scanOrder(text) {
-  const done = labelPos(text, 'Done');
-  const parts = [labelPos(text, 'Not done'), labelPos(text, 'Failed'), labelPos(text, 'Uncertain')];
-  if (done < 0) return false;
-  if (parts.some((p) => p < 0)) return true;
-  let prev = done, bad = false;
-  for (const p of parts) { if (p < 0) continue; if (p < prev) bad = true; prev = p; }
-  return bad;
+  return reportOrder(String(text)).violation;
 }
 
 // Pull every assistant turn's plain text from a Codex session JSONL

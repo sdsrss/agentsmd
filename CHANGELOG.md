@@ -3,6 +3,23 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Fix report-order advisories that inferred missing sections from permitted
+  short reports. Check the relative order of present labels; task-level
+  completeness is not observable from report text alone.
+- Share commit, Stop, and retrospective vocabulary matching. Recognize narrow
+  statistical terms and adjacent, numerically consistent timing ratios; retain
+  unsupported claims, separate commit/paragraph boundaries, and failure evidence.
+- Align Extended lookup with `CODEX_HOME`, preserve unrevoked task/session
+  authorization, and treat continuation messages as state-review triggers.
+  Keep the final-report fallback for dead-end archival.
+- Correct performance skill guidance to distinguish concurrent wall time from
+  aggregate process cost and describe the event-wide benchmark's matcher limit.
+- Clarify scorecard instruction-file byte scope and actual automation scan roots;
+  display reference performance dates and runtime without promoting historical
+  baselines or release evidence to current modified-source proof.
+
 ## v5.5.0 — 2026-09-11 — automation evidence and validation routing (minor)
 
 - Require terminal evidence for validation and share bounded command recognition

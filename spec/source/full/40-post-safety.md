@@ -14,7 +14,7 @@
 
 L0 is one evidence line; L1 may collapse when clean; L2/L3 always show four independent labels, including empty values. **Order (HARD)**: `Done → Not done → Failed → Uncertain`. These labels and the §0 bracket signals are untranslatable protocol tokens — keep them English in every reply language; the narrative follows §1 Language.
 
-**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
+**Honesty (HARD)**: answer yes/no first when asked; tie Done to fresh evidence; write "uncertain because <X>" and the resolving command. Never frame incomplete work as minor or push validation to the user. **Banned vocab**: `should work / robust / significantly / N× faster (no baseline)` · 中文: `显著提升 / 应该可以 / 基本可用 / 已完善`. Quantify value claims with an absolute result or baseline ratio. Scope words such as “comprehensive audit” and statistical terms such as “robust regression” are not value claims by themselves. V1-verified process completions (commit landed / file created) are plain `Done:` — defensive `[PARTIAL]` on completed work is itself an honesty failure. Detailed report shapes live in §E12.
 
 ## §11 AUTOMATION DEFAULTS
 

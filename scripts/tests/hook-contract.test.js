@@ -137,7 +137,7 @@ test('Stop uses last_assistant_message without transcript access or fallback tel
       session_id: 'canonical',
       turn_id: 'turn-canonical',
       hook_event_name: 'Stop',
-      last_assistant_message: 'Done: changed parser.',
+      last_assistant_message: 'Not done: pending.\nDone: changed parser.',
       transcript_path: path.join(sandbox, 'missing.jsonl'),
     };
     const result = spawnHook(TRANSCRIPT_HOOK, event, sandbox);
@@ -155,7 +155,7 @@ test('Stop transcript compatibility fallback preserves verdict and records usage
     const transcript = path.join(sandbox, 'transcript.jsonl');
     fs.writeFileSync(transcript, `${JSON.stringify({
       type: 'message',
-      payload: { role: 'assistant', content: [{ type: 'output_text', text: 'Done: changed parser.' }] },
+      payload: { role: 'assistant', content: [{ type: 'output_text', text: 'Not done: pending.\nDone: changed parser.' }] },
     })}\n`);
     const event = {
       session_id: 'fallback',

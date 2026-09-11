@@ -1181,6 +1181,12 @@ function buildScorecard(options = {}) {
   const root = options.root || ROOT;
   const codexHome = options.codexHome || P.codexHome();
   const projectRoot = options.projectRoot || process.cwd();
+  const automationRoot = options.automationRoot || path.join(root, 'automation');
+  const workflowsRoot = options.workflowsRoot || path.join(root, '.github', 'workflows');
+  const displayRoot = (value) => {
+    const absolute = path.resolve(value);
+    return absolute.length > 400 ? `${absolute.slice(0, 380)} [truncated]` : absolute;
+  };
   const logPath = options.logPath || path.join(codexHome, 'logs', 'agentsmd.jsonl');
   const sessionsDir = options.sessionsDir || path.join(codexHome, 'sessions');
   const pointAudit = audit({ days, now, logPath });
@@ -1296,11 +1302,15 @@ function buildScorecard(options = {}) {
       'A published binding verifies internal byte/hash and decoded SLSA payload consistency; file acquisition, npm signature audit, and Sigstore authenticity remain release-closure evidence outside this offline scorecard.',
       'Latest-runtime canary results describe compatibility observations and do not rewrite the pinned support policy.',
       'Confirmed absent prompt files may contribute zero; missing files that contradict or cannot resolve the active surface, plus unreadable or invalid inputs, remain null and prevent a measured headroom claim.',
+      'Prompt budget counts measured global/project instruction-file bytes, not model tokens or full effective context. System/developer messages, tools, skills, Extended, memory, and transcript context are outside this sum. Global override selection and custom fallback discovery are not fully modeled.',
+      `Automation recipe scan root: ${displayRoot(automationRoot)}`,
+      `Automation workflow scan root: ${displayRoot(workflowsRoot)}`,
+      'Automation counts describe definitions found under the listed roots, not other repositories or successful execution. Installed packages may omit repository .github/workflows; zero definitions there does not establish missing repository automation.',
     ],
   };
   card.automation = automationSummary({
-    automationRoot: options.automationRoot || path.join(root, 'automation'),
-    workflowsRoot: options.workflowsRoot || path.join(root, '.github', 'workflows'),
+    automationRoot,
+    workflowsRoot,
     worktrees: options.worktrees,
     projectRoot,
     pointAudit,
@@ -1396,7 +1406,8 @@ function formatScorecard(card) {
     'calibration detectors are proxies, not governance signals',
   ]);
   section('Performance', [
-    `state: ${card.performance.state} · SLO ${card.performance.slo_verdict} · aggregate ratio ${card.performance.aggregate_process_ratio ?? 'n/a'} · concurrent-wall ratio ${card.performance.concurrent_wall_ratio ?? 'n/a'}`,
+    `state: ${card.performance.state} · reference SLO ${card.performance.slo_verdict} · aggregate ratio ${card.performance.aggregate_process_ratio ?? 'n/a'} · concurrent-wall ratio ${card.performance.concurrent_wall_ratio ?? 'n/a'}`,
+    `reference recorded: ${card.performance.recorded_at} · Codex ${card.performance.codex_version} · agentsmd ${card.performance.agentsmd_version}; current-implementation SLO evidence is separate`,
     card.performance.provenance
       ? `provenance: ${card.performance.provenance.kind}/${card.performance.provenance.applicability} · reason ${card.performance.provenance.reason} · age ${card.performance.age_days ?? 'unknown'} days (${card.performance.provenance.freshness}) · recorded package ${card.performance.agentsmd_version} · current package ${card.performance.provenance.current_package_version}`
       : 'provenance: legacy capture; current implementation applicability unverified',
@@ -1406,10 +1417,12 @@ function formatScorecard(card) {
     'citation engagement is not adherence',
   ]);
   section('Prompt budget', [
+    'scope: instruction-file byte estimate, not model token usage or complete effective context',
     `state: ${card.prompt_budget.state} · ${card.prompt_budget.total_bytes ?? 'n/a'}/${card.prompt_budget.cap ?? 'n/a'} bytes · headroom ${card.prompt_budget.headroom_bytes ?? 'n/a'}`,
     `sources: config ${card.prompt_budget.sources.config.state} · global ${card.prompt_budget.sources.global.state} · project ${card.prompt_budget.sources.project.state}`,
   ]);
   section('Automation', [
+    'scope: definitions under the scan roots in Measurement limits; workflow execution status is unverified',
     `recipes ${card.automation.recipes_present}/${card.automation.recipes_expected} · scheduled workflows ${card.automation.scheduled_workflows} · fallback ${card.automation.fallback_events} · fail-open ${card.automation.fail_open_events}`,
     `fail-open causes dependency/input-missing ${card.automation.fail_open_causes.dependency_missing} · timeout ${card.automation.fail_open_causes.timeout} · parse-error ${card.automation.fail_open_causes.parse_error} · other ${card.automation.fail_open_causes.other}`,
     `worktrees ${card.automation.worktrees} · protected ${card.automation.protected_worktrees} · residue ${card.automation.worktree_residue}`,

@@ -2,6 +2,17 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## Unreleased — audit-driven consistency corrections
+
+Core uses the configured `CODEX_HOME` for Extended lookup, preserves an
+unrevoked operation-scoped grant across this task/session, and distinguishes
+statistical terminology from quality claims. Extended treats continuation as a
+state-review trigger, requiring fresh validation when prior evidence is missing,
+stale, or affected by changes; it retains core's memory/final-report archival
+choice. Report completeness obligations are unchanged. Observer notes describe
+relative-order and local numeric-fingerprint limits. Local regression evidence
+does not substitute for selected real-model conformance before release.
+
 ## v5.5.0 — 2026-09-11 — autonomous authorization clarification
 
 Extended §E1 and §E13 now explicitly reuse an existing operation-scoped user
