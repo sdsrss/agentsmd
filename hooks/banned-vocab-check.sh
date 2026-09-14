@@ -48,12 +48,15 @@ if [[ "$CMD" == *"[allow-vocab]"* ]]; then
   exit 0
 fi
 
-# Find the first banned pattern that hits the message text.
-HIT=""
-while IFS= read -r pat; do
-  [[ -z "$pat" || "$pat" == \#* ]] && continue
-  if printf '%s' "$MSG" | grep -qiE "$pat"; then HIT="$pat"; break; fi
-done < "$PATTERNS_FILE"
+# Preserve invocation and paragraph boundaries for local vocabulary exceptions.
+# A failed analyzer is unevaluated, never a successful empty scan.
+HIT="$(node "$LIB_DIR/transcript-structure.js" "$PATTERNS_FILE" --commits <<< "$INVOCATIONS" 2>/dev/null)" || {
+  hook_observe "$HOOK" '§10-V' "$SID" true false '{"reason":"analysis-failed"}'
+  hook_record_failopen "$HOOK" "analysis-failed"
+  exit 0
+}
+[[ -n "$HIT" ]] || { hook_record_failopen "$HOOK" "analysis-empty"; exit 0; }
+[[ "$HIT" == "-" ]] && HIT=""
 
 hook_observe "$HOOK" '§10-V' "$SID" true true '{"source":"inline-message"}'
 

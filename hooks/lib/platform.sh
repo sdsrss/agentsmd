@@ -24,6 +24,23 @@ platform_stat_size() {
   fi
 }
 
+# platform_stat_mtime_size FILE — one successful stat snapshot, mtime:size.
+# Capture output until success so a failing implementation cannot supply a
+# plausible freshness key. GNU and BSD formats describe the same two fields.
+platform_stat_mtime_size() {
+  local f="${1:-}" value
+  [[ -n "$f" ]] || return 1
+  if value="$(stat --format=%Y:%s "$f" 2>/dev/null)"; then
+    :
+  elif value="$(stat -f %m:%z "$f" 2>/dev/null)"; then
+    :
+  else
+    return 1
+  fi
+  [[ "$value" =~ ^-?[0-9]+:[0-9]+$ ]] || return 1
+  printf '%s\n' "$value"
+}
+
 # platform_find_newer DIR REFERENCE_FILE — list immediate children (depth ≤ 1)
 # newer than REFERENCE_FILE. Depth cap is mandatory: the spec this plugin ships
 # forbids recursive traversal of ~/.codex/ (spec/AGENTS.md §8) — hook behavior

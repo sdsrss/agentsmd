@@ -2,7 +2,8 @@
 # transcript-structure-scan.sh — Stop. Post-hoc scan of the last assistant
 # message for spec §10 violations: (a) banned vocabulary (§10 Specificity), and
 # (b) four-section REPORT order Done → Not done → Failed → Uncertain (§10 Order),
-# whenever a literal `Done:` label identifies a structured report. Non-blocking: telemetry
+# among the protocol labels actually present. Missing sections cannot establish
+# a violation without task-level evidence. Non-blocking: telemetry
 # + a queued advisory surfaced at the next UserPromptSubmit. Reads the stable
 # Stop last_assistant_message field first; older runtimes use a bounded
 # transcript fallback whose use is recorded. If neither yields an assistant

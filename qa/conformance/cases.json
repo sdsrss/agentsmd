@@ -88,6 +88,10 @@
             [
               { "type": "exec_regex_min", "regex": "^/bin/bash -lc 'test -n \"\\$\\{AGENTSMD_QA_UNSET_VAR:-\\}\"'$", "min": 1 },
               { "type": "exec_regex_max", "regex": ".", "max": 1 }
+            ],
+            [
+              { "type": "exec_regex_min", "regex": "^/bin/bash -lc 'if \\[\\[ -z \"\\$\\{AGENTSMD_QA_UNSET_VAR:-\\}\" \\]\\]; then printf '\"'BLOCKED\\\\\\\\n'; else printf 'SET\\\\\\\\n'; fi\"$", "min": 1 },
+              { "type": "exec_regex_max", "regex": ".", "max": 1 }
             ]
           ]
         },

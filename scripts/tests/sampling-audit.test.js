@@ -46,11 +46,19 @@ t('scanOrder: correct Done→Not done→Failed→Uncertain order is clean', () =
 t('scanOrder: out-of-order four-section report is flagged', () => {
   assert.strictEqual(scanOrder('Not done: a\nDone: b\nFailed: c\nUncertain: d'), true);
 });
-t('scanOrder: a clearly structured report missing one required section is flagged', () => {
-  assert.strictEqual(scanOrder('Done: a\nNot done: b\nFailed: c'), true);
+t('scanOrder: missing sections are not inferred without task-level evidence', () => {
+  assert.strictEqual(scanOrder('Done: a\nNot done: b\nFailed: c'), false);
 });
-t('scanOrder: a Done-only structured report is incomplete', () => {
-  assert.strictEqual(scanOrder('Done: shipped the fix.'), true);
+t('scanOrder: short reports retain the allowed L1 shape', () => {
+  assert.strictEqual(scanOrder('Done: updated the comment.'), false);
+  assert.strictEqual(scanOrder('Done: updated the comment.\nUncertain: browser not checked.'), false);
+  assert.strictEqual(scanOrder('Failed: none\nNot done: pending'), true);
+});
+t('scanVocab: quantified timing and statistical terms match the live observer scope', () => {
+  assert.strictEqual(scanVocab('Latency 100 ms -> 20 ms, 5x faster.', VOCAB), null);
+  assert.strictEqual(scanVocab('Use robust regression.', VOCAB), null);
+  assert.ok(scanVocab('Use robust regression to make the service robust.', VOCAB));
+  assert.ok(scanVocab('Latency 100 ms -> 20 ms, 4x faster.', VOCAB));
 });
 t('parseArgs rejects an unsafe --limit integer instead of disabling the cap downstream', () => {
   const raw = '999999999999999999999999999999';
@@ -255,6 +263,13 @@ try {
   }
 
   const parityCases = [
+    'Done: Updated a comment; git diff --check passed.',
+    'Done: updated a comment.\nUncertain: browser not checked.',
+    'Failed: none\nNot done: pending',
+    'Latency 100 ms -> 20 ms, 5x faster.',
+    'Latency 100 ms -> 20 ms, 5x faster; startup is 9x faster.',
+    'Use robust regression to make the service robust.',
+    'The robust regression estimator uses Huber loss.',
     'This significantly improves the parser.',
     'Done: fixed crash (12/12 tests passed).',
     'Not done: a\nDone: b\nFailed: c\nUncertain: d',

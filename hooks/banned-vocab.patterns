@@ -1,8 +1,9 @@
 # banned-vocab.patterns — §10 Specificity / Honesty banned vocabulary.
 # One extended-regex (grep -iE) per line. `#` lines and blanks ignored.
-# Scanned against git commit messages (PreToolUse:Bash) and, later, assistant
-# prose (Stop transcript scan). A hit = an unquantified value claim → the spec
-# requires an absolute number or baseline-anchored ratio instead.
+# Shared by commit, Stop, and retrospective scans. The analyzer recognizes only
+# narrow statistical terms and adjacent consistent timing ratios as exceptions.
+# Remaining hits are vocabulary signals, not proof of dishonesty or measurement
+# truth; the agent still owns the semantic evidence requirement.
 # Keep patterns anchored to whole words to avoid substring false positives.
 
 # ── English ──────────────────────────────────────────────────────────────

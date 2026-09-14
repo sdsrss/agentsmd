@@ -765,9 +765,9 @@ NEW="$(clog_new "$B")"
 clear_pending
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Done: a\nNot done: b\nFailed: c"}]}}' > "$TR"
 B="$(clog_count)"; OUT="$(run_hook transcript-structure-scan.sh "$(TRJSON "$TR")")"; NEW="$(clog_new "$B")"
-{ is_empty "$OUT" && pending_has "four-section" && rows_have_event "$NEW" '§10-four-section-order' advisory; } \
-  && ok "four-section missing required label → queued" \
-  || bad "four-section missing label → queued" "out=[$OUT] new=[$NEW]"
+{ is_empty "$OUT" && ! pending_has "four-section" && rows_have_no_event "$NEW" '§10-four-section-order' advisory; } \
+  && ok "ordered partial report → no inferred task-level completeness violation" \
+  || bad "partial report without level evidence → no advisory" "out=[$OUT] new=[$NEW]"
 clear_pending
 # both classes in one report → one row per section (the mislabel fix's core proof).
 printf '%s\n' '{"type":"message","payload":{"role":"assistant","content":[{"type":"output_text","text":"Not done: a\nDone: significantly better\nFailed: c\nUncertain: d"}]}}' > "$TR"

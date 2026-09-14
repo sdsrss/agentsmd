@@ -72,6 +72,8 @@ logical filename exists in both.
 
 Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
+The hot-path arbitration check reads the cached decision once and obtains manifest mtime/size in one successful stat call. Only a single cache object with the expected schema, plugin root, manifest key, and selected surface can make the losing copy yield; missing, invalid, or unreadable evidence leaves both copies running.
+
 ### Full standalone installation
 
 This idempotent installer manages the global spec, native hook configuration, status-line default, migration, and standalone lifecycle under `$CODEX_HOME` (default: `~/.codex`). Download, inspect, then run it:
@@ -268,6 +270,12 @@ agentsmd registers 19 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, 
 | `session-handoff-capture` | Stop | Stores a private, redacted, byte-bounded completion capsule for a future fresh chat in the same repository |
 | `session-handoff-finalize` | SessionEnd | Marks only the matching session capsule finalized without reading the transcript or invoking a model |
 
+The report observer checks the relative order of labels that are present; it
+cannot infer task level or missing-section violations from prose alone. Commit,
+Stop, and retrospective vocabulary scans share narrow statistical-term and
+adjacent timing-ratio exceptions. A numeric fingerprint is not proof that a
+benchmark ran. Other wording and report completeness remain agent obligations.
+
 ## Automatic and cross-session memory
 
 agentsmd uses three complementary layers rather than treating every kind of
@@ -445,6 +453,15 @@ measured, empty, missing, invalid, and unavailable files; unresolved bytes stay
 `null`, and the aggregate state is `measured`, `partial`, `unavailable`, or
 `over-budget`. A restricted filesystem can therefore never manufacture green
 headroom from hidden inputs.
+
+Prompt budget is an instruction-file byte estimate, not model token usage or
+the complete effective context; system/developer messages, tools, skills,
+Extended, memory and transcripts are outside that sum. Global override selection
+and custom fallback discovery still need separate verification. Automation scan
+roots are listed in measurement limits: definitions missing from an installed
+package do not establish missing repository workflows or failed execution.
+Performance displays the reference record's date and runtime; current bound SLO
+captures remain separate from that historical baseline.
 
 Conformance freshness also has an identity boundary. `fresh` requires one full
 capture whose source commit, tracked-clean marker, cases hash, and thresholds
