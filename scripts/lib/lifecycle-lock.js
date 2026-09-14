@@ -20,8 +20,10 @@
 //     start-time unverifiable (no /proc, no ps)       → reclaim only after the lease expires
 //     owner.json unreadable (mid-write window)        → reclaim only when the lock dir
 //                                                       mtime is older than a 60 s grace
-//   Reclaim itself is race-safe: rename the dir to a pid-unique tombstone (only one
-//   renamer wins), remove the tombstone, then retry the mkdir once.
+//   Reclaim uses an append-only chain of atomically published claims inside the
+//   old directory. Only a provably dead local claimant can be succeeded; claim
+//   names are never deleted/reused before the entire generation is quarantined.
+//   This binds the stale decision to a generation instead of a reusable path.
 // - Release verifies the txid before removing: if the lease expired mid-run and
 //   another process legitimately reclaimed, the stale holder must not delete the
 //   new owner's lock.
@@ -30,11 +32,14 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const P = require('./paths');
 
 const LOCK_DIRNAME = '.agentsmd-lifecycle-lock';
 const DEFAULT_LEASE_MS = 15 * 60 * 1000; // lifecycle ops take seconds; 100x headroom
 const UNREADABLE_GRACE_MS = 60 * 1000;   // mkdir-won-but-owner.json-not-yet-written window
+const MAX_REAP_CLAIMS = 64;
+const REAP_KIND = 'agentsmd-lifecycle-reap-v1';
 
 let held = null; // module singleton → same-process reentrancy
 
@@ -110,25 +115,131 @@ function inspectLock(dir, now = Date.now()) {
   return { state: leaseExpired ? 'stale' : 'live', owner }; // unverifiable → lease backstop
 }
 
-// Race-safe stale-lock removal: only one process wins the rename; the loser
-// returns false and retries its mkdir (the winner's fresh lock now exists).
-function reclaim(dir) {
-  const tombstone = `${dir}.stale-${process.pid}-${Date.now()}`;
-  try { fs.renameSync(dir, tombstone); }
-  catch { return false; }
-  try { fs.rmSync(tombstone, { recursive: true, force: true }); } catch { /* best-effort */ }
-  return true;
+function generation(dir) {
+  try {
+    const stat = fs.lstatSync(dir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
+    let owner = null;
+    try { owner = fs.readFileSync(ownerPath(dir), 'utf8'); }
+    catch (error) { if (error.code !== 'ENOENT') return null; }
+    return { dev: String(stat.dev), ino: String(stat.ino), owner };
+  } catch { return null; }
 }
 
-function lockHeldError(owner) {
+function sameGeneration(left, right) {
+  return !!left && !!right && left.dev === right.dev && left.ino === right.ino && left.owner === right.owner;
+}
+
+function claimPath(dir, index, identity) {
+  return path.join(dir, `.reap-${identity.dev}-${identity.ino}-${index}.json`);
+}
+
+function readClaim(file) {
+  let fd;
+  try {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.isSymbolicLink()) return null;
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > 4096 || stat.dev !== before.dev || stat.ino !== before.ino) return null;
+    const claim = JSON.parse(fs.readFileSync(fd, 'utf8'));
+    if (claim.kind !== REAP_KIND || !/^[a-f0-9]{32}$/.test(claim.token)
+        || !Number.isInteger(claim.pid) || claim.pid <= 0 || typeof claim.host !== 'string'
+        || !(claim.pidStartTime === null || typeof claim.pidStartTime === 'string')
+        || typeof claim.dev !== 'string' || typeof claim.ino !== 'string') return null;
+    return claim;
+  } catch { return null; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
+function claimantDead(claim) {
+  // A lease cannot prove that a paused reclaimer will never resume its rename.
+  if (!claim || claim.host !== os.hostname()) return false;
+  if (!pidAlive(claim.pid)) return true;
+  const start = processStartTime(claim.pid);
+  return !!(claim.pidStartTime && start && claim.pidStartTime !== start);
+}
+
+function removeQuarantine(target, index, token, requireDead) {
+  try {
+    const stat = fs.lstatSync(target);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return;
+    const claim = readClaim(claimPath(target, index, stat));
+    if (!claim || claim.token !== token
+        || claim.dev !== String(stat.dev) || claim.ino !== String(stat.ino)
+        || (requireDead && !claimantDead(claim))) return;
+    // This exact random quarantine name is never reused by the protocol.
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch { /* Preserve unverified or inaccessible recovery material. */ }
+}
+
+function sweepQuarantines(dir) {
+  let entries;
+  try { entries = fs.readdirSync(path.dirname(dir), { withFileTypes: true }); } catch { return; }
+  let inspected = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(`${LOCK_DIRNAME}.stale-`)) continue;
+    const match = /^([0-9]+)-([a-f0-9]{32})$/.exec(entry.name.slice(`${LOCK_DIRNAME}.stale-`.length));
+    if (!match || Number(match[1]) >= MAX_REAP_CLAIMS) continue;
+    if (++inspected > MAX_REAP_CLAIMS) break;
+    removeQuarantine(path.join(path.dirname(dir), entry.name), Number(match[1]), match[2], true);
+  }
+}
+
+function reclaim(dir, before, verdict) {
+  if (!sameGeneration(before, generation(dir))) return false;
+  const claim = {
+    kind: REAP_KIND, token: crypto.randomBytes(16).toString('hex'),
+    pid: process.pid, pidStartTime: processStartTime(process.pid), host: os.hostname(),
+    dev: before.dev, ino: before.ino,
+  };
+  const prepared = path.join(dir, `.reap-prepared-${claim.token}`);
+  try {
+    // Publish complete metadata with link(), not open('wx') followed by a write:
+    // a killed writer must never leave a partially initialized official claim.
+    fs.writeFileSync(prepared, `${JSON.stringify(claim)}\n`, { flag: 'wx', mode: 0o600 });
+    if (!sameGeneration(before, generation(dir))) return false;
+    for (let index = 0; index < MAX_REAP_CLAIMS; index++) {
+      // Generation-qualified names keep a stray old-generation publication out
+      // of a replacement directory's claim chain, even across link path lookup.
+      const file = claimPath(dir, index, before);
+      try { fs.linkSync(prepared, file); }
+      catch (error) {
+        if (error.code !== 'EEXIST') return false;
+        const previous = readClaim(file);
+        if (!previous || previous.dev !== before.dev || previous.ino !== before.ino || !claimantDead(previous)) return false;
+        continue;
+      }
+      // Claimed nodes remain immutable even if this attempt is abandoned.
+      // Our coordination writes change the root mtime: for an unreadable owner,
+      // retain the already-established grace verdict only while its exact bytes
+      // and directory identity remain unchanged. A newly published owner aborts.
+      if (!sameGeneration(before, generation(dir)) || readClaim(file)?.token !== claim.token
+          || (verdict.owner && inspectLock(dir).state !== 'stale')) return false;
+      const tombstone = `${dir}.stale-${index}-${claim.token}`;
+      fs.renameSync(dir, tombstone);
+      removeQuarantine(tombstone, index, claim.token, false);
+      return true;
+    }
+    return false;
+  } catch { return false; }
+  finally {
+    // Only a task-unique prepared name; never unlink a published claim node.
+    try { fs.unlinkSync(prepared); } catch { /* Moved with the old generation. */ }
+  }
+}
+
+function lockHeldError(owner, recovery = false) {
   const who = owner
     ? `${owner.action || 'unknown-action'} (pid ${owner.pid}, started ${owner.startedAt || 'unknown'}${owner.host ? `, host ${owner.host}` : ''})`
     : 'an operation whose owner record is still being written';
   const err = new Error(
     `lifecycle lock: another agentsmd lifecycle operation is in progress — ${who}. ` +
-    'Refusing to run concurrently; nothing was changed. Re-run after it finishes. ' +
-    'A crashed owner is reclaimed automatically on the next run (immediately once its process is gone, ' +
-    `or after its ${Math.round(leaseMs() / 60000)} min lease when liveness cannot be verified).`
+    'Refusing to run concurrently; no installation files were changed. Re-run after it finishes. ' +
+    (recovery
+      ? 'Recovery could not prove exclusive ownership: a live/unverifiable claimant, changed lock, unsupported hard links, or the bounded claim limit may require inspection. Lock evidence was preserved; run agentsmd doctor before retrying.'
+      : 'A crashed owner is reclaimed automatically on the next run (immediately once its process is gone, ' +
+        `or after its ${Math.round(leaseMs() / 60000)} min lease when liveness cannot be verified).`)
   );
   err.code = 'AGENTSMD_LOCK_HELD';
   return err;
@@ -140,14 +251,16 @@ function acquire(action, env = process.env) {
   if (held) { held.depth += 1; return held; }
   const dir = lockDir();
   fs.mkdirSync(path.dirname(dir), { recursive: true });
+  sweepQuarantines(dir);
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       fs.mkdirSync(dir, { mode: 0o700 });
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
+      const before = generation(dir);
       const verdict = inspectLock(dir);
       if (verdict.state === 'live') throw lockHeldError(verdict.owner);
-      reclaim(dir); // false = lost the reclaim race; loop re-inspects the fresh lock
+      reclaim(dir, before, verdict); // Re-inspect on contention; never reuse the stale observation.
       continue;
     }
     const owner = {
@@ -164,7 +277,7 @@ function acquire(action, env = process.env) {
     held = { dir, owner, depth: 1 };
     return held;
   }
-  throw lockHeldError(readOwner(dir));
+  throw lockHeldError(readOwner(dir), true);
 }
 
 function release(handle) {

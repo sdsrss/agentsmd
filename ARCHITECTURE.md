@@ -34,7 +34,16 @@ L1  强制层    hooks/*.sh（bash，fail-open，3-8s timeout）：由 Codex har
               —— 确定性强制：阻断危险 Bash、扫 banned-vocab、注入 MEMORY 提示、会话引导
 ```
 
-**层间隔离不变式**：L1 永不 import L2；hook 异常时 fail-open，管理命令仍可独立运行。npm CLI 入口 `bin/agentsmd.js` 通过 spawn 子进程调用 L2 脚本。
+**层间依赖边界**：npm CLI 入口 `bin/agentsmd.js` 通过 spawn 子进程调用管理脚本；hook 使用有界 helper，异常时 fail-open。实际存在 `hooks/lib/event-journal.js` → `scripts/lib/paths.js` 的 CommonJS 依赖，复用纯路径函数，没有执行管理 CLI。管理命令调用与纯 helper 依赖需分别核对，目录分层本身不构成完整隔离证明。
+
+**生命周期锁恢复**：install/update、uninstall、restore 和 repair 共用
+`scripts/lib/lifecycle-lock.js`。陈旧锁回收先以 hard link 原子发布完整认领记录，
+按目录 dev/ino 代次追加编号；正式记录不删除复用，只能接续已确认死亡的本机
+回收者。换代前重验目录身份与 owner 字节，避免把旧观察用于新持有者。
+进程在 rename 后退出时，后续命令仅清理名称、token、dev/ino 与死亡记录均匹配的
+隔离目录。每条认领链和每次隔离清理最多检查 64 项；无效记录、跨主机或活性不明的
+回收者、不支持 hard link 的文件系统均保留锁并拒绝修改安装文件。owner.json v1
+和公共 CLI 不变；此协调协议要求并发回收者使用本实现，不能约束仍在运行的旧版。
 
 **Doctor 诊断分期**：`scripts/doctor.js` 保留依赖探测、生命周期状态读取、
 standalone 检查编排、最终健康折叠和公共 CLI/export；已完成的 plugin surface
@@ -76,7 +85,7 @@ review，年龄本身永不产生删除资格。默认命令只读；`--write` �
 `index.json`，不会改写 capture payload。索引同时报告 group/other mode；当挂载层不能
 保持 `0600/0700` 时状态为 `privacy:degraded`，不得把 sanitized 等同于 private。
 
-**唯一豁免（spawn-with-fail-open）**：`hooks/session-start-check.sh` 以子进程方式 spawn `scripts/lib/surface-arbitration.js` 读取 surface 仲裁结果。它不是 import——三重防护（`command -v node`、文件可读探测、`platform_timeout`）保证缺失或超时只让 banner 变短，永不阻断用户，因此符合“L1 不依赖 L2 可用性”这一不变式的实质。豁免范围到此为止：`drift.test.js` 断言引用 `scripts/` 的 hook 集合恰好等于这一个文件，并断言这三重防护仍在——新增第二处会让 CI 变红。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
+**受控管理层调用（spawn-with-fail-open）**：`hooks/session-start-check.sh` 以子进程方式 spawn `scripts/lib/surface-arbitration.js` 读取 surface 仲裁结果。三重防护（`command -v node`、文件可读探测、`platform_timeout`）使缺失或超时只缩短 banner，不阻断用户。`drift.test.js` 检查 `hooks/` 顶层 Shell 文件中的 `scripts/` 引用，断言仅此一处并保留三重防护；该扫描不覆盖 Node helper 的 import 或传递依赖。共享 hook merge 只删除当前 install path 标识的 agentsmd command hook，再保留其他 hook object 并追加本版本条目。
 
 **命令层为何使用 skills**：仓库把 `dir + SKILL.md(name+description frontmatter)` 作为命令元数据，并让每个 skill 路由到一个 L2 脚本；触发边界与 progressive disclosure 见 `spec/AGENTS-extended.md §E9`。runner resolver 与命令必须在同一 shell invocation 中执行，并只接受身份和版本匹配的 selected bundle、manifest deploy record 匹配的 standalone，或 package `bin.agentsmd` 匹配的 versioned CLI root；无可读 root 时输出结构化诊断并停止，CLI fallback 不导出 plugin context。
 
@@ -154,7 +163,8 @@ matrix、positive/near-negative 双场景、隔离 install/status/doctor、结�
 contract 与 5-run 信息性性能趋势。每个 Codex 场景使用自己的临时
 `CODEX_HOME`；失败也必须生成 versioned JSON。pinned 失败标记 release
 blocking，latest 失败只改变 compatibility report，不自动改 supported
-baseline。`.github/workflows/runtime-canary.yml` 提供固定周节奏。
+baseline。`.github/workflows/runtime-canary.yml` 仅通过 `workflow_dispatch`
+手动触发，没有定时运行；自动化凭据缺失时保留 unverified 证据，不调用模型。
 
 **两段式路径解析**：plugin manifest 使用官方 `${PLUGIN_ROOT}`（旧运行时回退
 `${CLAUDE_PLUGIN_ROOT}`）仅用于定位入口脚本；两者都缺失时 launcher 以 0
