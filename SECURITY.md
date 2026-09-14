@@ -41,5 +41,5 @@ Telemetry is **local-only** — nothing is transmitted anywhere. Rows are append
 
 ## Known operational caveats
 
-- **Dual-surface skills duplication**: surface arbitration makes hooks/context injection exactly-once when both the plugin and a standalone install are present, but Codex loads *skills* outside that arbitration — both copies' skills enter the session (prompt bloat, no security impact). Install only one surface; `doctor` flags dual-surface state.
+- **Dual-surface duplication**: cooperating hook copies suppress the unselected surface only when a valid, fresh arbitration cache identifies it. Missing or invalid cache data keeps both copies running; legacy copies may not cooperate. This does not guarantee exactly-once host callbacks, preloaded instructions, or skills, which are loaded outside hook arbitration. Install only one surface to avoid duplicate instructions and hook work; `doctor` flags dual-surface state.
 - Structured per-repo §8 exceptions (`.agentsmd/exceptions.json`) are fingerprint-scoped and expire; every use is telemetried. They are reviewable waivers, not silent bypasses.

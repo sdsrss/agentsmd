@@ -1,6 +1,6 @@
 {
   "name": "@sdsrs/agentsmd",
-  "version": "5.5.1",
+  "version": "5.5.2",
   "description": "A global coding-discipline spec for Codex with native hooks, reversible global AGENTS.md installation, and rule-specific opportunity telemetry.",
   "homepage": "https://github.com/sdsrss/agentsmd#readme",
   "bugs": "https://github.com/sdsrss/agentsmd/issues",
@@ -38,7 +38,14 @@
     "scorecard": "node scripts/scorecard.js",
     "coverage:observe": "node scripts/coverage-observe.js --run --json",
     "check:js-syntax": "node scripts/js-syntax-check.js --json",
-    "captures:inventory": "node scripts/capture-inventory.js --json"
+    "captures:inventory": "node scripts/capture-inventory.js --json",
+    "lint": "npm run check:js-syntax && node scripts/lint-argv.js --json && npm run lint:shell",
+    "format": "prettier --check --single-quote --trailing-comma es5 \"{bin,scripts,hooks/lib,qa}/**/*.{js,cjs}\" package.json",
+    "check:format": "npm run format --",
+    "format:write": "prettier --write --single-quote --trailing-comma es5",
+    "test:baseline-tools": "node qa/engineering-baseline.test.cjs",
+    "metrics": "node qa/engineering-baseline.cjs",
+    "baseline:measure": "node qa/engineering-baseline.cjs --checks"
   },
   "files": [
     "bin",
@@ -69,5 +76,9 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "acorn": "8.18.0",
+    "prettier": "3.9.6"
   }
 }

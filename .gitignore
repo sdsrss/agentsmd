@@ -28,3 +28,6 @@ tasks/
 
 # Root-level disposable task fixtures; keep nested fixture tmp directories visible.
 /tmp/
+
+# Local developer tools; runtime installation remains dependency-free.
+/node_modules/

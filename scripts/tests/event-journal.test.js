@@ -131,6 +131,58 @@ for (const [name, command, response, expected] of validationCases) {
   });
 }
 
+test('npm format entries route checker/writer terminal outcomes (AUD-03)', () => {
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-format-entry-'));
+  try {
+    const scripts = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts;
+    assert.ok(scripts['check:format'], 'the check entry must exist');
+    fs.mkdirSync(path.join(box, 'bin'));
+    const file = path.join(box, 'bin/probe.js');
+    const fixturePackage = JSON.stringify({ private: true, scripts: {
+      format: scripts.format, 'check:format': scripts['check:format'], 'format:write': scripts['format:write'],
+    } }, null, 2) + '\n';
+    fs.writeFileSync(path.join(box, 'package.json'), fixturePackage);
+    const clean = "const value = 'ok';\n";
+    // Keep npm test dependency-free. This controlled formatter tests command
+    // routing; the real Prettier integration is a separate developer check.
+    const tools = path.join(box, 'tools');
+    fs.mkdirSync(tools);
+    fs.writeFileSync(path.join(tools, 'prettier'), '#!/usr/bin/env node\n' + [
+      "const fs = require('fs'); const args = process.argv.slice(2);",
+      `const clean = ${JSON.stringify(clean)};`,
+      "if (args.includes('--write')) fs.writeFileSync('bin/probe.js', clean);",
+      "else if (!args.includes('--check')) process.exit(2);",
+      "process.exit(fs.readFileSync('bin/probe.js', 'utf8') === clean ? 0 : 1);",
+    ].join('\n'), { mode: 0o755 });
+    const env = { ...process.env, CODEX_HOME: path.join(box, 'home'),
+      PATH: tools + path.delimiter + process.env.PATH,
+      npm_config_cache: path.join(box, 'npm-cache') };
+    const run = (task, args = []) => cp.spawnSync('npm', ['run', task, ...args], {
+      cwd: box, env, encoding: 'utf8', timeout: 10000,
+    });
+    const classify = (command, exit) => JOURNAL.classifyPost(eventFrom({
+      mode: 'post', tool_name: 'Bash', command, exit_code: exit,
+    }));
+    for (const [source, exit] of [[clean, 0], ['const value="ok"\n', 1]]) {
+      fs.writeFileSync(file, source);
+      const checked = run('check:format');
+      assert.strictEqual(checked.status, exit, checked.stderr + checked.stdout);
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), source, 'check cannot rewrite source');
+      assert.strictEqual(fs.readFileSync(path.join(box, 'package.json'), 'utf8'), fixturePackage);
+      const row = classify('npm run check:format', checked.status);
+      assert.strictEqual(row.state, 'validation_completed');
+      assert.strictEqual(row.outcome, exit === 0 ? 'success' : 'failure');
+    }
+    const written = run('format:write', ['--', 'bin/probe.js']);
+    assert.strictEqual(written.status, 0, written.stderr);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), clean);
+    assert.strictEqual(classify('npm run format:write -- bin/probe.js', 0).state, 'mutation_completed');
+    assert.strictEqual(run('format').status, 0, 'legacy read-only command still works');
+  } finally {
+    fs.rmSync(box, { recursive: true, force: true });
+  }
+});
+
 test('persisted rows are privacy-bounded and contain only repo-relative paths', () => {
   const { rows } = runCase(CASES.cases.find((item) => item.id === 'mutation-then-validation'));
   const serialized = JSON.stringify(rows);

@@ -3,6 +3,26 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.2 — 2026-09-14 — lifecycle lock recovery and engineering checks (patch)
+
+- Bind stale lifecycle-lock reclamation to a directory generation and immutable,
+  atomically published claims. A delayed reclaimer cannot remove a new holder's
+  lock; verified dead local reclaimers and proven crash quarantines can recover.
+  Preserve unverified claims and refuse recovery when hard links are unavailable
+  or the bounded claim chain is exhausted. Existing owner records and CLI remain
+  compatible; concurrent older reclaimers do not implement this protocol.
+- Correct dual-surface arbitration guarantees and document the runtime canary's
+  manual trigger and unverified behavior when automation credentials are absent.
+
+- Add reproducible developer-only engineering metrics, syntax/lint and formatting
+  commands, with pinned development tools and baseline-tool regression tests.
+  Add `check:format` as a read-only alias while preserving `format` and
+  `format:write` behavior. The legacy `format` validation classification remains
+  a known limitation; repository formatting findings are not normalized here.
+- Narrow architecture and test descriptions to the actual JavaScript and shell
+  dependency checks. Coverage collection still has a known VM source-range
+  limitation; this release does not claim a measured coverage percentage.
+
 ## v5.5.1 — 2026-09-14 — prompt corrections and hook cache efficiency (patch)
 
 - Fix report-order advisories that inferred missing sections from permitted

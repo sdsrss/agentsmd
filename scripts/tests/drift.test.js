@@ -463,13 +463,11 @@ t('workflows: every uses: ref is pinned to a full commit SHA', () => {
   assert.strictEqual(offenders.length, 0, `mutable action refs: ${offenders.join(', ')}`);
 });
 
-// 19. L1→L2 isolation (ARCHITECTURE.md §2). A broken install must still leave
-//     working (or fail-open) hooks, so the bash layer may not depend on the Node
-//     management layer. One documented carve-out exists — session-start-check
-//     SPAWNS the surface inspector behind three guards and degrades to a shorter
-//     banner when it is missing — and it stayed unguarded by any test, which is
-//     how a second one would land unchallenged (2026-07-25 audit).
-t('hooks: no L1 hook depends on the L2 scripts/ layer beyond the documented carve-out', () => {
+// 19. Top-level Shell references into scripts/ (ARCHITECTURE.md §2). The sole
+//     allowed spawn is SessionStart's guarded surface inspector. This scan does
+//     not inspect Node helper imports (e.g. event-journal -> paths) or transitive
+//     dependencies; it is not proof of complete directory-layer isolation.
+t('hooks: top-level Shell references scripts/ only through the guarded SessionStart spawn', () => {
   const hooksDir = path.join(ROOT, 'hooks');
   const CARVE_OUT = 'session-start-check.sh';
   // Full-line comments are documentation, not a dependency — a hook may name an
