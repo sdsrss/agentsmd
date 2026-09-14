@@ -52,6 +52,123 @@ function copyPluginFixture(target) {
   }
 }
 
+withEnv((codexHome) => {
+  const stateDir = path.join(codexHome, '.agentsmd-state');
+  const standaloneLib = path.join(codexHome, 'agentsmd', 'hooks', 'lib');
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(standaloneLib, { recursive: true });
+  for (const file of ['hook-common.sh', 'platform.sh']) {
+    fs.copyFileSync(path.join(ROOT, 'hooks', 'lib', file), path.join(standaloneLib, file));
+  }
+  const manifestPath = path.join(stateDir, 'manifest.json');
+  const cachePath = path.join(stateDir, 'arbitration-cache.json');
+  const freshCache = () => {
+    fs.writeFileSync(manifestPath, '{}\n');
+    const stat = fs.statSync(manifestPath);
+    return {
+      schemaVersion: 1,
+      pluginRoot: fs.realpathSync(ROOT),
+      manifest: { key: `${Math.floor(stat.mtimeMs / 1000)}:${stat.size}` },
+      selection: { selected: 'standalone' },
+    };
+  };
+  const probe = (surface, prelude = '') => cp.spawnSync('bash', ['-c',
+    'source "$1"\n' + prelude + '\nhook_plugin_shadowed_by_standalone', 'cache-fixture',
+    path.join(surface === 'plugin' ? path.join(ROOT, 'hooks', 'lib') : standaloneLib, 'hook-common.sh'),
+  ], {
+    encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, CODEX_HOME: codexHome, PLUGIN_ROOT: ROOT, CLAUDE_PLUGIN_ROOT: ROOT },
+  });
+  const expectDecision = (surface, expected, prelude = '') => {
+    const result = probe(surface, prelude);
+    assert.ifError(result.error);
+    assert.strictEqual(result.status, expected, `${surface}: ${result.stderr}`);
+    assert.strictEqual(result.stdout, '', `${surface} leaked stdout`);
+    assert.strictEqual(result.stderr, '', `${surface} leaked stderr`);
+  };
+  for (const selected of ['standalone', 'plugin']) {
+    t(`fresh single-object cache yields only the ${selected === 'standalone' ? 'plugin' : 'standalone'} loser`, () => {
+      const cache = freshCache();
+      cache.selection.selected = selected;
+      fs.writeFileSync(cachePath, JSON.stringify(cache));
+      for (const surface of ['standalone', 'plugin']) expectDecision(surface, surface === selected ? 1 : 0);
+    });
+  }
+  const invalidCaches = [
+    ['missing manifest', (cache) => { fs.rmSync(manifestPath); return JSON.stringify(cache); }],
+    ['missing cache', () => null],
+    ['stale manifest key', (cache) => { cache.manifest.key += '-stale'; return JSON.stringify(cache); }],
+    ['different plugin root', (cache) => { cache.pluginRoot = codexHome; return JSON.stringify(cache); }],
+    ['unknown selection', (cache) => { cache.selection.selected = 'unknown'; return JSON.stringify(cache); }],
+    ['unsupported schema', (cache) => { cache.schemaVersion = 2; return JSON.stringify(cache); }],
+    ['string schema', (cache) => { cache.schemaVersion = '1'; return JSON.stringify(cache); }],
+    ['boolean schema', (cache) => { cache.schemaVersion = true; return JSON.stringify(cache); }],
+    ['malformed JSON', () => '{broken'],
+    ['multiple JSON objects', (cache) => '{}\n' + JSON.stringify(cache)],
+    ['duplicated JSON objects', (cache) => JSON.stringify(cache) + '\n' + JSON.stringify(cache)],
+    ['boolean selection', (cache) => { cache.selection.selected = true; return JSON.stringify(cache); }],
+    ['arbitrary selection', (cache) => { cache.selection.selected = 'other-surface'; return JSON.stringify(cache); }],
+    ['missing selection', (cache) => { delete cache.selection; return JSON.stringify(cache); }],
+    ['array instead of object', (cache) => JSON.stringify([cache])],
+  ];
+  for (const [name, encode] of invalidCaches) {
+    t(`cache ${name} keeps both physical surfaces running`, () => {
+      const data = encode(freshCache());
+      if (data === null) fs.rmSync(cachePath, { force: true });
+      else fs.writeFileSync(cachePath, data);
+      for (const surface of ['standalone', 'plugin']) expectDecision(surface, 1);
+    });
+  }
+  t('jq failure with valid-looking output cannot yield either surface', () => {
+    fs.writeFileSync(cachePath, JSON.stringify(freshCache()));
+    for (const surface of ['standalone', 'plugin']) {
+      expectDecision(surface, 1, 'jq() { command jq "$@"; return 17; }');
+    }
+  });
+  t('stat failure cannot turn its partial output into a valid freshness key', () => {
+    const cache = freshCache();
+    cache.manifest.key = 'invalid-stat-output:invalid-stat-output';
+    fs.writeFileSync(cachePath, JSON.stringify(cache));
+    for (const surface of ['standalone', 'plugin']) {
+      expectDecision(surface, 1, 'stat() { printf invalid-stat-output; printf stat-error >&2; return 17; }');
+    }
+  });
+});
+
+withEnv((codexHome) => {
+  const logPath = path.join(codexHome, 'stat-calls');
+  const cases = [
+    ['GNU stat succeeds once', 'gnu', '123:45', 0, ['--format=%Y:%s|fixture']],
+    ['BSD stat follows one failed GNU attempt', 'bsd', '123:45', 0, ['--format=%Y:%s|fixture', '-f|%m:%z|fixture']],
+    ['failed GNU and BSD stat discard partial output', 'fail', '', 1, ['--format=%Y:%s|fixture', '-f|%m:%z|fixture']],
+  ];
+  for (const [name, mode, stdout, status, calls] of cases) {
+    t(`combined mtime-size helper: ${name}`, () => {
+      fs.writeFileSync(logPath, '');
+      const script = [
+        'source "$1"',
+        'stat() {',
+        '  local IFS="|"; printf "%s\\n" "$*" >> "$STAT_LOG"',
+        '  if [[ "$STAT_MODE" == gnu && "$1" == --format=%Y:%s ]] || [[ "$STAT_MODE" == bsd && "$1" == -f && "$2" == %m:%z ]]; then',
+        '    printf "123:45\\n"; return 0',
+        '  fi',
+        '  printf rejected-partial; printf stat-error >&2; return 17',
+        '}',
+        'platform_stat_mtime_size fixture',
+      ].join('\n');
+      const result = cp.spawnSync('bash', ['-c', script, 'stat-fixture', path.join(ROOT, 'hooks', 'lib', 'platform.sh')], {
+        encoding: 'utf8', timeout: 10000,
+        env: { ...process.env, CODEX_HOME: codexHome, STAT_LOG: logPath, STAT_MODE: mode },
+      });
+      assert.ifError(result.error);
+      assert.strictEqual(result.status === 0, status === 0, result.stderr);
+      assert.strictEqual(result.stdout.trimEnd(), stdout);
+      assert.strictEqual(result.stderr, '');
+      assert.deepStrictEqual(fs.readFileSync(logPath, 'utf8').trim().split('\n'), calls);
+    });
+  }
+});
+
 t('plugin hook launcher prefers PLUGIN_ROOT, falls back to CLAUDE_PLUGIN_ROOT, and exits 0 without either', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'hooks.json'), 'utf8'));
   const command = manifest.hooks.SessionStart[0].hooks[0].command;

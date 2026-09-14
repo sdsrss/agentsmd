@@ -3,7 +3,7 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## v5.5.1 — 2026-09-11 — prompt consistency and observer corrections (patch)
+## v5.5.1 — 2026-09-14 — prompt corrections and hook cache efficiency (patch)
 
 - Fix report-order advisories that inferred missing sections from permitted
   short reports. Check the relative order of present labels; task-level
@@ -26,6 +26,11 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   limit, and reject unsafe suffixes, substitutions, assignments, redirection,
   extra commands, and bypass attempts. Preserve the original failed capture;
   category thresholds and the known-failure set are unchanged.
+- Reduce dual-surface hot-path arbitration to one cache parse and one successful
+  manifest stat call. Yield only for a single valid cache object with the expected
+  schema, root, manifest key, and selected surface; invalid caches or failed
+  probes retain the fail-open behavior. Hook events, matchers, and timeouts stay
+  unchanged. Paired hook measurements cover this cache path, not whole-Codex speed.
 - Clarify scorecard instruction-file byte scope and actual automation scan roots;
   display reference performance dates and runtime without promoting historical
   baselines or release evidence to current modified-source proof.

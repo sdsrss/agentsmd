@@ -205,25 +205,23 @@ hook_plugin_shadowed_by_standalone() {
   current_surface="$(hook_current_surface)"
   [[ "$current_surface" != "unknown" ]] || return 1
 
-  # Read the cache. ANY parse failure, unknown schema, plugin-root mismatch, or
-  # stale manifest freshness key → return 1 (both surfaces run; safe direction).
-  local schema cached_root cached_key selected resolved_root fresh_key
-  schema="$(jq -r '.schemaVersion // empty' "$cache" 2>/dev/null)" || return 1
-  [[ "$schema" == "$AGENTSMD_ARBITRATION_CACHE_SCHEMA" ]] || return 1
-  cached_root="$(jq -r '.pluginRoot // empty' "$cache" 2>/dev/null)"
-  cached_key="$(jq -r '.manifest.key // empty' "$cache" 2>/dev/null)"
-  selected="$(jq -r '.selection.selected // empty' "$cache" 2>/dev/null)"
-  [[ -n "$cached_root" && -n "$cached_key" && -n "$selected" ]] || return 1
-
-  # Cache must be for the same resolved plugin root and the same on-disk manifest.
+  # One stat snapshot and one JSON parse replace repeated process launches on
+  # every physical hook copy. Only a complete, single cache object can yield.
+  local resolved_root fresh_key
   resolved_root="$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd -P)"
-  [[ -n "$resolved_root" && "$resolved_root" == "$cached_root" ]] || return 1
-  fresh_key="$(platform_stat_mtime "$manifest" 2>/dev/null):$(platform_stat_size "$manifest" 2>/dev/null)"
-  [[ "$fresh_key" == "$cached_key" ]] || return 1
-
-  # Yield only when a valid, fresh cache names a DIFFERENT selected surface than
-  # this physical copy — i.e. this copy is the loser and may stand down.
-  [[ "$selected" != "unknown" && "$current_surface" != "$selected" ]]
+  [[ -n "$resolved_root" ]] || return 1
+  fresh_key="$(platform_stat_mtime_size "$manifest" 2>/dev/null)" || return 1
+  # Parse/command failures, malformed fields, unknown selections, root mismatch,
+  # or stale state all keep both copies running. Never interpret partial output
+  # from a failed jq/stat process as authority to suppress a physical copy.
+  jq -e -s --argjson schema "$AGENTSMD_ARBITRATION_CACHE_SCHEMA" \
+    --arg root "$resolved_root" --arg key "$fresh_key" --arg surface "$current_surface" '
+      length == 1 and (.[0] |
+        type == "object" and .schemaVersion == $schema
+        and .pluginRoot == $root and .manifest.key == $key
+        and (.selection.selected == "standalone" or .selection.selected == "plugin")
+        and .selection.selected != $surface)
+    ' "$cache" >/dev/null 2>&1 || return 1
 }
 
 # hook_read_event — read stdin JSON to stdout; empty on error.

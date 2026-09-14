@@ -64,6 +64,8 @@ standalone manifest、surface 仲裁缓存和遥测继续作为共享协调/运�
 
 插件与 standalone 是两种安装面，建议只选一种。双面进程先验证 manifest-backed standalone 完整性，再比较 SemVer：健康的同版/新版 standalone 胜出并让 protocol-v1 plugin hooks 退出；缺失、manifest 损坏、artifact 损坏、hooks 被禁用/错接、core 内容不一致或版本较旧的 standalone 不能遮蔽健康 plugin。`status` 在不改变既有 standalone 字段语义的前提下新增 `selectedSurface` 和稳定的 `surfaceArbitration`。`doctor` 把任何 manifest-backed 双面都保留为要求清理的红色状态，即使 protocol-v1 fixture 已证明其中一份 hook 会退出。新版 plugin 无法关闭旧 standalone 已注册的命令，也无法移除 SessionStart 前已进入 discovery context 的旧 global core；逻辑选择 plugin 只会加入 packaged core，不能证明它是唯一 policy/hook。需要 update/uninstall 旧面才能消除这个不协作边界。
 
+热路径仲裁只解析一次缓存，并用一次成功的 stat 调用取得 manifest 的 mtime/size。仅当缓存是单个对象且 schema、plugin root、manifest key 和 selected surface 均有效时，让出副本才会退出；证据缺失、无效或不可读时保留两份运行。
+
 ### 完整 standalone 安装
 
 这个幂等安装器在 `$CODEX_HOME`（默认 `~/.codex`）中管理全局规范、原生 hook 配置、状态栏默认值、旧版迁移和 standalone 生命周期。先下载并审查，再执行：

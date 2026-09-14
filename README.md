@@ -72,6 +72,8 @@ logical filename exists in both.
 
 Plugin and standalone are alternative installation surfaces; choose one. In a dual-surface process, agentsmd evaluates manifest-backed standalone integrity before SemVer precedence: a healthy same/newer standalone wins and protocol-v1 plugin hooks yield; an absent, malformed, damaged, disabled, miswired, content-divergent, or older standalone cannot hide a healthy plugin. `status` adds `selectedSurface` and a stable `surfaceArbitration` record without changing the existing standalone fields. `doctor` keeps every manifest-backed dual surface red as an operational cleanup requirement, even when protocol-v1 fixtures prove one hook copy yields. A new plugin cannot disable commands or remove global core context already loaded from an older standalone, so its logical selection adds the packaged core but does not prove sole policy/hook execution; update/uninstall that standalone to remove the non-cooperative boundary.
 
+The hot-path arbitration check reads the cached decision once and obtains manifest mtime/size in one successful stat call. Only a single cache object with the expected schema, plugin root, manifest key, and selected surface can make the losing copy yield; missing, invalid, or unreadable evidence leaves both copies running.
+
 ### Full standalone installation
 
 This idempotent installer manages the global spec, native hook configuration, status-line default, migration, and standalone lifecycle under `$CODEX_HOME` (default: `~/.codex`). Download, inspect, then run it:
