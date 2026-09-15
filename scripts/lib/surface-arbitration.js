@@ -11,6 +11,7 @@ const H = require('./codex-hooks');
 const AM = require('./agents-md');
 const CT = require('./config-toml');
 const REG = require('./hook-registry');
+const { SCRIPT_BY_SKILL } = require('./skill-runner');
 const { ArgvError, parseStrict } = require('./argv');
 
 const SEMVER_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
@@ -44,6 +45,17 @@ const PLUGIN_HOOK_SUPPORT = [
 const STANDALONE_HOOK_SUPPORT = [
   'hooks/hooks.json',
   ...PLUGIN_HOOK_SUPPORT,
+];
+
+// Reuse the executable skill routing inventory, never enumerate the potentially
+// damaged bundle to decide which of its delivery files should exist.
+const PLUGIN_SKILL_FILES = [
+  'scripts/lib/skill-runner.js',
+  ...Object.entries(SCRIPT_BY_SKILL).flatMap(([skill, script]) => [
+    `skills/${skill}/SKILL.md`,
+    `skills/${skill}/scripts/agentsmd-run.js`,
+    `scripts/${script}`,
+  ]),
 ];
 
 function parseSemver(value) {
@@ -128,7 +140,12 @@ function readBundleFile(root, relative, label, errors) {
       errors.push(`${label} resolves outside the plugin root`);
       return null;
     }
-    return fs.readFileSync(absolute, 'utf8');
+    const content = fs.readFileSync(absolute, 'utf8');
+    if (!content.trim()) {
+      errors.push(`empty ${label}`);
+      return null;
+    }
+    return content;
   } catch {
     errors.push(`missing ${label}`);
     return null;
@@ -478,7 +495,9 @@ function inspectPluginBundle(env = process.env) {
       missingRegistrations: [...REG.HOOK_BASENAMES],
       missingScripts: [...REG.HOOK_BASENAMES],
       missingSupport: [...PLUGIN_HOOK_SUPPORT],
+      supportExpected: PLUGIN_HOOK_SUPPORT.length,
     },
+    skills: { expectedFiles: PLUGIN_SKILL_FILES.length, missingFiles: [...PLUGIN_SKILL_FILES] },
     spec: {
       core: false,
       extended: false,
@@ -544,6 +563,10 @@ function inspectPluginBundle(env = process.env) {
     result.errors.push(`missing plugin hook support: ${result.hooks.missingSupport.join(', ')}`);
   }
 
+  result.skills.missingFiles = PLUGIN_SKILL_FILES.filter((relative) =>
+    readBundleFile(root, relative, `plugin delivery ${relative}`, result.errors) === null
+  );
+
   const core = readBundleFile(root, 'spec/AGENTS.md', 'spec/AGENTS.md', result.errors);
   const extended = readBundleFile(root, 'spec/AGENTS-extended.md', 'spec/AGENTS-extended.md', result.errors);
   result.spec.core = F.pathExists(path.join(root, 'spec', 'AGENTS.md'));
@@ -559,6 +582,7 @@ function inspectPluginBundle(env = process.env) {
     && result.hooks.valid
     && result.hooks.missingScripts.length === 0
     && result.hooks.missingSupport.length === 0
+    && result.skills.missingFiles.length === 0
     && result.spec.core
     && result.spec.extended
     && result.errors.length === 0;

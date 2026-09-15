@@ -548,6 +548,13 @@ doctor 的旧 `surface` 仍表示诊断调用 context，逻辑赢家使用 `sele
 
 ## 安全、所有权与共存
 
+插件健康检查覆盖每个已登记技能的文档、launcher、命令入口和共享 skill runner。
+必需文件缺失、为空或不是安全的包内文件时，插件会报告不健康。这属于结构检查，
+不等于内容 checksum，也不证明全部传递依赖和 hook 已正确执行。启动故障提示会
+提供绑定当前 `CODEX_HOME` 的 doctor 技能命令，无需全局 `agentsmd` CLI；若诊断入口
+本身损坏，则用提示中的插件库存命令识别安装，再从原 marketplace 重新安装。
+shell 安装器的诊断提示使用持久技能路径，下载来源清理后仍可执行。
+
 standalone 安装使用 manifest ownership 和 marker scope。它保留其他 hook tenant 与 agentsmd 管理块外的用户内容；修改前验证 owned artifact；遇到不可解析的共享文件、symlink 共享逻辑路径或 hash 不匹配的 owned file 时拒绝操作。安装与卸载使用 staged changes、snapshot checks、写入时 CAS 和 rollback；不协作的外部写入者会导致操作拒绝，而不是静默覆盖已变化的共享文件。
 
 `repair --plan` 是只读操作，会区分可普通更新的完整安装、缺少 manifest-owned

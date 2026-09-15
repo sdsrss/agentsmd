@@ -36,7 +36,9 @@ function pluginStatus(overrides = {}) {
             expected: 19,
             missingScripts: [],
             missingSupport: [],
+            supportExpected: 12,
           },
+          skills: { expectedFiles: 52, missingFiles: [] },
           spec: { core: true, extended: true },
           errors: [],
         },
@@ -89,13 +91,14 @@ test('healthy plugin diagnosis preserves row order and does not mutate input', (
     'plugin hook support present',
     'plugin core spec present',
     'plugin extended spec present',
+    'plugin skill and command files present',
     'plugin SessionStart activation',
     'dual surface absent',
     'surface arbitration selected a healthy candidate',
     'surface arbitration has no non-cooperative loser',
   ]);
   assert(result.checks.every((check) => check.ok));
-  assert.strictEqual(result.checks[6].detail,
+  assert.strictEqual(result.checks[7].detail,
     'unverified (receipt-missing) — no SessionStart receipt was observed; review the agentsmd hooks, then start a new session');
 });
 
@@ -110,6 +113,7 @@ test('broken dual surface retains bounded diagnostic details', () => {
       expected: 19,
       missingScripts: ['pre-bash-safety-check.sh'],
       missingSupport: ['hooks/lib/hook-common.sh'],
+      supportExpected: 12,
     },
     spec: { core: false, extended: false },
     errors: ['manifest hooks path must be ./hooks.json'],

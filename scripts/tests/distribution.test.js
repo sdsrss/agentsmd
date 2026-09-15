@@ -285,6 +285,28 @@ t('install.sh installs, updates, reports status, and uninstalls from a local sou
   assert.strictEqual(statusAfter.installed, false);
 }));
 
+t('shell install status guidance survives removed source and quotes the exact home', () => withSandbox((dir) => {
+  const source = path.join(dir, 'downloaded-source');
+  fs.mkdirSync(source);
+  for (const name of ['hooks', 'spec', 'scripts', 'skills', 'schemas', 'automation', 'qa', 'package.json', '.codex-plugin', 'hooks.json']) {
+    fs.cpSync(path.join(ROOT, name), path.join(source, name), { recursive: true });
+  }
+  const home = path.join(dir, "home space ' $(touch UNEXPECTED)");
+  const output = run(['--source', source], { CODEX_HOME: home });
+  fs.rmSync(source, { recursive: true });
+  const line = output.split('\n').find((value) => value.startsWith('Status command: '));
+  assert(line, 'installer must print a runnable status command');
+  const result = cp.spawnSync('/bin/sh', ['-c', line.slice('Status command: '.length)], {
+    cwd: dir,
+    env: { ...process.env, CODEX_HOME: path.join(dir, 'wrong-home') },
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(JSON.parse(result.stdout).installed, true);
+  assert(!fs.existsSync(path.join(dir, 'UNEXPECTED')), 'command substitution must stay literal');
+  assert(!fs.existsSync(path.join(dir, 'wrong-home')), 'guidance must bind its installation home');
+}));
+
 t('install.sh with jq missing → zero-mutation preflight refusal (R1-03), CODEX_HOME untouched', () => withSandbox((dir) => {
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
@@ -321,6 +343,17 @@ t('install.sh --degraded with jq missing → installs fail-open, manifest enforc
   assert.strictEqual(manifest.enforcement, false);
   assert.deepStrictEqual(manifest.missingPrerequisites, ['jq']);
   assert.match(result.stdout + result.stderr, /doctor reported issues/);
+  const line = result.stdout.split('\n').find((value) => value.startsWith('Doctor command: '));
+  assert(line, 'degraded installation must retain an executable doctor command');
+  assert.doesNotMatch(result.stderr, /sed:.*not found/);
+  const diagnosed = cp.spawnSync('/bin/sh', ['-c', line.slice('Doctor command: '.length)], {
+    cwd: dir,
+    env: { ...process.env, PATH: bin, CODEX_HOME: path.join(dir, 'wrong-home') },
+    encoding: 'utf8',
+  });
+  assert.strictEqual(diagnosed.status, 1, diagnosed.stdout + diagnosed.stderr);
+  assert.match(diagnosed.stdout, /degraded install/);
+  assert.doesNotMatch(diagnosed.stderr, /MODULE_NOT_FOUND/);
 }));
 
 t('repo marketplace exposes the root agentsmd plugin with install policy metadata', () => {

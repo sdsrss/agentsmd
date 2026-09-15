@@ -62,6 +62,22 @@ detect_codex_version() {
   printf '%s' "${version:-unknown}"
 }
 
+# Keep diagnostics on the selected delivery surface without requiring a global
+# npm CLI. The existing skill launcher retains its runtime identity checks.
+diagnostic_skill_command() {
+  local diagnostic_home="${CODEX_HOME:-$HOME/.codex}" root skill_file launcher
+  diagnostic_home="$(cd "$diagnostic_home" 2>/dev/null && pwd -P)" || return 1
+  root="$(cd "$LIB_DIR/../.." 2>/dev/null && pwd -P)" || return 1
+  if [[ "$(hook_current_surface)" == "standalone" ]]; then
+    skill_file="$diagnostic_home/skills/agentsmd-$1/SKILL.md"
+  else
+    skill_file="$root/skills/agentsmd-$1/SKILL.md"
+  fi
+  launcher="${skill_file%/SKILL.md}/scripts/agentsmd-run.js"
+  [[ -s "$skill_file" && -s "$launcher" ]] || return 1
+  printf 'PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= AGENTSMD_PLUGIN_ROOT= CODEX_HOME=%q node %q %q' "$diagnostic_home" "$launcher" "$skill_file"
+}
+
 HOOK="session-start"
 hook_kill_switch "SESSION_START" || exit 0
 # R1-03 degraded-mode persistent warning: without jq every enforcement hook
@@ -337,9 +353,23 @@ if [[ "$SELECTED_SURFACE" != "plugin" ]]; then
       SOURCE_V="$(jq -r '.version // empty' "$SRC_ROOT/package.json" 2>/dev/null)"
       if semver_gt "$SOURCE_V" "$DEPLOYED_V"; then
         STALE_FLAG=true
-        STALE_DEPLOY=$'\n'"[agentsmd] Stale deploy: ${CODEX_HOME:-$HOME/.codex} is enforcing v${DEPLOYED_V}, but the package it was installed from (${SRC_ROOT}) is now v${SOURCE_V}. Upgrading the package does NOT redeploy the spec or hooks. Run: agentsmd update — then agentsmd doctor."
+        STALE_DEPLOY=$'\n'"[agentsmd] Stale deploy: ${CODEX_HOME:-$HOME/.codex} is enforcing v${DEPLOYED_V}, but the package it was installed from (${SRC_ROOT}) is now v${SOURCE_V}. Upgrading the package does NOT redeploy the spec or hooks. Use the original standalone installer for agentsmd update, then run the agentsmd-doctor skill."
       fi
     fi
+  fi
+fi
+
+DIAGNOSTIC_CONTEXT=""
+if [[ "$STALE_FLAG" == "true" || "$SPEC_ACTIVE" != "true" || "$DEGRADED_NO_SURFACE" == "true" ]]; then
+  if DOCTOR_COMMAND="$(diagnostic_skill_command doctor)"; then
+    DIAGNOSTIC_CONTEXT=$'\n'"Doctor command: $DOCTOR_COMMAND"
+  else
+    DIAGNOSTIC_CONTEXT=$'\n''[agentsmd] The local diagnostic skill is unavailable; restore this installation from its original source.'
+  fi
+  if [[ "$(hook_current_surface)" == "plugin" ]]; then
+    printf -v PLUGIN_LIST_COMMAND 'CODEX_HOME=%q codex plugin list --json' "${CODEX_HOME:-$HOME/.codex}"
+    DIAGNOSTIC_CONTEXT+=$'\n''[agentsmd] If diagnosis cannot run, identify this plugin with the inventory command and reinstall it from its original marketplace. Plugin recovery does not use standalone update or repair.'
+    DIAGNOSTIC_CONTEXT+=$'\n'"Plugin inventory command: $PLUGIN_LIST_COMMAND"
   fi
 fi
 
@@ -347,12 +377,12 @@ hook_record "$HOOK" "context" "{\"phase\":\"session-start\",\"deployStale\":${ST
 if [[ "$SPEC_ACTIVE" == "true" && "$DEGRADED_NO_SURFACE" == "true" ]]; then
   # Packaged core injected, but arbitration selected no healthy surface. Say so —
   # the appended surface line reads selected=none, and the two must agree (N-03).
-  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} packaged core injected in a DEGRADED no-healthy-surface state — SPINE gates, Iron Laws, and §8 SAFETY policy apply, but no delivery surface passed health checks so enforcement-hook coverage is unverified. Run agentsmd doctor. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
+  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} packaged core injected in a DEGRADED no-healthy-surface state — SPINE gates, Iron Laws, and §8 SAFETY policy apply, but no delivery surface passed health checks so enforcement-hook coverage is unverified. Run the agentsmd-doctor skill using the diagnostic guidance below. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
 elif [[ "$SPEC_ACTIVE" == "true" ]]; then
   BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} selected — SPINE gates, Iron Laws, and §8 SAFETY apply. Native hooks cover selected detectable patterns, fail open on missing prerequisites, and are not a security boundary. Toggle any hook with DISABLE_<NAME>_HOOK=1; disable all with DISABLE_AGENTSMD_HOOKS=1."
 elif [[ "$SPEC_FOUND" == "true" ]]; then
-  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} was found, but surface health could not be verified; do not treat the policy or hooks as fully active. Run agentsmd status and agentsmd doctor."
+  BANNER="[agentsmd] CODEX-CODING-SPEC ${VER} was found, but surface health could not be verified; do not treat the policy or hooks as fully active. Run the agentsmd-doctor skill using the diagnostic guidance below."
 else
   BANNER="[agentsmd] Native hooks are active, but no CODEX-CODING-SPEC core was found; SPINE/Iron-Law policy is not loaded. Reinstall the plugin or run the standalone installer."
 fi
-hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${SPEC_CONTEXT}${CHECKPOINT}${HANDOFF_CONTEXT:+$'\n'$HANDOFF_CONTEXT}${TOOL_CONTEXT}" "SessionStart"
+hook_context "${BANNER}${SURFACE_CONTEXT}${STALE_DEPLOY}${DIAGNOSTIC_CONTEXT}${SPEC_CONTEXT}${CHECKPOINT}${HANDOFF_CONTEXT:+$'\n'$HANDOFF_CONTEXT}${TOOL_CONTEXT}" "SessionStart"
