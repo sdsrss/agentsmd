@@ -235,7 +235,7 @@ agentsmd 在 `SessionStart`、`PreToolUse`、`PostToolUse`、`UserPromptSubmit`�
 | `post-tool-journal` | PostToolUse:Bash\|apply_patch\|update_plan | 记录有界 plan、preflight、mutation、validation、review 结果，不保存原始命令或响应 |
 | `session-start-check` | SessionStart | 在 startup、resume、clear、compact 时重新注入唯一的完整规范；只有全新 startup 清理旧会话状态 |
 | `surface-advisories` | UserPromptSubmit | 呈现上一轮排队的提示 |
-| `memory-prompt-hint` | UserPromptSubmit | 呈现与 prompt 匹配的 `MEMORY.md` 条目 |
+| `memory-prompt-hint` | UserPromptSubmit | 按英文词边界和中文短语推荐记忆；泛化配置词需有诊断语境。仅在建议与任务相关时读取 |
 | `residue-audit` | Stop | 标记 Codex 临时存储中的任务残留增长 |
 | `sandbox-disposal-check` | Stop | 标记可能属于任务的 scratch，并排除 runtime-owned 路径 |
 | `transcript-structure-scan` | Stop | 从 `last_assistant_message` 检查 §10 报告结构/词汇和 §6 证据锚点；记录 bounded transcript fallback 使用 |
@@ -353,6 +353,10 @@ surface 会自动扩大到 `npm run check`；release 路径不能移除 full gat
 未知路径即使完成 full gate，仍会保留明确的未覆盖风险。真实外部服务
 canary 和 AUTH boundary 操作只报告，路由器不会执行。本地检查按
 targeted 优先运行，第一个失败会阻止后续更宽的检查。
+
+Contributor `AGENTS.md` 文件使用专门的结构检查并保留 full gate，
+不会仅因所在目录而追加 hook SLO 或 runtime canary。Doctor 和 skill
+路由共用一个 plugin-surface 检查 ID，组合计划只执行一次该检查。
 
 自动化输入和结果使用 `schemas/task-contract.schema.json` 与
 `schemas/task-evidence.schema.json` 中有界的 JSON Schema。

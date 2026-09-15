@@ -114,7 +114,7 @@
         "skills/agentsmd-status/SKILL.md"
       ],
       "checks_include": [
-        "skill-frontmatter",
+        "plugin-surface",
         "skill-routing",
         "distribution",
         "full-check"
@@ -537,6 +537,138 @@
       "requires_full": true,
       "external_service": false,
       "auth_boundary": true
+    },
+    {
+      "name": "contributor document AGENTS.md",
+      "files": [
+        "AGENTS.md"
+      ],
+      "checks_include": [
+        "contributor-instructions",
+        "full-check"
+      ],
+      "checks_exclude": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "argv-lint",
+        "validation-router"
+      ],
+      "categories_include": [
+        "contributor-instructions",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true,
+      "uncovered": false
+    },
+    {
+      "name": "contributor document hooks/AGENTS.md",
+      "files": [
+        "hooks/AGENTS.md"
+      ],
+      "checks_include": [
+        "contributor-instructions",
+        "full-check"
+      ],
+      "checks_exclude": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "argv-lint",
+        "validation-router"
+      ],
+      "categories_include": [
+        "contributor-instructions",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true,
+      "uncovered": false
+    },
+    {
+      "name": "contributor document scripts/AGENTS.md",
+      "files": [
+        "scripts/AGENTS.md"
+      ],
+      "checks_include": [
+        "contributor-instructions",
+        "full-check"
+      ],
+      "checks_exclude": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "argv-lint",
+        "validation-router"
+      ],
+      "categories_include": [
+        "contributor-instructions",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true,
+      "uncovered": false
+    },
+    {
+      "name": "contributor document qa/AGENTS.md",
+      "files": [
+        "qa/AGENTS.md"
+      ],
+      "checks_include": [
+        "contributor-instructions",
+        "full-check"
+      ],
+      "checks_exclude": [
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "argv-lint",
+        "validation-router"
+      ],
+      "categories_include": [
+        "contributor-instructions",
+        "llm-routing"
+      ],
+      "requires_full": true,
+      "external_service": false,
+      "auth_boundary": true,
+      "uncovered": false
+    },
+    {
+      "name": "contributor and runtime hook mixed change",
+      "files": [
+        "hooks/AGENTS.md",
+        "hooks/memory-prompt-hint.sh"
+      ],
+      "checks_include": [
+        "contributor-instructions",
+        "hook-smoke",
+        "shellcheck",
+        "safety-coverage",
+        "perf-slo",
+        "runtime-canary",
+        "full-check"
+      ],
+      "categories_include": [
+        "contributor-instructions",
+        "native-hook"
+      ],
+      "requires_full": true,
+      "external_service": true,
+      "auth_boundary": true,
+      "uncovered": false
     }
   ]
 }

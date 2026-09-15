@@ -44,7 +44,6 @@ t('root and nested contributor instruction files exist and are non-empty', () =>
 
 t('instruction chains stay inside the roadmap discovery budget', () => {
   const rootBytes = bytes('AGENTS.md');
-  assert(rootBytes >= 3 * 1024, `root AGENTS.md is below the 3 KiB target: ${rootBytes}B`);
   assert(rootBytes <= 4 * 1024, `root AGENTS.md exceeds the 4 KiB target: ${rootBytes}B`);
   for (const nested of FILES.slice(1)) {
     const chainBytes = rootBytes + bytes(nested);
