@@ -47,10 +47,120 @@ function withEnv(fn) {
 }
 
 function copyPluginFixture(target) {
-  for (const relative of ['.codex-plugin', 'package.json', 'hooks.json', 'hooks', 'spec']) {
+  for (const relative of ['.codex-plugin', 'package.json', 'hooks.json', 'hooks', 'spec', 'skills', 'scripts']) {
     fs.cpSync(path.join(ROOT, relative), path.join(target, relative), { recursive: true });
   }
 }
+
+withEnv(() => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-plugin-inventory.'));
+  try {
+    copyPluginFixture(fixture);
+    process.env.AGENTSMD_PLUGIN_ROOT = fixture;
+    const { doctor, arbitration } = loadModules();
+    const inspect = () => arbitration.inspectPluginBundle({ AGENTSMD_PLUGIN_ROOT: fixture });
+    t('complete plugin fixture includes usable skill delivery files', () => {
+      assert.strictEqual(inspect().healthy, true);
+      assert.strictEqual(doctor().ok, true);
+    });
+    for (const relative of [
+      'skills/agentsmd-audit/SKILL.md',
+      'skills/agentsmd-design/scripts/agentsmd-run.js',
+      'scripts/design.js',
+      'scripts/lib/skill-runner.js',
+    ]) {
+      const file = path.join(fixture, relative);
+      const original = fs.readFileSync(file);
+      fs.unlinkSync(file);
+      t(`missing plugin delivery file is diagnosed: ${relative}`, () => {
+        assert.strictEqual(inspect().healthy, false);
+        const result = doctor();
+        assert.strictEqual(result.ok, false);
+        assert(result.checks.some((row) => !row.ok && row.detail.includes(relative)));
+      });
+      fs.writeFileSync(file, original);
+    }
+    for (const relative of ['hooks/pre-bash-safety-check.sh', 'hooks/lib/command-parse.js']) {
+      const file = path.join(fixture, relative);
+      const original = fs.readFileSync(file);
+      fs.writeFileSync(file, ' \n\t');
+      t(`empty plugin executable is unhealthy: ${relative}`, () => {
+        assert.strictEqual(inspect().healthy, false);
+        assert.strictEqual(doctor().ok, false);
+      });
+      fs.writeFileSync(file, original);
+    }
+    const skill = path.join(fixture, 'skills', 'agentsmd-audit', 'SKILL.md');
+    const content = fs.readFileSync(skill);
+    fs.unlinkSync(skill);
+    fs.symlinkSync(path.join(ROOT, 'skills', 'agentsmd-audit', 'SKILL.md'), skill);
+    t('plugin skill symlink cannot substitute for an in-bundle file', () => {
+      assert.strictEqual(inspect().healthy, false);
+    });
+    fs.unlinkSync(skill);
+    fs.writeFileSync(skill, content);
+    fs.mkdirSync(path.join(fixture, 'skills', 'foreign'));
+    fs.writeFileSync(path.join(fixture, 'skills', 'foreign', 'SKILL.md'), 'user skill\n');
+    t('restored plugin and unrelated extra skill remain healthy', () => {
+      assert.strictEqual(inspect().healthy, true);
+      assert.strictEqual(doctor().ok, true);
+    });
+    t('plugin doctor derives support count from the inspected inventory', () => {
+      const row = doctor().checks.find((check) => check.name === 'plugin hook support present');
+      const expected = arbitration.PLUGIN_HOOK_SUPPORT.length;
+      assert.strictEqual(row.detail, `${expected}/${expected}`);
+    });
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+withEnv((codexHome) => {
+  const fixture = path.join(codexHome, "plugin space ' $(touch UNEXPECTED)");
+  fs.mkdirSync(fixture);
+  copyPluginFixture(fixture);
+  process.env.AGENTSMD_PLUGIN_ROOT = fixture;
+  process.env.PLUGIN_ROOT = fixture;
+  fs.unlinkSync(path.join(fixture, 'hooks', 'lib', 'command-parse.js'));
+  t('damaged plugin banner gives a scoped doctor command without invoking a global CLI', () => {
+    const event = JSON.stringify({ session_id: 'diagnostic-guidance', cwd: codexHome, source: 'startup' });
+    const hook = cp.spawnSync('bash', [path.join(fixture, 'hooks', 'session-start-check.sh')], {
+      cwd: codexHome, env: process.env, input: event, encoding: 'utf8',
+    });
+    assert.strictEqual(hook.status, 0, hook.stderr);
+    const context = JSON.parse(hook.stdout).hookSpecificOutput.additionalContext;
+    const line = context.split('\n').find((value) => value.startsWith('Doctor command: '));
+    assert(line, 'a damaged plugin needs a scoped executable diagnostic command');
+    const bin = path.join(codexHome, 'unusable-cli');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'agentsmd'), '#!/bin/sh\nprintf "global CLI must not be used\\n" >&2\nexit 99\n', { mode: 0o755 });
+    const result = cp.spawnSync('bash', ['-c', line.slice('Doctor command: '.length)], {
+      cwd: codexHome,
+      env: { ...process.env, CODEX_HOME: path.join(codexHome, 'wrong-home'), PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /plugin hook support present.*command-parse\.js/);
+    assert.doesNotMatch(result.stderr, /command not found|MODULE_NOT_FOUND|global CLI must not be used/);
+    assert(!fs.existsSync(path.join(codexHome, 'UNEXPECTED')));
+    assert(!fs.existsSync(path.join(codexHome, 'wrong-home')));
+    assert.match(context, /original marketplace/);
+    assert(context.split('\n').some((value) => value.startsWith('Plugin inventory command: CODEX_HOME=')));
+  });
+  fs.unlinkSync(path.join(fixture, 'skills', 'agentsmd-doctor', 'scripts', 'agentsmd-run.js'));
+  t('missing diagnostic launcher falls back to the original plugin marketplace', () => {
+    const hook = cp.spawnSync('bash', [path.join(fixture, 'hooks', 'session-start-check.sh')], {
+      cwd: codexHome, env: process.env,
+      input: JSON.stringify({ session_id: 'missing-diagnostic-launcher', cwd: codexHome, source: 'startup' }),
+      encoding: 'utf8',
+    });
+    assert.strictEqual(hook.status, 0, hook.stderr);
+    const context = JSON.parse(hook.stdout).hookSpecificOutput.additionalContext;
+    assert.match(context, /local diagnostic skill is unavailable/);
+    assert.match(context, /original marketplace/);
+    assert(!context.split('\n').some((value) => value.startsWith('Doctor command: ')));
+  });
+});
 
 withEnv((codexHome) => {
   const stateDir = path.join(codexHome, '.agentsmd-state');

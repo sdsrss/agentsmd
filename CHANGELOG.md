@@ -3,6 +3,18 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.4 — 2026-09-15 — lifecycle diagnostics and executable recovery guidance
+
+- Diagnose missing skill documents, launchers, command entry points and the
+  shared skill runner from the existing routing inventory. Reject empty required
+  plugin files and derive doctor support counts from the inspected inventory.
+- Provide scoped diagnostic skill commands without a global CLI. Keep shell
+  installer guidance valid after temporary source cleanup, quote literal paths
+  without extra runtime tools, and direct plugin recovery to its original
+  marketplace when local diagnostics cannot run.
+- Add isolated regressions for damaged bundles, restored files, preserved
+  neighbors, unusual paths, removed installation sources and degraded tooling.
+
 ## v5.5.3 — 2026-09-15 — focused memory hints and validation routing (patch)
 
 - Align management contributor guidance with the existing pure hook path-helper

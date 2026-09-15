@@ -15,7 +15,7 @@ set -eu
 NAME="agentsmd"
 DEFAULT_REPO="sdsrss/agentsmd"
 # Synchronized by scripts/version-sync.js — must equal package.json version.
-INSTALLER_VERSION="5.5.3"
+INSTALLER_VERSION="5.5.4"
 DEFAULT_REF="v$INSTALLER_VERSION"
 
 ACTION="install"
@@ -86,6 +86,33 @@ EOF
 
 say() {
   printf '%s\n' "$*"
+}
+
+shell_quote() {
+  agentsmd_quote_rest=$1
+  printf "'"
+  while :; do
+    case "$agentsmd_quote_rest" in
+      *"'"*)
+        printf '%s' "${agentsmd_quote_rest%%\'*}" "'\''"
+        agentsmd_quote_rest=${agentsmd_quote_rest#*\'}
+        ;;
+      *) printf "%s'" "$agentsmd_quote_rest"; break ;;
+    esac
+  done
+}
+
+# The downloaded source and even $0 may disappear after installation. Route
+# through the persistent skill launcher, which validates its deployed runtime.
+diagnostic_command() {
+  diagnostic_home=$(abs_dir "$codex_home")
+  diagnostic_skill="$diagnostic_home/skills/agentsmd-$1/SKILL.md"
+  printf 'PLUGIN_ROOT= CLAUDE_PLUGIN_ROOT= AGENTSMD_PLUGIN_ROOT= CODEX_HOME='
+  shell_quote "$diagnostic_home"
+  printf ' node '
+  shell_quote "${diagnostic_skill%/SKILL.md}/scripts/agentsmd-run.js"
+  printf ' '
+  shell_quote "$diagnostic_skill"
 }
 
 die() {
@@ -463,11 +490,13 @@ case "$ACTION" in
     say "Verifying install (doctor):"
     if run_node_script "$src" doctor.js; then
       say ""
-      say "$NAME is installed and healthy (run scripts/status.js for details)."
+      say "$NAME is installed and healthy."
+      say "Status command: $(diagnostic_command status)"
       say "Start a new Codex session to load it."
     else
       say ""
-      say "doctor reported issues above — fix them, then re-run: $0 --doctor"
+      say "doctor reported issues above — fix them, then run:"
+      say "Doctor command: $(diagnostic_command doctor)"
       exit 1
     fi
     ;;

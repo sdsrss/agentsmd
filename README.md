@@ -40,6 +40,14 @@ required for plugin runtime or only for project linting and prints a
 current-platform command you can copy and run manually. The reminder disappears
 once the tool is available.
 
+Plugin health also checks each registered skill's document, launcher, command
+entry point, and shared skill runner. Missing, empty, or unsafe required files
+make the bundle unhealthy. These are structural checks, not a content checksum
+or proof that every transitive dependency or hook executes correctly. Failure
+banners provide a home-scoped doctor skill command without requiring a global
+`agentsmd` CLI. If that diagnostic entry point is damaged, use the scoped plugin
+inventory command and reinstall from the plugin's original marketplace.
+
 Read the `installed` array, not `available`: for an npm-sourced marketplace entry
 Codex reports `"available": []` both before and after a successful install, so an
 empty `available` is not a failure signal.
@@ -665,6 +673,8 @@ The curl installer exposes install/update/status/doctor/uninstall. `repair` requ
 versioned npm CLI or reviewed local checkout so the replacement artifact can be
 identified before mutation. If both plugin and standalone surfaces are installed,
 remove both separately.
+The shell installer's status and doctor hints use persistent skill launchers, so
+they remain usable after its temporary download directory has been removed.
 
 Plugin context is accepted only from Codex's runtime `CLAUDE_PLUGIN_ROOT` or a
 selected bundle resolved by the status/doctor skill (`AGENTSMD_PLUGIN_ROOT`). A

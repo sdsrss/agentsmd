@@ -38,7 +38,7 @@ function inspectSelectedPluginSurface(surfaceStatus) {
     pluginBundle.hooks.missingSupport.length === 0,
     pluginBundle.hooks.missingSupport.length
       ? `missing: ${pluginBundle.hooks.missingSupport.join(', ')}`
-      : '9/9'
+      : `${pluginBundle.hooks.supportExpected}/${pluginBundle.hooks.supportExpected}`
   );
   add(
     'plugin core spec present',
@@ -49,6 +49,13 @@ function inspectSelectedPluginSurface(surfaceStatus) {
     'plugin extended spec present',
     pluginBundle.spec.extended,
     pluginBundle.spec.extended ? 'spec/AGENTS-extended.md' : 'missing spec/AGENTS-extended.md'
+  );
+  add(
+    'plugin skill and command files present',
+    pluginBundle.skills.missingFiles.length === 0,
+    pluginBundle.skills.missingFiles.length
+      ? `missing, empty or unsafe: ${pluginBundle.skills.missingFiles.join(', ')}`
+      : `${pluginBundle.skills.expectedFiles}/${pluginBundle.skills.expectedFiles}`
   );
   add(
     'plugin SessionStart activation',
