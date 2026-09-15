@@ -274,17 +274,6 @@
       "width": "widened",
       "order": 140
     },
-    "skill-frontmatter": {
-      "command": [
-        "node",
-        "scripts/tests/plugin-surface.test.js"
-      ],
-      "execution": "local",
-      "external_service": false,
-      "auth_boundary": false,
-      "width": "targeted",
-      "order": 150
-    },
     "skill-routing": {
       "command": [
         "node",
@@ -535,7 +524,11 @@
     {
       "id": "native-hook",
       "patterns": [
-        "hooks/**",
+        "hooks/*.sh",
+        "hooks/*.patterns",
+        "hooks/hooks.json",
+        "hooks/lib/**",
+        "hooks/tests/**",
         "hooks.json"
       ],
       "risk_categories": [
@@ -835,7 +828,7 @@
         "llm-routing"
       ],
       "checks": [
-        "skill-frontmatter",
+        "plugin-surface",
         "skill-routing",
         "distribution"
       ],
@@ -942,7 +935,18 @@
     {
       "id": "quality-assurance",
       "patterns": [
-        "qa/**"
+        "qa/*.js",
+        "qa/*.cjs",
+        "qa/*.sh",
+        "qa/*.json",
+        "qa/conformance/**",
+        "qa/core-ab/**",
+        "qa/perf/**",
+        "qa/FEATURES.md",
+        "qa/FINAL_REPORT.md",
+        "qa/ISSUES.md",
+        "qa/LOOP_LOG.md",
+        "qa/PROTOCOL_V2_TEST_MATRIX.md"
       ],
       "risk_categories": [
         "qa-contract"
@@ -988,14 +992,17 @@
       "checks": [
         "contributor-instructions"
       ],
-      "reason": "Contributor instruction changes alter repository-local agent behavior.",
+      "reason": "Contributor instruction changes use their own structural checks and retain the full gate; directory placement alone does not imply a runtime hook change.",
       "requires_full": true,
       "auth_boundary": true
     },
     {
       "id": "script",
       "patterns": [
-        "scripts/**"
+        "scripts/*.js",
+        "scripts/*.json",
+        "scripts/lib/**",
+        "scripts/tests/**"
       ],
       "risk_categories": [
         "script"

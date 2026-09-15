@@ -14,7 +14,7 @@ agentsmd_skill_run() {
 }
 ```
 
-`memory-prompt-hint.sh` records a `suggest` event with the memory files it surfaced. That the hint *fired* says nothing about whether the agent *read* the file — §7 "read the suggested memory" is HARD but leaves no direct telemetry. This joins each `suggest` row to its session transcript and asks: after the hint, did a non-user row name a suggested file?
+`memory-prompt-hint.sh` records a `suggest` event with the memory files it surfaced. A hint is a relevance candidate, not a requirement to read every suggested file; §7 requires consultation when the task actually matches the memory. This audit asks whether a non-user transcript row named a suggested file after the hint. A mention proves neither a successful read nor semantic relevance.
 
 - **applied** — a suggested file is named by a non-user transcript row after the hint.
 - **bypassed** — transcript found, no such reference.

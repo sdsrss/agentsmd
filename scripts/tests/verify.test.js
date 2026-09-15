@@ -53,6 +53,24 @@ for (const fixture of fixtures.cases) {
   });
 }
 
+test('combined doctor and skill changes execute their shared surface check once', () => {
+  const plan = buildPlan(map, ['scripts/doctor.js', 'skills/agentsmd-doctor/SKILL.md']);
+  const calls = [];
+  const result = executePlan(plan, {
+    cwd: ROOT,
+    spawnSync(command, args) {
+      calls.push([command, ...args]);
+      return { status: 0 };
+    },
+  });
+  assert.strictEqual(result.exit_code, 0);
+  assert.strictEqual(calls.filter((argv) => argv.join(' ') === 'node scripts/tests/plugin-surface.test.js').length, 1);
+  const surface = plan.checks.find((check) => check.id === 'plugin-surface');
+  assert(surface.reasons.some((reason) => reason.startsWith('doctor-diagnostics:')));
+  assert(surface.reasons.some((reason) => reason.startsWith('skill-metadata:')));
+  assert(plan.requires_full_gate, 'shared changes must retain the full gate');
+});
+
 test('strict CLI parsing rejects malformed, unknown, and conflicting selectors', () => {
   assert.deepStrictEqual(parseVerifyArgs([]), {
     changed: true,

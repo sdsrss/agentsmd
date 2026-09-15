@@ -259,7 +259,7 @@ agentsmd registers 19 hooks across `SessionStart`, `PreToolUse`, `PostToolUse`, 
 | `post-tool-journal` | PostToolUse:Bash\|apply_patch\|update_plan | Records bounded plan, preflight, mutation, validation, and review outcomes without raw commands or responses |
 | `session-start-check` | SessionStart | Rehydrates the single full spec on startup, resume, clear, and compact; only a fresh startup resets stale session state |
 | `surface-advisories` | UserPromptSubmit | Surfaces advisories queued by the previous turn |
-| `memory-prompt-hint` | UserPromptSubmit | Surfaces prompt-matched `MEMORY.md` entries |
+| `memory-prompt-hint` | UserPromptSubmit | Suggests relevant-memory candidates using English word boundaries and CJK phrases; generic configuration terms need diagnostic context. Read a suggestion only when relevant to the task |
 | `residue-audit` | Stop | Flags growth in task residue under Codex temporary storage |
 | `sandbox-disposal-check` | Stop | Flags likely task scratch while excluding runtime-owned paths |
 | `transcript-structure-scan` | Stop | Checks §10 report structure and vocabulary plus §6 evidence anchors from `last_assistant_message`; records bounded transcript fallback use |
@@ -390,6 +390,10 @@ path cannot remove that full gate. Unknown paths remain an explicit uncovered
 risk even after the full gate. External-service canaries and AUTH-boundary
 operations are report-only and never executed by the router. Local checks run
 targeted first and stop at the first failure before wider checks.
+
+Contributor `AGENTS.md` files use their own structural checks and retain the full
+gate; their directory alone does not add hook SLO or runtime canaries. Doctor and
+skill routes share one plugin-surface check ID, so a combined plan runs it once.
 
 Automation inputs and results use the bounded JSON Schemas in
 `schemas/task-contract.schema.json` and

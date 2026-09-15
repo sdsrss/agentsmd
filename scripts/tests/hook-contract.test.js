@@ -101,6 +101,42 @@ test('contract fixtures cover current stable field shapes and roadmap boundary c
   }
 });
 
+test('memory hints retain specific topics without generic config or substring matches', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-hook-contract-'));
+  try {
+    fs.mkdirSync(path.join(sandbox, 'memory'));
+    fs.writeFileSync(path.join(sandbox, 'memory', 'config.md'), 'Configuration parsing notes.\n');
+    fs.writeFileSync(path.join(sandbox, 'MEMORY.md'), '- [State config parseability](memory/config.md) [configuration,settings] [配置 设置 状态栏]\n');
+    const hook = path.join(ROOT, 'hooks', 'memory-prompt-hint.sh');
+    const cases = [
+      ['Fix a typo in README.md.', false],
+      ['Fix a typo in the configuration example in README.md.', false],
+      ['把 README 中“配置”改成“设置”，仅修改这两个字。', false],
+      ['Update the statement in README.md.', false],
+      ['Diagnose config parseability failure.', true],
+      ['排查配置解析失败。', true],
+      ['修复状态栏配置。', true],
+      ['Fix STATE handling.', true],
+      ['Fix state-transition handling.', true],
+    ];
+    for (const [prompt, expected] of cases) {
+      const result = spawnHook(hook, {
+        session_id: 'memory-topic', hook_event_name: 'UserPromptSubmit', cwd: sandbox, prompt,
+      }, sandbox);
+      assert.strictEqual(result.status, 0, result.stderr);
+      if (!expected) assert.strictEqual(result.stdout.trim(), '', prompt);
+      else {
+        const output = JSON.parse(result.stdout);
+        assert.strictEqual(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+        assert.match(output.hookSpecificOutput.additionalContext, /memory\/config\.md/, prompt);
+        assert.strictEqual(output.decision, undefined, 'a suggestion must not block');
+      }
+    }
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test('PreToolUse deny emits current permissionDecision plus the legacy block compatibility shape', () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-hook-contract-'));
   try {

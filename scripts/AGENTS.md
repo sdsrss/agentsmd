@@ -5,7 +5,7 @@ These rules add to the repository root guidance for `scripts/` and `scripts/lib/
 ## Architecture
 
 - Keep `bin/agentsmd.js` a thin subprocess dispatcher. Management behavior belongs in a focused script or shared library, with tests under `scripts/tests/`.
-- Hooks must not import management modules. The documented bounded SessionStart arbitration spawn is the only current exception; drift tests enforce it.
+- Hook management calls are limited to the bounded SessionStart spawn. `event-journal.js` may reuse the pure `scripts/lib/paths.js` helper. Drift checks cover top-level Shell references, not Node or transitive imports.
 - Reuse strict argv parsing, atomic filesystem helpers, safe walking, hook registry, and lifecycle primitives instead of adding parallel implementations.
 
 ## Lifecycle boundary

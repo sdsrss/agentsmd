@@ -3,6 +3,19 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.3 — 2026-09-15 — focused memory hints and validation routing (patch)
+
+- Align management contributor guidance with the existing pure hook path-helper
+  dependency and the actual scope of the Shell drift check.
+- Share one plugin-surface validation ID across doctor and skill changes, and
+  route contributor instructions separately from runtime directory patterns.
+  Preserve full validation for instruction, shared, unknown, and release paths.
+- Narrow memory hints to English word boundaries and specific CJK phrases;
+  generic configuration terms require diagnostic context. Suggestions remain
+  advisory and require task relevance; keyword matches do not prove relevance.
+- Remove the minimum contributor-document byte count while retaining required
+  content checks and maximum discovery budgets.
+
 ## v5.5.2 — 2026-09-14 — lifecycle lock recovery and engineering checks (patch)
 
 - Bind stale lifecycle-lock reclamation to a directory generation and immutable,

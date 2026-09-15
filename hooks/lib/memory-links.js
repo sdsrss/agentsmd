@@ -8,6 +8,7 @@ const path = require('path');
 
 const MAX_MEMORY_BYTES = 64 * 1024;
 const STOP = new Set('the and for with this that from memory file when use using before after into your you code spec rule rules note lesson project reference feedback which what will each per via ally'.split(' '));
+const GENERIC = new Set(['config', 'configuration', 'configured', 'settings', '配置', '设置']);
 
 function safeTarget(root, raw) {
   const target = String(raw || '').trim();
@@ -40,15 +41,18 @@ function suggestedLinks(memoryIndex, prompt, limit = 3) {
   let body;
   try { body = fs.readFileSync(memoryIndex, 'utf8'); } catch { return []; }
   const promptText = String(prompt);
-  const promptLower = promptText.toLowerCase();
+  const promptWords = new Set(promptText.toLowerCase().match(/[a-z]+/g) || []);
+  // Generic configuration words need diagnostic context. This is a recall aid,
+  // not a semantic relevance verdict; the agent still evaluates each suggestion.
+  const diagnostic = /\b(?:debug|diagnose|failure|error|bug|broken|invalid)\b|排查|诊断|故障|失败|报错|异常/iu.test(promptText);
   const root = path.dirname(memoryIndex);
   const found = [];
   for (const line of body.split(/\r?\n/)) {
     if (!/^[-*] \[/.test(line)) continue;
-    const english = (line.match(/[A-Za-z][A-Za-z-]{4,}/g) || [])
-      .map((word) => word.toLowerCase()).filter((word) => !STOP.has(word));
-    const cjk = line.match(/[\u3400-\u9fff]{2,}/g) || [];
-    if (!english.some((word) => promptLower.includes(word)) && !cjk.some((word) => promptText.includes(word))) continue;
+    const english = (line.match(/[A-Za-z]{5,}/g) || [])
+      .map((word) => word.toLowerCase()).filter((word) => !STOP.has(word) && (diagnostic || !GENERIC.has(word)));
+    const cjk = (line.match(/[\u3400-\u9fff]{2,}/g) || []).filter((word) => diagnostic || !GENERIC.has(word));
+    if (!english.some((word) => promptWords.has(word)) && !cjk.some((word) => promptText.includes(word))) continue;
     for (const match of line.matchAll(/\]\(([^)]+)\)/g)) {
       const relative = safeTarget(root, match[1]);
       if (relative && !found.includes(relative)) found.push(relative);
