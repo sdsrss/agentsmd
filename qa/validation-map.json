@@ -431,6 +431,17 @@
       "auth_boundary": false,
       "width": "full",
       "order": 1000
+    },
+    "doctor-standalone": {
+      "command": [
+        "node",
+        "scripts/tests/doctor-standalone.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 93
     }
   },
   "routes": [
@@ -569,7 +580,9 @@
         "scripts/doctor.js",
         "scripts/lib/doctor-plugin.js",
         "scripts/tests/doctor-plugin.test.js",
-        "scripts/tests/plugin-surface.test.js"
+        "scripts/tests/plugin-surface.test.js",
+        "scripts/lib/doctor-standalone.js",
+        "scripts/tests/doctor-standalone.test.js"
       ],
       "risk_categories": [
         "diagnostics",
@@ -577,6 +590,7 @@
       ],
       "checks": [
         "doctor-plugin",
+        "doctor-standalone",
         "plugin-surface",
         "install"
       ],

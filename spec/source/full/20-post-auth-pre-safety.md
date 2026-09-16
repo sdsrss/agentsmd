@@ -1,6 +1,6 @@
 **L3 boundary**: Apply §2 Level/Auth separation; load extended and state blast radius. Missing extended blocks L3 implementation, not read-only analysis.
 
-**Scope-bound**: files outside the grant → re-ASK. Mid-task adjacent-bug discovery → pause, announce, individual re-ASK ("feels obvious" ≠ safe). Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
+**Scope-bound**: files outside the grant → explicitly ask the user to authorize that change. A newly found adjacent bug outside the existing grant → leave it unchanged, announce it, and ask the user whether to fix it; an out-of-scope note alone is not a request. Continue independent authorized work. Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
 
 Project `AUTONOMY: aggressive | default | careful` may tune ceremony, never §5 Hard, §8, or Iron Law #2.
 

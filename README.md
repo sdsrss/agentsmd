@@ -10,6 +10,10 @@ agentsmd is an `AGENTS.md` coding specification and native-hooks plugin for Open
 - **Bounded native checks:** block selected detectable risks and surface structured advisories without claiming to automate every semantic rule.
 - **Project-aware tooling:** generate `AGENTS.md`, distill coding conventions, and extract frontend design tokens.
 
+Quick navigation: [product scope](#what-agentsmd-does) · [installation](#install) ·
+[health and recovery](#health-and-recovery) · [development](#development) ·
+[architecture](./ARCHITECTURE.md) · [release history](./CHANGELOG.md).
+
 ## Install
 
 ### Codex plugin — recommended
@@ -622,6 +626,17 @@ changes or ship authorization.
 
 Run `agentsmd --help` for the current option list. All commands honor `$CODEX_HOME` except `init`, `analyze`, `design`, `exception`, and `verify`, which operate on the current project.
 
+## Health and recovery
+
+| Installation surface | Read-only diagnosis | Recovery entry |
+| --- | --- | --- |
+| Codex plugin | Run `$agentsmd-status` and `$agentsmd-doctor` in the plugin-enabled session; when SessionStart prints a diagnostic warning, its doctor launcher also works outside the session. | [Plugin lifecycle](#codex-plugin); start a new session after an update. |
+| Standalone / npm CLI | `agentsmd status` and `agentsmd doctor`; a shell-only install prints its persistent skill launcher. | [Standalone lifecycle](#standalone-or-npm); inspect `agentsmd repair --plan` before any confirmed repair. |
+| Source checkout | `node scripts/status.js` and `node scripts/doctor.js` with the intended isolated `CODEX_HOME`. | [Development](#development); fixtures use a temporary home. |
+
+Static health and a SessionStart receipt describe different evidence. A healthy
+bundle does not by itself prove that the host accepted every hook.
+
 ## Update, verify, and uninstall
 
 ### Codex plugin
@@ -750,6 +765,20 @@ presented as fresh evidence for the current tree after its freshness window.
 See [`SECURITY.md`](./SECURITY.md) for the vulnerability-reporting channel and response targets, supported versions, the threat model, and the telemetry/review schema, retention, deletion, and opt-out reference. The one-paragraph version: agentsmd is a **fail-open coding-discipline layer, not a security boundary**; telemetry and explicit reviewed outcomes are local-only (`~/.codex/logs/agentsmd.jsonl` plus `agentsmd-outcomes.json`, private file modes, bounded storage, `DISABLE_RULE_HITS_LOG=1` to stop new telemetry, delete both data sets to erase them). Note for dual-surface installs: skills load outside surface arbitration, so plugin + standalone simultaneously means duplicated skills in the session — install one surface only; `doctor` flags it.
 
 ## Development
+
+The commands in this section target a source checkout with development
+dependencies and test fixtures. The published runtime package excludes test
+fixtures; carrying a helper does not make the source-only test suite available.
+
+Formatting is incremental. Keep existing conventions around a focused change;
+format new handwritten JavaScript with
+`npm run format:write -- path/to/new-file.js`. `npm run check:format` is a separate
+read-only whole-repository report and is not part of `npm run check`. The
+2026-09-16 audit recorded 154 pre-existing files differing from Prettier; a green
+functional gate does not clear that debt. Generated launchers and the generated
+core must be updated through their generators. Whole-repository formatting, if
+chosen later, belongs in a separate change with regeneration and full validation.
+
 
 Install ShellCheck before running the shell lint. On Ubuntu/Debian:
 

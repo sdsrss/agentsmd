@@ -545,10 +545,33 @@ function journalWithVarAlias(box, platform) {
     return value;
   };
   const module = { exports: {} };
+  // Wrapper offsets differ from the disk source; keep a separate V8 identity.
   require('vm').runInThisContext('(function(require,module,exports){' + fs.readFileSync(file, 'utf8') + '\n})',
-    { filename: file })(fixtureRequire, module, module.exports);
+    { filename: 'agentsmd-fixture:event-journal-var-alias' })(fixtureRequire, module, module.exports);
   return { journal: module.exports, canonical, alias, userAlias };
 }
+
+test('VM alias fixture and ordinary source coexist in real V8 coverage (AUD-02)', () => {
+  withReceiptFixture(({ box }) => {
+    const capture = path.join(box, 'coverage');
+    fs.mkdirSync(capture);
+    const childSource = [
+      `const fs = require('fs'); const path = require('path'); const ROOT = ${JSON.stringify(ROOT)};`,
+      `(${journalWithVarAlias.toString()})(${JSON.stringify(box)}, 'darwin');`,
+      `require(${JSON.stringify(path.join(ROOT, 'hooks/lib/event-journal.js'))});`,
+    ].join('\n');
+    const child = cp.spawnSync(process.execPath, ['-e', childSource], {
+      env: { ...process.env, CODEX_HOME: box, NODE_V8_COVERAGE: capture },
+      encoding: 'utf8', timeout: 10000,
+    });
+    assert.strictEqual(child.status, 0, child.stderr);
+    const report = require('../coverage-observe').collectCoverage(capture, { root: ROOT });
+    assert.ok(report.production_files.observed > 0, 'ordinary source must still be observed');
+    assert.ok(report.metrics.functions.total > 0, 'synthetic fixture cannot erase the denominator');
+    const ordinary = report.files.find((entry) => entry.file === 'hooks/lib/event-journal.js');
+    assert.ok(ordinary && ordinary.functions.total > 0, 'ordinary journal source must retain its denominator');
+  });
+});
 
 test('Darwin system var alias preserves absolute mutation attribution in either spelling', () => {
   withReceiptFixture(({ box }) => {

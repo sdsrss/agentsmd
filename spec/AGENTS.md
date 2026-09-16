@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v5.5.4 — Global
+# CODEX-CODING-SPEC v5.5.5 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `$CODEX_HOME/AGENTS-extended.md` (`CODEX_HOME` defaults to `~/.codex`); plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -84,7 +84,7 @@ Search exact symbols with `rg`; enter unfamiliar modules via exports; verify ver
 **None**: reads, analysis, planning, local verification, and scoped reversible local edits requested by the user when no Hard item applies. L3 alone is not an authorization gate.
 **L3 boundary**: Apply §2 Level/Auth separation; load extended and state blast radius. Missing extended blocks L3 implementation, not read-only analysis.
 
-**Scope-bound**: files outside the grant → re-ASK. Mid-task adjacent-bug discovery → pause, announce, individual re-ASK ("feels obvious" ≠ safe). Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
+**Scope-bound**: files outside the grant → explicitly ask the user to authorize that change. A newly found adjacent bug outside the existing grant → leave it unchanged, announce it, and ask the user whether to fix it; an out-of-scope note alone is not a request. Continue independent authorized work. Exception: authorized fix literally blocked without it → proceed, list in REPORT as mid-scope extension, NOT under original Done.
 
 Project `AUTONOMY: aggressive | default | careful` may tune ceremony, never §5 Hard, §8, or Iron Law #2.
 

@@ -289,6 +289,13 @@
       ]
     },
     {
+      "id": "doctor-standalone",
+      "argv": [
+        "node",
+        "scripts/tests/doctor-standalone.test.js"
+      ]
+    },
+    {
       "id": "plugin-surface",
       "argv": [
         "node",

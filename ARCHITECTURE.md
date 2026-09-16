@@ -2,6 +2,11 @@
 
 Codex 版编程全局规范**系统**（不只是一份规范文本）的架构设计与分阶段实施记录。本文只把仓库 wiring、fixture 和测试能验证的行为写成产品事实；外部运行时能力需由对应官方契约或实机证据支持。
 
+阅读导航：当前产品与模块边界见 §1–§2，hook 与数据契约见 §3–§4，安装面与加载见
+§5–§6，目录见 §7。§8–§9 保留最初实施阶段的历史记录，不是当前待办清单或新的
+live 操作授权。当前操作入口见 [README 状态与恢复](README.zh-CN.md#状态与恢复)，
+发布变更见 [CHANGELOG](CHANGELOG.md)。
+
 ---
 
 ## 1. 为什么需要「系统」而不只是「一份 AGENTS.md」
@@ -50,7 +55,10 @@ standalone 检查编排、最终健康折叠和公共 CLI/export；已完成的 
 inspection 由 `scripts/lib/doctor-plugin.js` 纯映射既有 `surfaceStatus` 为有序检查行
 与返回元数据，不读取或写入文件。直接 characterization 固定 null/健康/损坏/receipt
 分支，`plugin-surface` 与 install 套件继续证明公共结果、诊断文本和退出语义；后续
-分期不得把 lifecycle mutation 引入该纯模块。
+分期不得把 lifecycle mutation 引入该纯模块。standalone 的配置、注册与 manifest
+存在性映射由 `scripts/lib/doctor-standalone.js` 接收已采集证据；文件读取和依赖当前
+安装路径的 hook 归属计数仍在外层。14 组前后对照固定诊断顺序、文本、缺失/畸形
+输入和部分安装边界，manifest 内容完整性继续由外层后续阶段检查。
 
 **Repair 计划分期**：`scripts/repair.js` 保留 manifest/source/live inventory
 采集、ownership 判定、plan digest、锁、recovery snapshot、confirm mutation 与
@@ -65,7 +73,7 @@ QA 工具，不属于 `agentsmd` 公共 CLI。`--run` 在任务自有临时目�
 `CODEX_HOME`，用 `NODE_V8_COVERAGE` 汇聚现有多进程 `npm test`，只读取仓库内
 `bin/`、`scripts/`、`hooks/lib/`、`qa/` 的生产 JavaScript，并对跨进程的同一函数
 根区间与嵌套 block range 去重。报告把未进入任何 capture 的生产文件单列，不为其
-虚构函数分母；原始 V8 range 也不被表述为精确可执行行或语义分支覆盖率。capture
+虚构函数分母；原始 V8 range 也不被表述为精确可执行行或语义分支覆盖率。VM 包装夹具使用独立合成源身份，VM-only 分支不计入磁盘源码的覆盖统计；普通 require 的统计与 source-drift 拒绝逻辑保持。capture
 文件数/单文件/总字节、生产文件数和未覆盖函数输出均有上限；成功或失败都只清理
 经过前缀、直接父目录与文件类型校验的临时工作区。
 
@@ -192,11 +200,18 @@ spec/AGENTS*.md 的 (HARD) 规则
 ```
 
 - 遥测写入器移植 claudemd `hooks/lib/rule-hits.sh`：改日志路径 `~/.claude/logs/claudemd.jsonl` → `~/.codex/logs/agentsmd.jsonl`，project 字段编码沿用 `tr -c 'a-zA-Z0-9-' '-'`，保留 size-capped rotation。
+- 遥测 stale-lock 回收在旧目录对象内原子 hard-link 发布完整 PID claim，
+  最多接续 64 个已确认死亡的回收者，换代前重验目录身份和 writer 元数据。
+  回收者在发布或 rename 前后死亡不会靠删除/复用 claim 抢占另一活进程；
+  rename 后仅清理已知槽位和临时条目，保留未知文件、目录和符号链接。
+  该协议限同一实现的本地文件系统参与者；不保证旧版回收者混跑或外部任意替换。
+  旧空 `reap`、畸形 claim、不可验证的进程状态、无 hard-link 支持及槽位耗尽
+  均保留现场并静默放弃该次遥测，不能将这种缺行解释为没有规则机会。
 - 只有新 `block`/`deny` 行生成不含 project/session/command/path 的 correlation ID；legacy 无 ID 行保持 unmeasurable。scorecard 的现场误拦分母只含已审核 external `true-block + false-block`，所有排除项逐项可见；sidecar 缺失、部分覆盖或无效分别进入 `unmeasured`、`partial`、`invalid`，不推断零值。
 - scorecard 保留 missing session 总数，同时按第一条 retained `session-dimension` 的前/跨越/后/无参照顺序和 self/external/unknown/mixed 来源归因；无效/缺失 session identity 单列为 unjoinable。该顺序只证明 retained-window ordering，不推断历史 schema、日志轮转、跨 surface 丢失或当前 emitter 根因。
 - manifest 的反向 drift gate 同时核对显式 HARD/MUST 行和 §8 Never 子句；`operational_sections` 单独声明 `§hooks-fail-open` 这类非规范规则的运行遥测。
 - **离线兜底**（Codex 特有优势）：`codex exec` 可无交互跑，为「离线扫历史会话产出命中率」提供一条 CI/定时路径——即 `agentsmd.txt` 设想的「试运行拿稀释度信号」，无需实时 hook 也能取数。
-- `hard-rules.json` 的 `last_demote_review` 现为 `null`（部署前无字段数据）；首批遥测落地后由 OPERATOR 按节奏回填。
+- `hard-rules.json` 的 `last_demote_review` 记录当前复审日期，历史判定保留在 `spec/governance-log.json`；以这些数据及 `OPERATOR.md` 的节奏为准。初始部署阶段字段为空的说明不代表当前状态。
 
 ---
 
@@ -291,6 +306,8 @@ agentsmd/
 
 ## 8. 分阶段实施计划（每阶段 checkpoint）
 
+以下为历史实施记录；原 Phase 编号与引用保留。
+
 | Phase | 交付 | 触及 live ~/.codex? | 状态 |
 |---|---|---|---|
 | **0** | 研究 + 结构 + 设计：本文件 · `hard-rules.json` · `spec/` 就位 · 任务文件 | 否 | ✅ 本会话 |
@@ -313,6 +330,8 @@ dual-profile metadata 只作为迁移输入读取，不能重新启用旧 profil
 ---
 
 ## 9. 开放问题（阻断对应 Phase）
+
+以下为历史问题及当时的解决记录；标题为兼容原引用而保留。
 
 已解决（Phase 1 fixture + smoke 验证）：
 - ✅ **#1 PreToolUse deny 字段**：当前 canonical
