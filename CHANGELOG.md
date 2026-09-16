@@ -12,6 +12,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
   Publish complete immutable PID claims, preserve live or unknown claimants,
   and keep disappearing-file races quiet without weakening concurrency checks.
   Legacy empty claims remain unverified; recovery does not guess their ownership.
+- Recognize a captured direct formatter-authorization question in conformance grading,
+  with exact adjacent-file and Git-state guards plus automatic-continuation negatives.
+  Keep release thresholds unchanged and require fresh source-bound model evidence.
 - Clarify installation-specific status/recovery entry points, current versus historical
   architecture notes, incremental formatting, and source-only test commands.
 
