@@ -10,6 +10,10 @@ agentsmd 是面向 OpenAI Codex CLI 的 `AGENTS.md` 编程规范与原生 Hooks 
 - **有边界的原生检查：** 阻断部分可机械检测的风险并呈现结构化提示，不宣称自动执行所有语义规则。
 - **项目级工具：** 生成 `AGENTS.md`、提炼编码约定、提取前端设计令牌。
 
+快速导航：[产品边界](#agentsmd-能做什么) · [安装](#安装) ·
+[状态与恢复](#状态与恢复) · [开发](#开发) ·
+[架构](./ARCHITECTURE.md) · [版本历史](./CHANGELOG.md)。
+
 ## 安装
 
 ### Codex 插件——推荐
@@ -487,6 +491,16 @@ ship 授权。
 
 运行 `agentsmd --help` 查看当前选项。除 `init`、`analyze`、`design`、`exception`、`verify` 作用于当前项目外，其余命令都遵循 `$CODEX_HOME`。
 
+## 状态与恢复
+
+| 安装面 | 只读诊断 | 恢复入口 |
+| --- | --- | --- |
+| Codex plugin | 在已加载插件的会话中运行 `$agentsmd-status`、`$agentsmd-doctor`；SessionStart 出现诊断告警时，可在会话外使用其打印的 doctor launcher。 | [插件生命周期](#codex-插件)；更新后启动新会话。 |
+| Standalone / npm CLI | `agentsmd status`、`agentsmd doctor`；仅用 shell installer 安装时使用其打印的持久 skill launcher。 | [Standalone 生命周期](#standalone-或-npm)；先检查 `agentsmd repair --plan` 再执行经确认的修复。 |
+| 源码 checkout | 对预期的隔离 `CODEX_HOME` 运行 `node scripts/status.js`、`node scripts/doctor.js`。 | [开发](#开发)；fixture 使用临时 home。 |
+
+静态健康与 SessionStart receipt 是不同的证据；bundle 健康本身不能证明宿主已接纳全部 hooks。
+
 ## 更新、验证与卸载
 
 ### Codex 插件
@@ -607,6 +621,16 @@ unknown 和 unmeasurable 证据都不进入分母。runtime、model、surface、
 漏洞报告渠道与响应目标、支持版本、威胁模型、遥测/评审 schema、保留、删除和退出方式见 [`SECURITY.md`](./SECURITY.md)。一段话版本：agentsmd 是**fail-open 的编码纪律层，不是安全边界**；遥测和人工评审 outcome 都只保存在本地（`~/.codex/logs/agentsmd.jsonl` 与 `agentsmd-outcomes.json`，私有文件权限和有界存储，`DISABLE_RULE_HITS_LOG=1` 停止新增遥测，删除两组数据才能完全抹除）。双面安装提示：skills 的加载不经 surface 仲裁，plugin 与 standalone 同装会导致会话内 skills 重复——只装一面；`doctor` 会标红双面状态。
 
 ## 开发
+
+本节命令面向包含开发依赖和测试 fixture 的源码 checkout。发布的 runtime 包排除了测试
+fixture；携带某个 helper 不代表发布包能够运行完整源码测试套件。
+
+格式采用增量策略：局部业务修改保留附近既有约定；新增手写 JavaScript 使用
+`npm run format:write -- path/to/new-file.js`。`npm run check:format` 是独立的全仓只读
+报告，不属于 `npm run check`。2026-09-16 审核记录了 154 个文件的既有 Prettier 差异，
+功能门禁通过不代表格式债务已清零。生成 launcher 和 core 必须通过生成器更新；若后续
+选择全仓格式化，应作为独立改动，验证生成物可再生及完整门禁。
+
 
 运行 shell lint 前先安装 ShellCheck。Ubuntu/Debian：
 

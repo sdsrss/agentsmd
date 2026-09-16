@@ -75,16 +75,22 @@ rule_hits_lock_is_stale() {
 # refuses rmdir is left behind (fail-open) for the next sweep to retry.
 rule_hits_dispose_quarantine() {
   local quarantine="$1"
-  local attempt=0
-  [[ "$quarantine" == *.lock.stale.* ]] || return 1
-  rmdir "$quarantine/reap" 2>/dev/null
-  rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
-  while ! rmdir "$quarantine" 2>/dev/null; do
-    [[ -d "$quarantine" ]] || return 0
+  local attempt=0 entry="" name=""
+  [[ "$quarantine" == *.lock.stale.* && ! -L "$quarantine" ]] || return 1
+  while [[ -d "$quarantine" ]]; do
+    rmdir "$quarantine/reap" 2>/dev/null
+    # These are protocol-owned regular entries in a renamed-away generation.
+    # Never recurse into, or follow, an unexpected directory or symlink.
+    for entry in "$quarantine"/.reap-*; do
+      name="${entry##*/}"
+      [[ "$name" =~ ^\.reap-([0-9]|[1-5][0-9]|6[0-3]|prepared\.[0-9]+\.[A-Za-z0-9]{8})$ ]] || continue
+      [[ -f "$entry" && ! -L "$entry" ]] || continue
+      rm -f "$entry" 2>/dev/null
+    done
+    rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
+    rmdir "$quarantine" 2>/dev/null && return 0
     attempt=$((attempt + 1))
     (( attempt >= 20 )) && return 1
-    rmdir "$quarantine/reap" 2>/dev/null
-    rm -f "$quarantine/lease" "$quarantine/pid" 2>/dev/null
     sleep 0.01 2>/dev/null || sleep 1 2>/dev/null || return 1
   done
   return 0
@@ -104,31 +110,65 @@ rule_hits_sweep_quarantines() {
   return 0
 }
 
-# Reclaim one dead, expired lock. The `reap` claim lives inside the OLD lock
-# object, so contenders serialize on that exact generation. After a second stale
-# check, takeover is an atomic rename to a unique quarantine; no contender ever
-# deletes or renames the shared path based on an earlier observation.
+# Reclaim only through the old directory object. Each immutable claim is a full
+# PID record published with link(); a killed claimant can be succeeded at the
+# next slot, never by deleting/reusing a slot that a paused contender observed.
+# This coordinates reapers using this protocol on a local filesystem; legacy
+# empty claims and unprovable process state are preserved, not guessed dead.
 rule_hits_reap_stale() (
   local lock_dir="$1" stale_seconds="$2"
-  local claim_dir="$lock_dir/reap"
-  local quarantine="" quarantine_ts=""
-  local claimed=0
+  local prepared="" claim="" owner="" lease_before="" pid_before=""
+  local index=0 claimed=0 ps_result="" ps_status=0
+  local quarantine="" quarantine_ts="" claim_pid="${BASHPID:-}"
 
-  quarantine_ts=$(date +%s 2>/dev/null) || quarantine_ts=0
-  quarantine="${lock_dir}.stale.${BASHPID:-$$}.${RANDOM:-0}.${quarantine_ts}"
-
+  # Bash 3.2 lacks BASHPID; exec makes the probe's parent this exact subshell.
+  [[ -n "$claim_pid" ]] || claim_pid=$(exec sh -c 'printf "%s\n" "$PPID"')
+  [[ "$claim_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$lock_dir" == /* ]] || lock_dir="$PWD/$lock_dir"
+  [[ -d "$lock_dir" && ! -L "$lock_dir" ]] || return 1
   rule_hits_lock_is_stale "$lock_dir" "$stale_seconds" || return 1
-  mkdir "$claim_dir" 2>/dev/null || return 1
-  claimed=1
-  rule_hits_reap_cleanup() {
-    (( claimed == 1 )) && rmdir "$claim_dir" 2>/dev/null
-  }
-  trap rule_hits_reap_cleanup EXIT
+  cd -P -- "$lock_dir" 2>/dev/null || return 1
+  # Relative claim paths stay in this generation even if the public path moves.
+  [[ "$lock_dir" -ef . && ! -L "$lock_dir" ]] || return 1
+  rule_hits_lock_is_stale . "$stale_seconds" || return 1
+  # Legacy empty claims have no claimant identity: never guess that they are dead.
+  [[ ! -e reap && ! -L reap ]] || return 1
+  [[ ! -L lease && ! -L pid ]] || return 1
+  lease_before=$(cat lease 2>/dev/null) || lease_before=""
+  pid_before=$(cat pid 2>/dev/null) || pid_before=""
+  prepared=$(mktemp ".reap-prepared.${claim_pid}.XXXXXXXX" 2>/dev/null) || return 1
+  trap 'rm -f "$prepared" 2>/dev/null' EXIT
   trap 'exit 1' HUP INT TERM
+  printf '%s\n' "$claim_pid" 2>/dev/null > "$prepared" || return 1
 
-  rule_hits_lock_is_stale "$lock_dir" "$stale_seconds" || return 1
+  for ((index=0; index<64; index++)); do
+    claim=".reap-$index"
+    if [[ ! -e "$claim" && ! -L "$claim" ]] && ln "$prepared" "$claim" 2>/dev/null; then
+      [[ -f "$claim" && ! -L "$claim" && "$prepared" -ef "$claim" ]] || return 1
+      claimed=1
+      break
+    fi
+    [[ -f "$claim" && ! -L "$claim" ]] || return 1
+    (( $(rule_hits_file_size "$claim") <= 32 )) || return 1
+    # Read the whole bounded record. A disappeared claim is a quiet refusal,
+    # and a valid first line cannot hide extra ownership data on another line.
+    owner=$(cat "$claim" 2>/dev/null) || return 1
+    [[ "$owner" =~ ^[1-9][0-9]*$ ]] || return 1
+    (( $(rule_hits_file_size "$claim") == ${#owner} + 1 )) || return 1
+    kill -0 "$owner" 2>/dev/null && return 1
+    # EPERM and unavailable process probes are not proof of claimant death.
+    ps_status=0
+    ps_result=$(ps -p "$owner" -o pid= 2>/dev/null) || ps_status=$?
+    [[ "$ps_status" == 1 && -z "$ps_result" ]] || return 1
+  done
+  (( claimed == 1 )) || return 1
+  # Coordination changes directory mtime. Retain the initial stale verdict only
+  # while the directory object and writer metadata are unchanged (incl. absent).
+  [[ "$lock_dir" -ef . && ! -L "$lock_dir" && ! -L lease && ! -L pid ]] || return 1
+  [[ "$(cat lease 2>/dev/null)" == "$lease_before" && "$(cat pid 2>/dev/null)" == "$pid_before" ]] || return 1
+  quarantine_ts=$(date +%s 2>/dev/null) || quarantine_ts=0
+  quarantine="${lock_dir}.stale.${claim_pid}.${RANDOM:-0}.${quarantine_ts}"
   mv "$lock_dir" "$quarantine" 2>/dev/null || return 1
-  claimed=0
   rule_hits_dispose_quarantine "$quarantine"
   return 0
 )

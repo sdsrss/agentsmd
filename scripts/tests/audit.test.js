@@ -223,6 +223,196 @@ try {
     assert.match(run.stdout, /rc=1/, 'guard rejects the path');
     assert.strictEqual(fs.readFileSync(path.join(victim, 'lease'), 'utf8'), 'precious\n', 'non-quarantine content untouched');
   });
+  for (const phase of ['before-rename', 'before-publish', 'after-publish', 'after-rename', 'before-rename-no-bashpid']) {
+    t(`telemetry reaper recovers SIGKILL ${phase} without losing rows (AUD-01)`, () => {
+      const home = fs.mkdtempSync(path.join(tmp, 'reaper-crash.'));
+      const log = path.join(home, 'agentsmd.jsonl');
+      const lock = log + '.lock';
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'lease'), '1 999999 crash-fixture\n');
+      fs.writeFileSync(log, '{"seed":true}\n');
+      fs.writeFileSync(path.join(home, 'neighbor'), 'preserved\n');
+      const script = `
+        set -u
+        [[ "$NO_BASHPID" != 1 ]] || unset BASHPID
+        source "$RULE_HITS"
+        pause_here() {
+          local actual="\${BASHPID:-}"
+          [[ -n "$actual" ]] || actual=$(exec sh -c 'printf "%s\n" "$PPID"')
+          printf '%s\n' "$actual" > "$CODEX_HOME/ready"
+          while [[ ! -e "$CODEX_HOME/resume" ]]; do sleep 0.01; done
+        }
+        (
+          ln() {
+            [[ "$PHASE" == before-publish ]] && pause_here
+            command ln "$@" || return
+            [[ "$PHASE" == after-publish ]] && pause_here
+            return 0
+          }
+          mv() {
+            [[ "$PHASE" == before-rename ]] && pause_here
+            command mv "$@" || return
+            [[ "$PHASE" == after-rename ]] && pause_here
+            return 0
+          }
+          rule_hits_reap_stale "$LOCK" 1
+        ) &
+        launcher=$!
+        reaper=""
+        cleanup() {
+          [[ -z "$reaper" ]] || kill -KILL "$reaper" 2>/dev/null || true
+          kill -KILL "$launcher" 2>/dev/null || true
+          wait "$launcher" 2>/dev/null || true
+        }
+        trap cleanup EXIT
+        for ((i=0; i<500; i++)); do
+          [[ ! -s "$CODEX_HOME/ready" ]] || break
+          sleep 0.01
+        done
+        [[ -s "$CODEX_HOME/ready" ]] || exit 11
+        read -r reaper < "$CODEX_HOME/ready" || exit 12
+        [[ "$reaper" =~ ^[1-9][0-9]*$ ]] || exit 13
+        # A paused live reaper cannot be succeeded even though the writer expired.
+        if [[ "$PHASE" == before-rename || "$PHASE" == after-publish ]]; then
+          AGENTSMD_LOG_LOCK_ATTEMPTS=1 rule_hits_write_locked "$LOG" '{"must_not_land":true}'
+        fi
+        kill -KILL "$reaper"
+        wait "$launcher" 2>/dev/null || true
+        reaper=""
+        # Two successors race for the dead reaper's generation.
+        rule_hits_write_locked "$LOG" '{"id":1}' & a=$!
+        rule_hits_write_locked "$LOG" '{"id":2}' & b=$!
+        wait "$a"; wait "$b"
+        rule_hits_write_locked "$LOG" '{"id":3}'
+      `;
+      const run = cp.spawnSync('bash', ['-c', script], {
+        env: { ...process.env, CODEX_HOME: home, RULE_HITS, LOCK: lock, LOG: log, PHASE: phase.replace('-no-bashpid', ''), NO_BASHPID: phase.endsWith('-no-bashpid') ? '1' : '0' },
+        encoding: 'utf8', timeout: 15000,
+      });
+      assert.strictEqual(run.status, 0, `${phase}: ${run.stderr}`);
+      const actual = readRows(log);
+      assert.deepStrictEqual(actual.filter((r) => r.id).map((r) => r.id).sort(), [1, 2, 3]);
+      assert.strictEqual(actual.length, 4, 'preserve seed, reject live takeover, append once per writer');
+      assert.strictEqual(fs.readFileSync(path.join(home, 'neighbor'), 'utf8'), 'preserved\n');
+      assert.deepStrictEqual(fs.readdirSync(home).filter((n) => n.includes('.lock')), [], 'no old generation remains');
+    });
+  }
+  t('telemetry recovery preserves legacy, malformed and symlink claims (AUD-01)', () => {
+    for (const kind of ['legacy', 'malformed', 'multiline', 'empty', 'directory', 'symlink']) {
+      const home = fs.mkdtempSync(path.join(tmp, 'reaper-unverified.'));
+      const log = path.join(home, 'agentsmd.jsonl');
+      const lock = log + '.lock';
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'lease'), '1 999999 unknown-claim\n');
+      const neighbor = path.join(home, 'neighbor');
+      fs.writeFileSync(neighbor, 'untouched\n');
+      if (kind === 'legacy') fs.mkdirSync(path.join(lock, 'reap'));
+      if (kind === 'malformed') fs.writeFileSync(path.join(lock, '.reap-0'), 'unknown\n');
+      if (kind === 'multiline') fs.writeFileSync(path.join(lock, '.reap-0'), '999999\n42\n');
+      if (kind === 'empty') fs.writeFileSync(path.join(lock, '.reap-0'), '');
+      if (kind === 'directory') fs.mkdirSync(path.join(lock, '.reap-0'));
+      if (kind === 'symlink') fs.symlinkSync(neighbor, path.join(lock, '.reap-0'));
+      const before = fs.readdirSync(lock).sort();
+      const run = cp.spawnSync('bash', ['-c', 'source "$1"; rule_hits_write_locked "$2" "{}"', '_', RULE_HITS, log], {
+        env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '1' }, encoding: 'utf8',
+      });
+      assert.strictEqual(run.status, 0, run.stderr);
+      assert.strictEqual(fs.existsSync(log), false, kind);
+      assert.deepStrictEqual(fs.readdirSync(lock).sort(), before, kind);
+      assert.strictEqual(fs.readFileSync(neighbor, 'utf8'), 'untouched\n');
+    }
+  });
+  t('telemetry claimant disappearing between stat and read is a quiet refusal', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'claim-disappeared.'));
+    const lock = path.join(home, 'events.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'lease'), '1 999999 fixture\n');
+    fs.writeFileSync(path.join(lock, '.reap-0'), '999999\n');
+    const run = cp.spawnSync('bash', ['-c', `
+      source "$1"
+      rule_hits_file_size() { command rm -f "$1"; printf '7\n'; }
+      rule_hits_reap_stale "$2" 1
+      printf 'rc=%s\n' "$?"
+    `, '_', RULE_HITS, lock], { env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8', timeout: 5000 });
+    assert.strictEqual(run.status, 0);
+    assert.strictEqual(run.stderr, '');
+    assert.strictEqual(run.stdout, 'rc=1\n');
+    assert.strictEqual(fs.readFileSync(path.join(lock, 'lease'), 'utf8'), '1 999999 fixture\n');
+  });
+  t('telemetry recovery bounds dead claims and refuses unverifiable process probes', () => {
+    for (const kind of ['limit', 'probe-unavailable']) {
+      const home = fs.mkdtempSync(path.join(tmp, 'claims-bounded.'));
+      const log = path.join(home, 'events');
+      const lock = log + '.lock';
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'lease'), '1 999999 fixture\n');
+      for (let i = 0; i < (kind === 'limit' ? 64 : 1); i++) fs.writeFileSync(path.join(lock, `.reap-${i}`), '999999\n');
+      const before = fs.readdirSync(lock).sort();
+      const run = cp.spawnSync('bash', ['-c', `source "$1"; ${kind === 'probe-unavailable' ? 'ps() { return 2; };' : ''} rule_hits_write_locked "$2" '{}'`, '_', RULE_HITS, log], {
+        env: { ...process.env, CODEX_HOME: home, AGENTSMD_LOG_LOCK_ATTEMPTS: '1' }, encoding: 'utf8', timeout: 5000,
+      });
+      assert.strictEqual(run.status, 0, run.stderr);
+      assert.strictEqual(run.stderr, '');
+      assert.strictEqual(fs.existsSync(log), false, kind);
+      assert.deepStrictEqual(fs.readdirSync(lock).sort(), before, kind);
+    }
+  });
+  t('telemetry quarantine disposal preserves unknown files directories and symlinks', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'quarantine-neighbors.'));
+    const target = path.join(home, 'events.lock.stale.123.456.789');
+    fs.mkdirSync(path.join(target, 'nested'), { recursive: true });
+    for (const name of ['.reap-64', '.reap-999', 'unknown']) fs.writeFileSync(path.join(target, name), 'keep\n');
+    fs.writeFileSync(path.join(target, 'nested', 'child'), 'keep\n');
+    const neighbor = path.join(home, 'neighbor');
+    fs.writeFileSync(neighbor, 'keep\n');
+    fs.symlinkSync(neighbor, path.join(target, '.reap-0'));
+    fs.writeFileSync(path.join(target, '.reap-1'), '999999\n');
+    const run = cp.spawnSync('bash', ['-c', 'source "$1"; rule_hits_dispose_quarantine "$2"; printf "rc=%s\\n" "$?"', '_', RULE_HITS, target], {
+      env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.strictEqual(run.stderr, '');
+    assert.strictEqual(run.stdout, 'rc=1\n');
+    assert.strictEqual(fs.existsSync(path.join(target, '.reap-1')), false);
+    for (const name of ['.reap-64', '.reap-999', 'unknown', 'nested/child']) assert.strictEqual(fs.readFileSync(path.join(target, name), 'utf8'), 'keep\n');
+    assert.ok(fs.lstatSync(path.join(target, '.reap-0')).isSymbolicLink());
+    assert.strictEqual(fs.readFileSync(neighbor, 'utf8'), 'keep\n');
+  });
+  for (const mode of ['generation', 'symlink', 'lease', 'pid']) {
+    t(`telemetry reaper refuses ${mode} change after publishing its claim`, () => {
+      const home = fs.mkdtempSync(path.join(tmp, 'reap-replaced.'));
+      const lock = path.join(home, 'events.lock');
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'lease'), '1 999999 original\n');
+      const run = cp.spawnSync('bash', ['-c', `
+        source "$1"
+        ln() {
+          command ln "$@" || return
+          case "$MODE" in
+            generation|symlink)
+              command mv "$LOCK" "$CODEX_HOME/old"
+              command mkdir "$CODEX_HOME/new"
+              printf '1 %s replacement\n' "$$" > "$CODEX_HOME/new/lease"
+              if [[ "$MODE" == symlink ]]; then command ln -s "$CODEX_HOME/new" "$LOCK"
+              else command mv "$CODEX_HOME/new" "$LOCK"; fi
+              ;;
+            lease) printf '1 %s replacement\n' "$$" > "$LOCK/lease" ;;
+            pid) printf '%s\n' "$$" > "$LOCK/pid" ;;
+          esac
+        }
+        rule_hits_reap_stale "$LOCK" 1
+        printf 'rc=%s\n' "$?"
+      `, '_', RULE_HITS], { env: { ...process.env, CODEX_HOME: home, LOCK: lock, MODE: mode }, encoding: 'utf8', timeout: 5000 });
+      assert.strictEqual(run.status, 0, run.stderr);
+      assert.strictEqual(run.stderr, '');
+      assert.strictEqual(run.stdout, 'rc=1\n');
+      assert.ok(fs.existsSync(lock), 'replacement survives');
+      assert.deepStrictEqual(fs.readdirSync(home).filter((name) => name.includes('.stale.')), []);
+      if (mode === 'symlink') assert.ok(fs.lstatSync(lock).isSymbolicLink());
+      if (mode === 'pid') assert.match(fs.readFileSync(path.join(lock, 'pid'), 'utf8'), /^[0-9]+\n$/);
+      else assert.match(fs.readFileSync(path.join(lock, 'lease'), 'utf8'), /replacement\n$/);
+    });
+  }
   t('window includes the exact cutoff and excludes future rows', () => {
     const boundary = path.join(tmp, 'boundary.jsonl');
     fs.writeFileSync(boundary, [

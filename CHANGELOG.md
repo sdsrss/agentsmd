@@ -3,6 +3,18 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.5 — 2026-09-16 — telemetry crash recovery and diagnostic boundaries
+
+- Isolate standalone configuration diagnostics while preserving doctor output order and public exports.
+- Give wrapped VM test sources a distinct V8 identity so coverage observation can retain strict source-range checks.
+
+- Fix telemetry recovery after a reclaimer dies before renaming its stale lock.
+  Publish complete immutable PID claims, preserve live or unknown claimants,
+  and keep disappearing-file races quiet without weakening concurrency checks.
+  Legacy empty claims remain unverified; recovery does not guess their ownership.
+- Clarify installation-specific status/recovery entry points, current versus historical
+  architecture notes, incremental formatting, and source-only test commands.
+
 ## v5.5.4 — 2026-09-15 — lifecycle diagnostics and executable recovery guidance
 
 - Diagnose missing skill documents, launchers, command entry points and the
