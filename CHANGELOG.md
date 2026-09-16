@@ -5,6 +5,9 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## v5.5.5 — 2026-09-16 — telemetry crash recovery and diagnostic boundaries
 
+- Clarify the existing adjacent-bug authorization rule: explicitly ask whether to fix
+  work outside the current grant; an out-of-scope note alone is insufficient.
+  Continue independent authorized work and retain the necessary-dependency exception.
 - Isolate standalone configuration diagnostics while preserving doctor output order and public exports.
 - Give wrapped VM test sources a distinct V8 identity so coverage observation can retain strict source-range checks.
 

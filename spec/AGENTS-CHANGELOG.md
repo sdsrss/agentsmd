@@ -2,6 +2,16 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.5.5 — 2026-09-16 — explicit adjacent-bug authorization question
+
+Expand the existing scope-bound `re-ASK` shorthand into an explicit request to
+the user. A report that an adjacent bug is outside scope does not itself request
+authorization. Preserve the existing grant, independent authorized work, and
+necessary-dependency exception. This clarifies the existing requirement; no
+new HARD rule, waiver, conformance threshold, or known-fail is introduced.
+Selected behavior guards and final source-bound release conformance are required
+before publication; prose and structural tests alone do not establish reliability.
+
 ## v5.5.1 — 2026-09-11 — audit-driven consistency corrections
 
 Core uses the configured `CODEX_HOME` for Extended lookup, preserves an
