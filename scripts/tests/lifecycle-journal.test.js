@@ -161,6 +161,230 @@ await t('journal recovery refuses to unlink a concurrently substituted symlink',
   } finally { delete process.env.CODEX_HOME; }
 });
 
+// PRD-20260916-01: planned recovery must not authorize later foreign bytes.
+const F = require('../lib/fs-atomic');
+const sha = (s) => require('crypto').createHash('sha256').update(s).digest('hex');
+const b64 = (s) => Buffer.from(s).toString('base64');
+function recoveryFixture(name, callback) {
+  const home = sandbox(name);
+  const previousHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  try { callback(home); }
+  finally {
+    if (previousHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousHome;
+  }
+}
+function writeStep(home, name, before, after) {
+  const target = path.join(home, name);
+  return {
+    kind: 'write', target,
+    beforePresent: before !== null, beforeSha256: before === null ? null : sha(before),
+    beforeContentB64: before === null ? null : b64(before),
+    afterPresent: after !== null, afterSha256: after === null ? null : sha(after),
+    afterContentB64: after === null ? null : b64(after),
+  };
+}
+function treeFixture(home, name, content) {
+  const dir = path.join(home, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'data'), content);
+  return dir;
+}
+function swapStep(home) {
+  const target = treeFixture(home, 'target', 'old');
+  const staged = treeFixture(home, 'staged', 'new');
+  return { kind: 'swap', target, staged, backupPath: `${target}.agentsmd-old-fixture`,
+    beforePresent: true, beforeSha256Tree: F.sha256Tree(target),
+    afterPresent: true, afterSha256Tree: F.sha256Tree(staged) };
+}
+function assertRecoveryConflict(journal, plan) {
+  assert.throws(() => J.executeRecovery(journal, plan),
+    /concurrent change|not auto-recoverable|symbolic link|recovery conflict/i);
+  assert.ok(fs.existsSync(J.journalPath()), 'pending journal must survive refusal');
+}
+
+for (const mode of ['roll-forward', 'rollback']) {
+  for (const kind of ['write', 'delete', 'swap']) {
+    await t(`${mode} ${kind}: foreign target appearing after planning is preserved`, () => {
+      recoveryFixture('late-conflict', (home) => {
+        const forward = mode === 'roll-forward';
+        const step = kind === 'swap' ? swapStep(home)
+          : writeStep(home, 'shared', kind === 'delete' && !forward ? null : 'old',
+            kind === 'delete' && forward ? null : 'new');
+        if (kind === 'swap' && !forward) {
+          fs.renameSync(step.target, step.backupPath);
+          fs.renameSync(step.staged, step.target);
+        } else if (kind !== 'swap') fs.writeFileSync(step.target, forward ? 'old' : 'new');
+        const journal = J.begin({ action: 'install', steps: [step] });
+        const plan = { mode, verdict: J.adjudicate(journal) };
+        const foreignPath = kind === 'swap' ? path.join(step.target, 'foreign') : step.target;
+        fs.writeFileSync(foreignPath, 'foreign-user-edit');
+        assertRecoveryConflict(journal, plan);
+        assert.strictEqual(fs.readFileSync(foreignPath, 'utf8'), 'foreign-user-edit');
+      });
+    });
+  }
+  await t(`${mode} write: a change during atomic preparation refuses before overwrite`, () => {
+    recoveryFixture('write-boundary', (home) => {
+      const step = writeStep(home, 'shared', 'old', 'new');
+      fs.writeFileSync(step.target, mode === 'roll-forward' ? 'old' : 'new');
+      const journal = J.begin({ action: 'install', steps: [step] });
+      const original = fs.fsyncSync;
+      let injected = false;
+      fs.fsyncSync = function () {
+        const result = original.apply(fs, arguments);
+        if (!injected) { injected = true; fs.writeFileSync(step.target, 'foreign-user-edit'); }
+        return result;
+      };
+      try { assertRecoveryConflict(journal, { mode, verdict: {} }); }
+      finally { fs.fsyncSync = original; }
+      assert.ok(injected);
+      assert.strictEqual(fs.readFileSync(step.target, 'utf8'), 'foreign-user-edit');
+    });
+  });
+  await t(`${mode} swap: changed recovery source cannot destroy the current target`, () => {
+    recoveryFixture('source-conflict', (home) => {
+      const step = swapStep(home);
+      const source = mode === 'roll-forward' ? step.staged : step.backupPath;
+      if (mode === 'rollback') {
+        fs.renameSync(step.target, step.backupPath);
+        fs.renameSync(step.staged, step.target);
+      }
+      const currentHash = F.sha256Tree(step.target);
+      const journal = J.begin({ action: 'install', steps: [step] });
+      fs.writeFileSync(path.join(source, 'foreign'), 'foreign-source-edit');
+      assertRecoveryConflict(journal, { mode, verdict: {} });
+      assert.strictEqual(F.sha256Tree(step.target), currentHash, 'target unchanged before source refusal');
+      assert.strictEqual(fs.readFileSync(path.join(source, 'foreign'), 'utf8'), 'foreign-source-edit');
+    });
+  });
+}
+
+await t('recovery keeps a completed step modified while a later step executes', () => {
+  recoveryFixture('completed-conflict', (home) => {
+    const steps = ['first', 'second'].map((name) => writeStep(home, name, 'old', 'new'));
+    for (const step of steps) fs.writeFileSync(step.target, 'old');
+    const journal = J.begin({ action: 'install', steps });
+    const original = fs.renameSync;
+    fs.renameSync = function (src, dest) {
+      const result = original.apply(fs, arguments);
+      if (dest === steps[1].target) fs.writeFileSync(steps[0].target, 'foreign-user-edit');
+      return result;
+    };
+    try { assertRecoveryConflict(journal, { mode: 'roll-forward', verdict: {} }); }
+    finally { fs.renameSync = original; }
+    assert.strictEqual(fs.readFileSync(steps[0].target, 'utf8'), 'foreign-user-edit');
+    assert.strictEqual(fs.readFileSync(steps[1].target, 'utf8'), 'new');
+  });
+});
+
+await t('recovery cleanup preserves a changed backup and the pending journal', () => {
+  recoveryFixture('cleanup-conflict', (home) => {
+    const step = swapStep(home);
+    const journal = J.begin({ action: 'install', steps: [step] });
+    const original = fs.renameSync;
+    fs.renameSync = function (src, dest) {
+      const result = original.apply(fs, arguments);
+      if (src === step.staged) fs.writeFileSync(path.join(step.backupPath, 'foreign'), 'keep');
+      return result;
+    };
+    try { assertRecoveryConflict(journal, { mode: 'roll-forward', verdict: {} }); }
+    finally { fs.renameSync = original; }
+    assert.strictEqual(fs.readFileSync(path.join(step.backupPath, 'foreign'), 'utf8'), 'keep');
+    assert.strictEqual(fs.readFileSync(path.join(step.target, 'data'), 'utf8'), 'new');
+  });
+});
+
+for (const mode of ['roll-forward', 'rollback']) {
+  await t(`${mode} swap: a same-content target symlink is preserved without mutation`, () => {
+    recoveryFixture('tree-symlink', (home) => {
+      const step = swapStep(home);
+      if (mode === 'rollback') {
+        fs.renameSync(step.target, step.backupPath);
+        fs.renameSync(step.staged, step.target);
+      }
+      const external = path.join(home, 'external');
+      fs.renameSync(step.target, external);
+      fs.symlinkSync(external, step.target);
+      const expected = F.sha256Tree(external);
+      const journal = J.begin({ action: 'install', steps: [step] });
+      assertRecoveryConflict(journal, { mode, verdict: {} });
+      assert.ok(fs.lstatSync(step.target).isSymbolicLink());
+      assert.strictEqual(F.sha256Tree(external), expected);
+    });
+  });
+}
+
+await t('recovery cleanup refuses unrecorded files inside a named staging directory', () => {
+  recoveryFixture('stage-conflict', (home) => {
+    const stageRoot = treeFixture(home, '.agentsmd-stage-fixture', 'foreign-stage-file');
+    const journal = J.begin({ action: 'install', stageRoot, steps: [] });
+    assertRecoveryConflict(journal, { mode: 'roll-forward', verdict: {} });
+    assert.strictEqual(fs.readFileSync(path.join(stageRoot, 'data'), 'utf8'), 'foreign-stage-file');
+  });
+});
+
+for (const mode of ['roll-forward', 'rollback']) {
+  for (const kind of ['write', 'delete', 'swap']) {
+    await t(`${mode} ${kind}: normal recovery is complete and repeated entry is a no-op`, () => {
+      recoveryFixture('normal-recovery', (home) => {
+        const forward = mode === 'roll-forward';
+        const step = kind === 'swap' ? swapStep(home)
+          : writeStep(home, 'shared', kind === 'delete' && !forward ? null : 'old',
+            kind === 'delete' && forward ? null : 'new');
+        if (kind === 'swap' && !forward) {
+          fs.renameSync(step.target, step.backupPath);
+          fs.renameSync(step.staged, step.target);
+        } else if (kind !== 'swap') fs.writeFileSync(step.target, forward ? 'old' : 'new');
+        const journal = J.begin({ action: 'install', steps: [step] });
+        assert.strictEqual(J.executeRecovery(journal, { mode, verdict: {} }).mode, mode);
+        if (kind === 'delete') assert.ok(!fs.existsSync(step.target));
+        else assert.strictEqual(fs.readFileSync(kind === 'swap' ? path.join(step.target, 'data') : step.target, 'utf8'), forward ? 'new' : 'old');
+        assert.strictEqual(J.processPending(), null);
+      });
+    });
+  }
+}
+
+await t('public install recovery preserves a config edit by a separate process between steps', () => {
+  recoveryFixture('cli-interleaving', (home) => {
+    const config = path.join(home, 'config.toml');
+    const foreign = 'model = "foreign-user-edit"\n';
+    fs.writeFileSync(config, 'model = "before"\n');
+    const crashed = run('install.js', [], { CODEX_HOME: home, AGENTSMD_TEST_CRASH_AT: 'after-journal' });
+    assert.strictEqual(crashed.signal, 'SIGKILL', crashed.stderr);
+    const journal = J.readJournal();
+    const trigger = journal.steps.find((step) => step.kind === 'swap' && step.staged).target;
+    const preload = path.join(home, 'interleave.cjs');
+    const receipt = path.join(home, 'writer.json');
+    const writeCommand = `require('fs').writeFileSync(${JSON.stringify(config)}, ${JSON.stringify(foreign)})`;
+    fs.writeFileSync(preload, `
+      const fs = require('fs'), cp = require('child_process');
+      const rename = fs.renameSync;
+      let injected = false;
+      fs.renameSync = function(src, dest) {
+        const result = rename.apply(fs, arguments);
+        if (!injected && dest === ${JSON.stringify(trigger)}) {
+          injected = true;
+          const writer = cp.spawnSync(process.execPath, ['-e', ${JSON.stringify(writeCommand)}],
+            { env: { ...process.env, NODE_OPTIONS: '' } });
+          fs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({ status: writer.status }));
+        }
+        return result;
+      };
+    `);
+    const refused = cp.spawnSync(process.execPath,
+      [path.join(SCRIPTS, '..', 'bin', 'agentsmd.js'), 'install'],
+      { encoding: 'utf8', env: { ...process.env, CODEX_HOME: home, NODE_OPTIONS: `--require=${JSON.stringify(preload)}` } });
+    assert.strictEqual(JSON.parse(fs.readFileSync(receipt, 'utf8')).status, 0);
+    assert.strictEqual(refused.status, 1, refused.stderr);
+    assert.match(refused.stderr, /concurrent change|not auto-recoverable/);
+    assert.strictEqual(fs.readFileSync(config, 'utf8'), foreign);
+    assert.ok(fs.existsSync(J.journalPath()));
+  });
+});
+
 await t('successful install leaves NO journal, no residue, and records no recovery', () => {
   const home = sandbox('success');
   const r = run('install.js', ['--json'], { CODEX_HOME: home });
