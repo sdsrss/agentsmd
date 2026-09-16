@@ -3,6 +3,14 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.6 — 2026-09-16 — preserve concurrent edits during journal recovery
+
+- Refuse conflicts that appear during lifecycle journal recovery, preserving
+  concurrent configuration edits and the pending journal. Bind recovered file
+  writes/deletes to their expected snapshots, verify directory sources and
+  backups before mutation, and require journal-bound content for recovery cleanup.
+  Unknown staging contents remain available for diagnosis rather than being deleted.
+
 ## v5.5.5 — 2026-09-16 — telemetry crash recovery and diagnostic boundaries
 
 - Clarify the existing adjacent-bug authorization rule: explicitly ask whether to fix

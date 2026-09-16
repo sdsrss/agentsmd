@@ -35,6 +35,7 @@
 // the record itself survives the same crash it documents.
 
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const P = require('./paths');
 const F = require('./fs-atomic');
@@ -234,49 +235,135 @@ function planRecovery(journal = readJournal()) {
   return { mode: 'conflict', verdict, reason: 'neither direction fully executable from disk' };
 }
 
+function recoveryConflict(reason) {
+  const error = new Error(`pending lifecycle transaction is not auto-recoverable (${reason}); ` +
+    `bytes preserved — review the journal at ${journalPath()}`);
+  error.code = 'AGENTSMD_JOURNAL_CONFLICT';
+  return error;
+}
+
+function assertDescriptor(target, expected) {
+  if (!F.sameDescriptor(F.describePath(target), expected)) {
+    throw recoveryConflict(`concurrent change detected for ${target}`);
+  }
+}
+
+function recoveryTree(target, expectedHash) {
+  const snapshot = F.describePath(target);
+  if (!snapshot.present || snapshot.type !== 'tree' || snapshot.sha256 !== expectedHash) {
+    throw recoveryConflict(`recovery tree changed for ${target}`);
+  }
+  return snapshot;
+}
+
+function removeRecoveryTree(target, snapshot) {
+  assertDescriptor(target, snapshot);
+  fs.rmSync(target, { recursive: true, force: true });
+}
+
+function driveFile(step, forward) {
+  // Bind the actual mutation to the journal's source state, not a fresh foreign
+  // value observed after planning. The atomic writer rechecks this same snapshot.
+  F.assertNotSymbolicLink(step.target);
+  const snapshot = F.snapshotFile(step.target);
+  const source = forward ? 'before' : 'after';
+  const destination = forward ? 'after' : 'before';
+  const present = (side) => side === 'after' ? step.afterPresent !== false : step.beforePresent;
+  const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+  if (snapshot.present !== present(source)
+    || (snapshot.present && hash(snapshot.content) !== step[`${source}Sha256`])) {
+    throw recoveryConflict(`concurrent change detected for ${step.target}`);
+  }
+  if (!present(destination)) {
+    if (snapshot.present) F.unlinkFileIfUnchanged(step.target, snapshot);
+    return;
+  }
+  const encoded = step[`${destination}ContentB64`];
+  const content = typeof encoded === 'string' ? decode(encoded) : fs.readFileSync(step.plannedFile);
+  if (hash(content) !== step[`${destination}Sha256`]) {
+    throw recoveryConflict(`recovery content changed for ${step.target}`);
+  }
+  F.writeFileAtomic(step.target, content, { mode: 0o600, expectedSnapshot: snapshot });
+}
+
 function driveForward(step) {
-  if (step.kind === 'swap') {
-    if (step.beforePresent && F.pathExists(step.target)) {
-      // Preserve the pre-state exactly as the original commit would have.
-      if (typeof step.backupPath === 'string' && !F.pathExists(step.backupPath)) {
-        fs.mkdirSync(path.dirname(step.backupPath), { recursive: true });
-        fs.renameSync(step.target, step.backupPath);
-      } else {
-        fs.rmSync(step.target, { recursive: true, force: true });
-      }
-    } else if (F.pathExists(step.target)) fs.rmSync(step.target, { recursive: true, force: true });
-    if (step.afterCheck === 'uninstalled-shims') {
-      require('./uninstalled-shims').writeUninstalledHookShims();
-    } else if (step.afterPresent !== false && typeof step.staged === 'string') {
-      fs.mkdirSync(path.dirname(step.target), { recursive: true });
-      fs.renameSync(step.staged, step.target);
-    }
-    return;
+  if (step.kind !== 'swap') return driveFile(step, true);
+  const target = F.describePath(step.target);
+  if (target.present && target.type !== 'tree') throw recoveryConflict(`recovery target changed for ${step.target}`);
+  // Check all sources before moving/removing the target. Keep the snapshots for
+  // immediate rechecks at each filesystem mutation boundary.
+  if (classifyStep(step) !== 'before') throw recoveryConflict(`concurrent change detected for ${step.target}`);
+  const staged = step.afterCheck !== 'uninstalled-shims' && step.afterPresent !== false
+    ? recoveryTree(step.staged, step.afterSha256Tree) : null;
+  const backup = typeof step.backupPath === 'string' ? F.describePath(step.backupPath) : null;
+  if (backup && backup.present) recoveryTree(step.backupPath, step.beforeSha256Tree);
+  if (target.present) {
+    if (step.beforePresent && backup && !backup.present) {
+      fs.mkdirSync(path.dirname(step.backupPath), { recursive: true });
+      assertDescriptor(step.target, target);
+      assertDescriptor(step.backupPath, backup);
+      fs.renameSync(step.target, step.backupPath);
+    } else removeRecoveryTree(step.target, target);
   }
-  if (step.afterPresent === false) {
-    F.assertNotSymbolicLink(step.target);
-    try { fs.unlinkSync(step.target); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
-    return;
+  if (step.afterCheck === 'uninstalled-shims') {
+    require('./uninstalled-shims').writeUninstalledHookShims({
+      onStaged: () => assertDescriptor(step.target, { present: false }),
+    });
+  } else if (staged) {
+    fs.mkdirSync(path.dirname(step.target), { recursive: true });
+    assertDescriptor(step.staged, staged);
+    assertDescriptor(step.target, { present: false });
+    fs.renameSync(step.staged, step.target);
   }
-  const content = typeof step.afterContentB64 === 'string' ? decode(step.afterContentB64) : fs.readFileSync(step.plannedFile);
-  F.writeFileAtomic(step.target, content, { mode: 0o600 });
 }
 
 function driveBackward(step) {
-  if (step.kind === 'swap') {
-    if (F.pathExists(step.target)) fs.rmSync(step.target, { recursive: true, force: true });
-    if (step.beforePresent && typeof step.backupPath === 'string' && F.pathExists(step.backupPath)) {
-      fs.mkdirSync(path.dirname(step.target), { recursive: true });
-      fs.renameSync(step.backupPath, step.target);
+  if (step.kind !== 'swap') return driveFile(step, false);
+  const target = F.describePath(step.target);
+  if (target.present && target.type !== 'tree') throw recoveryConflict(`recovery target changed for ${step.target}`);
+  if (classifyStep(step) !== 'after') throw recoveryConflict(`concurrent change detected for ${step.target}`);
+  const backup = step.beforePresent ? recoveryTree(step.backupPath, step.beforeSha256Tree) : null;
+  if (target.present) removeRecoveryTree(step.target, target);
+  if (backup) {
+    fs.mkdirSync(path.dirname(step.target), { recursive: true });
+    assertDescriptor(step.backupPath, backup);
+    assertDescriptor(step.target, { present: false });
+    fs.renameSync(step.backupPath, step.target);
+  }
+}
+
+// A staging-directory name is not ownership proof. Before recursive cleanup,
+// account for every entry using the journal's source/backup/planned-file hashes.
+function cleanupRecoveryStage(journal) {
+  const root = journal.stageRoot;
+  if (typeof root !== 'string' || path.dirname(root) !== P.codexHome()
+    || !path.basename(root).startsWith('.agentsmd-') || !F.pathExists(root)) return;
+  const snapshot = F.describePath(root);
+  if (snapshot.type !== 'tree') throw recoveryConflict(`recovery stage changed for ${root}`);
+  const known = [];
+  const record = (target, type, hash) => {
+    if (typeof target !== 'string') return;
+    const relative = path.relative(root, target);
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return;
+    const current = F.describePath(target);
+    if (current.present && (current.type !== type || current.sha256 !== hash)) {
+      throw recoveryConflict(`recovery stage content changed for ${target}`);
     }
-    return;
+    known.push({ relative, type });
+  };
+  for (const step of journal.steps) {
+    if (step.kind === 'swap') {
+      record(step.staged, 'tree', step.afterSha256Tree);
+      record(step.backupPath, 'tree', step.beforeSha256Tree);
+    } else if (step.kind === 'write') record(step.plannedFile, 'file', step.afterSha256);
   }
-  if (step.beforePresent === false) {
-    F.assertNotSymbolicLink(step.target);
-    try { fs.unlinkSync(step.target); } catch (error) { if (!error || error.code !== 'ENOENT') throw error; }
-    return;
+  for (const entry of F.treeEntries(root)) {
+    const covered = known.some(({ relative, type }) => entry.path === relative
+      || (type === 'tree' && entry.path.startsWith(`${relative}/`))
+      || (entry.type === 'dir' && relative.startsWith(`${entry.path}/`)));
+    if (!covered) throw recoveryConflict(`unrecorded recovery stage entry ${entry.path}`);
   }
-  F.writeFileAtomic(step.target, decode(step.beforeContentB64), { mode: 0o600 });
+  removeRecoveryTree(root, snapshot);
 }
 
 // executeRecovery — drive every step to the chosen side, verify each landed,
@@ -295,7 +382,9 @@ function executeRecovery(journal = readJournal(), plan = planRecovery(journal)) 
   const forward = plan.mode === 'roll-forward';
   const ordered = forward ? journal.steps : [...journal.steps].reverse();
   for (const step of ordered) {
+    F.assertNotSymbolicLink(step.target);
     const state = classifyStep(step);
+    if (state === 'other') throw recoveryConflict(`concurrent change detected for ${step.target}`);
     if (state === (forward ? 'after' : 'before')) continue;
     if (forward) driveForward(step); else driveBackward(step);
     const landed = classifyStep(step);
@@ -303,21 +392,30 @@ function executeRecovery(journal = readJournal(), plan = planRecovery(journal)) 
       throw new Error(`recovery verification failed for ${step.target}: expected ${forward ? 'after' : 'before'}, observed ${landed}`);
     }
   }
-  // Owed transaction cleanup. Path-shape guards keep a tampered journal from
-  // aiming removal at foreign paths.
+  // A completed step may have changed while a later step was recovering. Never
+  // archive the journal or run cleanup on the strength of stale per-step reads.
+  const verifyTargets = () => {
+    for (const step of journal.steps) {
+      F.assertNotSymbolicLink(step.target);
+      if (classifyStep(step) !== (forward ? 'after' : 'before')) {
+        throw recoveryConflict(`concurrent change detected for ${step.target}`);
+      }
+    }
+  };
+  verifyTargets();
+  // Cleanup needs both a recorded transient path and its journal-bound hash.
   const transientOk = (p, marker) => typeof p === 'string' && path.basename(p).includes(marker);
   for (const step of journal.steps) {
     if (step.kind !== 'swap' || typeof step.backupPath !== 'string') continue;
     const isTransient = transientOk(step.backupPath, '.agentsmd-old-')
       || step.backupPath.includes(`${path.sep}quarantine${path.sep}`);
     // On rollback the backup was renamed back into place; remove only what remains.
-    if (forward && isTransient) { try { fs.rmSync(step.backupPath, { recursive: true, force: true }); } catch { /* best-effort */ } }
+    if (forward && isTransient && F.pathExists(step.backupPath)) {
+      removeRecoveryTree(step.backupPath, recoveryTree(step.backupPath, step.beforeSha256Tree));
+    }
   }
-  if (typeof journal.stageRoot === 'string'
-    && path.dirname(journal.stageRoot) === P.codexHome()
-    && path.basename(journal.stageRoot).startsWith('.agentsmd-')) {
-    try { fs.rmSync(journal.stageRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
-  }
+  cleanupRecoveryStage(journal);
+  verifyTargets();
   return { mode: plan.mode, action: journal.action, txid: journal.txid, archivedTo: archiveStale() };
 }
 
