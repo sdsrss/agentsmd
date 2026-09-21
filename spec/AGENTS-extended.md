@@ -1,6 +1,6 @@
-# CODEX-CODING-SPEC v5.5.8 — Extended
+# CODEX-CODING-SPEC v5.5.9 — Extended
 
-Location: packaged with the active delivery surface (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin bundle) — SessionStart announces the resolved path. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read the whole file once at trigger, before ROUTE/plan; re-read on resume whenever the task file's `spec: … loaded` line is present but this file's content is not in context, and after any suspected compaction. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
+Location: packaged with the active delivery surface (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin bundle) — SessionStart announces the resolved path. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read this header and §§E8–E13 once at trigger. Additionally read §§E2/E4 for L3, §E1 for override modes, §E3 for ship, §E5 for repeated failures, §E6 for skill/prompt/MCP authoring, and §E7 when optional plugins are used, before the governed step. On resume or suspected compaction, re-read applicable sections whose contents are no longer available in context. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 
 ## §E1 OVERRIDE MODES
 
@@ -72,7 +72,7 @@ Core §7 carries the always-loaded anchor for this rule (its Session-exit clause
 
 ## §E9 REASONING & ROUTING DETAIL
 
-- Debug with a hypothesis ladder: list at least two plausible causes, rank them, verify the cheapest discriminator, then patch. After two failed fixes, restart the analysis; §E5 handles the third failure.
+- Apply core §3's hypothesis ladder. When the cause remains uncertain, rank plausible alternatives and test the cheapest discriminator; direct evidence of the cause does not require inventing a second hypothesis. After two failed fixes, restart the analysis; §E5 handles the third failure.
 - Checkpoint significant phases as done / verified / remaining. When codebase patterns conflict, follow the newer or better-tested one and name the other as debt.
 - Route exact symbols to `rg`; unfamiliar modules to entry/exports then the import tree; versioned APIs to local source/lockfile then primary docs; prior decisions to the matching `MEMORY.md`; external systems to an existing MCP tool.
 - Skills use progressive disclosure: select the narrowest description match, read its full `SKILL.md`, and load only referenced material needed for the step. Custom prompts are not a substitute for skills. L3/ship/destructive work records the selected skill or why none applies.

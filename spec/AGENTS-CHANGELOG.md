@@ -2,6 +2,16 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.5.9 — 2026-09-21 — instruction boundaries
+
+Keep the active objective and pending acceptance through progress questions,
+clarifications, and corrections; cancellation or a replacement objective still
+changes the task. Load Extended's common continuity/evidence detail plus the
+sections applicable to each workflow, reloading missing applicable context on
+resume. Debugging keeps root-cause evidence and failure escalation without a
+fixed two-hypothesis minimum. AUTH, SAFETY, release gates, and thresholds are
+unchanged. These changes do not establish a token or latency improvement.
+
 ## v5.5.5 — 2026-09-16 — explicit adjacent-bug authorization question
 
 Expand the existing scope-bound `re-ASK` shorthand into an explicit request to

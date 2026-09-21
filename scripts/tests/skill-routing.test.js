@@ -364,6 +364,10 @@ const CASES = [
   ['diagnose prerequisites hook executability and config drift, not inventory', 'agentsmd-doctor'],
   ['scaffold project stack instructions before convention analysis', 'agentsmd-init'],
   ['infer source coding conventions after stack detection', 'agentsmd-analyze'],
+  ['refresh project stack facts and commands only', 'agentsmd-init'],
+  ['analyze naming and error-handling conventions in existing source', 'agentsmd-analyze'],
+  ['refresh project AGENTS stack facts, not naming conventions', 'agentsmd-init'],
+  ['distill naming import-order conventions, not refresh stack facts', 'agentsmd-analyze'],
   // Bilingual metadata proxy cases. These validate only the repository lexical
   // proxy; they are not a measured Codex-router accuracy claim.
   ['汇总遥测命中统计', 'agentsmd-audit'],

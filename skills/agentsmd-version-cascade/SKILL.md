@@ -25,4 +25,4 @@ agentsmd_skill_run --json
 - **Intentional historical/example refs are allowlisted** (`INTENTIONAL_TOKENS` in the script — the rename version, an example `--ref` tag). A genuinely new deliberate historical ref means a conscious addition there.
 - `ok` + exit 0 = no stale prose token; a stale/missing token → exit 1 with `file:line — found … (expected …)`.
 
-Read-only. From the repo instead of an install: `node scripts/version-cascade-check.js`. For the structured cross-file version check, run `npm test` (drift gate #5).
+Read-only. From the repo instead of an install: `node scripts/version-cascade-check.js`. For the structured cross-file version check in a source checkout, run `node scripts/tests/drift.test.js`. Release and broad shared changes still require the full gate.

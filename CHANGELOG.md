@@ -3,6 +3,20 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.9 — 2026-09-21 — instruction boundaries and sandbox gathering
+
+- Fix analyze/design gathering stalls in network-restricted sandboxes by feeding
+  Git ignore queries through private file-backed stdin. Bound Git subprocesses
+  and clean up temporary input on success and failure, retaining Git matching
+  semantics and the existing unavailable-Git fallback.
+- Scope init and convention-analysis skills to the requested outcome; neither
+  requires the other as an unconditional phase. Route standalone structured
+  version checks to the drift test while retaining full release/shared gates.
+- Load Extended sections by applicable workflow, preserve active objectives and
+  pending acceptance during user follow-ups, and avoid requiring a second debug
+  hypothesis when direct evidence already establishes the cause. Safety,
+  authorization, release acceptance, and failure-escalation requirements remain.
+
 ## v5.5.8 — 2026-09-21 — validation discipline and acceptance controls
 
 - Add a development-only acceptance pilot for sufficient validation, required

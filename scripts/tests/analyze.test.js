@@ -126,6 +126,111 @@ withProject({
   });
 });
 
+// Network-restricted sandboxes can deny shutdown(SHUT_WR) on Node's stdin
+// socket. Emulate that transport failure without requiring Codex in npm test;
+// matching still goes through real Git, including rules the fallback cannot do.
+withProject({
+  '.gitignore': '*.js\n!keep.js\n!space name.js\n',
+  'drop.js': '', 'keep.js': '', 'space name.js': '',
+}, (dir) => {
+  const cp = require('child_process');
+  const { createIgnoreMatcher } = require('../lib/git-ignore');
+  const realSpawn = cp.spawnSync;
+  assert.strictEqual(realSpawn('git', ['init', '-q'], { cwd: dir }).status, 0);
+  const realTmpdir = os.tmpdir;
+  const scratch = fs.mkdtempSync(path.join(realTmpdir(), 'agentsmd-ignore-transport.'));
+  const neighbor = path.join(scratch, 'neighbor');
+  fs.writeFileSync(neighbor, 'preserve');
+  os.tmpdir = () => scratch;
+  const descriptors = [];
+  try {
+    cp.spawnSync = (command, args, options) => {
+      if (Object.hasOwn(options, 'input')) {
+        return { error: Object.assign(new Error('stdin socket shutdown denied'), { code: 'EPERM' }), status: null };
+      }
+      if (args.includes('check-ignore')) {
+        const fd = options.stdio[0];
+        descriptors.push(fd);
+        assert(fs.fstatSync(fd).isFile(), 'stdin must not depend on a socket EOF');
+        if (process.platform !== 'win32') {
+          assert.strictEqual(fs.fstatSync(fd).mode & 0o777, 0o600);
+          const privateDirs = fs.readdirSync(scratch).filter((name) => name !== 'neighbor');
+          assert.strictEqual(privateDirs.length, 1);
+          assert.strictEqual(fs.statSync(path.join(scratch, privateDirs[0])).mode & 0o777, 0o700);
+        }
+      }
+      return realSpawn(command, args, options);
+    };
+    const entries = ['drop.js', 'keep.js', 'space name.js', 'line\nbreak.js'].map((name) => path.join(dir, name));
+    t('ignore: socket-input denial preserves real Git negation and NUL-delimited paths', () => {
+      const matcher = createIgnoreMatcher(dir);
+      assert(matcher.usesGit);
+      // A newline filename is a single ignored path, never split into records.
+      assert.deepStrictEqual([...matcher.ignored(entries)].sort(), [entries[0], entries[3]].sort());
+      assert.deepStrictEqual([...matcher.ignored([entries[1]])], [], 'Git exit 1 means no ignored paths');
+      assert.deepStrictEqual([...matcher.ignored([])], []);
+      assert.deepStrictEqual([...matcher.ignored([path.dirname(dir)])], []);
+    });
+    t('ignore: success closes descriptors and removes only its private input', () => {
+      assert(descriptors.length > 0);
+      for (const fd of descriptors) assert.throws(() => fs.fstatSync(fd), { code: 'EBADF' });
+      assert.deepStrictEqual(fs.readdirSync(scratch), ['neighbor']);
+      assert.strictEqual(fs.readFileSync(neighbor, 'utf8'), 'preserve');
+    });
+    t('ignore: thrown subprocess failure also disposes input and preserves neighbors', () => {
+      const matcher = createIgnoreMatcher(dir);
+      cp.spawnSync = (command, args, options) => {
+        descriptors.push(options.stdio[0]);
+        throw new Error('injected spawn failure');
+      };
+      assert.throws(() => matcher.ignored(entries), /injected spawn failure/);
+      assert.deepStrictEqual(fs.readdirSync(scratch), ['neighbor']);
+      for (const fd of descriptors) assert.throws(() => fs.fstatSync(fd), { code: 'EBADF' });
+    });
+    t('ignore: a stalled Git child is terminated and retains the existing fallback', () => {
+      let calls = 0;
+      cp.spawnSync = (command, args, options) => {
+        assert(options.timeout > 0 && options.timeout <= 5000, 'Git subprocess needs a bounded timeout');
+        assert.strictEqual(options.killSignal, 'SIGKILL', 'a child ignoring SIGTERM must not extend the deadline');
+        calls++;
+        const result = realSpawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          ...options, timeout: 50,
+        });
+        assert.strictEqual(result.error.code, 'ETIMEDOUT');
+        assert.strictEqual(result.signal, 'SIGKILL');
+        return result;
+      };
+      const noGit = createIgnoreMatcher(dir);
+      assert.strictEqual(noGit.usesGit, false);
+      assert(noGit.ignored([entries[0]]).has(entries[0]));
+      // Successful discovery followed by a stalled matching batch.
+      const stalled = cp.spawnSync;
+      cp.spawnSync = (command, args, options) => args.includes('rev-parse')
+        ? realSpawn(command, args, options) : stalled(command, args, options);
+      assert(createIgnoreMatcher(dir).ignored([entries[0]]).has(entries[0]));
+      assert.strictEqual(calls, 2);
+      assert.deepStrictEqual(fs.readdirSync(scratch), ['neighbor']);
+    });
+    t('ignore: a partial input write failure removes its temporary file', () => {
+      cp.spawnSync = realSpawn;
+      const matcher = createIgnoreMatcher(dir);
+      const realWrite = fs.writeFileSync;
+      fs.writeFileSync = (...args) => {
+        realWrite(...args);
+        throw new Error('injected disk full');
+      };
+      try { assert.throws(() => matcher.ignored(entries), /injected disk full/); }
+      finally { fs.writeFileSync = realWrite; }
+      assert.deepStrictEqual(fs.readdirSync(scratch), ['neighbor']);
+      assert.strictEqual(fs.readFileSync(neighbor, 'utf8'), 'preserve');
+    });
+  } finally {
+    cp.spawnSync = realSpawn;
+    os.tmpdir = realTmpdir;
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 // ── gather: symlink safety (H-06) ────────────────────────────────────────────
 // An untrusted checkout must not make gather follow a symlink out of the project
 // root and read/leak an outside file. We reject ALL symlinks — files and dirs,

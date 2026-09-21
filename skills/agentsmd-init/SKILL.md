@@ -1,6 +1,6 @@
 ---
 name: agentsmd-init
-description: Generate or refresh project AGENTS.md stack facts, commands, and structure (生成项目指令). Use before convention analysis. Not for inferring coding conventions or design tokens.
+description: Generate or refresh project AGENTS.md stack facts, commands, and structure (生成项目指令). Use for project instruction setup or stack-fact refresh. Not for inferring coding conventions or design tokens.
 ---
 
 # agentsmd-init
@@ -22,4 +22,4 @@ agentsmd_skill_run
 
 Flags: `--check` (report drift without writing; exit 1 if out of sync), `--dry-run` (print what would be written), `--local` (also scaffold a git-ignored `AGENTS.local.md` for personal preferences), `--no-frontend` (skip the `## Frontend` section even when a frontend stack is detected). Choose only one of `--check`, `--dry-run`, and `--local`; each selects a different execution mode. Re-running is safe — it updates only the `# >>> agentsmd:project >>>` block and preserves everything you wrote outside it.
 
-For the deeper pass that reads the source to distil implicit conventions (naming, imports, error handling), run the `agentsmd-analyze` skill afterward (Phase 2).
+Run `agentsmd-analyze` afterward only when convention extraction is also requested; generating stack facts does not require that second phase.
