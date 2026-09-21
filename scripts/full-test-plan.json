@@ -30,6 +30,13 @@
       ]
     },
     {
+      "id": "p1-acceptance",
+      "argv": [
+        "node",
+        "scripts/tests/p1-acceptance.test.js"
+      ]
+    },
+    {
       "id": "conformance-evidence",
       "argv": [
         "node",

@@ -69,6 +69,17 @@
       "width": "targeted",
       "order": 42
     },
+    "p1-acceptance": {
+      "command": [
+        "node",
+        "scripts/tests/p1-acceptance.test.js"
+      ],
+      "execution": "local",
+      "external_service": false,
+      "auth_boundary": false,
+      "width": "targeted",
+      "order": 41
+    },
     "conformance-binding": {
       "command": [
         "node",
@@ -657,6 +668,10 @@
         "qa/bounded-js-tokens.js",
         "qa/native-wrapper-grammar.js",
         "qa/grade-task-orphan.js",
+        "qa/grade-validation-discipline.js",
+        "qa/conformance/p1-cases.json",
+        "qa/conformance/P1-README.md",
+        "scripts/tests/p1-acceptance.test.js",
         "qa/cleanup-project-trust.js",
         "qa/capture-native-tools.js",
         "qa/clear-thread-goal.js",
@@ -671,6 +686,7 @@
       ],
       "checks": [
         "conformance-structure",
+        "p1-acceptance",
         "shellcheck"
       ],
       "reason": "Formal conformance runner, grading, cleanup, and threshold changes require zero-model contract coverage, shell validation, and a full-gate widen before release evidence can be trusted.",
