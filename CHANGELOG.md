@@ -3,7 +3,7 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
-## Unreleased
+## v5.5.8 — 2026-09-21 — validation discipline and acceptance controls
 
 - Add a development-only acceptance pilot for sufficient validation, required
   revalidation, authorization boundaries, read-only scope, and integer addition.
