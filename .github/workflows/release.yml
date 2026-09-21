@@ -158,7 +158,7 @@ jobs:
           node scripts/release-registry-pack.js \
             "--package=$NAME@$VER" \
             "--destination=$VERIFY_DIR/registry" \
-            --attempts=12 \
+            --attempts=36 \
             --delay-ms=10000
           mapfile -t REGISTRY_TARBALLS < <(find "$VERIFY_DIR/registry" -maxdepth 1 -type f -name '*.tgz' -print)
           test "${#REGISTRY_TARBALLS[@]}" -eq 1 || {

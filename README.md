@@ -500,7 +500,9 @@ archives remain readable with count/decision consistency checks; they do not
 retroactively prove case-level waiver scope or independent release readiness.
 
 Native conformance capture accepts syntax-checked straight-line wrappers with
-literal arguments, such as `text(await tools.get_goal({}));`. Control flow,
+literal arguments, such as `text(await tools.get_goal({}));`. Literal string
+inputs to `apply_patch` retain the same raw patch text as direct tool calls;
+other tools still require object arguments. Control flow,
 computed names, aliases, templates, ambiguous shared outputs and missing output
 pairing cannot establish a measured verdict. The capture parser never executes
 transcript code. The task-orphan fixture uses a bounded top-level CommonJS
@@ -531,6 +533,22 @@ Inventory hashes locate evidence; they do not establish freshness or publication
 A formal SLO capture remains separate from the packaged reference baseline;
 check its source/deploy identity, `slo.pass`, and `slo.inconclusive` before deciding
 whether a new measurement is needed.
+
+Choose the subject before interpreting that result: an installed CLI or selected
+skill launcher reviews its installed package; `node scripts/scorecard.js` from a
+source checkout also checks that checkout's source identity. The same release
+binding can match an unchanged installation while a locally edited checkout
+reports `current-tree-dirty`. Do not use installation health to clear that mismatch.
+
+| Conformance provenance reason | Next action |
+| --- | --- |
+| `package-version-mismatch` | Locate the candidate/binding for the selected package before scheduling new model runs; preserve the historical record. |
+| `current-tree-dirty` | Validate and account for local changes; the released result is not proof for those edits. |
+| `published-binding-and-artifact-match` | Read the recorded runtime/model and run results; this is offline identity consistency, not a new runtime test or signature audit. |
+
+If either explicit file is missing, invalid or from another source, retain the
+reported gap. Do not select a capture by filename recency alone or rewrite the
+packaged performance baseline to make the view green.
 
 The offline binding validates byte/hash and decoded SLSA payload consistency;
 release closure must still obtain those inputs from the declared release and

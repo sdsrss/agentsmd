@@ -3,6 +3,19 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## v5.5.7 — 2026-09-21 — native capture and release verification
+
+- Capture literal `apply_patch` string arguments in native QA tool wrappers without
+  adding JSON quotes. Preserve call/output attribution and reject dynamic inputs.
+- Record the 2026-09-21 review of all 43 rules without changing rule text, scope,
+  enforcement or wiring; retain low-hit effectiveness gaps explicitly.
+- Explain installed-package versus edited-checkout conformance provenance and
+  the next checks for historical, dirty-source and matching release evidence.
+
+- Increase post-publication registry readiness probes from 12 to 36 while keeping
+  the 10-second interval. The maximum inter-attempt wait rises from 110 to 350
+  seconds, excluding npm request time; exhaustion still fails verification.
+
 ## v5.5.6 — 2026-09-16 — preserve concurrent edits during journal recovery
 
 - Refuse conflicts that appear during lifecycle journal recovery, preserving

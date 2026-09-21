@@ -439,6 +439,20 @@ evidence 路径，也能呈现精确的历史发布结果与 waiver。historical
 正式 SLO capture 与随包参考 baseline 保持分离；先核对 source/deploy 身份、
 `slo.pass` 和 `slo.inconclusive`，再决定是否需要新测量。
 
+解释结果前先确定检查对象：已安装 CLI 或选中的 skill launcher 检查其安装包；
+在源码 checkout 中运行 `node scripts/scorecard.js` 还会检查该源码树的身份。
+同一发布 binding 可以匹配未改变的安装，同时对有本地修改的 checkout 报告
+`current-tree-dirty`。安装健康不能解除源码不匹配。
+
+| Conformance provenance reason | 下一步 |
+| --- | --- |
+| `package-version-mismatch` | 先定位所选包对应的 candidate/binding，再决定是否需要模型调用；保留历史记录。 |
+| `current-tree-dirty` | 验证并交代本地修改；已发布结果不能证明这些修改。 |
+| `published-binding-and-artifact-match` | 核对记录中的 runtime/model 和每轮结果；它证明离线身份一致性，不是新运行时测试或签名审核。 |
+
+显式文件缺失、无效或来源不符时保留诊断结果；不要仅按文件名的新旧选择捕获，
+也不要覆盖随包性能 baseline 来获得绿色状态。
+
 Prompt budget 是指令文件字节估算，不是模型 token 用量或完整有效上下文；
 system/developer 消息、工具、skills、Extended、memory 与 transcript 不计入该总和。
 全局 override 选择和自定义 fallback 发现仍需另外核验。measurement limits 会列出

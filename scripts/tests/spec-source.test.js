@@ -22,7 +22,7 @@ t('canonical layout renders the committed full artifact byte-for-byte', () => {
   for (const [relative, content] of rendered) {
     assert.deepStrictEqual(content, fs.readFileSync(path.join(ROOT, relative)), relative);
   }
-  assert.strictEqual(sha256(rendered.get('spec/AGENTS.md')), 'c4d39bc657a8a60988113651a5b69bd9f040cc121004254a20fc054fcbdd476c');
+  assert.strictEqual(sha256(rendered.get('spec/AGENTS.md')), '0a35dd428f9edb06a4780d0748cdfae533496a272eb3907f28eab1a1eb3496b9');
 });
 
 t('spec:check is read-only and reports the full output in sync', () => {
