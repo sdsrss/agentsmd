@@ -1,8 +1,35 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const cp = require('child_process');
+
+const GIT_TIMEOUT_MS = 5000;
+
+function checkIgnore(base, entries) {
+  // Node's input pipe uses a socket shutdown to send EOF. Some network-restricted
+  // sandboxes deny that syscall even for local sockets, leaving Git waiting.
+  // A private regular file delivers EOF without relaxing the sandbox policy.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsmd-git-ignore.'));
+  const input = path.join(dir, 'paths');
+  let fd;
+  try {
+    fs.writeFileSync(input, entries.join('\0') + '\0', { flag: 'wx', mode: 0o600 });
+    fd = fs.openSync(input, 'r');
+    return cp.spawnSync('git', ['-C', base, 'check-ignore', '--no-index', '-z', '--stdin'], {
+      stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+      timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL',
+    });
+  } finally {
+    try {
+      if (fd !== undefined) fs.closeSync(fd);
+    } finally {
+      try { fs.rmSync(input, { force: true }); }
+      finally { fs.rmdirSync(dir); }
+    }
+  }
+}
 
 // Preserve the pre-existing non-Git fallback used by analyze: bare directory
 // names and suffix globs such as `*.gen.js`. Full Git semantics are delegated
@@ -41,8 +68,9 @@ function createIgnoreMatcher(root) {
   const probe = cp.spawnSync('git', ['-C', base, 'rev-parse', '--is-inside-work-tree'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL',
   });
-  const useGit = probe.status === 0 && probe.stdout.trim() === 'true';
+  const useGit = !probe.error && probe.status === 0 && probe.stdout.trim() === 'true';
 
   function ignored(entries) {
     const absoluteEntries = entries.map((entry) => path.resolve(entry));
@@ -60,11 +88,7 @@ function createIgnoreMatcher(root) {
     }
     if (!relativeEntries.length) return new Set();
 
-    const result = cp.spawnSync(
-      'git',
-      ['-C', base, 'check-ignore', '--no-index', '-z', '--stdin'],
-      { input: relativeEntries.join('\0') + '\0', encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }
-    );
+    const result = checkIgnore(base, relativeEntries);
     // check-ignore: 0 = at least one match, 1 = no matches. Any other result
     // means Git could not evaluate this batch, so retain the bounded legacy
     // fallback instead of silently treating everything as visible.

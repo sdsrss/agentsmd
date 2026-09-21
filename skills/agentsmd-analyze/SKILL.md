@@ -1,6 +1,6 @@
 ---
 name: agentsmd-analyze
-description: Distill coding conventions from source into AGENTS.md (提炼代码约定). Use for naming/import/error-handling analysis after agentsmd-init. Not for stack detection or design tokens.
+description: Distill coding conventions from source into AGENTS.md (提炼代码约定). Use to infer naming, import-order, and error-handling conventions from project source. Not for stack detection or design tokens.
 ---
 
 # agentsmd-analyze
@@ -14,7 +14,7 @@ agentsmd_skill_run() {
 }
 ```
 
-Read a sample of the project's own source and distill the *implicit* conventions agentsmd-init can't detect, because they aren't stack facts. Gathering and writing are deterministic; the distillation is the one AI step. Run it from the project root, after `agentsmd-init`.
+Read a sample of the project's own source and distill the *implicit* conventions agentsmd-init can't detect, because they aren't stack facts. Gathering and writing are deterministic; the distillation is the one AI step. Run it from the project root. Run `agentsmd-init` only when stack-fact setup or refresh is also in scope.
 
 ```bash
 agentsmd_skill_run --gather

@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v5.5.8 — Global
+# CODEX-CODING-SPEC v5.5.9 — Global
 
 **Discovery**: Global uses `$CODEX_HOME/AGENTS.override.md` else `AGENTS.md`; project files load root→cwd with override precedence. The combined cap (32 KiB default) truncates silently; core reserves room for project rules. Closer layers may override defaults, NEVER §8 or §5-hard.
 **Extended**: standalone uses `$CODEX_HOME/AGENTS-extended.md` (`CODEX_HOME` defaults to `~/.codex`); plugin SessionStart announces its packaged path — MUST read on **L3** · **ship intent** (`push` shared / merge / PR / publish / release / deploy) · **Override mode** · **three-strike** · **§3 recurrence hit**.
@@ -6,7 +6,7 @@
 
 ## §0 SPINE
 
-`CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT`. One task = one cycle; new user request = new task. A blocked step is stated, never silently skipped.
+`CLASSIFY → AUTH → ROUTE → PLAN → EXECUTE → VALIDATE → REPORT`. One objective = one cycle. A new objective starts a new task; progress questions, clarifications, and corrections update the active task and preserve its pending acceptance work unless the user cancels or replaces the objective. A blocked step is stated, never silently skipped.
 
 **Initial ambiguity** (multiple readings / action-vs-advice / missing scope): (a) ASK once with concrete candidates, or (b) state chosen reading inline and proceed. Silent assumption banned. Default (a) if reversal >10min or AUTH-relevant; else (b).
 
