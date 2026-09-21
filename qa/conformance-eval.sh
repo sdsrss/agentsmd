@@ -384,6 +384,17 @@ check_one() {
   a="$1"
   type="$(jq -r '.type' <<<"$a")"
   case "$type" in
+    validation_discipline)
+      node - "$REPO_ROOT" "$SBX/$CID.jsonl" "$PROJ" "$a" <<'NODE' && return 0
+const fs = require('fs');
+const path = require('path');
+const { gradeValidationDiscipline } = require(path.join(process.argv[2], 'qa/grade-validation-discipline'));
+const events = fs.readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean).map(JSON.parse);
+const result = gradeValidationDiscipline(events, process.argv[4], JSON.parse(process.argv[5]));
+if (!result.pass) console.error(result.failures.join('; '));
+process.exitCode = result.pass ? 0 : 1;
+NODE
+      echo 'validation_discipline failed: expected fresh, attributable, non-repeated verification' >> "$SBX/$CID.why"; return 1 ;;
     task_orphan_import)
       node - "$REPO_ROOT" "$PROJ/app.js" <<'NODE' && return 0
 const fs = require('fs');

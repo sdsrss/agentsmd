@@ -3,6 +3,13 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Add a development-only acceptance pilot for sufficient validation, required
+  revalidation, authorization boundaries, read-only scope, and integer addition.
+  Exercise successful evidence attribution and known wrong outcomes in the local
+  test gate without changing canonical release cases or thresholds.
+
 ## v5.5.7 — 2026-09-21 — native capture and release verification
 
 - Capture literal `apply_patch` string arguments in native QA tool wrappers without
