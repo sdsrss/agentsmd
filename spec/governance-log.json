@@ -757,6 +757,321 @@
         { "id": "§5-scoped-authorization", "signal": "self-enforced", "verdict": "keep", "evidence": "Semantic review: the rule remains a safety, authorization, evidence, workflow, or ownership invariant whose adherence requires code/context understanding; no reliable hook denominator exists, so zero telemetry cannot support demotion.", "hits": 0, "eligible_sessions": 0, "evaluated_sessions": 0 },
         { "id": "§5-scope-bound", "signal": "self-enforced", "verdict": "keep", "evidence": "Semantic review: the rule remains a safety, authorization, evidence, workflow, or ownership invariant whose adherence requires code/context understanding; no reliable hook denominator exists, so zero telemetry cannot support demotion.", "hits": 0, "eligible_sessions": 0, "evaluated_sessions": 0 }
       ]
+    },
+    {
+      "date": "2026-09-21",
+      "spec_version_reviewed": "v5.5.6",
+      "shipped_in": "unreleased",
+      "window_days": 30,
+      "telemetry_rows": 1018,
+      "sessions": 30,
+      "projects": 3,
+      "method": "Read-only rulesAudit 30-day snapshot plus individual review of all 43 canonical core/extended anchors and detector limits. Test/QA excluded. No bypass row met the review threshold. Zero eligible field blocks supplies no false-block rate. Keep verdicts preserve current text, scope, enforcement and wiring; low-hit candidates remain open effectiveness questions, not automatic demotions.",
+      "entries": [
+        {
+          "id": "§8-rm-rf-var",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Immutable variable-delete safeguard; observed hits establish detector activity, not universal safety coverage.",
+          "hits": 3,
+          "eligible_sessions": 2,
+          "evaluated_sessions": 2
+        },
+        {
+          "id": "§8-unknown-script",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Immutable origin requirement; retained commands/near-negatives must distinguish trusted local scripts from unknown downloads.",
+          "hits": 4,
+          "eligible_sessions": 3,
+          "evaluated_sessions": 3
+        },
+        {
+          "id": "§8-secrets",
+          "signal": "deterrence-ok",
+          "verdict": "keep",
+          "evidence": "Immutable credential isolation; zero findings does not establish that scanning is unnecessary.",
+          "hits": 0,
+          "eligible_sessions": 10,
+          "evaluated_sessions": 10
+        },
+        {
+          "id": "§8-sql-no-where",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Unbounded writes and destructive schema actions have different contracts; preserve predicate prohibition and rollback authorization."
+        },
+        {
+          "id": "§8-home-traversal",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Preserve bounded home/config access; no reliable generic detector or field benefit denominator was established."
+        },
+        {
+          "id": "§8-verify-before-claim",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep current-session verification and evidence scope; artifact disposal observations cover only one part of V1-V4."
+        },
+        {
+          "id": "§8.V4-sandbox-disposal",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Keep exact task ownership and exemptions for runtime-owned paths; recency alone cannot authorize deletion.",
+          "hits": 8,
+          "eligible_sessions": 20,
+          "evaluated_sessions": 20
+        },
+        {
+          "id": "§6-iron-law-1",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "The parser repair produced RED before implementation; retain type-specific pre-change evidence rather than demanding a bug reproduction for every change."
+        },
+        {
+          "id": "§6-iron-law-2",
+          "signal": "deterrence-ok",
+          "verdict": "keep",
+          "evidence": "Retain fresh terminal validation after the last change; zero fingerprint hits is not semantic proof of all completion claims.",
+          "hits": 0,
+          "eligible_sessions": 17,
+          "evaluated_sessions": 17
+        },
+        {
+          "id": "§6-iron-law-3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "The parser object-only restriction and the isolated read-only tmp mount had distinct reproduced causes; retain root-cause-before-patch discipline."
+        },
+        {
+          "id": "§6-bugfix-anchor",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Shares the specificity bucket; do not double-count it as independent effectiveness evidence. Keep failure-to-fix linkage.",
+          "hits": 1,
+          "eligible_sessions": 20,
+          "evaluated_sessions": 20
+        },
+        {
+          "id": "§6-destructive-smoke",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Recovery tests still need disposable filesystem fixtures; no case supports moving this obligation out of the ordinary workflow."
+        },
+        {
+          "id": "§7-memory-read",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Keep relevance and exact successful-read evidence. Block observations do not establish all denials were correct; no bypass review threshold was met.",
+          "hits": 11,
+          "eligible_sessions": 12,
+          "evaluated_sessions": 12
+        },
+        {
+          "id": "§7-post-compaction",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Task-record recovery is necessary when context is lost; the event stream does not provide a reliable semantic opportunity denominator."
+        },
+        {
+          "id": "§7-exit-archival",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep the final-report fallback and repository opt-in boundary; do not create memory entries solely to satisfy a detector."
+        },
+        {
+          "id": "§7-session-exit",
+          "signal": "active",
+          "verdict": "keep-with-caveat",
+          "evidence": "Keep the advisory observer with its limitation: ordinary rg is not mechanical validation, and an expired flag does not identify a bad completion claim.",
+          "hits": 22,
+          "eligible_sessions": 15,
+          "evaluated_sessions": 15
+        },
+        {
+          "id": "§7-memory-hygiene",
+          "signal": "demote-candidate",
+          "verdict": "keep-with-caveat",
+          "evidence": "Zero findings over 10 evaluated sessions satisfies the candidate floor but supplies no counterfactual evidence for demotion. The previous review requested opportunity analysis; that causal gap remains open, so retain with an explicit unresolved evidence limit rather than claiming value proved.",
+          "hits": 0,
+          "eligible_sessions": 10,
+          "evaluated_sessions": 10
+        },
+        {
+          "id": "§E3-ship-baseline",
+          "signal": "insufficient-opportunity",
+          "verdict": "keep-with-caveat",
+          "evidence": "Two evaluated sessions are below the opportunity floor. Keep the known-red remote observer distinct from full local or missing evidence.",
+          "hits": 0,
+          "eligible_sessions": 2,
+          "evaluated_sessions": 2
+        },
+        {
+          "id": "§10-four-section-order",
+          "signal": "demote-candidate",
+          "verdict": "keep-with-caveat",
+          "evidence": "Zero order hits over 19 evaluated sessions describes reports under the current rule. It does not show removal preserves complete disclosure; retain current core residence pending paired behavioral evidence.",
+          "hits": 0,
+          "eligible_sessions": 19,
+          "evaluated_sessions": 19
+        },
+        {
+          "id": "§10-honesty",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Keep reasons for uncertainty and bounded claims; the detector observes only selected phrasing, not general truthfulness.",
+          "hits": 3,
+          "eligible_sessions": 19,
+          "evaluated_sessions": 19
+        },
+        {
+          "id": "§10-specificity",
+          "signal": "active",
+          "verdict": "keep",
+          "evidence": "Keep concrete evidence anchors and merged bugfix telemetry attribution; raw hits do not measure user benefit.",
+          "hits": 1,
+          "eligible_sessions": 20,
+          "evaluated_sessions": 20
+        },
+        {
+          "id": "§3-plan-before-execute",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep proportional planning at L2+; transcript calibration remains a structural proxy and cannot justify promotion or removal."
+        },
+        {
+          "id": "§3-recurrence-check",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "The release visibility symptom repeated across three versions; retain cheap history checks without treating recurrence alone as a proven remote root cause."
+        },
+        {
+          "id": "§5-hard-auth",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Preserve operation-scoped authorization and reuse. A concrete CI edit remains separately reviewable; task level alone must not create a permission gate."
+        },
+        {
+          "id": "§2-hard-upgrades",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Retain risk-based planning depth for shared/default/authorization changes and its separation from permission."
+        },
+        {
+          "id": "§9-preflight",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Pre-change git status protects existing work; structural sampling cannot see all shell writes or previous-turn checks."
+        },
+        {
+          "id": "§9-end-of-task-sweep",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep accounting for changed files and temporary fixtures; a tmp-count proxy does not prove completion."
+        },
+        {
+          "id": "§9-parallel-path",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "The parser review explicitly covers string/object/dynamic and exact/shared/direct/unpaired paths; preserve branch-sensitive acceptance."
+        },
+        {
+          "id": "§0-extended-load",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep one canonical trigger list with on-demand extended procedures; no paired evidence supports changing discovery or load triggers."
+        },
+        {
+          "id": "§8-disable-ssl",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Immutable transport verification; registry propagation is not a reason to disable TLS checks."
+        },
+        {
+          "id": "§8-env-key-commit",
+          "signal": "inherited",
+          "verdict": "keep",
+          "evidence": "Inherited secrets signal; preserve credential-file exclusion and do not count the same bucket as a second independent result.",
+          "hits": 0,
+          "eligible_sessions": 10,
+          "evaluated_sessions": 10
+        },
+        {
+          "id": "§8-git-internals",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Immutable Git ownership boundary; ordinary Git commands already support this task without manual internal edits."
+        },
+        {
+          "id": "§E1-emergency-followup",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Emergency ordering does not waive safety or evidence follow-up; no emergency case was measured in this review."
+        },
+        {
+          "id": "§E6-skill-description",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep explicit trigger/scope/non-trigger routing boundaries; no routing change or representative benefit claim is made."
+        },
+        {
+          "id": "§E7-plugin-boundary",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Optional plugin instructions cannot grant scope or override safety; retain without treating plugin lifecycle as native activation proof."
+        },
+        {
+          "id": "§E2-phase-gate",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "The parser full gate completed before runtime testing. Retain validated dependent phases while permitting independent read-only preparation."
+        },
+        {
+          "id": "§E3-ship-checklist",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Retain independent local, hosted, artifact and release closure evidence; this local task is not release authorization."
+        },
+        {
+          "id": "§E4-evidence-ladder",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "A fixture, a real-model diagnostic and a complete canary prove different tiers; retain this explicit distinction."
+        },
+        {
+          "id": "§E6-skill-authoring-l3",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep risk-tiered metadata review; no global routing change is proposed or validated by this cadence review."
+        },
+        {
+          "id": "§E8-turn-yield",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep the core binding reachable for ordinary tasks and distinguish legitimate waits from unsupported next-turn completion claims."
+        },
+        {
+          "id": "§9-tmp-residue-proxy",
+          "signal": "hook-value-review",
+          "verdict": "keep-with-caveat",
+          "evidence": "Zero proxy hits over 15 evaluated sessions cannot justify demoting the ownership/sweep rule. Hook removal also lacks a reviewed residue sample and before/after user-latency evidence; retain with the unresolved value question explicit.",
+          "hits": 0,
+          "eligible_sessions": 15,
+          "evaluated_sessions": 15
+        },
+        {
+          "id": "§5-scoped-authorization",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep named scope for category-level cleanup and tracked deletion; existing hard-tidy and clear-create cases guard opposite authorization errors."
+        },
+        {
+          "id": "§5-scope-bound",
+          "signal": "self-enforced",
+          "verdict": "keep",
+          "evidence": "Keep explicit adjacent-work scope handling. The canonical auth-scope-bound-adjacent case now exists; the old manifest note about no case is historical, not a current coverage conclusion."
+        }
+      ]
     }
   ]
 }

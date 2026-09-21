@@ -393,6 +393,54 @@ t('unsupported wrapper execution is unmeasurable rather than a guessed or zero t
   assert.throws(() => extractNativeTools(duplicate.map(JSON.stringify).join('\n')), /unmeasurable/u);
 });
 
+t('native patch strings preserve raw arguments and exact, shared, direct, or missing output attribution', () => {
+  const patch = '*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+"quoted" \\ path 中文\n*** End Patch';
+  const capture = (input, output = 'applied') => extractNativeTools([
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'patch-wrapper', input } },
+    ...(output === null ? [] : [{ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'patch-wrapper', output } }]),
+  ].map(JSON.stringify).join('\n'));
+  const call = `await tools.apply_patch(${JSON.stringify(patch)})`;
+  for (const input of [call + ';', `text(${call});`, `const result = ${call}; text(result);`]) {
+    assert.deepStrictEqual(capture(input), [{
+      name: 'apply_patch', arguments: patch, call_id: 'patch-wrapper', paired: true,
+      output: 'applied', output_attribution: 'wrapper-exact',
+    }]);
+  }
+  const mixed = capture(`await tools.exec_command({cmd:"pwd"}); ${call}; await tools.exec_command({cmd:"true"});`);
+  assert.deepStrictEqual(mixed.map((item) => item.name), ['exec_command', 'apply_patch', 'exec_command']);
+  assert.strictEqual(mixed[0].arguments, '{"cmd":"pwd"}');
+  assert.strictEqual(mixed[1].arguments, patch);
+  assert.deepStrictEqual(mixed.map((item) => item.output_attribution), ['wrapper-shared', 'wrapper-shared', 'wrapper-shared']);
+  assert.strictEqual(capture(call + ';', null)[0].paired, false);
+  assert.strictEqual(capture(call + ';', null)[0].output, '');
+  const direct = extractNativeTools([
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'patch-direct', input: patch } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'patch-direct', output: 'applied' } },
+  ].map(JSON.stringify).join('\n'));
+  assert.strictEqual(direct[0].arguments, mixed[1].arguments);
+  assert.strictEqual(direct[0].output_attribution, 'direct');
+});
+
+t('native patch string support does not accept dynamic expressions or strings for other tools', () => {
+  const { nestedToolCalls } = require(path.join(ROOT, 'qa/capture-native-tools.js'));
+  for (const input of [
+    'await tools.exec_command("true");',
+    'await tools.get_goal("{}");',
+    'await tools.apply_patch(null);',
+    'await tools.apply_patch(["patch"]);',
+    'await tools.apply_patch(1);',
+    'await tools.apply_patch(true);',
+    'const patch = "patch"; await tools.apply_patch(patch);',
+    'await tools.apply_patch(makePatch());',
+    'await tools.apply_patch("a" + "b");',
+    'await tools.apply_patch(`patch`);',
+    'await tools.apply_patch("patch", {});',
+    'await tools.apply_patch("unterminated);',
+  ]) assert.throws(() => nestedToolCalls(input), /unmeasurable|unsupported/u, input);
+  assert.strictEqual(nestedToolCalls("await tools.apply_patch('line\\n\\u4e2d');")[0].arguments, 'line\n中');
+  assert.strictEqual(nestedToolCalls('await tools.apply_patch("");')[0].arguments, '', 'capture records arguments; the tool validates patch content');
+});
+
 t('task orphan import assertion ignores prose but rejects stale imports and removed legacy bindings', () => {
   const { gradeTaskOrphan } = require(path.join(ROOT, 'qa/grade-task-orphan.js'));
   const render = '\nexports.render = (value) => String(value).trim();';

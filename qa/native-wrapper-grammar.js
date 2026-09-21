@@ -53,6 +53,12 @@ function literalToolCalls(source) {
     const name = input[pos++];
     if (name?.type !== 'id' || !/^[a-z][a-z0-9_]*$/u.test(name.value)) throw new Error('unsupported tool name');
     take('('); const args = literal(); take(')');
+    // apply_patch is a freeform tool: preserve its literal input like a direct
+    // custom_tool_call, without JSON quoting or interpreting the patch text.
+    if (name.value === 'apply_patch' && typeof args === 'string') {
+      calls.push({ name: name.value, arguments: args });
+      return;
+    }
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('unsupported tool arguments');
     calls.push({ name: name.value, arguments: JSON.stringify(args) });
   }
