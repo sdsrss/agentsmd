@@ -442,6 +442,19 @@ t('agentsmd unknown command exits non-zero with usage and does not install', () 
   assert(!fs.existsSync(path.join(dir, 'agentsmd')));
 }));
 
+t('agentsmd rejects inherited command names with usage and zero writes', () => withSandbox((dir) => {
+  for (const command of [...Object.getOwnPropertyNames(Object.prototype), 'instal']) {
+    const result = cp.spawnSync(process.execPath, [path.join(ROOT, 'bin', 'agentsmd.js'), command], {
+      cwd: dir, env: { ...process.env, CODEX_HOME: path.join(dir, 'home') }, encoding: 'utf8',
+    });
+    assert.strictEqual(result.status, 2, `${command}\n${result.stdout}${result.stderr}`);
+    assert(result.stderr.includes(`unknown command: ${command}`), result.stderr);
+    assert.match(result.stderr, /Usage: agentsmd/);
+    assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE/);
+    assert.deepStrictEqual(fs.readdirSync(dir), [], 'unknown commands must not write project or home files');
+  }
+}));
+
 t('all dispatcher argv and usage errors exit 2', () => withSandbox((dir) => {
   const env = { CODEX_HOME: dir };
   const cases = [

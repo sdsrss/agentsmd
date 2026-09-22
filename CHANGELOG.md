@@ -3,6 +3,13 @@
 Release history for **agentsmd** (the Codex coding-spec enforcement plugin). The
 spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
+## Unreleased
+
+- Reject inherited JavaScript object-property names as unknown CLI commands,
+  returning the documented usage error instead of an internal exception.
+- Count telemetry at shared trend-bucket boundaries exactly once, retaining
+  the ordinary audit window's inclusive endpoints and existing filters.
+
 ## v5.5.9 — 2026-09-21 — instruction boundaries and sandbox gathering
 
 - Fix analyze/design gathering stalls in network-restricted sandboxes by feeding
