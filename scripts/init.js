@@ -45,17 +45,20 @@ const LOCAL_SKELETON = [
 function ensureGitignore(gitignorePath, line, before, commit) {
   const cur = before.present ? before.content.toString('utf8') : '';
   if (cur.split('\n').some((l) => l.trim() === line)) return false;
-  F.writeFileAtomic(gitignorePath, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n', { expectedSnapshot: before });
-  commit(gitignorePath, before);
+  const content = cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n';
+  const mode = before.present ? before.mode : 0o600;
+  F.writeFileAtomic(gitignorePath, content, { expectedSnapshot: before, mode });
+  commit(gitignorePath, before, content, mode);
   return true;
 }
 
 function writeLocal(localPath, gitignorePath, localBefore, gitignoreBefore, commit) {
   let created = false;
   try {
+    const mode = 0o600 & ~process.umask();
     fs.writeFileSync(localPath, LOCAL_SKELETON, { flag: 'wx', mode: 0o600 });
     created = true;
-    commit(localPath, localBefore);
+    commit(localPath, localBefore, LOCAL_SKELETON, mode);
   } catch (error) {
     if (!error || error.code !== 'EEXIST') throw error;
   }
@@ -63,20 +66,37 @@ function writeLocal(localPath, gitignorePath, localBefore, gitignoreBefore, comm
   return { path: localPath, created, gitignore };
 }
 
-// All-or-nothing multi-file write. body() performs the writes and calls
-// commit(file, preSnapshot) after each one that lands; any throw restores every
-// committed file to its pre-run snapshot (reverse order) then rethrows the
-// original error. A file absent pre-run is restored to absent. The write that
-// throws left nothing to undo (writeFileAtomic renames or cleans up its tmp;
-// the exclusive-create either creates or throws), so only committed writes roll
-// back — a concurrent-change rejection on the first write clobbers nothing.
+// Roll back only bytes/modes this transaction wrote. Bind the after snapshot to
+// the write inputs, never to a later read that could adopt a foreign edit.
+// On conflict preserve the newer state, continue other rollbacks, and report
+// both the original failure and every failed rollback.
 function transact(body) {
   const committed = [];
   try {
-    return body((file, snapshot) => committed.push([file, snapshot]));
+    return body((file, before, content, mode) => committed.push({
+      file, before, after: { present: true, content: Buffer.from(content), mode },
+    }));
   } catch (error) {
+    const rollbackErrors = [];
     for (let i = committed.length - 1; i >= 0; i--) {
-      try { F.restoreFile(committed[i][0], committed[i][1]); } catch { /* best-effort rollback */ }
+      const { file, before, after } = committed[i];
+      try {
+        if (before.present) {
+          F.writeFileAtomic(file, before.content, {
+            expectedSnapshot: after, mode: before.mode, preserveMode: false,
+          });
+        } else {
+          F.unlinkFileIfUnchanged(file, after);
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(`${path.basename(file)}: ${rollbackError.message}`);
+      }
+    }
+    if (rollbackErrors.length) {
+      const combined = new Error(`${error.message}; rollback errors: ${rollbackErrors.join('; ')}`);
+      combined.cause = error;
+      combined.code = error.code;
+      throw combined;
     }
     throw error;
   }
@@ -110,16 +130,17 @@ function init({ projectRoot, check = false, dryRun = false, local = false, noFro
 
   // init writes up to three files (main AGENTS.md, plus AGENTS.local.md and
   // .gitignore in --local mode). Snapshot every file the run may touch BEFORE
-  // any write so a failure at any point rolls the whole set back — otherwise a
-  // torn multi-file command leaves AGENTS.md modified after a later step fails.
+  // any write. A later failure rolls back our unchanged results; concurrent
+  // edits are preserved and reported instead of being overwritten by rollback.
   const localPath = path.join(root, 'AGENTS.local.md');
   const gitignorePath = path.join(root, '.gitignore');
   const localBefore = local ? F.snapshotFile(localPath) : null;
   const gitignoreBefore = local ? F.snapshotFile(gitignorePath) : null;
 
   return transact((commit) => {
-    F.writeFileAtomic(target, content, { expectedSnapshot: before });
-    commit(target, before);
+    const mode = before.present ? before.mode : 0o600;
+    F.writeFileAtomic(target, content, { expectedSnapshot: before, mode });
+    commit(target, before, content, mode);
     const result = { action: updated ? 'updated' : 'created', target, detection, frontendIncluded: includeFrontend, frontendFirstAdded };
     if (local) result.local = writeLocal(localPath, gitignorePath, localBefore, gitignoreBefore, commit);
     return result;

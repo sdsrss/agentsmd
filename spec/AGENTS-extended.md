@@ -1,4 +1,4 @@
-# CODEX-CODING-SPEC v5.5.9 — Extended
+# CODEX-CODING-SPEC v5.5.10 — Extended
 
 Location: packaged with the active delivery surface (standalone: `$CODEX_HOME/AGENTS-extended.md`; plugin: inside the plugin bundle) — SessionStart announces the resolved path. NOT in the Codex discovery chain — costs zero `project_doc_max_bytes` budget; the agent reads it explicitly. Load triggers: defined ONCE in the core header (**Extended** line); core is the single source — this file does not restate them. How: read this header and §§E8–E13 once at trigger. Additionally read §§E2/E4 for L3, §E1 for override modes, §E3 for ship, §E5 for repeated failures, §E6 for skill/prompt/MCP authoring, and §E7 when optional plugins are used, before the governed step. On resume or suspected compaction, re-read applicable sections whose contents are no longer available in context. Core spec always wins on conflict; §8 SAFETY and all three Iron Laws bind here unchanged — the only sanctioned modulation is core §6's EMERGENCY deferral of #1/#3.
 

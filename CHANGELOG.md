@@ -5,6 +5,13 @@ spec's own rule-level history lives in `spec/AGENTS-CHANGELOG.md`.
 
 ## Unreleased
 
+## v5.5.10 — 2026-09-22 — safe init rollback and trend correctness
+
+- Preserve concurrent project-file edits when `init --local` rolls back a later
+  failure. Bind rollback to the bytes and modes written by that invocation,
+  and report rollback conflicts alongside the original error.
+- Normalize sparkline trend comparisons by bucket count so odd-length windows
+  do not report constant activity as rising. Keep raw counts and thresholds.
 - Reject inherited JavaScript object-property names as unknown CLI commands,
   returning the documented usage error instead of an internal exception.
 - Count telemetry at shared trend-bucket boundaries exactly once, retaining
