@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
+const cp = require('child_process');
 
 let PASS = 0, FAIL = 0;
 const t = (name, fn) => { try { fn(); PASS++; console.log('  ok   ' + name); } catch (e) { FAIL++; console.log('  FAIL ' + name + '\n     ' + e.message); } };
@@ -403,8 +404,8 @@ withProject({ 'package.json': JSON.stringify({ name: 'local-race' }) }, (dir) =>
 });
 // ── --local three-file transaction: any write point fails → full rollback ─────
 // The run touches main AGENTS.md, AGENTS.local.md, and .gitignore. A failure at
-// ANY write point must leave all three byte-identical to (or as-absent as) their
-// pre-run state, and must rethrow the original error unwrapped.
+// ANY write point, with no concurrent edits, must leave all three byte-identical
+// to (or as-absent as) their pre-run state and rethrow the original error unwrapped.
 
 // Write point 1: main AGENTS.md write fails → nothing else touched.
 withProject({
@@ -492,6 +493,137 @@ withProject({
   t('tx: gitignore-write failure rolls the already-written main AGENTS.md back to pre-run bytes', () => assert.strictEqual(fs.readFileSync(agents, 'utf8'), snapAgents));
   t('tx: gitignore-write failure rolls the newly-created AGENTS.local.md back to absent', () => assert.strictEqual(fs.existsSync(localP), false));
   t('tx: gitignore-write failure leaves .gitignore at pre-run bytes', () => assert.strictEqual(fs.readFileSync(gi, 'utf8'), snapGi));
+});
+
+// A later CAS rejection must not roll back another writer's edits to files
+// that init already committed. Schedule the independent writer through the
+// public dispatcher, before the normal .gitignore snapshot check.
+for (const existing of [false, true]) withProject({
+  'package.json': '{"name":"rollback-concurrent-cli"}',
+  '.gitignore': '# original ignore\n',
+  'neighbor.txt': 'untouched\n',
+  ...(existing ? { 'AGENTS.md': '# original project\n' } : {}),
+}, (dir) => {
+  const preload = path.join(dir, 'schedule.cjs');
+  fs.writeFileSync(preload, `
+    const fs = require('fs'), path = require('path'), cp = require('child_process');
+    const open = fs.openSync;
+    let fired = false;
+    fs.openSync = function(file, ...args) {
+      if (!fired && typeof file === 'string' && path.basename(file).startsWith('.gitignore.agentsmd-tmp-')) {
+        fired = true;
+        const writer = cp.spawnSync(process.execPath, ['-e',
+          "const fs=require('fs');for(const name of ['AGENTS.md','AGENTS.local.md','.gitignore'])fs.writeFileSync(name,'external '+name+'\\\\n');"
+        ], { cwd: process.cwd(), env: process.env, timeout: 5000 });
+        if (writer.status !== 0) throw new Error('independent fixture writer failed');
+      }
+      return open.call(fs, file, ...args);
+    };
+  `);
+  const result = cp.spawnSync(process.execPath, [path.resolve(__dirname, '../../bin/agentsmd.js'), 'init', '--local'], {
+    cwd: dir,
+    env: { ...process.env, CODEX_HOME: path.join(dir, 'home'), NODE_OPTIONS: `--require=${JSON.stringify(preload)}` },
+    encoding: 'utf8', timeout: 10000,
+  });
+  t(`tx CLI (${existing ? 'existing' : 'new'} main): concurrent bytes survive rollback`, () => {
+    assert.strictEqual(result.status, 1, result.stderr);
+    assert.match(result.stderr, /concurrent change detected.*\.gitignore/);
+    for (const name of ['AGENTS.md', 'AGENTS.local.md', '.gitignore']) {
+      assert.strictEqual(fs.readFileSync(path.join(dir, name), 'utf8'), `external ${name}\n`);
+    }
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'neighbor.txt'), 'utf8'), 'untouched\n');
+  });
+  t(`tx CLI (${existing ? 'existing' : 'new'} main): original error and both rollback conflicts are reported`, () => {
+    assert.match(result.stderr, /rollback errors:/);
+    assert.match(result.stderr, /AGENTS\.local\.md:.*concurrent change/);
+    assert.match(result.stderr, /AGENTS\.md:.*concurrent change/);
+  });
+});
+
+for (const change of ['mode', 'symlink', 'bytes-before-record', 'rollback-write']) withProject({
+  'package.json': '{"name":"rollback-boundaries"}',
+  'AGENTS.md': '# original project\n',
+  '.gitignore': '# original ignore\n',
+  'neighbor.txt': 'untouched\n',
+}, (dir) => {
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  const agents = path.join(dir, 'AGENTS.md');
+  const local = path.join(dir, 'AGENTS.local.md');
+  const ignore = path.join(dir, '.gitignore');
+  const neighbor = path.join(dir, 'neighbor.txt');
+  const boom = new Error('injected later-write failure');
+  let afterAgents, error, failing = false;
+  fs.chmodSync(agents, 0o600);
+  F.writeFileAtomic = (file, content, options) => {
+    if (file === ignore) {
+      failing = true;
+      afterAgents = fs.readFileSync(agents, 'utf8');
+      if (change === 'mode') fs.chmodSync(local, 0o640);
+      if (change === 'symlink') {
+        fs.unlinkSync(local);
+        fs.symlinkSync(neighbor, local);
+      }
+      throw boom;
+    }
+    if (change === 'rollback-write' && failing && file === agents) {
+      // A change during rollback preparation must still hit the atomic CAS.
+      fs.writeFileSync(agents, 'external during rollback\n');
+    }
+    const result = realWrite(file, content, options);
+    if (change === 'bytes-before-record' && !failing && file === agents) {
+      fs.writeFileSync(agents, 'external before commit record\n');
+    }
+    return result;
+  };
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { F.writeFileAtomic = realWrite; }
+  t(`tx ${change}: rollback conflict preserves external state and continues safe rollback`, () => {
+    assert(error);
+    assert.strictEqual(error.cause, boom);
+    assert.match(error.message, /injected later-write failure; rollback errors:/);
+    if (change === 'mode') {
+      assert.strictEqual(fs.statSync(local).mode & 0o777, 0o640);
+      assert(fs.readFileSync(local, 'utf8').includes('Personal preferences'));
+      assert.strictEqual(fs.readFileSync(agents, 'utf8'), '# original project\n');
+      assert.strictEqual(fs.statSync(agents).mode & 0o777, 0o600);
+    } else if (change === 'symlink') {
+      assert(fs.lstatSync(local).isSymbolicLink());
+      assert.strictEqual(fs.readFileSync(agents, 'utf8'), '# original project\n');
+    } else {
+      assert.strictEqual(fs.readFileSync(agents, 'utf8'), change === 'rollback-write'
+        ? 'external during rollback\n' : 'external before commit record\n');
+      assert.strictEqual(fs.existsSync(local), false);
+    }
+    assert.strictEqual(fs.readFileSync(neighbor, 'utf8'), 'untouched\n');
+    assert.strictEqual(fs.readFileSync(ignore, 'utf8'), '# original ignore\n');
+    assert(afterAgents.length > 0);
+  });
+});
+
+withProject({ 'package.json': '{"name":"rollback-umask"}' }, (dir) => {
+  const F = require('../lib/fs-atomic');
+  const realWrite = F.writeFileAtomic;
+  const boom = new Error('injected ignore failure under restrictive umask');
+  const oldMask = process.umask(0o200);
+  let error, createdMode;
+  F.writeFileAtomic = (file, content, options) => {
+    if (file === path.join(dir, '.gitignore')) {
+      createdMode = fs.statSync(path.join(dir, 'AGENTS.local.md')).mode & 0o777;
+      throw boom;
+    }
+    return realWrite(file, content, options);
+  };
+  try { init({ projectRoot: dir, local: true }); }
+  catch (caught) { error = caught; }
+  finally { process.umask(oldMask); F.writeFileAtomic = realWrite; }
+  t('tx: exclusive-created file rollback respects the creation umask', () => {
+    assert.strictEqual(createdMode, 0o400);
+    assert.strictEqual(error, boom);
+    assert.strictEqual(fs.existsSync(path.join(dir, 'AGENTS.local.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+  });
 });
 
 t('--local: parseArgs recognizes the flag', () => assert.strictEqual(require('../init').parseArgs(['--local']).local, true));

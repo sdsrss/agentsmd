@@ -33,8 +33,9 @@ function renderSpark(counts) {
   }).join('');
 }
 
-// computeTrend — recent half vs older half → arrow; plus wentSilent (fired earlier
-// in the window, zero in the newest bucket) = the sharp "just stopped" signal.
+// computeTrend — compare average hits per bucket in the recent and older
+// groups; odd window counts give the recent group one extra bucket. Keep raw
+// totals for display and wentSilent (earlier activity, zero in the newest bucket).
 function computeTrend(counts) {
   const n = counts.length;
   const mid = Math.floor(n / 2);
@@ -47,7 +48,7 @@ function computeTrend(counts) {
   if (older === 0 && recent === 0) trend = '≈';
   else if (older === 0) trend = '↗';
   else {
-    const ratio = recent / older;
+    const ratio = (recent * mid) / (older * (n - mid));
     trend = ratio > 1.15 ? '↗' : ratio < 0.85 ? '↘' : '≈';
   }
   return { trend, wentSilent, recent, older };
@@ -131,7 +132,7 @@ function formatReport(r) {
   } else {
     lines.push('no rule went silent this window — every section that fired earlier still fires.');
   }
-  lines.push('Trend = recent half vs older half; advisory only (sparse windows are noisy).');
+  lines.push('Trend = recent vs older average hits per bucket; recent/older counts remain totals. Advisory only (sparse windows are noisy).');
   return lines.join('\n');
 }
 
@@ -139,7 +140,7 @@ function formatMarkdown(r) {
   const lines = [];
   lines.push(`### agentsmd rule-usage trend — ${r.windows} × ${r.bucketDays}d windows (through ${r.generatedIso.slice(0, 10)})`);
   lines.push('');
-  lines.push(`Enforcement events: **${r.enforcementTotal}** across ${r.sessionCount} sessions. Sparkline oldest→newest; trend = recent half vs older half.`);
+  lines.push(`Enforcement events: **${r.enforcementTotal}** across ${r.sessionCount} sessions. Sparkline oldest→newest; trend = recent vs older average hits per bucket; recent/older counts remain totals.`);
   lines.push('');
   if (!r.order.length) {
     lines.push('_No enforcement telemetry in this window — nothing to trend yet._');

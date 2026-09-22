@@ -96,6 +96,74 @@ t('computeTrend: dormant [0,0,0,0] → ≈, not silent', () => {
   assert.deepStrictEqual(computeTrend([0, 0, 0, 0]), { trend: '≈', wentSilent: false, recent: 0, older: 0 });
 });
 
+t('computeTrend: constant activity is flat for every supported window count', () => {
+  for (let windows = 2; windows <= MAX_WINDOWS; windows++) {
+    assert.strictEqual(computeTrend(new Array(windows).fill(3)).trend, '≈', `windows=${windows}`);
+  }
+});
+
+for (const [counts, trend, wentSilent] of [
+  [[0, 0, 0], '≈', false],
+  [[0, 1, 1], '↗', false],
+  [[1, 0, 0], '↘', true],
+  [[10, 8, 8], '↘', false],
+  [[10, 9, 8], '≈', false],
+  [[10, 12, 12], '↗', false],
+  [[100, 114, 115], '≈', false],
+  [[100, 115, 115], '≈', false],
+  [[100, 115, 116], '↗', false],
+  [[100, 84, 85], '↘', false],
+  [[100, 85, 85], '≈', false],
+  [[100, 85, 86], '≈', false],
+]) t(`computeTrend: odd windows ${counts} use equal-time rates`, () => {
+  const result = computeTrend(counts);
+  assert.strictEqual(result.trend, trend);
+  assert.strictEqual(result.wentSilent, wentSilent);
+  assert.strictEqual(result.older, counts[0]);
+  assert.strictEqual(result.recent, counts[1] + counts[2]);
+});
+
+t('computeTrend: 15% threshold boundaries hold for all odd and even lengths', () => {
+  for (let windows = 2; windows <= MAX_WINDOWS; windows++) {
+    const mid = Math.floor(windows / 2);
+    for (const [recent, expected] of [[84, '↘'], [85, '≈'], [86, '≈'], [114, '≈'], [115, '≈'], [116, '↗']]) {
+      const counts = new Array(mid).fill(100).concat(new Array(windows - mid).fill(recent));
+      assert.strictEqual(computeTrend(counts).trend, expected, `windows=${windows}, recent rate=${recent}`);
+    }
+  }
+});
+
+for (const windows of [3, 5, 7]) t(`sparkline: ${windows} equal buckets retain totals and report a flat rate`, () => {
+  assert.strictEqual(parseArgs([`--windows=${windows}`]).windows, windows);
+  const logPath = writeLog(Array.from({ length: windows }, (_, i) => row({ sec: '§flat', ts: ago(i + 0.5) })));
+  const report = sparkline({ logPath, now: NOW, windows, bucketDays: 1 });
+  const section = report.sections['§flat'];
+  assert.deepStrictEqual(section.counts, new Array(windows).fill(1));
+  assert.strictEqual(report.enforcementTotal, windows);
+  assert.strictEqual(section.trend, '≈');
+  assert.strictEqual(section.older, Math.floor(windows / 2));
+  assert.strictEqual(section.recent, Math.ceil(windows / 2));
+  for (const output of [formatReport(report), formatMarkdown(report)]) {
+    assert.match(output, /average hits per bucket/);
+    assert.match(output, /counts remain totals/);
+    assert(output.includes('≈'));
+  }
+});
+
+t('sparkline: exact boundaries and malformed/QA rows keep their existing treatment', () => {
+  const logPath = writeLog([
+    row({ sec: '§bounds', ts: ago(0) }), row({ sec: '§bounds', ts: ago(1) }),
+    row({ sec: '§bounds', ts: ago(2) }), row({ sec: '§bounds', ts: ago(3) }),
+    row({ sec: '§bounds', ts: ago(-1) }), row({ sec: '§bounds', ts: ago(0.5), tag: 'qa' }),
+    row({ sec: '§bounds', ts: 'invalid-date' }), 'malformed JSON',
+  ]);
+  const report = sparkline({ logPath, now: NOW, windows: 3, bucketDays: 1 });
+  assert.deepStrictEqual(report.sections['§bounds'].counts, [1, 1, 1]);
+  assert.strictEqual(report.enforcementTotal, 3);
+  assert.strictEqual(report.excludedTestRows, 1);
+  assert.strictEqual(report.unparseableRows, 1);
+});
+
 t('formatReport lists sections + went-silent callout', () => {
   const s = formatReport(R);
   assert(s.includes('§X'), 'names §X');

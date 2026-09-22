@@ -2,6 +2,12 @@
 
 Single changelog for the pair `~/.codex/AGENTS.md` (core) + `~/.codex/AGENTS-extended.md` (extended). From v1.4.0 both files carry ONE shared version and move together. This file sits outside the Codex discovery chain and costs zero context; the agent never loads it unless explicitly asked.
 
+## v5.5.10 — 2026-09-22 — management correctness patch
+
+Version alignment for conditional init rollback, normalized sparkline trends,
+strict CLI dispatch and audit bucket boundary fixes. Core and extended policy
+semantics, thresholds and known-fail declarations are unchanged.
+
 ## v5.5.9 — 2026-09-21 — instruction boundaries
 
 Keep the active objective and pending acceptance through progress questions,
