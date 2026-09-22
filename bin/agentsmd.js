@@ -103,12 +103,12 @@ function main(argv) {
     return 0;
   }
 
-  const script = COMMANDS[cmd];
-  if (!script) {
+  if (!Object.prototype.hasOwnProperty.call(COMMANDS, cmd)) {
     console.error(`agentsmd: unknown command: ${cmd}\n`);
     console.error(usage());
     return 2;
   }
+  const script = COMMANDS[cmd];
 
   // Spawn the script, inheriting stdio so its output/prompts/exit code are ours.
   const childEnv = (cmd === 'install' || cmd === 'update')

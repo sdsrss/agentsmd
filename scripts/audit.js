@@ -75,7 +75,11 @@ function readRows(logPath) {
   return rows;
 }
 
-function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = null, includeTest = false } = {}) {
+function audit(options = {}) {
+  return auditWindow(options);
+}
+
+function auditWindow({ days = 30, now = Date.now(), logPath = P.logPath(), project = null, includeTest = false } = {}, includeStart = true) {
   // Last-line guard: clamp days into a safe range so no caller can drive
   // `now - days*86400000` out of the valid Date range (→ RangeError at
   // new Date(cutoff).toISOString() below). The CLI parsers reject bad values up
@@ -98,7 +102,7 @@ function audit({ days = 30, now = Date.now(), logPath = P.logPath(), project = n
     // aggregation (a single garbage-ts row must not sit permanently in-window,
     // inflating bySection counts and flipping the noData / exposure guards).
     if (Number.isNaN(ts)) { unparseable++; continue; }
-    if (ts < cutoff || ts > now) continue;
+    if (ts < cutoff || ts > now || (!includeStart && ts === cutoff)) continue;
     if (projNeedle !== null && !String((r && r.project) || '').toLowerCase().includes(projNeedle)) continue;
     total++;
     const sid = r && r.session_id;
@@ -240,11 +244,11 @@ function trend({ days = 90, buckets = TREND_DEFAULT_BUCKETS, now = Date.now(), l
   const bucketDays = Math.max(1, Math.floor(days / buckets));
   const rows = [];
   // Oldest → newest so the eye reads left-to-right as time. Each slice is an
-  // independent audit() over its own sub-window: one tested aggregator, no
-  // second counting path that could disagree with the main report.
+  // independent window over the same aggregator. Only the oldest slice includes
+  // its lower bound; an interior boundary belongs to the older slice exactly once.
   for (let i = buckets - 1; i >= 0; i--) {
     const end = now - i * bucketDays * 86400000;
-    const a = audit({ days: bucketDays, now: end, logPath, project, includeTest });
+    const a = auditWindow({ days: bucketDays, now: end, logPath, project, includeTest }, i === buckets - 1);
     let blocks = 0, bypasses = 0, failOpens = 0;
     for (const b of Object.values(a.bySection)) {
       blocks += (b.events.block || 0) + (b.events.deny || 0);

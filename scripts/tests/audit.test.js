@@ -1111,6 +1111,59 @@ try {
       const ends = tr.rows.map((r) => r.endIso);
       assert.deepStrictEqual([...ends].sort(), ends, 'buckets must be chronological');
     });
+    t('trend assigns boundary rows to exactly one bucket while keeping the outer endpoints', () => {
+      const DAY = 86400000;
+      const offsets = [-30 * DAY - 1, -30 * DAY, -30 * DAY + 1,
+        -20 * DAY - 1, -20 * DAY, -20 * DAY + 1,
+        -10 * DAY - 1, -10 * DAY, -10 * DAY + 1, -1, 0, 1];
+      for (const event of ['block', 'deny', 'bypass', 'fail-open', 'context']) {
+        const logPath = path.join(tmp, `trend-boundary-${event}.jsonl`);
+        fs.writeFileSync(logPath, offsets.map((offset, index) => JSON.stringify({
+          ...row(0, event, `boundary-${index}`), ts: new Date(NOW + offset).toISOString(),
+        })).join('\n') + '\n');
+        const aggregate = audit({ days: 30, now: NOW, logPath });
+        const slices = trend({ days: 30, buckets: 3, now: NOW, logPath }).rows;
+        const sum = (key) => slices.reduce((total, bucket) => total + bucket[key], 0);
+        assert.strictEqual(aggregate.inWindow, 10, event);
+        assert.deepStrictEqual(slices.map((bucket) => bucket.rows), [4, 3, 3], event);
+        assert.strictEqual(sum('rows'), aggregate.inWindow, event);
+        assert.strictEqual(sum('sessions'), aggregate.sessionCount, event);
+        assert.strictEqual(sum('enforcement'), aggregate.enforcementEvents, event);
+        assert.strictEqual(sum('blocks'), ['block', 'deny'].includes(event) ? 10 : 0, event);
+        assert.strictEqual(sum('bypasses'), event === 'bypass' ? 10 : 0, event);
+        assert.strictEqual(sum('failOpens'), event === 'fail-open' ? 10 : 0, event);
+      }
+    });
+    t('public audit --trend counts a rotated boundary event once and preserves filters', () => {
+      const home = fs.mkdtempSync(path.join(tmp, 'trend-cli-'));
+      const logDir = path.join(home, 'logs');
+      fs.mkdirSync(logDir);
+      const clockFile = path.join(home, 'fixed-clock.cjs');
+      fs.writeFileSync(clockFile, `Date.now = () => ${NOW};\n`);
+      const logPath = path.join(logDir, 'agentsmd.jsonl');
+      fs.writeFileSync(logPath + '.1', JSON.stringify(row(10, 'block', 'boundary')) + '\n');
+      fs.writeFileSync(logPath, [
+        { ...row(10, 'block', 'qa'), tag: 'qa' },
+        { ...row(10, 'block', 'other'), project: '-home-user-other' },
+        row(-1, 'block', 'future'),
+      ].map((record) => JSON.stringify(record)).join('\n') + '\nnot-json\n');
+      for (const includeTest of [false, true]) {
+        const result = cp.spawnSync(process.execPath, [
+          path.join(__dirname, '..', '..', 'bin', 'agentsmd.js'),
+          'audit', '--days=30', '--trend=3', '--project=-home-user-app',
+          ...(includeTest ? ['--include-test'] : []),
+        ], {
+          env: { ...process.env, CODEX_HOME: home, NODE_OPTIONS: `--require=${JSON.stringify(clockFile)}` },
+          encoding: 'utf8',
+        });
+        assert.strictEqual(result.status, 0, result.stderr);
+        const expected = includeTest ? 2 : 1;
+        assert(result.stdout.includes(`rows: ${expected} in window`), result.stdout);
+        const buckets = result.stdout.split('\n').filter((line) => /^  \d{4}-\d{2}-\d{2}\s/.test(line));
+        assert.strictEqual(buckets.length, 3, result.stdout);
+        assert.deepStrictEqual(buckets.map((line) => Number(line.trim().split(/\s+/)[3])), [0, expected, 0]);
+      }
+    });
     t('R6: rates are per 100 sessions, so a busy window is not read as indiscipline', () => {
       const newest = tr.rows[2];
       assert.strictEqual(newest.sessions, 1);
